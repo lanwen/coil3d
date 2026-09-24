@@ -182,8 +182,29 @@ export function paramAt(o: ShapeOutline, offset: number, t: number): OutlinePara
 
 /** The point + normal at arc-length fraction t (reference offset 0) and the
  * given (possibly different) offset -- the one function wall.ts's helix and
- * step/build.ts's B-spline fit both sample. */
+ * step/build.ts's B-spline fit both sample.
+ *
+ * `evalOutline`/`paramAt`'s corner-arc-length bookkeeping starts `t=0` at the
+ * BEGINNING of corner 0's arc (`psi = th - half` there, not `psi = th`), so a
+ * fully-rounded outline's `t=0` sits at angle `-pi/n`, not angle 0 -- a
+ * constant rotation with no effect on any shape's perimeter, area, volume,
+ * manifoldness or wall-to-bore/flange alignment (a uniform rotation of the
+ * whole cross-section), but a REAL regression for round: it silently rotated
+ * the previously-committed round coil's groove/seam by `-pi/4` relative to
+ * the tracer bullet's exact circle formula (`theta = 2*pi*t`), which this PR
+ * is not meant to change. `cornerRadius === apothem` is true only for an
+ * EXACT circle (any `n`: zero-length sides, corners covering the full
+ * 2*pi), so it's a closed-form special case, not a hack -- and it leaves
+ * sq/tri (which never hit this equality; the "became round" clamp keeps a
+ * hairline side via SHAPE_ROUNDING_EPS) on the untouched general path. */
 export function pointAt(o: ShapeOutline, t: number, offset: number): { x: number; y: number; nx: number; ny: number } {
+  if (o.cornerRadius === o.apothem) {
+    const theta = 2 * Math.PI * t;
+    const nx = Math.cos(theta);
+    const ny = Math.sin(theta);
+    const r = o.apothem + offset;
+    return { x: nx * r, y: ny * r, nx, ny };
+  }
   return evalOutline(o, paramAt(o, 0, t), offset);
 }
 

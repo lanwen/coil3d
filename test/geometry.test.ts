@@ -121,6 +121,31 @@ describe("design(spec, resolution)", () => {
   });
 });
 
+// Regression note (issue #6 review): generalising point evaluation from a
+// plain `theta = 2*pi*t` circle formula to the shared rounded-n-gon outline
+// math (shapes.ts's evalOutline/paramAt, which starts a corner's arc-length
+// walk at the arc's EDGE, not its bisector) silently rotated round's whole
+// groove/helix by -pi/4. It was caught by e2e/line-art.spec.ts's committed
+// screenshot baselines (a diff on every groove ring, matching flange/rim --
+// see PR #24 review), not by any vitest check, and deliberately can't be: it
+// is a pure rotation about the coil's own axis, so it changes neither the
+// solver's numbers (capacity.ts never evaluates a point/angle -- it's pure
+// Steiner-perimeter arithmetic on apothem/cornerRadius/offset) nor the
+// mesh's volume/genus/manifoldness (already covered above, and unaffected
+// with or without the bug). A vertex-position check against design()'s
+// returned mesh is also unreliable: `mesh` is manifold-3d's POST-BOOLEAN
+// (wall + flange) output, whose vertex order/indices are that library's own
+// and not preserved from the wall's construction, and -- for the plain
+// circular rim specifically -- a rotation by exactly one 96th-of-a-turn
+// multiple of 45 degrees reproduces the exact same set of rim angles, so
+// even an order-independent "is there a rim vertex near angle 0" check
+// can't distinguish the two (it's the groove's helical PHASE at that angle
+// that differs, not the rim's angle set). shapes.ts's `pointAt` now
+// special-cases an exact circle (cornerRadius === apothem, true for any `n`)
+// to the old closed-form circle formula, so round's mesh is built by
+// EXACTLY the pre-#6 formula again, not merely close to it -- the right
+// regression guard for this bug is the e2e screenshot suite.
+
 describe("exportDesign(design, 'stl')", () => {
   it("produces a binary STL that parses back to the same triangles", async () => {
     const d = await design({ ...baseSpec, wire: { length: 800, diameter: 3.8, type: "usb" } });
