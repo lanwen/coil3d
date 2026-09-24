@@ -76,11 +76,93 @@ header p {
   font-size: 0.85rem;
 }
 
-.controls-field input {
+.controls-field input,
+.controls-field select {
   padding: 6px 8px;
   font-size: 0.95rem;
   border: 1px solid #ccc;
   border-radius: 4px;
+}
+
+.controls-lock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 0;
+  border-top: 1px dashed #ddd;
+}
+
+.controls-lock-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.controls-core-size {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  margin: 0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.controls-core-size legend {
+  font-size: 0.8rem;
+  color: #555;
+  padding: 0 4px;
+}
+
+.diagnosis {
+  padding: 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  background: #eee;
+}
+
+.diagnosis-ok {
+  background: #e6f4ea;
+}
+
+.diagnosis-over-constrained,
+.diagnosis-infeasible {
+  background: #fdecea;
+}
+
+.diagnosis-under-constrained {
+  background: #fff3cd;
+}
+
+.layer-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 0.8rem;
+}
+
+.layer-table th,
+.layer-table td {
+  border: 1px solid #ddd;
+  padding: 4px 6px;
+  text-align: right;
+}
+
+.layer-table th:first-child,
+.layer-table td:first-child {
+  text-align: left;
+}
+
+.alternate-candidate {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed #ddd;
+}
+
+.alternate-candidate h3 {
+  font-size: 0.9rem;
+  margin: 0 0 6px;
 }
 
 .result-panel {

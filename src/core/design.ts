@@ -1,71 +1,58 @@
-// The tracer-bullet solver (docs/research.md §1, §3, restricted to a round
-// core and a single layer). Given the wire and the core size, solves the
-// height needed to hold as much of the wire as fits in whole turns, then
-// builds the grooved wall and fuses the bottom flange.
+// The coil core orchestrator: solves the spec (solve.ts) then builds the
+// round, grooved wall and fuses the bottom flange (docs/research.md §4).
+// The geometry itself is unchanged from the tracer bullet (#2): it still
+// renders only the layer-1 groove on a single wall; layers beyond the first
+// only affect the solved numbers and the flange size (the flange must clear
+// every wound layer, not just the core's own wall). The top cap for
+// multi-layer coils is ticket #9.
+//
+// `wallSpec`/`flangeSpec` are stashed on the returned Design so the STEP
+// exporter (issue #11, src/core/step/build.ts) can fit its B-spline from
+// the exact same parametric grid the mesh backend used -- the two backends
+// must never drift apart (docs/research.md "STEP").
 
-import { buildRoundWall } from "./wall";
+import { FLANGE_MARGIN, FLANGE_THICKNESS, GROOVE_DEPTH_FACTOR, MARGIN, MIN_BORE_RADIUS, ROWS_PER_PITCH, TAPER_TURNS, COLUMNS, CLEARANCE, WALL_THICKNESS } from "./constants";
 import { fuseFlange } from "./manifold";
+import { solve } from "./solve";
 import type { CoilSpec, Design } from "./types";
-
-// Fixed print parameters. Not user-configurable in this slice; later
-// tickets promote some of these to the solver/spec (docs/research.md §2).
-const WALL_THICKNESS = 3; // mm
-const CLEARANCE = 0.3; // mm, added to wire diameter for the winding pitch
-const GROOVE_DEPTH_FACTOR = 0.3; // groove depth = 0.3 * wire diameter
-const MARGIN = 3; // mm, top & bottom (also the groove's taper run-out zone)
-const TAPER_TURNS = 0.5; // the groove fades out over this many turns at each end
-const FLANGE_MARGIN = 4; // mm beyond the core's outer radius
-const FLANGE_THICKNESS = 3; // mm
-const MIN_BORE_RADIUS = 1; // mm, guards against a wall thicker than the core
-const COLUMNS = 96; // mesh columns around the circumference
-const ROWS_PER_PITCH = 8; // mesh rows per helical pitch
+import { buildRoundWall } from "./wall";
 
 export async function design(spec: CoilSpec): Promise<Design> {
-  const warnings: string[] = [];
-  const d = spec.wireDiameter;
-  const outerRadius = spec.coreSize / 2;
-  const grooveDepth = GROOVE_DEPTH_FACTOR * d;
-  const wireOffset = d / 2 - grooveDepth; // layer-1 wire centerline offset from the outer surface
-  const centerlineRadius = outerRadius + wireOffset;
-  const perimeter = 2 * Math.PI * centerlineRadius;
-  const pitch = d + CLEARANCE;
+  const { solution, warnings } = solve(spec);
 
-  let turns = Math.floor(spec.wireLength / perimeter);
-  if (turns < 1) {
-    warnings.push(
-      `The cable (${spec.wireLength} mm) is shorter than one turn around this core (${perimeter.toFixed(1)} mm circumference); showing a single turn.`,
-    );
-    turns = 1;
-  }
-
-  let boreRadius = outerRadius - WALL_THICKNESS;
+  const outerRadius = solution.outerSize / 2;
+  let boreRadius = solution.innerBore / 2;
   if (boreRadius < MIN_BORE_RADIUS) {
-    warnings.push(`Core size ${spec.coreSize} mm is too small for a ${WALL_THICKNESS} mm wall; the bore has been reduced.`);
+    warnings.push(`Core size ${solution.outerSize.toFixed(1)} mm is too small for a ${WALL_THICKNESS} mm wall; the bore has been reduced.`);
     boreRadius = MIN_BORE_RADIUS;
   }
 
-  const woundLength = turns * perimeter;
-  const leftoverTail = Math.max(0, spec.wireLength - woundLength);
-  const height = 2 * MARGIN + turns * pitch;
+  const wireDiameter = spec.wire.diameter;
+  const grooveDepth = GROOVE_DEPTH_FACTOR * wireDiameter;
+  const layer1Turns = solution.layerResults[0]?.turns ?? 0;
 
   const wallSpec = {
     outerRadius,
     boreRadius,
-    height,
-    wireDiameter: d,
+    height: solution.height,
+    wireDiameter,
     clearance: CLEARANCE,
     grooveDepth,
     marginBottom: MARGIN,
     marginTop: MARGIN,
     taperTurns: TAPER_TURNS,
-    turns,
+    turns: layer1Turns,
     columns: COLUMNS,
     rowsPerPitch: ROWS_PER_PITCH,
   };
   const flangeSpec = {
     outerRadius,
     boreRadius,
-    margin: FLANGE_MARGIN,
+    // The flange must clear the outermost wound layer, not just the core's
+    // own wall (docs/research.md §1 "Flange size = final outer envelope +
+    // margin"): solution.flangeSize already accounts for every layer, so the
+    // effective margin beyond the core's own radius grows with layer count.
+    margin: Math.max(FLANGE_MARGIN, solution.flangeSize / 2 - outerRadius),
     thickness: FLANGE_THICKNESS,
     segments: COLUMNS,
   };
@@ -73,19 +60,5 @@ export async function design(spec: CoilSpec): Promise<Design> {
   const wall = buildRoundWall(wallSpec);
   const mesh = await fuseFlange(wall, flangeSpec);
 
-  return {
-    spec,
-    turns,
-    woundLength,
-    leftoverTail,
-    height,
-    pitch,
-    perimeter,
-    outerRadius,
-    boreRadius,
-    warnings,
-    mesh,
-    wallSpec,
-    flangeSpec,
-  };
+  return { spec, solution, warnings, mesh, wallSpec, flangeSpec };
 }

@@ -1,18 +1,116 @@
 // Public types for the headless coil core. See docs/research.md for the
-// full domain model; this tracer-bullet slice only covers a round core,
-// single layer (issue #2).
+// full domain model. This ticket (#5) implements the full lock/free solver
+// for a round core; other cross-sections arrive in #6 (see ShapeKind below).
 
 import type { WallSpec } from "./wall";
 import type { FlangeSpec } from "./manifold";
 
-/** What the user controls. Round core only in this slice. */
-export interface CoilSpec {
-  /** Total cable length to store, mm. */
-  wireLength: number;
+/** Only round ships in this ticket; #6 widens this union (docs/research.md §2). */
+export type ShapeKind = "round";
+
+export type WireTypeId = "usb" | "flex" | "stiff" | "custom";
+
+export interface WireTypePreset {
+  id: WireTypeId;
+  label: string;
+  /** Minimum-bend-radius multiplier: MBR = multiplier * wireDiameter. */
+  bendMultiplier: number;
+}
+
+/** docs/research.md §1: USB/audio 4x, flexible cord 4x, stiff/solid 10x. */
+export const WIRE_TYPE_PRESETS: Record<Exclude<WireTypeId, "custom">, WireTypePreset> = {
+  usb: { id: "usb", label: "USB / audio cable", bendMultiplier: 4 },
+  flex: { id: "flex", label: "Flexible cord", bendMultiplier: 4 },
+  stiff: { id: "stiff", label: "Stiff / solid cord", bendMultiplier: 10 },
+};
+
+export const DEFAULT_CUSTOM_BEND_MULTIPLIER = 4;
+
+export interface WireSpec {
+  /** Total cable length to store, mm. Above 15 m is rejected (docs/research.md §1). */
+  length: number;
   /** Cable outer diameter, mm. */
-  wireDiameter: number;
-  /** Core outer diameter (the winding surface), mm. */
-  coreSize: number;
+  diameter: number;
+  type: WireTypeId;
+  /** Only read when type === "custom". */
+  customBendMultiplier?: number;
+}
+
+export function bendMultiplierOf(wire: WireSpec): number {
+  if (wire.type === "custom") return wire.customBendMultiplier ?? DEFAULT_CUSTOM_BEND_MULTIPLIER;
+  return WIRE_TYPE_PRESETS[wire.type].bendMultiplier;
+}
+
+/** locked=false means "solve for me". */
+export type Lock<T> = { locked: true; value: T } | { locked: false };
+
+/**
+ * The core tube's radial size is one shared degree of freedom, expressed
+ * either as the outer (winding surface) size or the inner (bore) size; a
+ * fixed wall thickness (not itself lockable) links them (docs/research.md §1).
+ */
+export type CoreSizeLock = { locked: true; dimension: "outer" | "inner"; value: number } | { locked: false };
+
+export type Objective = "minVolume" | "aspectRatio";
+
+/** What the user controls. Round core only (issue #6 adds shapes). */
+export interface CoilSpec {
+  wire: WireSpec;
+  shape: { kind: ShapeKind };
+  /** 0 = worst case (stacked, h=d), 1 = ideal (orthocyclic, h=d*sqrt(3)/2). */
+  windingQuality: number;
+  coreSize: CoreSizeLock;
+  height: Lock<number>;
+  layers: Lock<number>;
+  /** Used only when exactly two of {coreSize, height, layers} are free. */
+  objective: Objective;
+}
+
+export interface LayerResult {
+  layer: number;
+  turns: number;
+  /** Wire centerline radial offset from the core's outer surface, mm. */
+  offset: number;
+  perimeter: number;
+  length: number;
+}
+
+export interface Diagnosis {
+  freeCount: 0 | 1 | 2 | 3;
+  freeVariables: Array<"coreSize" | "height" | "layers">;
+  status: "ok" | "over-constrained" | "under-constrained" | "infeasible";
+  message: string;
+}
+
+/** The solver's output: resolved geometry, capacity numbers and diagnosis. */
+export interface Solution {
+  diagnosis: Diagnosis;
+  /** Set when freeCount is 2 or 3 (an objective was needed to pick a candidate). */
+  objectiveUsed?: Objective;
+  outerSize: number;
+  innerBore: number;
+  height: number;
+  layers: number;
+  layerResults: LayerResult[];
+  totalWoundLength: number;
+  totalWireLength: number;
+  targetWireLength: number;
+  lengthDeltaPct: number;
+  /** Capacity range across winding-quality bounds, at the resolved geometry. */
+  capacityRange: [number, number];
+  envelopeDiameter: number;
+  flangeSize: number;
+  capsAuto: boolean;
+  minOuterSizeForBend: number;
+  /**
+   * Sibling candidates shown side by side (2-3 total including this one),
+   * when freeCount is 2 or 3 -- e.g. the other objective's pick (freeCount
+   * 2), or fixed-layer-count picks such as layers=1/layers=2 (freeCount 3).
+   * Empty when freeCount is 0 or 1 (the solution is deterministic). Every
+   * entry here already satisfies the same capacity-covers-target invariant
+   * as the primary solution; entries never carry their own `alternates`.
+   */
+  alternates: Solution[];
 }
 
 /** A triangle mesh as flat typed arrays (three.js / manifold-3d friendly). */
@@ -26,21 +124,8 @@ export interface CoilMesh {
 /** The solved coil, ready to render or export. */
 export interface Design {
   spec: CoilSpec;
-  /** Number of complete turns the single layer holds. */
-  turns: number;
-  /** Cable length actually wound onto the core, mm. */
-  woundLength: number;
-  /** Cable left over after the last complete turn, mm. */
-  leftoverTail: number;
-  /** Solved core height, mm. */
-  height: number;
-  /** Helical pitch (wireDiameter + clearance), mm. */
-  pitch: number;
-  /** Circumference at the wire's centerline, mm. */
-  perimeter: number;
-  outerRadius: number;
-  boreRadius: number;
-  /** Non-fatal notices about the solved design (e.g. degenerate inputs). */
+  solution: Solution;
+  /** Non-fatal notices about the solved design (solver + geometry). */
   warnings: string[];
   mesh: CoilMesh;
   /** The exact wall and flange parameters used to build `mesh`, kept so the
