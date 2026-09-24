@@ -18,6 +18,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: "list",
+  // Software-rendered WebGL (SwiftShader, see PINNED_CHROMIUM above) is
+  // deterministic per-machine but not bit-identical across environments, so
+  // screenshot assertions get a small pixel-ratio allowance rather than an
+  // exact match.
+  expect: {
+    toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
+  },
   webServer: {
     command: "npm run build && npm run preview -- --port 5182 --strictPort",
     url: `http://localhost:${PORT}`,
