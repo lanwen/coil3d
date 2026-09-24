@@ -1,9 +1,9 @@
 // Binary STL writer. Format: 80-byte header, u32 triangle count, then per
 // triangle: 3x f32 normal, 3x (3x f32 vertex), u16 attribute byte count.
 
-import type { CoilMesh, Design, ExportFormat } from "./types";
+import type { CoilMesh } from "./types";
 
-function writeBinaryStl(mesh: CoilMesh, name = "scroll3d"): Uint8Array<ArrayBuffer> {
+export function writeBinaryStl(mesh: CoilMesh, name = "scroll3d"): Uint8Array<ArrayBuffer> {
   const { positions: v, indices: t } = mesh;
   const triCount = t.length / 3;
   const buf = new ArrayBuffer(84 + triCount * 50);
@@ -59,11 +59,4 @@ function writeBinaryStl(mesh: CoilMesh, name = "scroll3d"): Uint8Array<ArrayBuff
   }
 
   return new Uint8Array(buf);
-}
-
-export function exportDesign(design: Design, format: ExportFormat): Uint8Array<ArrayBuffer> {
-  if (format !== "stl") {
-    throw new Error(`Unsupported export format: ${format satisfies never}`);
-  }
-  return writeBinaryStl(design.mesh);
 }

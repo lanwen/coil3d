@@ -33,18 +33,39 @@ export default function App() {
       });
   }, [currentSpec]);
 
-  const handleDownload = () => {
-    if (!result) return;
-    const bytes = exportDesign(result, "stl");
-    const blob = new Blob([bytes], { type: "model/stl" });
+  const [stepError, setStepError] = useState<string | null>(null);
+  const [stepBusy, setStepBusy] = useState(false);
+
+  const downloadBytes = (bytes: Uint8Array<ArrayBuffer>, filename: string, type: string) => {
+    const blob = new Blob([bytes], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "coil.stl";
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadStl = async () => {
+    if (!result) return;
+    const bytes = await exportDesign(result, "stl");
+    downloadBytes(bytes, "coil.stl", "model/stl");
+  };
+
+  const handleDownloadStep = async () => {
+    if (!result) return;
+    setStepError(null);
+    setStepBusy(true);
+    try {
+      const bytes = await exportDesign(result, "step");
+      downloadBytes(bytes, "coil.step", "model/step");
+    } catch (err) {
+      setStepError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setStepBusy(false);
+    }
   };
 
   return (
@@ -66,7 +87,19 @@ export default function App() {
               {error}
             </p>
           )}
-          {result && <ResultPanel design={result} onDownloadStl={handleDownload} />}
+          {result && (
+            <ResultPanel
+              design={result}
+              onDownloadStl={handleDownloadStl}
+              onDownloadStep={handleDownloadStep}
+              stepBusy={stepBusy}
+            />
+          )}
+          {stepError && (
+            <p className="error" data-testid="step-error">
+              {stepError}
+            </p>
+          )}
         </div>
         <div className="viewer">{result && <CoilViewer mesh={result.mesh} />}</div>
       </div>

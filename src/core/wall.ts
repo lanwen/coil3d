@@ -30,21 +30,27 @@ export interface WallSpec {
 
 const smoothstep = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
-export function buildRoundWall(spec: WallSpec): CoilMesh {
-  const {
-    outerRadius,
-    boreRadius,
-    height,
-    wireDiameter: d,
-    clearance,
-    grooveDepth: g,
-    marginBottom,
-    marginTop,
-    taperTurns: tau,
-    turns,
-    columns: C,
-    rowsPerPitch,
-  } = spec;
+/** The analytic grooved-wall grid, shared by the mesh backend (this file)
+ * and the STEP backend (step/build.ts): both must sample the exact same
+ * `point(t, z)` so the two exports never drift apart (docs/research.md
+ * "STEP", S2 RESULT.md). */
+export interface WallProfile {
+  /** Helical pitch, mm (wireDiameter + clearance). */
+  pitch: number;
+  /** Axial height at which the grooved region notionally starts (used only
+   * to place mesh sampling rows; the groove itself fades to 0 before this
+   * via `taper`, so `point` is flat well before and after it). */
+  zStart: number;
+  /** Signed inward radial offset (<=0) of the outer wall at arc-length
+   * fraction t in [0,1) and axial height z in [0,height]. */
+  offset(t: number, z: number): number;
+  /** Cartesian point on the outer (grooved) wall surface for the same
+   * (t, z). Flat (offset 0) at z=0 and z=height by construction. */
+  point(t: number, z: number): [number, number, number];
+}
+
+export function createWallProfile(spec: WallSpec): WallProfile {
+  const { outerRadius, wireDiameter: d, clearance, grooveDepth: g, marginBottom, taperTurns: tau, turns } = spec;
 
   const pitch = d + clearance;
   // Teardrop profile: a groove circle of radius rho, with its upper flank
@@ -65,7 +71,7 @@ export function buildRoundWall(spec: WallSpec): CoilMesh {
 
   // Surface offset (<=0, inward) at arc-length fraction t and height z: the
   // minimum over the (at most 2) nearby helix turns, tapered out at the ends.
-  const groove = (t: number, z: number): number => {
+  const offset = (t: number, z: number): number => {
     const q = (z - zStart) / pitch - t;
     const k0 = Math.floor(q);
     let f = 0;
@@ -78,6 +84,22 @@ export function buildRoundWall(spec: WallSpec): CoilMesh {
     }
     return f;
   };
+
+  const point = (t: number, z: number): [number, number, number] => {
+    const theta = 2 * Math.PI * t;
+    const nx = Math.cos(theta);
+    const ny = Math.sin(theta);
+    const off = offset(t, z);
+    return [nx * (outerRadius + off), ny * (outerRadius + off), z];
+  };
+
+  return { pitch, zStart, offset, point };
+}
+
+export function buildRoundWall(spec: WallSpec): CoilMesh {
+  const { boreRadius, height, marginBottom, marginTop, columns: C, rowsPerPitch } = spec;
+  const profile = createWallProfile(spec);
+  const { pitch, zStart } = profile;
 
   const delta = pitch / rowsPerPitch;
   const zLo = marginBottom * 0.5;
@@ -96,26 +118,22 @@ export function buildRoundWall(spec: WallSpec): CoilMesh {
   // t=0/t=1 seam close for free (S1 RESULT.md).
   for (let ci = 0; ci < C; ci++) {
     const t = ci / C;
-    const theta = 2 * Math.PI * t;
-    const nx = Math.cos(theta);
-    const ny = Math.sin(theta);
     const idx: number[] = [];
     const zz: number[] = [];
-    const push = (z: number, off: number) => {
+    const push = (z: number) => {
       idx.push(positions.length / 3);
       zz.push(z);
-      positions.push(nx * (outerRadius + off), ny * (outerRadius + off), z);
+      positions.push(...profile.point(t, z));
     };
-    push(0, 0);
+    push(0);
     bottomO.push(idx[0]);
     const z0 = zStart + pitch * t;
     const jMin = Math.ceil((zLo - z0) / delta);
     const jMax = Math.floor((zHi - z0) / delta);
     for (let j = jMin; j <= jMax; j++) {
-      const z = z0 + j * delta;
-      push(z, groove(t, z));
+      push(z0 + j * delta);
     }
-    push(height, 0);
+    push(height);
     topO.push(idx[idx.length - 1]);
     colIdx.push(idx);
     colZ.push(zz);

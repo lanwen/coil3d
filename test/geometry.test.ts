@@ -67,7 +67,7 @@ describe("design().mesh is a valid, expected manifold", () => {
 describe("exportDesign(design, 'stl')", () => {
   it("produces a binary STL that parses back to the same triangles", async () => {
     const d = await design({ wireLength: 800, wireDiameter: 3.8, coreSize: 30 });
-    const stl = exportDesign(d, "stl");
+    const stl = await exportDesign(d, "stl");
 
     const dv = new DataView(stl.buffer, stl.byteOffset, stl.byteLength);
     const triCount = dv.getUint32(80, true);
@@ -99,5 +99,63 @@ describe("exportDesign(design, 'stl')", () => {
         expect(dv.getFloat32(off + k * 4, true)).toBeCloseTo(expected[k], 4);
       }
     }
+  });
+});
+
+// Volume of a closed triangle mesh by the divergence theorem, computed
+// independently of core/meshVolume.ts (an internal helper) so this test
+// exercises only the public interface's outputs (design().mesh).
+function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): number {
+  const { positions: v, indices: t } = mesh;
+  let volume = 0;
+  for (let i = 0; i < t.length; i += 3) {
+    const a = t[i] * 3;
+    const b = t[i + 1] * 3;
+    const c = t[i + 2] * 3;
+    volume +=
+      (v[a] * (v[b + 1] * v[c + 2] - v[b + 2] * v[c + 1]) -
+        v[a + 1] * (v[b] * v[c + 2] - v[b + 2] * v[c]) +
+        v[a + 2] * (v[b] * v[c + 1] - v[b + 1] * v[c])) /
+      6;
+  }
+  return Math.abs(volume);
+}
+
+describe("exportDesign(design, 'step')", () => {
+  it("re-imports as one valid solid with volume matching the mesh", async () => {
+    const spec = { wireLength: 1000, wireDiameter: 3.8, coreSize: 30 };
+    const d = await design(spec);
+    const stepBytes = await exportDesign(d, "step");
+    expect(stepBytes.byteLength).toBeGreaterThan(0);
+
+    // Independent re-import, mirroring the S2 spike's crosscheck.mjs:
+    // read the STEP bytes back with a fresh OCCT instance and verify solid
+    // count + validity + volume, rather than trusting exportDesign's own
+    // internal validation.
+    const { default: initOC } = await import("replicad-opencascadejs");
+    const oc = await initOC();
+    const path = "/reimport.step";
+    oc.FS.writeFile(path, stepBytes);
+    const reader = new oc.STEPControl_Reader();
+    reader.ReadFile(path);
+    reader.TransferRoots();
+    const shape = reader.OneShape();
+    oc.FS.unlink(path);
+
+    const analyzer = new oc.BRepCheck_Analyzer(shape, true, false, false);
+    expect(analyzer.IsValid()).toBe(true);
+
+    let solidCount = 0;
+    const explorer = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    for (; explorer.More(); explorer.Next()) solidCount++;
+    expect(solidCount).toBe(1); // one part (core + fused bottom flange) per the ticket
+
+    const gprops = new oc.GProp_GProps();
+    oc.BRepGProp.VolumeProperties(shape, gprops, 1e-5, false, false);
+    const reimportedVolume = gprops.Mass();
+
+    const expectedVolume = meshVolume(d.mesh);
+    expect(reimportedVolume).toBeGreaterThan(0);
+    expect(Math.abs(reimportedVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
   });
 });

@@ -7,6 +7,10 @@ export default defineConfig({
   plugins: [react()],
   server: { port: 5180, host: "0.0.0.0" },
   preview: { port: 5180, host: "0.0.0.0" },
+  // The STEP export worker (src/core/step/worker.ts) dynamically imports
+  // replicad, so its own chunk needs code-splitting support: only the ES
+  // module worker format allows that (see src/core/step/index.ts).
+  worker: { format: "es" },
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],

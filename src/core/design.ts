@@ -48,7 +48,7 @@ export async function design(spec: CoilSpec): Promise<Design> {
   const leftoverTail = Math.max(0, spec.wireLength - woundLength);
   const height = 2 * MARGIN + turns * pitch;
 
-  const wall = buildRoundWall({
+  const wallSpec = {
     outerRadius,
     boreRadius,
     height,
@@ -61,15 +61,17 @@ export async function design(spec: CoilSpec): Promise<Design> {
     turns,
     columns: COLUMNS,
     rowsPerPitch: ROWS_PER_PITCH,
-  });
-
-  const mesh = await fuseFlange(wall, {
+  };
+  const flangeSpec = {
     outerRadius,
     boreRadius,
     margin: FLANGE_MARGIN,
     thickness: FLANGE_THICKNESS,
     segments: COLUMNS,
-  });
+  };
+
+  const wall = buildRoundWall(wallSpec);
+  const mesh = await fuseFlange(wall, flangeSpec);
 
   return {
     spec,
@@ -83,5 +85,7 @@ export async function design(spec: CoilSpec): Promise<Design> {
     boreRadius,
     warnings,
     mesh,
+    wallSpec,
+    flangeSpec,
   };
 }
