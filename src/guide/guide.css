@@ -1,0 +1,180 @@
+/* The printable assembly guide (issue #17). Reuses the app's tokens
+   (--ink/--paper/--hairline, App.css) so it looks like part of the same
+   strictly black/white product, not a bolted-on page. */
+
+.guide {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 24px 64px;
+}
+
+.guide-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.guide-toolbar-btn {
+  width: auto;
+  padding: 0 20px;
+}
+
+.guide-header {
+  padding-bottom: 16px;
+  margin-bottom: 8px;
+  border-bottom: 2px solid var(--hairline);
+}
+
+.guide-header h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 800;
+}
+
+.guide-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.guide-step {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+.guide-step:last-child {
+  border-bottom: none;
+}
+
+.guide-step-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.guide-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.guide-step-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.guide-lede {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.guide-figure-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.guide-part {
+  margin: 0;
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.guide-figure {
+  width: 100%;
+  height: 220px;
+  border: 1.5px solid var(--hairline);
+  border-radius: 2px;
+}
+
+.guide-figure-row > .guide-figure {
+  flex: 1 1 320px;
+  height: 260px;
+}
+
+.guide-part figcaption {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.guide-callout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.guide-callout p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.pictogram {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  color: var(--ink);
+}
+
+/* ---------- Print (issue #17 AC: "Print CSS gives clean A4 pages") ---------- */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+
+  .app,
+  .guide-toolbar {
+    display: none !important;
+  }
+
+  .guide {
+    max-width: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .guide-header {
+    page-break-after: avoid;
+  }
+
+  /* Two numbered steps per printed page: force a page break before every
+     odd-numbered step after the first, so pairs of steps (1-2, 3-4, ...)
+     land on their own sheet with no orphaned half-step at a page edge. */
+  .guide-step {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .guide-step:nth-of-type(2n + 1) {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .guide-step:first-of-type {
+    page-break-before: avoid;
+    break-before: avoid;
+  }
+
+  .guide-figure {
+    height: 55mm;
+    border-color: #000;
+  }
+}
