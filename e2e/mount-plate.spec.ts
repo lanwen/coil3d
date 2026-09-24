@@ -12,7 +12,6 @@ import { expect, test, type Page } from "@playwright/test";
 // KEYHOLE_HASH convention for the same reason.
 const SKADIS_ROUND = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis";
 const SKADIS_SQUARE = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&shape=sq&sq.rc=15&mount=skadis";
-const OPENGRID_ROUND = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=opengrid";
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -21,12 +20,18 @@ async function gotoDesign(page: Page, hash: string) {
 }
 
 test.describe("mount plate controls (issue #14)", () => {
-  test("skadis/opengrid appear in the mount select, and default to no plate-joint field", async ({ page }) => {
+  test("skadis appears in the mount select, but openGrid is hidden (issue #14 PR review, issue #38: placeholder connector geometry only)", async ({ page }) => {
     await page.goto("/");
     const options = await page.getByTestId("select-mount").locator("option").allTextContents();
     expect(options.join(" ")).toMatch(/SK.DIS/i);
-    expect(options.join(" ")).toMatch(/openGrid/i);
+    expect(options.join(" ")).not.toMatch(/openGrid/i);
     await expect(page.getByTestId("select-plateJoint")).toHaveCount(0); // mount=none by default
+  });
+
+  test("a shared link with mount=opengrid falls back to defaults with a notice, not a silently-wrong plate", async ({ page }) => {
+    await page.goto("/#v=1&mount=opengrid");
+    await expect(page.getByTestId("hash-notice")).toBeVisible();
+    await expect(page.getByTestId("select-mount")).toHaveValue("none");
   });
 
   test("switching to skadis reveals the plate-joint field, updates the hash, and reproduces on reload", async ({ page }) => {
@@ -90,16 +95,6 @@ test.describe("mount plate render, exports and manifold end-to-end (issue #14)",
     expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
   });
 
-  test("opengrid placeholder also renders and downloads without errors", async ({ page }) => {
-    const consoleErrors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
-    });
-    await gotoDesign(page, OPENGRID_ROUND);
-    await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
-    await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
-    expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
-  });
 });
 
 test.describe("mount plate screenshots (issue #14)", () => {
@@ -130,6 +125,22 @@ test.describe("mount plate screenshots (issue #14)", () => {
     const exploded = await canvas.screenshot();
     expect(exploded.equals(assembled), "exploding must change the render").toBe(false);
     await expect(canvas).toHaveScreenshot("mount-plate-exploded.png");
+  });
+
+  test("a side-profile view (camera along the wall) shows the hooks' own profile and orientation (issue #14 PR review round 2)", async ({ page }) => {
+    // Standing (not wall-mounted) + "side" preset + exploded: this looks
+    // along the flange's own plane edge-on, with WALL_UP as screen-vertical
+    // and the coil's own axis (== each clip's own reach direction) as
+    // screen-depth -- so the plate's clips render as small profile ticks
+    // below the flange, letting a reviewer confirm SKADIS_CLIP_HEIGHT (12mm)
+    // now runs vertically (along WALL_UP) rather than horizontally.
+    await gotoDesign(page, SKADIS_ROUND);
+    await page.getByTestId("toggle-exploded").check();
+    await page.waitForTimeout(600);
+    await page.getByTestId("preset-side").click();
+    await page.waitForTimeout(800);
+    const canvas = page.getByTestId("coil-viewer").locator("canvas");
+    await expect(canvas).toHaveScreenshot("mount-plate-side-profile.png");
   });
 
   test("a close-up on the exploded, separated plate shows its own clip/peg geometry clearly", async ({ page }) => {

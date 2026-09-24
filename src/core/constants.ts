@@ -203,17 +203,50 @@ export const MOUNT_PLATE_MAX_PER_SIDE = 4;
 /** At least this many clip columns must fit for the plate to be worth printing (issue #14 AC: "warn if the flange is too small for at least 2 clips"). */
 export const MOUNT_PLATE_MIN_CLIPS = 2;
 
-// SKÅDIS clip hook (docs/research.md §10b): a 2D polygon in mm, reimplemented
-// (not copied) from the skapa-derived measurements research.md records as "a
-// good starting point" -- itself flagged there as needing a real-board
-// check (docs/research.md §11 "Values still to verify"). Interpreted here in
-// a LOCAL (up, reach) plane: `up` runs along the plate's own vertical
-// (mount.ts's WALL_UP-aligned) axis -- the hook's own internal footprint
-// along the slot -- and `reach` is protrusion distance from the plate's back
-// (clip-bearing) face, outward into the board. Extruded along the third,
-// `side` axis by SKADIS_CLIP_WIDTH, then mirrored about its own local
-// up=0 to make one symmetric, double-flanked hook per grid position
-// (research.md: "extruded 12mm and mirrored").
+// SKÅDIS board and clip geometry (issue #14 PR review round 2). IKEA doesn't
+// publish these as a spec; the numbers below are community-measured but
+// corroborated across multiple independent sources:
+// - Slot: a single VERTICAL obround (stadium) slot per hole position, about
+//   5mm wide x 15mm tall, with roughly 2.5mm rounded ends -- Pegboardly
+//   ("SKÅDIS Sizes & Dimensions", pegboardly.com/skadis/skadis-sizes-and-dimensions)
+//   and Thingiverse thing:4939659 ("IKEA Skadis-like Hole Dimension").
+// - Grid: 40mm pitch, and the grid is STAGGERED -- every other column is
+//   offset 20mm vertically from its neighbours (two interleaved 40mm grids,
+//   half a step apart), per the same sources plus multiple SKÅDIS-accessory
+//   generator listings on MakerWorld/Printables. SKADIS_ROW_STAGGER below.
+// Still flagged in docs/research.md §11 "Values still to verify": these are
+// community measurements, not an official spec, and this project has not
+// printed and test-fitted a clip on a real board.
+export const SKADIS_SLOT_WIDTH = 5; // mm
+export const SKADIS_SLOT_HEIGHT = 15; // mm
+export const SKADIS_SLOT_END_RADIUS = 2.5; // mm
+
+/**
+ * SKÅDIS clip hook (docs/research.md §10b, and the profile itself confirmed
+ * against skapa's own source -- github.com/nmattia/skapa,
+ * `src/model/manifold.ts`, read for its measurements/placement math only,
+ * NOT copied; skapa has no licence, and its own review note already says
+ * "reimplement the technique, don't copy files"). A 2D polygon in mm, in a
+ * LOCAL (side, reach) plane: `side` is ONE leg's sideways offset from the
+ * pair's own centreline (mirrored to `-side` for the second leg, forming one
+ * symmetric, spring-loaded pair per grid position -- research.md's "extruded
+ * 12mm and mirrored" refers to this pairing, not a mirror along the slot's
+ * own length); `reach` is protrusion distance from the plate's back
+ * (clip-bearing) face, outward into the slot. The pair's combined rest span
+ * (2 x the profile's own max `side`, about 6.1mm) is slightly WIDER than
+ * `SKADIS_SLOT_WIDTH`: both legs flex inward to pass through the slot
+ * opening, then spring back out once through, so the barb (the bulge
+ * between reach 3.7-5.9) catches behind the board and resists being pulled
+ * back out -- a spring/expanding clip, not a gravity-engaged hook (unlike
+ * the screw-keyhole mount, docs/research.md "Mounting"). Extruded along the
+ * THIRD axis -- WALL_UP itself -- by SKADIS_CLIP_HEIGHT, per skapa's own
+ * placement math (`CLIP_HEIGHT` runs along the board's vertical axis there
+ * too): a PREVIOUS version of this file had `side` and WALL_UP swapped
+ * (issue #14 PR review round 2 caught this from the mount-side screenshot:
+ * each clip rendered as a wide horizontal bar instead of a tall vertical
+ * one), which this comment and `skadisClipHalfExtents` are both now correct
+ * against.
+ */
 export const SKADIS_CLIP_PROFILE: ReadonlyArray<readonly [number, number]> = [
   [0.95, 0],
   [2.45, 0],
@@ -224,15 +257,15 @@ export const SKADIS_CLIP_PROFILE: ReadonlyArray<readonly [number, number]> = [
   [0.95, 6.5],
 ];
 /**
- * The same profile with its top corner (the short flat "ceiling" between
- * [2.45,6.5] and [0.95,6.5]) chamfered away into one continuous 45 degree
- * taper -- used for every row except the topmost one (issue #14 AC: "chamfer
- * the lower rows at 45", research.md: "rows after the first get a 45
- * chamfer so they print without supports"). The topmost row's own tip stays
- * fully exposed once printed (nothing else of the plate sits above it), so
- * it alone can keep the small flat bridge; every row below it has this
- * flat step chamfered away so nothing depends on a short unsupported bridge
- * printing cleanly.
+ * The same profile with its far (tip) corner -- the short flat "ceiling"
+ * between [2.45,6.5] and [0.95,6.5] -- chamfered away into one continuous 45
+ * degree taper. Used for every row except the LOWEST one (issue #14 AC:
+ * "chamfer the lower rows at 45"; skapa's own code chamfers every row except
+ * its first/lowest, `j=0` in its own vertical grid indexing -- see the file
+ * header). The lowest row's own tip stays fully exposed with nothing else of
+ * the plate below it once printed, so it alone can keep the small flat
+ * bridge; every row above it has this flat step chamfered away so nothing
+ * depends on a short unsupported bridge printing cleanly.
  */
 export const SKADIS_CLIP_PROFILE_CHAMFERED: ReadonlyArray<readonly [number, number]> = [
   [0.95, 0],
@@ -242,7 +275,10 @@ export const SKADIS_CLIP_PROFILE_CHAMFERED: ReadonlyArray<readonly [number, numb
   [3.05, 5.9],
   [0.95, 6.5],
 ];
-export const SKADIS_CLIP_WIDTH = 12; // mm, extrusion width along `side` (research.md: "extruded 12mm")
+/** The extrusion length along WALL_UP (research.md: "extruded 12mm") -- see SKADIS_CLIP_PROFILE's own doc comment for why this runs along `up`, not `side`. */
+export const SKADIS_CLIP_HEIGHT = 12; // mm
+/** Vertical offset between adjacent columns on the real, staggered SKÅDIS grid (see this file's own "SKÅDIS board and clip geometry" note above). */
+export const SKADIS_ROW_STAGGER = 20; // mm
 
 /**
  * openGrid connector placeholder (issue #14): a simple push-fit peg sized

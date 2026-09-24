@@ -55,9 +55,9 @@ import {
   OPENGRID_PLACEHOLDER_PEG_SIZE,
   SCREW_MOUNT_HEAD_RADIUS,
   SCREW_MOUNT_SHANK_RADIUS,
+  SKADIS_CLIP_HEIGHT,
   SKADIS_CLIP_PROFILE,
   SKADIS_CLIP_PROFILE_CHAMFERED,
-  SKADIS_CLIP_WIDTH,
   SNAP_BARB,
   SNAP_BARB_HEIGHT,
   SNAP_GAP,
@@ -505,23 +505,35 @@ function outlinePrismSolid(wasm: ManifoldToplevel, outline: ShapeOutline, height
 }
 
 /**
- * One SKÅDIS clip hook (docs/research.md §10b), in the canonical local
- * frame described above. The profile is a 2D loop in the (up, reach) plane
- * -- built here as (local X, local Y) so `CrossSection.extrude` can sweep it
- * along local Z by `SKADIS_CLIP_WIDTH` -- then rotated -90 degrees about
- * local X so that extrusion axis becomes local Y ("side", centered) and the
- * profile's own reach axis becomes local -Z ("reach", base flush at Z=0,
- * tip at the most negative Z). Mirrored about local X=0 (research.md:
- * "extruded 12mm and mirrored") for one symmetric, double-flanked hook.
+ * One SKÅDIS clip PAIR (docs/research.md §10b; constants.ts's
+ * `SKADIS_CLIP_PROFILE` doc comment for the mechanism and the reimplement-
+ * not-copy note), in the canonical local frame described above. The profile
+ * is a 2D loop in the (side, reach) plane -- built here as (local X, local
+ * Y) so `CrossSection.extrude` can sweep it along local Z by
+ * `SKADIS_CLIP_HEIGHT` -- then rotated -90 degrees about local X (so the
+ * extrusion axis becomes local Y, and the profile's own reach axis becomes
+ * local -Z: base flush at Z=0, tip at the most negative Z) and a further
+ * -90 degrees about local Z. That last step swaps this construction's own
+ * (side, height) axes into this file's shared canonical frame (local +X =
+ * "up", local +Y = "side" -- every OTHER clip/anchor solid in this file
+ * builds directly into that frame, but a hook's own natural build order
+ * produces (X=side, Y=height) instead); it relies on the pair being
+ * mirror-symmetric about side=0 (built into the profile below) to make the
+ * resulting side-sign flip harmless. Getting this rotation wrong is exactly
+ * the issue #14 PR review round 2 bug: a previous version omitted it, so
+ * `SKADIS_CLIP_HEIGHT` (meant to run along WALL_UP) rendered horizontally
+ * instead. Mirrored about local X=0 (research.md: "extruded 12mm and
+ * mirrored" -- the PAIR's own two legs, not two separate grid positions,
+ * per constants.ts's own doc comment) for one symmetric, spring-loaded pair.
  * `chamfered` selects constants.ts's `SKADIS_CLIP_PROFILE_CHAMFERED` for
- * every row except the topmost one (issue #14 AC: "chamfer the lower rows
+ * every row except the lowest one (issue #14 AC: "chamfer the lower rows
  * at 45").
  */
 function skadisHookSolid(wasm: ManifoldToplevel, chamfered: boolean): Manifold {
   const profile = chamfered ? SKADIS_CLIP_PROFILE_CHAMFERED : SKADIS_CLIP_PROFILE;
-  const rightLoop: [number, number][] = profile.map(([u, r]): [number, number] => [u, r]);
-  const leftLoop: [number, number][] = profile.map(([u, r]): [number, number] => [-u, r]).reverse();
-  const solid = new wasm.CrossSection([rightLoop, leftLoop], "NonZero").extrude(SKADIS_CLIP_WIDTH);
+  const rightLoop: [number, number][] = profile.map(([s, r]): [number, number] => [s, r]);
+  const leftLoop: [number, number][] = profile.map(([s, r]): [number, number] => [-s, r]).reverse();
+  const solid = new wasm.CrossSection([rightLoop, leftLoop], "NonZero").extrude(SKADIS_CLIP_HEIGHT);
   // MOUNT_PLATE_EMBED shifts the whole hook slightly further INTO the
   // panel (see that constant's doc comment): without it, the hook's own
   // base sits EXACTLY flush with the panel's back face, a razor-thin
@@ -529,7 +541,11 @@ function skadisHookSolid(wasm: ManifoldToplevel, chamfered: boolean): Manifold {
   // this feature size (empirically: a disconnected, wrongly-oriented
   // "ghost" copy of the hook, passing `status()`/`genus()` but failing a
   // `decompose()` connected-component count -- see test/mountPlate.test.ts).
-  return solid.translate([0, 0, -SKADIS_CLIP_WIDTH / 2]).rotate([-90, 0, 0]).translate([0, 0, MOUNT_PLATE_EMBED]);
+  return solid
+    .translate([0, 0, -SKADIS_CLIP_HEIGHT / 2])
+    .rotate([-90, 0, 0])
+    .rotate([0, 0, -90])
+    .translate([0, 0, MOUNT_PLATE_EMBED]);
 }
 
 /** The openGrid placeholder connector (constants.ts's `OPENGRID_PLACEHOLDER_PEG_SIZE` TODO): a plain square peg in the same canonical local frame, base flush at Z=0, reaching to local -Z. Embedded into the panel by `MOUNT_PLATE_EMBED` -- see `skadisHookSolid`'s comment. */
@@ -541,7 +557,7 @@ function openGridConnectorSolid(wasm: ManifoldToplevel): Manifold {
 
 /** One clip instance (hook or placeholder connector), placed at its own true (x, y) and rotated onto the layout's up/side axes -- see the file header. */
 function mountPlateClipSolid(wasm: ManifoldToplevel, mountKind: Extract<MountKind, "skadis" | "opengrid">, clip: ClipInstance, zBase: number): Manifold {
-  const canonical = mountKind === "skadis" ? skadisHookSolid(wasm, !clip.topmost) : openGridConnectorSolid(wasm);
+  const canonical = mountKind === "skadis" ? skadisHookSolid(wasm, !clip.plain) : openGridConnectorSolid(wasm);
   return canonical.rotate([0, 0, clip.rotationDeg]).translate([clip.x, clip.y, zBase]);
 }
 

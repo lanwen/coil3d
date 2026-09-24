@@ -28,11 +28,20 @@ const SHAPE_OPTIONS: Array<{ id: ShapeKind; label: string }> = [
   { id: "tri", label: "Rounded triangle" },
 ];
 
+// openGrid (issue #14 PR review): the grid pitch is verified, but its real
+// snap/connector geometry isn't published anywhere as plain dimensions (see
+// constants.ts's OPENGRID_PLACEHOLDER_PEG_SIZE comment) -- shipping a
+// placeholder peg under a real "openGrid" option would mislead users into
+// printing a plate that doesn't actually fit an openGrid board. Hidden from
+// this list (and rejected from the hash, see hash.ts) until the real
+// connector geometry lands -- tracked in issue #38. The underlying
+// `mount: "opengrid"` capability stays implemented and tested (mountPlate.ts,
+// manifold.ts, step/build.ts) so that follow-up is just swapping the
+// connector solid, not building the feature from scratch.
 const MOUNT_OPTIONS: Array<{ id: MountKind; label: string }> = [
   { id: "none", label: "None" },
   { id: "keyhole", label: "Screw keyhole (wall mount)" },
   { id: "skadis", label: "IKEA SKÅDIS clip plate" },
-  { id: "opengrid", label: "openGrid clip plate" },
 ];
 
 const PLATE_JOINT_OPTIONS: Array<{ id: PlateJoint; label: string }> = [

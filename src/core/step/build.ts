@@ -46,10 +46,11 @@ import {
   OPENGRID_PLACEHOLDER_PEG_SIZE,
   SCREW_MOUNT_HEAD_RADIUS,
   SCREW_MOUNT_SHANK_RADIUS,
+  SKADIS_CLIP_HEIGHT,
   SKADIS_CLIP_PROFILE,
   SKADIS_CLIP_PROFILE_CHAMFERED,
-  SKADIS_CLIP_WIDTH,
   SKADIS_PITCH,
+  SKADIS_ROW_STAGGER,
   SNAP_BARB,
   SNAP_BARB_HEIGHT,
   SNAP_GAP,
@@ -77,8 +78,9 @@ function mountPlateLayoutFor(design: Design): MountPlateLayout {
   const mountKind = spec.mount as "skadis" | "opengrid";
   const pitch = mountKind === "skadis" ? SKADIS_PITCH : OPENGRID_PITCH;
   const { halfSide, halfUp } = mountKind === "skadis" ? skadisClipHalfExtents() : openGridClipHalfExtents();
+  const columnStagger = mountKind === "skadis" ? SKADIS_ROW_STAGGER : 0;
   const flangeOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
-  return layoutMountPlate(flangeOutline, flangeSpec.boreOutline, pitch, halfSide, halfUp);
+  return layoutMountPlate(flangeOutline, flangeSpec.boreOutline, pitch, halfSide, halfUp, columnStagger);
 }
 
 /**
@@ -526,16 +528,31 @@ function loopSolid(loop: [number, number][], height: number): R.Shape3D {
   return sketch.extrude(height);
 }
 
-/** One SKÅDIS clip hook (mirrors manifold.ts's `skadisHookSolid`): the profile's own (up, reach) loop extruded along local Z by `SKADIS_CLIP_WIDTH`, then rotated -90 degrees about local X so that extrusion axis becomes local Y ("side", centered) and the profile's own reach axis becomes local -Z. */
+/**
+ * One SKÅDIS clip PAIR (mirrors manifold.ts's `skadisHookSolid` -- see its
+ * own doc comment for the full derivation): the profile's own (side, reach)
+ * loop extruded along local Z by `SKADIS_CLIP_HEIGHT`, then rotated -90
+ * degrees about local X (extrusion axis -> local Y, reach -> local -Z) and a
+ * further -90 degrees about local Z (swaps this construction's own (side,
+ * height) axes into the shared canonical frame, local +X = "up" -- relies on
+ * the pair's own side=0 mirror symmetry to make the resulting sign flip on
+ * `side` harmless). Getting this second rotation right (issue #14 PR review
+ * round 2) is what keeps `SKADIS_CLIP_HEIGHT` running along WALL_UP instead
+ * of rendering horizontally.
+ */
 function skadisHookSolidStep(chamfered: boolean): R.Shape3D {
   const profile = chamfered ? SKADIS_CLIP_PROFILE_CHAMFERED : SKADIS_CLIP_PROFILE;
-  const rightLoop: [number, number][] = profile.map(([u, r]) => [u, r]);
-  const leftLoop: [number, number][] = profile.map(([u, r]): [number, number] => [-u, r]).reverse();
-  const solid = loopSolid(rightLoop, SKADIS_CLIP_WIDTH).fuse(loopSolid(leftLoop, SKADIS_CLIP_WIDTH));
+  const rightLoop: [number, number][] = profile.map(([s, r]) => [s, r]);
+  const leftLoop: [number, number][] = profile.map(([s, r]): [number, number] => [-s, r]).reverse();
+  const solid = loopSolid(rightLoop, SKADIS_CLIP_HEIGHT).fuse(loopSolid(leftLoop, SKADIS_CLIP_HEIGHT));
   // Embedded MOUNT_PLATE_EMBED into the panel -- mirrors manifold.ts's
   // `skadisHookSolid` (same razor-thin-coincident-face hazard this
   // constant guards against, for a boolean fuse instead of a cut).
-  return solid.translate([0, 0, -SKADIS_CLIP_WIDTH / 2]).rotate(-90, [0, 0, 0], [1, 0, 0]).translate([0, 0, MOUNT_PLATE_EMBED]);
+  return solid
+    .translate([0, 0, -SKADIS_CLIP_HEIGHT / 2])
+    .rotate(-90, [0, 0, 0], [1, 0, 0])
+    .rotate(-90, [0, 0, 0], [0, 0, 1])
+    .translate([0, 0, MOUNT_PLATE_EMBED]);
 }
 
 /** The openGrid placeholder connector (mirrors manifold.ts's `openGridConnectorSolid` -- see constants.ts's TODO). Embedded into the panel by MOUNT_PLATE_EMBED. */
@@ -546,7 +563,7 @@ function openGridConnectorSolidStep(): R.Shape3D {
 
 /** One clip instance, placed at its own true (x, y) and rotated onto the layout's up/side axes (mirrors manifold.ts's `mountPlateClipSolid`). */
 function mountPlateClipSolidStep(mountKind: "skadis" | "opengrid", clip: ClipInstance, zBase: number): R.Shape3D {
-  const canonical = mountKind === "skadis" ? skadisHookSolidStep(!clip.topmost) : openGridConnectorSolidStep();
+  const canonical = mountKind === "skadis" ? skadisHookSolidStep(!clip.plain) : openGridConnectorSolidStep();
   return canonical.rotate(clip.rotationDeg, [0, 0, 0], [0, 0, 1]).translate([clip.x, clip.y, zBase]);
 }
 

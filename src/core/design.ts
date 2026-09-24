@@ -33,6 +33,7 @@ import {
   MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE,
   OPENGRID_PITCH,
   SKADIS_PITCH,
+  SKADIS_ROW_STAGGER,
   FINAL_ROWS_PER_PITCH,
   FINAL_COLUMNS,
   DRAFT_ROWS_PER_PITCH,
@@ -170,7 +171,11 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     const flangeOutline = offsetOutline(outline, margin);
     const pitch = mountKindForPlate === "skadis" ? SKADIS_PITCH : OPENGRID_PITCH;
     const { halfSide, halfUp } = mountKindForPlate === "skadis" ? skadisClipHalfExtents() : openGridClipHalfExtents();
-    mountPlateLayout = layoutMountPlate(flangeOutline, boreOutline, pitch, halfSide, halfUp);
+    // The real, staggered grid (constants.ts's SKADIS_ROW_STAGGER) is only
+    // confirmed for SKÅDIS; openGrid's own stagger (if any) isn't verified,
+    // so it gets a plain, unstaggered grid for now.
+    const columnStagger = mountKindForPlate === "skadis" ? SKADIS_ROW_STAGGER : 0;
+    mountPlateLayout = layoutMountPlate(flangeOutline, boreOutline, pitch, halfSide, halfUp, columnStagger);
     if (mountPlateLayout.warning) warnings.push(mountPlateLayout.warning);
   }
   const mountPlateCut: MountPlateFlangeCut | undefined =

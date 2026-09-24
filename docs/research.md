@@ -318,16 +318,52 @@ It's a full SaaS (Vercel, Liveblocks collab, CQRS, three kernels: brepjs/OCCT ~2
 
 ## 10c. Clip mount plate research (issue #14, 2026-09-24)
 
-**SKÅDIS.** 40mm grid, confirmed by §10b's own review of skapa. The clip hook
-profile reused here is the same 7-point polygon §10b already recorded (from
-skapa, reimplemented — not copied — per that section's own licence note:
-skapa has no licence, "reimplement the technique; don't copy files"). Real-
-board fit (does a printed hook actually seat and hold on a genuine SKÅDIS
-board) is **still unverified** — flagged in issue #1's own "Further Notes"
-("Values still to verify with real hardware: the SKÅDIS clip fit and
-openGrid pitch...") and repeated in this PR's own body; the clip
-half-extents and grid math are covered by vitest, but the physical
-engagement is not.
+**SKÅDIS.** IKEA doesn't publish a spec; the numbers below are
+community-measured but corroborated across multiple independent sources
+(PR review round 2 asked for this to be verified properly, not just
+carried over from §10b's spike-era note):
+- **Slot: a single VERTICAL obround (stadium) slot per hole position, about
+  5mm wide x 15mm tall, ~2.5mm rounded ends** — [Pegboardly, "SKÅDIS Sizes &
+  Dimensions"](https://pegboardly.com/skadis/skadis-sizes-and-dimensions)
+  and [Thingiverse thing:4939659, "IKEA Skadis-like Hole
+  Dimension"](https://www.thingiverse.com/thing:4939659).
+- **Grid: 40mm pitch, and STAGGERED** — every other column is offset 20mm
+  vertically from its neighbours (two interleaved 40mm grids, half a step
+  apart), per the same two sources plus multiple SKÅDIS-accessory generator
+  listings on MakerWorld/Printables. Implemented as `SKADIS_ROW_STAGGER`
+  (constants.ts) and `layoutMountPlate`'s `columnStagger` parameter
+  (mountPlate.ts).
+- **Clip mechanism, confirmed directly from skapa's own source**
+  (`github.com/nmattia/skapa`, `src/model/manifold.ts` — read for its
+  measurements and placement math only, NOT copied; skapa has no licence,
+  and its own review note already says "reimplement the technique, don't
+  copy files"): the 7-point polygon §10b already recorded is correct DATA,
+  but this PR's first pass had its AXES wrong — the polygon's own two
+  coordinates are (sideways offset from the pair's own centreline, reach
+  into the slot), and the 12mm extrusion runs along the board's VERTICAL
+  axis (WALL_UP), not sideways. Two legs (~1.5mm each, ~1.9mm gap between
+  them) form ONE mirrored, spring-loaded PAIR per grid position — they flex
+  inward to pass through the ~5mm slot opening, then spring back out
+  (combined rest span ~6.1mm, wider than the slot) once through, so the
+  barb catches behind the board. This is a **spring/expanding clip, not a
+  gravity-engaged hook** like the screw-keyhole mount — there's no
+  "barb must face down" requirement the way a keyhole slot has one.
+  Chamfering: skapa chamfers every row except its first/lowest — mirrored
+  here as `SKADIS_CLIP_PROFILE_CHAMFERED` applying to every row except the
+  lowest (`ClipInstance.plain`), the opposite of this PR's own first pass.
+- A previous version of this PR had `side` and `WALL_UP` swapped in the
+  clip's own local frame — caught from the mount-side screenshot (each
+  clip rendered as a wide horizontal bar instead of a tall vertical one).
+  Fixed in `manifold.ts`'s `skadisHookSolid` / `step/build.ts`'s
+  `skadisHookSolidStep` (an extra 90° rotation) and `mountPlate.ts`'s
+  `skadisClipHalfExtents` (the half-extents were swapped too).
+- Real-board fit (does a printed pair actually seat and hold on a genuine
+  SKÅDIS board) is **still unverified** — flagged in issue #1's own
+  "Further Notes" ("Values still to verify with real hardware: the SKÅDIS
+  clip fit and openGrid pitch...") and repeated in this PR's own body; the
+  clip half-extents, grid/stagger math and chamfer selection are covered by
+  vitest, but the physical engagement (does the spring-fit actually grip,
+  does the board thickness assumption hold) is not.
 
 **openGrid.** Researched fresh for this ticket (WebSearch + `gh api` against
 the project's own GitHub docs repo, since `opengrid.world` itself returned

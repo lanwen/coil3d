@@ -39,8 +39,8 @@ import {
   MOUNT_PLATE_MAX_PER_SIDE,
   MOUNT_PLATE_MIN_CLIPS,
   OPENGRID_PLACEHOLDER_PEG_SIZE,
+  SKADIS_CLIP_HEIGHT,
   SKADIS_CLIP_PROFILE,
-  SKADIS_CLIP_WIDTH,
 } from "./constants";
 import { bestAxisDeg } from "./mount";
 import { offsetOutline, pointAt } from "./shapes";
@@ -51,12 +51,14 @@ export interface ClipInstance {
   x: number;
   y: number;
   /**
-   * True for the row with the greatest `up` value only (issue #14 AC:
-   * "chamfer the lower rows at 45"): that row alone gets the fully-exposed,
-   * unchamfered profile (constants.ts's `SKADIS_CLIP_PROFILE`); every other
-   * row uses the chamfered variant. Always true when there is only one row.
+   * True for the row with the SMALLEST `up` value only (issue #14 AC:
+   * "chamfer the lower rows at 45"; skapa's own code chamfers every row
+   * except its first/lowest -- see constants.ts's `SKADIS_CLIP_PROFILE_CHAMFERED`
+   * doc comment): that row alone gets the fully-exposed, unchamfered profile
+   * (constants.ts's `SKADIS_CLIP_PROFILE`); every other row uses the
+   * chamfered variant. Always true when there is only one row.
    */
-  topmost: boolean;
+  plain: boolean;
   /** The Z-axis rotation (degrees) that maps a clip built in its own canonical local frame (local +X = "up", local +Y = "side") onto this layout's true up/side axes -- see the file header. Identical for every clip in one layout. */
   rotationDeg: number;
 }
@@ -142,6 +144,16 @@ function halfWidthAtUp(boundary: Array<{ up: number; side: number }>, up0: numbe
  * along each local axis -- different per mount kind (SKÅDIS's mirrored hook
  * vs. openGrid's placeholder peg, see constants.ts) -- and `pitch` is that
  * kind's own grid spacing (SKADIS_PITCH/OPENGRID_PITCH).
+ *
+ * `columnStagger` (issue #14 PR review round 2, constants.ts's
+ * `SKADIS_ROW_STAGGER`): the real SKÅDIS hole grid is staggered -- every
+ * other COLUMN's own rows are offset vertically from its neighbours (two
+ * interleaved grids, half a step apart), not one plain rectangular grid.
+ * Every column here shares one phase with every other column of the same
+ * `|k|` (see the loop below), so the layout stays left/right symmetric
+ * (mirrored about side=0, same as the columns themselves) while still
+ * alternating phase by column the way the real board does. 0 (the default)
+ * disables the stagger entirely -- correct for a plain rectangular grid.
  */
 export function layoutMountPlate(
   flangeOutline: ShapeOutline,
@@ -149,6 +161,7 @@ export function layoutMountPlate(
   pitch: number,
   clipHalfSide: number,
   clipHalfUp: number,
+  columnStagger = 0,
 ): MountPlateLayout {
   const outline = offsetOutline(flangeOutline, -MOUNT_PLATE_EDGE_MARGIN);
   if (outline.apothem <= 1 || outline.cornerRadius < 0) {
@@ -161,18 +174,33 @@ export function layoutMountPlate(
   const boundary = projectedBoundary(outline, axisDeg);
   const [minUp, maxUp] = upExtent(boundary);
 
-  const rowsUp: number[] = [0];
-  for (let k = 1; k <= MOUNT_PLATE_MAX_PER_SIDE && k * pitch <= maxUp - clipHalfUp; k++) rowsUp.push(k * pitch);
-  for (let k = 1; k <= MOUNT_PLATE_MAX_PER_SIDE && -k * pitch >= minUp + clipHalfUp; k++) rowsUp.push(-k * pitch);
+  /** Is a clip footprint centred at this exact (up, side) point genuinely inside the outline (not just within a shared, possibly-optimistic row/column budget)? Checked directly against the boundary so the per-column stagger phase can never place a clip outside a non-round outline. */
+  const fits = (up: number, side: number): boolean => up >= minUp + clipHalfUp && up <= maxUp - clipHalfUp && halfWidthAtUp(boundary, up) - clipHalfSide >= Math.abs(side);
 
-  // Keep only rows that fit at least MOUNT_PLATE_MIN_CLIPS/2 columns on
-  // each side (i.e. at least 1 pitch-step) -- a row too narrow for a
-  // symmetric pair is dropped rather than emitted half-populated.
-  const rows = rowsUp
-    .map((up) => ({ up, colSteps: Math.min(MOUNT_PLATE_MAX_PER_SIDE, Math.floor((halfWidthAtUp(boundary, up) - clipHalfSide) / pitch)) }))
-    .filter((r) => r.colSteps >= 1);
+  // Columns at side = +-k*pitch (k=1..MAX, centre column excluded -- see
+  // the file header on why an even, symmetric layout is preferred over a
+  // single centred column). Every column's rows are the pitch grid, offset
+  // by that column's own stagger phase: |k| odd -> `columnStagger`, |k|
+  // even -> 0 -- identical for +k and -k, so both sides of any one column
+  // pair share the same phase and the whole layout stays mirror-symmetric.
+  const clips: ClipInstance[] = [];
+  for (let k = 1; k <= MOUNT_PLATE_MAX_PER_SIDE; k++) {
+    const phase = k % 2 === 1 ? columnStagger : 0;
+    const rowsUp: number[] = [];
+    if (fits(phase, k * pitch)) rowsUp.push(phase);
+    for (let n = 1; n <= MOUNT_PLATE_MAX_PER_SIDE; n++) {
+      if (fits(phase + n * pitch, k * pitch)) rowsUp.push(phase + n * pitch);
+      if (fits(phase - n * pitch, k * pitch)) rowsUp.push(phase - n * pitch);
+    }
+    for (const up of rowsUp) {
+      for (const side of [k * pitch, -k * pitch]) {
+        const { x, y } = toXY(up, side);
+        clips.push({ x, y, plain: false, rotationDeg });
+      }
+    }
+  }
 
-  if (rows.length === 0) {
+  if (clips.length === 0) {
     return {
       outline,
       clips: [],
@@ -181,16 +209,16 @@ export function layoutMountPlate(
     };
   }
 
-  const topmostUp = Math.max(...rows.map((r) => r.up));
-  const clips: ClipInstance[] = [];
-  for (const row of rows) {
-    for (let k = 1; k <= row.colSteps; k++) {
-      for (const side of [k * pitch, -k * pitch]) {
-        const { x, y } = toXY(row.up, side);
-        clips.push({ x, y, topmost: row.up === topmostUp, rotationDeg });
-      }
-    }
-  }
+  // The lowest row overall (smallest `up`, across every column -- the
+  // stagger means different columns can genuinely reach different extremes)
+  // keeps the unchamfered profile; every other clip is chamfered -- see
+  // `ClipInstance.plain`'s own doc comment.
+  const { project } = basisFor(axisDeg);
+  const clipUps = clips.map((c) => project(c).up);
+  const minClipUp = Math.min(...clipUps);
+  clips.forEach((clip, i) => {
+    clip.plain = Math.abs(clipUps[i] - minClipUp) < 1e-6;
+  });
 
   // 2 alignment pegs/snap-tabs, on the side axis through the centre (up=0),
   // at the midpoint of the annulus between the bore and the plate's own
@@ -209,9 +237,9 @@ export function layoutMountPlate(
   return { outline, clips, anchors, axisDeg };
 }
 
-/** The SKÅDIS hook's own half-extents (mm): `halfUp` from the profile's own farthest point (constants.ts's `SKADIS_CLIP_PROFILE`, mirrored about up=0 -- see the file header), `halfSide` from its extrusion width. Computed from the profile data itself (not a separately hand-maintained constant), so it can never silently drift from the actual geometry manifold.ts/step/build.ts build. */
+/** The SKÅDIS clip pair's own half-extents (mm): `halfUp` from half its extrusion height (constants.ts's `SKADIS_CLIP_HEIGHT`, which runs along WALL_UP -- see `SKADIS_CLIP_PROFILE`'s own doc comment for why), `halfSide` from the profile's own farthest sideways point (mirrored about side=0 to form the pair). Computed from the profile/height data itself (not a separately hand-maintained duplicate), so it can never silently drift from the actual geometry manifold.ts/step/build.ts build. */
 export function skadisClipHalfExtents(): { halfUp: number; halfSide: number } {
-  return { halfUp: Math.max(...SKADIS_CLIP_PROFILE.map(([u]) => u)), halfSide: SKADIS_CLIP_WIDTH / 2 };
+  return { halfUp: SKADIS_CLIP_HEIGHT / 2, halfSide: Math.max(...SKADIS_CLIP_PROFILE.map(([s]) => s)) };
 }
 
 /** The openGrid placeholder connector's half-extents (mm) -- see constants.ts's `OPENGRID_PLACEHOLDER_PEG_SIZE` TODO. */

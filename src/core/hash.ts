@@ -65,7 +65,13 @@ const QuerySchema = z.object({
   shape: z.enum(["round", "sq", "tri"]).optional(),
   "sq.rc": z.coerce.number().finite().min(0).max(1000).optional(),
   "tri.rc": z.coerce.number().finite().min(0).max(1000).optional(),
-  mount: z.enum(["none", "keyhole", "skadis", "opengrid"]).optional(),
+  // "opengrid" is deliberately NOT in this list (issue #14 PR review, issue
+  // #38): the underlying mount kind is implemented, but its connector
+  // geometry is a placeholder (constants.ts's OPENGRID_PLACEHOLDER_PEG_SIZE
+  // comment), so a shared link can't be allowed to silently produce it --
+  // `mount=opengrid` falls through to the schema failure below (garbage
+  // input -> defaults + notice), the same as any other unrecognised value.
+  mount: z.enum(["none", "keyhole", "skadis"]).optional(),
   pj: z.enum(["glue", "snap"]).optional(),
   lock: z.string().optional(),
   size: z.coerce.number().finite().min(1).max(1000).optional(),

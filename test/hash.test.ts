@@ -229,12 +229,10 @@ describe("parseHash / toHash", () => {
     expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
 
-  it("round-trips the opengrid clip mount plate with an explicit snap plate joint", () => {
-    const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "opengrid", plateJoint: "snap" };
-    const hash = toHash(spec);
-    expect(hash).toContain("mount=opengrid");
-    expect(hash).toContain("pj=snap");
-    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+  it("rejects mount=opengrid from a shared link, falling back to defaults with a notice (issue #14 PR review, issue #38: hidden until the real connector geometry lands)", () => {
+    const { spec, notice } = parseHash("#v=1&mount=opengrid");
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
   });
 
   it("omits pj from the hash when mount doesn't use a plate, even if plateJoint is non-default", () => {
@@ -244,8 +242,9 @@ describe("parseHash / toHash", () => {
   });
 
   it("falls back to defaults with a notice on an unknown mount value", () => {
-    // "skadis"/"opengrid" are now real values (issue #14) -- use a value
-    // that's still unknown to keep testing the fallback path itself.
+    // "skadis" is a real value (issue #14); "opengrid" is deliberately NOT
+    // (see the dedicated test above) -- use a value that's still unknown to
+    // keep testing the generic fallback path itself.
     const { spec, notice } = parseHash("#v=1&mount=bogus");
     expect(spec).toEqual(DEFAULT_SPEC);
     expect(notice).toBeDefined();
