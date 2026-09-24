@@ -41,3 +41,13 @@ export const SIZE_LO_FLOOR = 5; // mm
 export const SIZE_HI = 500; // mm
 export const HEIGHT_HI = 400; // mm, practical upper bound
 export const LAYERS_HI = 40;
+
+/**
+ * Sensible minimum turns per layer for the `minVolume` objective (issue #23):
+ * nobody would wind a coil with only 1-2 turns per layer stacked six layers
+ * deep just to minimize a bounding-cylinder volume estimate. Candidates with
+ * fewer turns per layer than this are heavily (not absolutely) penalized in
+ * `envelopeVolumeFor` (solve.ts), so they still get picked when there is no
+ * better-shaped alternative that covers the target length.
+ */
+export const MIN_TURNS_PER_LAYER = 5;
