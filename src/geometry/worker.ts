@@ -42,6 +42,8 @@ scope.onmessage = (ev) => {
         // The schematic wound-cable path per layer (issue #4) is typed
         // arrays too; transfer them for the same zero-copy reason as the mesh.
         ...d.wirePaths.map((p) => p.points.buffer),
+        // The inner-end lead-in centerline (issue #8) is a typed array too.
+        d.innerEndLeadIn.buffer,
       ]),
     (err: unknown) => scope.postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) }),
   );

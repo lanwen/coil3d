@@ -175,6 +175,7 @@ export default function App() {
                 parts={result.parts}
                 resolution={result.resolution}
                 wirePaths={result.wirePaths}
+                innerEndLeadIn={result.innerEndLeadIn}
                 wireDiameter={result.spec.wire.diameter}
                 showWire={showWire}
                 exploded={exploded}

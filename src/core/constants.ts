@@ -106,6 +106,20 @@ export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot bet
 /** Rim keyhole (top cap, outer cable end): the retaining slit is narrower than the hole so the cable grips after insertion. */
 export const KEYHOLE_SLIT_FRACTION = 0.6;
 
+// Inner-end fixing (issue #8, docs/research.md "Wire ends" + §8 item 3): the
+// bottom flange's OWN rim keyhole for the inner cable end (same hole+slit
+// shape as the top cap's KEYHOLE_SLIT_FRACTION keyhole, but cut all the way
+// through the flange's full thickness -- there's no separate "outer face"
+// the way the top cap's room-facing face is, see src/core/innerEnd.ts) plus
+// a recessed radial channel on the flange's inner (winding-side, z=0) face
+// leading from that keyhole to the wall's own groove start.
+/** Channel depth = this factor * wire diameter -- deep enough that the wound cable's first turn lies flush with the surrounding flange face (unlike the wall's own groove, which only needs GROOVE_DEPTH_FACTOR: later turns there nest into the groove's OWN profile, but here later turns pass straight over a flat annulus, so no bump can be tolerated). */
+export const INNER_CHANNEL_DEPTH_FACTOR = 1.0;
+/** Flange material required BELOW the channel's own recess (cut from the inner/z=0 face), stacked on top of whatever the screw-keyhole mount's own pocket (cut from the outer/wall face) also needs -- mirrors SCREW_MOUNT_MIN_SHELF's role for that pocket. */
+export const INNER_CHANNEL_MIN_SHELF = 1.5; // mm
+/** Straight-line segments approximating the channel's tangent-fillet arc into the groove -- plenty smooth at FDM/screenshot scale (mirrors LABEL_CURVE_SEGMENTS' role for glyph curves). */
+export const INNER_CHANNEL_ARC_SEGMENTS = 8;
+
 // Print bed (issue #10, docs/research.md §1 "Print"/"bed size"). A generic
 // 256x256x256 mm build volume (e.g. Bambu X1C/P1S, Prusa MK4) is a sensible
 // default for "warn me if a part doesn't fit" -- most FDM printers this

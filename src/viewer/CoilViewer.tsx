@@ -45,6 +45,8 @@ export interface CoilViewerProps {
   resolution: Resolution;
   /** The schematic wound-cable path per layer (issue #4), or omitted/empty to draw none. */
   wirePaths?: WireLayerPath[];
+  /** `Design.innerEndLeadIn` (issue #8): the inner-end keyhole-through-channel centerline, drawn as one more small tube alongside `wirePaths` so the wound cable reads as one continuous line from the keyhole into the groove. Omitted/too short to draw none. */
+  innerEndLeadIn?: Float32Array;
   /** Cable outer diameter, mm -- sets the drawn wire's tube radius. */
   wireDiameter?: number;
   /** Wire visibility toggle (issue #4), mirrored in the URL hash by the caller. */
@@ -330,7 +332,17 @@ function useDebugAxisOverlay(): boolean {
  * away from the core. The wound cable is built from the SOLVED layer
  * offsets, which live on the core, so it never moves with the cap.
  */
-export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWire = true, exploded = false, mountAxisDeg, mount = "none" }: CoilViewerProps) {
+export function CoilViewer({
+  parts,
+  resolution,
+  wirePaths,
+  innerEndLeadIn,
+  wireDiameter,
+  showWire = true,
+  exploded = false,
+  mountAxisDeg,
+  mount = "none",
+}: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const prevResolution = useRef<Resolution>(resolution);
@@ -379,9 +391,16 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   // radial facets would otherwise draw a spurious line at every facet ridge,
   // hatching the whole coil (see src/viewer/wireGeometry.ts / S3 spike RESULT.md).
   const wireGeometries = useMemo(() => {
-    if (!showWire || !wirePaths?.length || !wireDiameter) return [];
-    return buildWireGeometries(wirePaths, wireDiameter / 2);
-  }, [showWire, wirePaths, wireDiameter]);
+    if (!showWire || !wireDiameter) return [];
+    const paths = wirePaths ? [...wirePaths] : [];
+    // The inner-end lead-in (issue #8) is drawn as one more small path
+    // alongside the real layers -- `turns: 1` keeps it well under
+    // wireGeometry.ts's TURNS_FOR_ENVELOPE, so it always gets the full,
+    // non-schematic tube regardless of how layer 1 itself is drawn.
+    if (innerEndLeadIn && innerEndLeadIn.length >= 6) paths.push({ layer: 0, turns: 1, points: innerEndLeadIn });
+    if (!paths.length) return [];
+    return buildWireGeometries(paths, wireDiameter / 2);
+  }, [showWire, wirePaths, innerEndLeadIn, wireDiameter]);
   useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
 
   // Wall-view preset: physically rotated COPIES of every part's geometry (not

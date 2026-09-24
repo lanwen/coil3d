@@ -62,6 +62,8 @@ import {
 import { jointGeometry } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
+import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
+import type { InnerEndLayout, XY } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
 import { layoutKeyholeMount } from "../mount";
 import type { KeyholeSlot } from "../mount";
@@ -71,6 +73,7 @@ import { circumscribedRadius, offsetOutline, pointAt, polygonVertex } from "../s
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
 import type { Design, PlateJoint } from "../types";
+import { bendMultiplierOf } from "../types";
 
 /** Recompute mountPlate.ts's layout from `design.flangeSpec`/`design.spec` (mirrors this file's own `layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin)` re-derivation for the keyhole mount): the STEP backend never stores its own copy, so it can't drift from the mesh backend's. */
 function mountPlateLayoutFor(design: Design): MountPlateLayout {
@@ -237,6 +240,22 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
 
   let coreSolid = tube.fuse(flange);
 
+  // Issue #8: the bottom flange's own rim keyhole + recessed inner channel,
+  // mirroring manifold.ts's `buildInnerEndCutter` primitive-for-primitive
+  // (same `layoutInnerEnd` call, same `resolveChannelDepth`), so the mesh and
+  // STEP backends can never drift on where the keyhole/channel actually sit.
+  coreSolid = coreSolid.cut(
+    buildInnerEndCutterSolid(
+      flangeSpec.outline,
+      flangeSpec.margin,
+      flangeSpec.thickness,
+      resolveChannelDepth(design.spec.wire.diameter, flangeSpec.thickness, flangeSpec.mount === "keyhole"),
+      design.spec.wire.diameter,
+      design.spec.tolerance,
+      bendMultiplierOf(design.spec.wire) * design.spec.wire.diameter,
+    ),
+  );
+
   // Issue #9: bayonet/snap cut a mating groove/relief into the core's own
   // top rim; press engages the bore's existing surface directly (no
   // core-side cut at all -- see manifold.ts's `applyCoreJointCut`, which
@@ -383,6 +402,83 @@ function buildKeyholeSolid(outline: ShapeOutline, margin: number, wireDiameter: 
     .rotate(angleDeg, [0, 0, 0], [0, 0, 1])
     .translate([cx, cy, 0]);
   return hole.fuse(slit);
+}
+
+/**
+ * The channel trench cutter solid: `innerEnd.ts`'s `channelRibbon` (a single
+ * flat 2D polygon tracing the whole trench outline, computed ANALYTICALLY --
+ * see its own doc comment for why), extruded ONCE -- mirrors manifold.ts's
+ * `channelCutter`. An earlier version built this from a chain of
+ * cylinders+boxes `fuse()`d one at a time (the standard "stroke a polyline"
+ * technique); that sequential-fuse chain was found to occasionally produce
+ * an invalid BRep (`BRepCheck_Analyzer` false) here even though the
+ * equivalent manifold-3d boolean chain stayed valid, so both backends now
+ * extrude one shared polygon instead (also guaranteeing they extrude the
+ * exact same shape). Mirrors `labelLoopSolid`'s own `makePolygon` + `Sketch`
+ * + `extrude` pattern. Returns `undefined` for a degenerate (near-zero-area)
+ * ribbon -- see `channelRibbon`'s own doc comment.
+ */
+function channelCutterSolid(ribbon: XY[], zLo: number, zHi: number): R.Shape3D | undefined {
+  if (ribbon.length < 3) return undefined;
+  const face = R.makePolygon(ribbon.map(({ x, y }): [number, number, number] => [x, y, zLo]));
+  const sketch = new R.Sketch(face.outerWire(), { defaultOrigin: [0, 0, zLo], defaultDirection: [0, 0, 1] });
+  return sketch.extrude(zHi - zLo);
+}
+
+/**
+ * The bottom flange's own inner-end fixing (issue #8): the rim keyhole (same
+ * hole+narrower-retaining-slit shape as `buildKeyholeSolid`'s top-cap
+ * keyhole, but cut all the way THROUGH the flange's full thickness) unioned
+ * with the recessed channel trench (clipped to stay outside the wall's own
+ * outline via `outlineSolid` -- see manifold.ts's `outlineBlocker` for why:
+ * the channel's own width can exceed WALL_THICKNESS for a heavy cord, and
+ * without this clip it reaches past the wall into the bore's own void,
+ * adding a genus the part shouldn't have), mirroring manifold.ts's
+ * `buildInnerEndCutter` primitive-for-primitive from the SAME `layoutInnerEnd`
+ * call, so the two backends can never disagree on where the keyhole/channel
+ * actually sit.
+ */
+function buildInnerEndCutterSolid(
+  outline: ShapeOutline,
+  margin: number,
+  flangeThickness: number,
+  channelDepth: number,
+  wireDiameter: number,
+  tolerance: number,
+  bendRadius: number,
+): R.Shape3D {
+  const layout: InnerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, tolerance, bendRadius);
+  const { hole, edge, holeRadius, slitWidth, channelRibbon } = layout;
+
+  const throughH = flangeThickness + 2;
+  const throughZLo = -flangeThickness - 1;
+  const holeSolid = R.makeCylinder(holeRadius, throughH, [hole.x, hole.y, throughZLo]);
+  const dx = edge.x - hole.x;
+  const dy = edge.y - hole.y;
+  const len = Math.hypot(dx, dy);
+  let keyhole = holeSolid;
+  if (len > 1e-6) {
+    const slitLen = len + 1;
+    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const slit = R.makeBox([0, -slitWidth / 2, throughZLo], [slitLen, slitWidth / 2, throughZLo + throughH])
+      .rotate(angleDeg, [0, 0, 0], [0, 0, 1])
+      .translate([hole.x, hole.y, 0]);
+    keyhole = holeSolid.fuse(slit);
+  }
+
+  const rawChannel = channelCutterSolid(channelRibbon, -channelDepth, 1);
+  if (!rawChannel) return keyhole;
+  // Offset outward by WELD_OVERLAP: the ribbon's own closing edge at the
+  // groove end sits EXACTLY on the wall's true outline by construction (see
+  // innerEnd.ts), so clipping against that same outline unmodified is
+  // another razor-thin, exactly-coincident seam -- the same boolean
+  // robustness landmine this codebase already works around elsewhere (see
+  // manifold.ts's own `collarBase`/WELD_OVERLAP comments). A genuine
+  // volumetric overlap cuts a hair more than strictly necessary, but stays
+  // well inside the STEP/mesh volume-match tolerance.
+  const blocker = outlineSolid(offsetOutline(outline, WELD_OVERLAP), channelDepth + 3, -channelDepth - 1);
+  const channel = rawChannel.cut(blocker);
+  return keyhole.fuse(channel);
 }
 
 /**
