@@ -90,7 +90,12 @@ describe("design().mesh is a valid, expected manifold", () => {
       const outerRadius = d.solution.outerSize / 2;
       const boreRadius = d.solution.innerBore / 2;
       const tubeVolume = Math.PI * (outerRadius ** 2 - boreRadius ** 2) * d.solution.height;
-      const flangeThickness = 3;
+      // Issue #43: the flange's own thickness is no longer a fixed
+      // constant -- it now tracks the cable diameter (see design.ts) -- so
+      // this reads the design's own PUBLIC `flangeSpec.thickness`, exactly
+      // like the flange's outer radius just below already reads
+      // `solution.flangeSize` rather than re-deriving it.
+      const flangeThickness = d.flangeSpec.thickness;
       const flangeOuterRadius = d.solution.flangeSize / 2;
       const flangeVolume = Math.PI * (flangeOuterRadius ** 2 - boreRadius ** 2) * flangeThickness;
       const analyticVolume = tubeVolume - grooveVolume + flangeVolume;
@@ -334,7 +339,8 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
       const flangeMargin = d.solution.flangeSize / 2 - circumRadius(n, outerApothem, rc);
       const flangeApothem = outerApothem + flangeMargin;
       const flangeRc = rc + flangeMargin;
-      const flangeThickness = 3;
+      // Issue #43: no longer a fixed constant -- see the round-core test above.
+      const flangeThickness = d.flangeSpec.thickness;
       const flangeVolume = (areaAt(n, flangeApothem, flangeRc, 0) - areaAt(n, boreApothem, boreRc, 0)) * flangeThickness;
 
       const analyticVolume = tubeVolume - grooveVolume + flangeVolume;
@@ -512,4 +518,69 @@ describe("fuseFlange screw-keyhole recess cut across flange thickness (issue #41
       }
     }, 30000);
   });
+});
+
+// Issue #43 AC: "All parts stay manifold with every mount type
+// (none/keyhole/SKÅDIS), for round, square and triangle (single-piece
+// decompose() check)" -- now that the flange's own thickness tracks the
+// cable diameter (design.ts) instead of a fixed constant, this sweeps every
+// shape/mount combination at both a thin (USB, 3.8mm) and a thick (cord,
+// 8mm) cable to pin that the bigger flange thickness a real cord now
+// derives never reintroduces a manifold-3d robustness problem (issue #41)
+// in ANY of these paths, not just the keyhole recess #41 pinned directly.
+async function assertSinglePieceManifold(mesh: { positions: Float32Array; indices: Uint32Array }, label: string) {
+  const wasm = await Module();
+  wasm.setup();
+  const m = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: mesh.positions, triVerts: mesh.indices }));
+  try {
+    expect(m.status(), `${label}: status`).toBe("NoError");
+    const pieces = m.decompose();
+    try {
+      expect(pieces.length, `${label}: connected components`).toBe(1);
+    } finally {
+      for (const p of pieces) p.delete();
+    }
+  } finally {
+    m.delete();
+  }
+}
+
+describe("every part stays a single-piece manifold across every mount type and shape (issue #43)", () => {
+  const SHAPES: Array<{ label: string; shape: CoilSpec["shape"] }> = [
+    { label: "round", shape: { kind: "round" } },
+    { label: "sq", shape: { kind: "sq", cornerRadius: 15 } },
+    { label: "tri", shape: { kind: "tri", cornerRadius: 15 } },
+  ];
+  const MOUNTS: CoilSpec["mount"][] = ["none", "keyhole", "skadis"];
+  const WIRES: Array<{ label: string; diameter: number; type: CoilSpec["wire"]["type"] }> = [
+    { label: "USB 3.8mm", diameter: 3.8, type: "usb" },
+    { label: "cord 8mm", diameter: 8, type: "stiff" },
+  ];
+
+  for (const { label: shapeLabel, shape } of SHAPES) {
+    for (const mount of MOUNTS) {
+      for (const { label: wireLabel, diameter, type } of WIRES) {
+        it(`${shapeLabel} core, mount=${mount}, ${wireLabel}`, async () => {
+          const d = await design({
+            wire: { length: 3000, diameter, type },
+            shape,
+            windingQuality: 0.7,
+            coreSize: { locked: true, dimension: "outer", value: 100 },
+            height: { locked: true, value: 60 },
+            layers: { locked: true, value: 1 },
+            objective: "minVolume",
+            topCap: "auto",
+            joint: "press",
+            tolerance: 0.2,
+            print: { bedX: 256, bedY: 256, bedZ: 256 },
+            mount,
+            plateJoint: "glue",
+          });
+          for (const part of d.parts) {
+            await assertSinglePieceManifold(part.mesh, `${shapeLabel}/${mount}/${wireLabel}/${part.name}`);
+          }
+        });
+      }
+    }
+  }
 });

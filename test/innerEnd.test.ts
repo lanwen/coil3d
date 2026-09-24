@@ -9,8 +9,10 @@ import type { CoilSpec, ShapeSpec } from "../src/core";
 // "vitest check through design()" convention test/design.test.ts already
 // uses for mount.ts's `layoutKeyholeMount`.
 import { layoutInnerEnd } from "../src/core/innerEnd";
+import { fuseFlange } from "../src/core/manifold";
 import { pointAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
+import { buildWall } from "../src/core/wall";
 
 // Issue #8 acceptance criteria: "The keyhole is sized from the cable diameter
 // plus tolerance, and placed at the groove start angle", "A recessed radial
@@ -157,27 +159,35 @@ describe("inner-end fixing: bottom rim keyhole and channel (issue #8)", () => {
   });
 
   it("removes real material from the core (the cutout, not a no-op)", async () => {
-    const withoutCut = await design(baseSpec({ wire: { length: 2000, diameter: 0.001, type: "usb" } }));
-    const withCut = await design(baseSpec({ wire: { length: 2000, diameter: 3.8, type: "usb" } }));
-    // Both designs solve to (very nearly) the same envelope/flange size at
-    // this locked outer/height/layers, so any volume difference beyond a
-    // rounding error is the keyhole+channel cutout itself, not a different
-    // solved geometry. A near-zero wire diameter shrinks the cutout to
-    // (near) nothing without disabling the feature (it's unconditional).
-    const thin = await assertManifold(withoutCut.mesh, "near-zero-diameter core");
-    const thick = await assertManifold(withCut.mesh, "3.8mm core");
+    // Issue #43: the flange's own thickness now tracks the wire diameter
+    // too (a bigger cable also wants a thicker flange for a flush first
+    // layer), so comparing two designs at different diameters (the
+    // previous approach here) no longer isolates the cutout's own effect --
+    // most of the volume delta would just be the thicker flange. Instead,
+    // build the SAME wall/flange one design() actually produced (via its
+    // own public `wallSpec`/`flangeSpec`) and call the exported
+    // `fuseFlange` a second time with no `innerEnd` cutter at all, so the
+    // only difference between the two meshes is the cutout itself.
+    const d = await design(baseSpec({ wire: { length: 2000, diameter: 3.8, type: "usb" } }));
+    const wall = buildWall(d.wallSpec);
+    const withoutCut = await fuseFlange(wall, d.flangeSpec); // no innerEnd argument -- no cutout at all
+    const thick = await assertManifold(d.mesh, "3.8mm core, with cutout");
+    const thin = await assertManifold(withoutCut, "3.8mm core, no cutout (reference)");
     expect(thin - thick).toBeGreaterThan(20); // a few tens of mm^3, comfortably more than mesh noise
   });
 
-  it("the mount's own recess (issue #13) caps the channel depth (with a warning) instead of growing the flange thickness further", async () => {
+  it("the mount's own recess (issue #13) grows the flange thickness further (issue #43), so the channel still reaches its ideal depth", async () => {
     const none = await design(baseSpec({ mount: "none", coreSize: { locked: true, dimension: "outer", value: 100 }, height: { locked: true, value: 60 } }));
     const keyhole = await design(baseSpec({ mount: "keyhole", coreSize: { locked: true, dimension: "outer", value: 100 }, height: { locked: true, value: 60 } }));
-    // Flange thickness is bumped ONLY for the mount's own fit (issue #13,
-    // MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT), never further just to make
-    // room for a fuller inner-end channel on top of it.
+    // Issue #43: the flange is now thick enough for the full-depth channel
+    // PLUS the mount's own recess (design.ts), rather than issue #13's
+    // original choice of capping the channel to whatever a fixed
+    // MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT left over -- so the keyhole
+    // design's flange is thicker than "none"'s, but NEITHER design warns
+    // about a shallow channel any more.
     expect(keyhole.flangeSpec.thickness).toBeGreaterThan(none.flangeSpec.thickness);
-    expect(keyhole.warnings.some((w) => /channel is only .* mm deep/i.test(w))).toBe(true);
-    expect(keyhole.warnings.some((w) => /channel is only .* mm deep/i.test(w))).not.toBe(none.warnings.some((w) => /channel is only .* mm deep/i.test(w)));
+    expect(keyhole.warnings.some((w) => /channel is only .* mm deep/i.test(w))).toBe(false);
+    expect(none.warnings.some((w) => /channel is only .* mm deep/i.test(w))).toBe(false);
     await assertManifold(keyhole.mesh, "mount + inner-end channel");
   });
 

@@ -25,6 +25,7 @@ import {
   FLANGE_MARGIN,
   FLANGE_THICKNESS,
   GROOVE_DEPTH_FACTOR,
+  INNER_CHANNEL_MIN_SHELF,
   MARGIN,
   MIN_BORE_CORNER_RADIUS,
   MIN_BORE_RADIUS,
@@ -32,6 +33,7 @@ import {
   MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
   MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE,
   OPENGRID_PITCH,
+  SCREW_MOUNT_RECESS_DEPTH,
   SKADIS_PITCH,
   SKADIS_ROW_STAGGER,
   FINAL_ROWS_PER_PITCH,
@@ -130,40 +132,50 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // radial and axial minimums a real screw mount needs).
   const margin = wantsKeyhole ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline)) : baseMargin;
   const minPlateThickness = mountKindForPlate ? (spec.plateJoint === "snap" ? MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE : MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE) : 0;
+  // Issue #43: the bottom flange is thick enough for a FULL-DEPTH inner-end
+  // channel (idealChannelDepth, ~= the cable's own diameter) plus its own
+  // load-bearing shelf -- the baseline every design now gets, mount or not
+  // (`channelOnlyThickness`), so the wound cable's first turn actually lies
+  // flush instead of riding over a bump (the flange used to stay at a fixed
+  // FLANGE_THICKNESS/MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT regardless of the
+  // cable, and `resolveChannelDepth` below silently capped the channel to
+  // whatever that left -- see #41, which this was blocked on: growing the
+  // flange for this used to trip a manifold-3d boolean-robustness bug in
+  // the mount's own recess cut at several thickness values, now fixed).
+  // The screw-keyhole mount and the clip mount plate can each still push
+  // thickness further for their OWN fit (the keyhole needs its own recess
+  // depth reserved on the OTHER face too, on top of the channel; the plate
+  // needs its anchor cut's own minimum) -- only THAT extra growth beyond
+  // the channel's own baseline is worth a "thickness increased" warning
+  // (unchanged from before #43): the channel-driven baseline itself is the
+  // new normal, not a surprise.
+  const idealDepth = idealChannelDepth(wireDiameter);
+  const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealDepth + INNER_CHANNEL_MIN_SHELF);
   const thickness = wantsKeyhole
-    ? Math.max(FLANGE_THICKNESS, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT)
+    ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT, idealDepth + INNER_CHANNEL_MIN_SHELF + SCREW_MOUNT_RECESS_DEPTH)
     : mountKindForPlate
-      ? Math.max(FLANGE_THICKNESS, minPlateThickness)
-      : FLANGE_THICKNESS;
+      ? Math.max(channelOnlyThickness, minPlateThickness)
+      : channelOnlyThickness;
   if (wantsKeyhole && margin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
   }
-  if (wantsKeyhole && thickness > FLANGE_THICKNESS) {
+  if (wantsKeyhole && thickness > channelOnlyThickness + 1e-9) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
   }
-  if (mountKindForPlate && thickness > FLANGE_THICKNESS) {
+  if (mountKindForPlate && thickness > channelOnlyThickness + 1e-9) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the mount plate's alignment features.`);
   }
 
-  // Issue #8 (inner-end fixing): the recessed channel on the flange's inner
-  // (z=0) face wants to be roughly a full cable diameter deep, so the wound
-  // cable's first turn lies flush rather than proud of the surrounding
-  // annulus (INNER_CHANNEL_DEPTH_FACTOR). `resolveChannelDepth` caps it to
-  // whatever the flange's own (already-resolved) thickness leaves below a
-  // small shelf, and below the screw-keyhole mount's own recess on the
-  // OTHER face too when one is present -- so the two never meet in the
-  // middle -- rather than growing the flange's thickness for it (see that
-  // function's own comment for why: doing so tripped an unrelated,
-  // pre-existing manifold-3d robustness bug in the mount's own recess cut
-  // at several thickness values). Warn when the mount is what forced a
-  // shallower-than-ideal channel; a channel capped by the DEFAULT thickness
-  // alone (no mount) is the ordinary case and doesn't warn -- flange
-  // thickness otherwise never changes, see test/design.test.ts's "flange at
-  // its usual thickness" case.
+  // `resolveChannelDepth` caps the channel to whatever `thickness` leaves
+  // below a small shelf (and below the screw-keyhole mount's own recess on
+  // the OTHER face too, when one is present) -- with `thickness` now
+  // ALWAYS provisioned for the full ideal depth (see above), this never
+  // actually caps it in the ordinary case; the warning below is now only
+  // reachable for a genuinely exotic input this sizing doesn't anticipate.
   const channelDepth = resolveChannelDepth(wireDiameter, thickness, wantsKeyhole);
-  if (wantsKeyhole && channelDepth < idealChannelDepth(wireDiameter) - 1e-6) {
+  if (channelDepth < idealDepth - 1e-6) {
     warnings.push(
-      `The inner-end channel is only ${channelDepth.toFixed(1)} mm deep, limited by the screw-keyhole mount's own recess on the flange's other face; the first turn may sit slightly proud of the surrounding flange face.`,
+      `The inner-end channel is only ${channelDepth.toFixed(1)} mm deep, limited by the flange's own thickness; the first turn may sit slightly proud of the surrounding flange face.`,
     );
   }
   // Kept (not just its warning) so it can be surfaced on the returned
