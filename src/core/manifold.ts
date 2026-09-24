@@ -21,8 +21,10 @@ function getWasm(): Promise<ManifoldToplevel> {
 }
 
 export interface FlangeSpec {
+  /** Core outer radius; the flange extends `margin` beyond this, mm. */
   outerRadius: number;
   boreRadius: number;
+  /** How far beyond `outerRadius` the flange extends, mm (docs/research.md §1). */
   margin: number;
   thickness: number;
   /** Circular segments used for the flange's own circles. */

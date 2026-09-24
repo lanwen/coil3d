@@ -1,21 +1,29 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
+import type { CoilSpec } from "../src/core";
 
 // These tests exercise ONLY the core's public interface (design,
 // exportDesign). manifold-3d and a hand-rolled STL parser are used here as
 // independent verification tools, not as access to core internals.
 
+const baseSpec: CoilSpec = {
+  wire: { length: 2000, diameter: 3.8, type: "usb" },
+  shape: { kind: "round" },
+  windingQuality: 0.7,
+  coreSize: { locked: true, dimension: "outer", value: 30 },
+  height: { locked: true, value: 40 },
+  layers: { locked: true, value: 1 },
+  objective: "minVolume",
+};
+
 describe("design().mesh is a valid, expected manifold", () => {
   it("is watertight (manifold-3d accepts it) with the expected genus, and its volume is in the right ballpark", async () => {
-    const spec = { wireLength: 2000, wireDiameter: 3.8, coreSize: 30 };
-    const d = await design(spec);
+    const d = await design(baseSpec);
 
     const wasm = await Module();
     wasm.setup();
-    const manifold = new wasm.Manifold(
-      new wasm.Mesh({ numProp: 3, vertProperties: d.mesh.positions, triVerts: d.mesh.indices }),
-    );
+    const manifold = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: d.mesh.positions, triVerts: d.mesh.indices }));
     try {
       expect(manifold.status()).toBe("NoError");
       // A tube (wall) with a bottom flange fused on is still topologically a
@@ -24,11 +32,13 @@ describe("design().mesh is a valid, expected manifold", () => {
 
       // Independent analytic estimate (docs/research.md §4, S1 spike
       // RESULT.md): tube volume + flange volume - groove volume. Reproduces
-      // the ticket's fixed constants (teardrop groove depth ~= 0.3*d) by
-      // contract, not by importing core internals.
-      const grooveDepth = 0.3 * spec.wireDiameter;
+      // the core's fixed constants (teardrop groove depth ~= 0.3*d) by
+      // contract, not by importing core internals. The flange now sizes to
+      // the solved envelope (issue #5), not just outerRadius + margin.
+      const wireDiameter = baseSpec.wire.diameter;
+      const grooveDepth = 0.3 * wireDiameter;
       const clearance = 0.3;
-      const rho = spec.wireDiameter / 2 + clearance / 2;
+      const rho = wireDiameter / 2 + clearance / 2;
       const c = rho - grooveDepth;
       const s45 = Math.SQRT1_2;
       const dz45 = rho * s45;
@@ -48,11 +58,16 @@ describe("design().mesh is a valid, expected manifold", () => {
         if (v < 0) grooveArea += -v * (span / N);
       }
       const taperTurns = 0.5;
-      const grooveVolume = grooveArea * d.perimeter * Math.max(0, d.turns - taperTurns);
-      const tubeVolume = Math.PI * (d.outerRadius ** 2 - d.boreRadius ** 2) * d.height;
-      const flangeMargin = 4;
+      const turns = d.solution.layerResults[0].turns;
+      const perimeter = d.solution.layerResults[0].perimeter;
+      const grooveVolume = grooveArea * perimeter * Math.max(0, turns - taperTurns);
+
+      const outerRadius = d.solution.outerSize / 2;
+      const boreRadius = d.solution.innerBore / 2;
+      const tubeVolume = Math.PI * (outerRadius ** 2 - boreRadius ** 2) * d.solution.height;
       const flangeThickness = 3;
-      const flangeVolume = Math.PI * ((d.outerRadius + flangeMargin) ** 2 - d.boreRadius ** 2) * flangeThickness;
+      const flangeOuterRadius = d.solution.flangeSize / 2;
+      const flangeVolume = Math.PI * (flangeOuterRadius ** 2 - boreRadius ** 2) * flangeThickness;
       const analyticVolume = tubeVolume - grooveVolume + flangeVolume;
 
       const actualVolume = manifold.volume();
@@ -62,11 +77,21 @@ describe("design().mesh is a valid, expected manifold", () => {
       manifold.delete();
     }
   });
+
+  it("sizes the flange to clear a second wound layer (issue #5: layer count affects the flange)", async () => {
+    const twoLayerSpec: CoilSpec = { ...baseSpec, layers: { locked: true, value: 2 }, height: { locked: true, value: 60 } };
+    const oneLayer = await design(baseSpec);
+    const twoLayers = await design(twoLayerSpec);
+    expect(twoLayers.solution.envelopeDiameter).toBeGreaterThan(oneLayer.solution.envelopeDiameter);
+    expect(twoLayers.solution.flangeSize).toBeGreaterThan(oneLayer.solution.flangeSize);
+    expect(twoLayers.solution.capsAuto).toBe(true);
+    expect(oneLayer.solution.capsAuto).toBe(false);
+  });
 });
 
 describe("exportDesign(design, 'stl')", () => {
   it("produces a binary STL that parses back to the same triangles", async () => {
-    const d = await design({ wireLength: 800, wireDiameter: 3.8, coreSize: 30 });
+    const d = await design({ ...baseSpec, wire: { length: 800, diameter: 3.8, type: "usb" } });
     const stl = await exportDesign(d, "stl");
 
     const dv = new DataView(stl.buffer, stl.byteOffset, stl.byteLength);
@@ -123,8 +148,7 @@ function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): nu
 
 describe("exportDesign(design, 'step')", () => {
   it("re-imports as one valid solid with volume matching the mesh", async () => {
-    const spec = { wireLength: 1000, wireDiameter: 3.8, coreSize: 30 };
-    const d = await design(spec);
+    const d = await design({ ...baseSpec, wire: { length: 1000, diameter: 3.8, type: "usb" } });
     const stepBytes = await exportDesign(d, "step");
     expect(stepBytes.byteLength).toBeGreaterThan(0);
 

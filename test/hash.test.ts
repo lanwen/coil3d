@@ -8,22 +8,69 @@ describe("parseHash / toHash", () => {
     expect(parseHash("#")).toEqual({ spec: DEFAULT_SPEC });
   });
 
-  it("round-trips a non-default spec", () => {
-    const spec: CoilSpec = { wireLength: 5000, wireDiameter: 8, coreSize: 60 };
-    const hash = toHash(spec);
-    expect(parseHash(hash)).toEqual({ spec });
-  });
-
   it("always stamps the version, and omits fields equal to the default", () => {
-    const hash = toHash(DEFAULT_SPEC);
-    expect(hash).toBe("#v=1");
+    expect(toHash(DEFAULT_SPEC)).toBe("#v=1");
   });
 
   it("accepts a hash that only overrides one field", () => {
     const hash = "#v=1&d=6";
     expect(parseHash(hash)).toEqual({
-      spec: { ...DEFAULT_SPEC, wireDiameter: 6 },
+      spec: { ...DEFAULT_SPEC, wire: { ...DEFAULT_SPEC.wire, diameter: 6 } },
     });
+  });
+
+  it("round-trips a non-default spec with default locks", () => {
+    const spec: CoilSpec = {
+      ...DEFAULT_SPEC,
+      wire: { length: 5000, diameter: 8, type: "usb" },
+      coreSize: { locked: true, dimension: "outer", value: 60 },
+    };
+    expect(parseHash(toHash(spec))).toEqual({ spec });
+  });
+
+  it("round-trips locking height and outer size (issue #5 example: lock=h,outer)", () => {
+    const spec: CoilSpec = {
+      ...DEFAULT_SPEC,
+      coreSize: { locked: true, dimension: "outer", value: 160 },
+      height: { locked: true, value: 75 },
+      layers: { locked: false },
+    };
+    const hash = toHash(spec);
+    expect(hash).toContain("lock=");
+    const params = new URLSearchParams(hash.replace(/^#/, ""));
+    expect(new Set(params.get("lock")!.split(","))).toEqual(new Set(["h", "outer"]));
+    expect(parseHash(hash)).toEqual({ spec });
+  });
+
+  it("round-trips a locked inner bore, a custom wire type, quality and objective", () => {
+    const spec: CoilSpec = {
+      wire: { length: 3000, diameter: 4, type: "custom", customBendMultiplier: 7 },
+      shape: { kind: "round" },
+      windingQuality: 0.4,
+      coreSize: { locked: true, dimension: "inner", value: 25 },
+      height: { locked: true, value: 50 },
+      layers: { locked: false },
+      objective: "aspectRatio",
+    };
+    expect(parseHash(toHash(spec))).toEqual({ spec });
+  });
+
+  it("round-trips a fully free (0-locked) and a fully locked (3-locked) spec", () => {
+    const free: CoilSpec = { ...DEFAULT_SPEC, coreSize: { locked: false }, layers: { locked: false } };
+    expect(parseHash(toHash(free))).toEqual({ spec: free });
+
+    const fullyLocked: CoilSpec = { ...DEFAULT_SPEC, height: { locked: true, value: 45 } };
+    expect(parseHash(toHash(fullyLocked))).toEqual({ spec: fullyLocked });
+  });
+
+  it("old links without a lock param keep working (default lock: outer size + layers)", () => {
+    const { spec, notice } = parseHash("#v=1&L=1000&d=4&size=40");
+    expect(notice).toBeUndefined();
+    expect(spec.coreSize).toEqual({ locked: true, dimension: "outer", value: 40 });
+    expect(spec.layers).toEqual({ locked: true, value: 1 });
+    expect(spec.height).toEqual({ locked: false });
+    expect(spec.wire.length).toBe(1000);
+    expect(spec.wire.diameter).toBe(4);
   });
 
   it("falls back to defaults with a notice on an unsupported version", () => {
@@ -38,8 +85,20 @@ describe("parseHash / toHash", () => {
     expect(notice).toBeDefined();
   });
 
-  it("falls back to defaults with a notice on an out-of-range value", () => {
+  it("falls back to defaults with a notice on an out-of-range value (cable length above 15 m)", () => {
     const { spec, notice } = parseHash("#v=1&L=999999");
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
+  });
+
+  it("falls back to defaults with a notice on an unknown lock token", () => {
+    const { spec, notice } = parseHash("#v=1&lock=bogus");
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
+  });
+
+  it("falls back to defaults with a notice when both outer and inner are locked", () => {
+    const { spec, notice } = parseHash("#v=1&lock=outer,inner&size=40");
     expect(spec).toEqual(DEFAULT_SPEC);
     expect(notice).toBeDefined();
   });
