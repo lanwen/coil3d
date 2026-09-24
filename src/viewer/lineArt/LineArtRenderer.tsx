@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
@@ -7,13 +7,16 @@ import { FXAAShader } from "three/examples/jsm/shaders/FXAAShader.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { EdgeShader } from "./edgeShader";
 import { MAX_THICKEN_RADIUS, ThickenShader } from "./thickenShader";
+import { directionAndUpOf, getPreset, presetQuaternion, type PresetId } from "./presets";
 
-// A 3/4 "assembly manual" view: the coil stands on its flange (z up) and is
-// seen from about 32 degrees above, so the open top end and the bore show.
-const VIEW_DIR = new THREE.Vector3(1, -1, 0.9).normalize();
-const UP = new THREE.Vector3(0, 0, 1);
-// The model's projected bounds fill this fraction of the canvas's tighter axis.
-const FILL = 0.75;
+export type Projection = "ortho" | "perspective";
+
+// The model's projected bounds fill this fraction of the canvas's tighter
+// axis by default; a caller can ask for a tighter (larger) fraction, e.g.
+// CoilViewer biases this up a little while exploded (issue #15, issue #9
+// review: "consider a slight camera reframe while exploded" -- the joint
+// features read clearer when the frame doesn't also reserve room around them).
+const DEFAULT_FILL = 0.75;
 // Line weight (thicken radius, CSS px) scales gently with the model's
 // on-screen diagonal (docs/research.md §10b), clamped so it stays a thin pen
 // line on small canvases and never fuses the groove rings on large ones.
@@ -23,6 +26,48 @@ const MAX_LINE_WEIGHT = 1.6;
 // A depth step counts as an occlusion edge when it exceeds this many
 // line-pass pixels' worth of world-space distance.
 const DEPTH_STEP_PX = 4;
+// Perspective camera's fixed field of view is SOLVED per fit (see
+// applyFraming) to make the given half-height fill the frame at the fit's
+// own distance -- this is just the seed used before the first real fit.
+const DEFAULT_PERSPECTIVE_FOV = 35;
+
+// Camera transition durations (issue #15), `prefers-reduced-motion` skips
+// both entirely (see LineArtRendererProps.reducedMotion): presets slerp the
+// VIEW (a real rotation, docs/research.md §10b/"dual persp/ortho camera rig
+// ... preset views with slerp transitions"); parameter edits only ease the
+// FIT (center/radius/half-height) toward the new geometry's own bounds --
+// the view direction never moves for those.
+const ORIENT_TWEEN_MS = 500;
+const SCALE_TWEEN_MS = 400;
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+// How many extra animation frames a one-shot camera change (an instant
+// preset/projection snap, or a fresh mount/resize fit) asks for beyond its
+// own single `invalidate()`. A single isolated render, with nothing else
+// re-invalidating before or after it, isn't reliably picked up by every
+// headless-Chromium screenshot pipeline (observed with SwiftShader software
+// rendering under `frameloop="demand"`): the WebGL draw call itself is
+// correct (verified against the canvas's own `toDataURL()`), but the OS-
+// level compositor snapshot Playwright's element screenshots go through can
+// still return a stale frame. A short burst of consecutive frames -- the
+// same thing a continuously-invalidating tween (ExplodedPart's damp loop,
+// or this file's own orientAnim/scaleAnim) gets for free every time -- gives
+// the compositor several chances to catch up instead of just one.
+const SETTLE_KICK_FRAMES = 4;
+
+function kickInvalidate(invalidate: () => void) {
+  invalidate();
+  let remaining = SETTLE_KICK_FRAMES;
+  const tick = () => {
+    invalidate();
+    remaining -= 1;
+    if (remaining > 0) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
 
 /**
  * Pixels per CSS pixel for the edge and thicken passes. On a 1x screen they
@@ -40,10 +85,191 @@ function disableBlendAndDepth(material: THREE.ShaderMaterial) {
   material.transparent = false;
 }
 
+function isOrthographic(camera: THREE.Camera): camera is THREE.OrthographicCamera {
+  return (camera as THREE.OrthographicCamera).isOrthographicCamera === true;
+}
+
+/**
+ * A camera framing target, in world units: `center` is where the orbit
+ * target sits, `r` is the model's own bounding-sphere radius (drives near/
+ * far and the perspective camera's distance), and `halfHeight`/`extent*` are
+ * the projected-bounds fit (docs/research.md §10b's auto-refit), computed
+ * for a SPECIFIC view direction -- see computeFit.
+ */
+interface Fit {
+  center: THREE.Vector3;
+  r: number;
+  halfHeight: number;
+  extentX: number;
+  extentY: number;
+}
+
+// Below this relative difference in scale and centre, two fits are treated
+// as "the same view" and applied instantly rather than tweened -- see the
+// geometry-change effect's own doc comment (the issue #7 draft -> final
+// resolution bump is the case this exists for).
+const FIT_EQUAL_TOLERANCE = 0.01;
+
+function fitsNearlyEqual(a: Fit, b: Fit): boolean {
+  const scaleRef = Math.max(a.halfHeight, b.halfHeight, 1e-6);
+  return Math.abs(a.halfHeight - b.halfHeight) / scaleRef < FIT_EQUAL_TOLERANCE && a.center.distanceTo(b.center) / scaleRef < FIT_EQUAL_TOLERANCE;
+}
+
+/**
+ * The camera framing fit for `geometry`, looking along `direction` (a unit
+ * vector, orbit target -> camera) with `up` resolving roll: the model's
+ * bounding-sphere radius, plus the projected bounds of every vertex, fit to
+ * `fill` of the canvas's tighter axis.
+ *
+ * Pure math, no THREE.Camera involved (unlike the pre-#15 version of this
+ * reframe, which mutated the live camera to compute this): a rotation-only
+ * "looking along `direction`" frame is built directly, so this can be
+ * called freely for orientations no camera currently has -- e.g. every
+ * frame of a preset's slerp, or to compute a tween's "to" fit before the
+ * view has actually turned there.
+ *
+ * `projection` matters here, not just in applyFraming: ortho's bounds are a
+ * flat, depth-independent box (the parallel-projected footprint), but a
+ * perspective camera's frustum must additionally clear whichever vertex
+ * sits CLOSEST to the camera (foreshortening makes it project bigger than
+ * the flat box alone implies) -- so for "perspective" this also walks every
+ * vertex's real view-space depth at the fit's own candidate camera position
+ * (distance = 2r, the same convention applyFraming positions the camera at)
+ * and tracks the largest half-angle any vertex actually needs, guaranteeing
+ * nothing clips regardless of the model's own depth extent.
+ */
+function computeFit(geometry: THREE.BufferGeometry, direction: THREE.Vector3, up: THREE.Vector3, aspect: number, fill: number, projection: Projection): Fit | null {
+  geometry.computeBoundingSphere();
+  const sphere = geometry.boundingSphere;
+  if (!sphere || sphere.radius <= 0) return null;
+
+  // Rotation-only "camera" basis looking along `direction`: X/Y bounds
+  // projected through it don't depend on how far along `direction` the
+  // camera actually sits (only Z/depth would), so this is safe to use
+  // before any camera exists at this orientation.
+  const rotation = new THREE.Matrix4().lookAt(direction, new THREE.Vector3(0, 0, 0), up);
+  const inverse = rotation.clone().transpose(); // orthonormal: inverse === transpose
+  const distance = 2 * sphere.radius; // matches applyFraming's own camera-distance convention
+  const cameraPosition = sphere.center.clone().addScaledVector(direction, distance);
+
+  const pos = geometry.getAttribute("position");
+  const v = new THREE.Vector3();
+  const bounds = new THREE.Box2();
+  let maxTan = 0; // perspective only: largest tan(half-angle) any vertex needs at its own real depth
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    const flat = v.clone().sub(sphere.center).applyMatrix4(inverse);
+    bounds.expandByPoint(new THREE.Vector2(flat.x, flat.y));
+
+    if (projection === "perspective") {
+      const view = v.clone().sub(cameraPosition).applyMatrix4(inverse);
+      const depth = -view.z; // the camera looks down its own local -Z
+      if (depth > 1e-6) maxTan = Math.max(maxTan, Math.abs(view.y) / depth, Math.abs(view.x) / (depth * aspect));
+    }
+  }
+  const mid = bounds.getCenter(new THREE.Vector2());
+  const extent = bounds.getSize(new THREE.Vector2());
+  const shift = new THREE.Vector3(mid.x, mid.y, 0).applyMatrix4(rotation);
+
+  // Perspective's halfHeight is defined so applyFraming's own
+  // `fov = 2*atan(halfHeight/distance)` reproduces `tan(fov/2) = maxTan/fill`
+  // exactly -- i.e. "the world half-height a fov solved this way would show
+  // AT `distance`", the same quantity ortho's halfHeight already is.
+  const halfHeight = projection === "perspective" ? distance * (maxTan / fill) : Math.max(extent.y / 2, extent.x / 2 / aspect) / fill;
+
+  return {
+    center: sphere.center.clone().add(shift),
+    r: sphere.radius,
+    halfHeight,
+    extentX: extent.x,
+    extentY: extent.y,
+  };
+}
+
+/**
+ * Points `camera` at `fit` along `direction`/`up`, sizing its frustum (ortho:
+ * left/right/top/bottom; perspective: fov, solved so the SAME `fit.
+ * halfHeight` fills the frame at this fit's distance -- see the pixel-
+ * conversion note below) and recomputes the line-art pen weight from the
+ * ACTUAL projected bounds (issue #15: "line-art thickness must stay correct
+ * in perspective too"), valid for either projection because of that solve.
+ */
+function applyFraming(
+  camera: THREE.OrthographicCamera | THREE.PerspectiveCamera,
+  projection: Projection,
+  fit: Fit,
+  direction: THREE.Vector3,
+  up: THREE.Vector3,
+  aspect: number,
+  size: { width: number; height: number },
+  controls: OrbitControlsImpl | null,
+  thickenPass: ShaderPass,
+  gl: THREE.WebGLRenderer,
+) {
+  // Distance 2r to the centre, so the bounding sphere sits strictly between
+  // near and far and never reads as background (matches the pre-#15 ortho
+  // camera's own convention -- kept for perspective too, so near/far and the
+  // fov solve below share one distance).
+  const distance = 2 * fit.r;
+  camera.position.copy(fit.center).addScaledVector(direction, distance);
+  camera.up.copy(up);
+  camera.near = fit.r * 0.5;
+  camera.far = fit.r * 3.5;
+
+  if (isOrthographic(camera)) {
+    camera.left = -fit.halfHeight * aspect;
+    camera.right = fit.halfHeight * aspect;
+    camera.top = fit.halfHeight;
+    camera.bottom = -fit.halfHeight;
+    camera.zoom = 1;
+  } else {
+    camera.aspect = aspect;
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(fit.halfHeight / distance));
+  }
+  camera.lookAt(fit.center);
+  camera.updateProjectionMatrix();
+
+  if (controls) {
+    controls.target.copy(fit.center);
+    controls.update();
+  }
+
+  // cssPerWorld is exact for ortho (constant across depth) and, by
+  // construction, for perspective too: its fov was just solved so
+  // `fit.halfHeight` maps to exactly `size.height/2` px at `distance`.
+  const cssPerWorld = size.height / (2 * fit.halfHeight);
+  const diagonalCss = Math.hypot(fit.extentX, fit.extentY) * cssPerWorld;
+  const weight = THREE.MathUtils.clamp(diagonalCss * LINE_WEIGHT_PER_DIAGONAL_PX, MIN_LINE_WEIGHT, MAX_LINE_WEIGHT);
+  thickenPass.uniforms.thicknessPx.value = Math.min(weight * linePixelRatio(gl.getPixelRatio()), MAX_THICKEN_RADIUS - 0.5);
+
+  void projection; // kept in the signature for callers' clarity; behaviour above is driven by `camera`'s own type.
+}
+
+/**
+ * The direction/up the outgoing camera is CURRENTLY looking from, read off
+ * its own live transform (not `settledDirection`/`settledUp`, which only
+ * track presets/tweens -- a manual orbit-drag moves the camera without
+ * updating those). Used when the projection toggle re-fits the incoming
+ * camera to whatever the user is actually looking at right now.
+ */
+function currentOrientationOf(camera: THREE.Camera, target: THREE.Vector3): { direction: THREE.Vector3; up: THREE.Vector3 } {
+  const offset = new THREE.Vector3().subVectors(camera.position, target);
+  const direction = offset.lengthSq() > 1e-12 ? offset.normalize() : new THREE.Vector3(0, 0, 1);
+  return { direction, up: camera.up.clone() };
+}
+
 export interface LineArtRendererProps {
   /** The coil geometry to frame and outline. */
   geometry: THREE.BufferGeometry;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
+  /** Perspective/orthographic (issue #15 AC); toggling preserves on-screen scale. */
+  projection: Projection;
+  /** Which standard view to slerp toward (issue #15 AC). */
+  preset: PresetId;
+  /** How much of the canvas's tighter axis the fit targets -- see DEFAULT_FILL. */
+  fill?: number;
+  /** `prefers-reduced-motion`: every transition below becomes instant. */
+  reducedMotion: boolean;
 }
 
 /**
@@ -52,14 +278,41 @@ export interface LineArtRendererProps {
  *   normal+depth pass -> edge shader -> thicken (dilate) -> OutputPass
  *   (colour-space conversion) -> FXAA -> screen
  *
+ * Owns BOTH camera objects (ortho + perspective, issue #15) itself and
+ * activates whichever `projection` asks for via R3F's own default-camera
+ * slot, so `<OrbitControls>` (owned by CoilViewer) keeps working unchanged --
+ * it always follows R3F's current default camera.
+ *
  * Drives its own render targets and passes inside a `useFrame` with a
  * priority, which takes over R3F's render loop while mounted. The canvas
  * renders on demand (the pipeline is heavy on software GL), so every change
  * made here outside R3F's own props calls `invalidate()`.
  */
-export function LineArtRenderer({ geometry, controlsRef }: LineArtRendererProps) {
-  const { gl, scene, size, invalidate } = useThree();
-  const camera = useThree((s) => s.camera) as THREE.OrthographicCamera;
+export function LineArtRenderer({ geometry, controlsRef, projection, preset, fill = DEFAULT_FILL, reducedMotion }: LineArtRendererProps) {
+  const { gl, scene, size, invalidate, set } = useThree();
+
+  const orthoCamera = useMemo(() => {
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10000);
+    camera.up.set(0, 0, 1);
+    // Tells R3F's own resize handling (updateCamera in @react-three/fiber's
+    // web.ts) to keep its hands off: unmarked, it resets an ortho camera's
+    // frustum to the canvas's raw PIXEL dimensions (left=-width/2 etc.) on
+    // every resize -- overwriting our own world-unit frustum from
+    // applyFraming with something wildly different in scale. A resize (the
+    // sidebar's Kanit webfont finishing late enough to reflow the canvas by
+    // a few px is a real, if narrow, example) that lands between one of our
+    // own effects and R3F's would otherwise leave the LIVE camera in that
+    // pixel-sized state until something else happened to re-fit it.
+    (camera as unknown as { manual: boolean }).manual = true;
+    return camera;
+  }, []);
+  const perspectiveCamera = useMemo(() => {
+    const camera = new THREE.PerspectiveCamera(DEFAULT_PERSPECTIVE_FOV, 1, 0.1, 10000);
+    camera.up.set(0, 0, 1);
+    (camera as unknown as { manual: boolean }).manual = true; // see orthoCamera's own comment above
+    return camera;
+  }, []);
+  const activeCamera = projection === "ortho" ? orthoCamera : perspectiveCamera;
 
   const normalMaterial = useMemo(() => new THREE.MeshNormalMaterial({ side: THREE.DoubleSide }), []);
 
@@ -99,8 +352,30 @@ export function LineArtRenderer({ geometry, controlsRef }: LineArtRendererProps)
     [targets, passes, normalMaterial],
   );
 
-  // --- Resize: keep every target and texel uniform matched to the
-  // drawing-buffer size. ---
+  // --- Orientation/fit bookkeeping. `settled*` is the last fully-settled
+  // (non-animating) state; the two anim refs, when set, are progressed once
+  // per frame below and cleared on completion. ---
+  const initialDirection = useRef(getPreset(preset).direction.clone());
+  const initialUp = useRef(getPreset(preset).upHint.clone());
+  const settledDirection = useRef(initialDirection.current.clone());
+  const settledUp = useRef(initialUp.current.clone());
+  const settledFit = useRef<Fit | null>(null);
+  const orientAnim = useRef<{ from: THREE.Quaternion; to: THREE.Quaternion; start: number; duration: number } | null>(null);
+  const scaleAnim = useRef<{ from: Fit; to: Fit; start: number; duration: number } | null>(null);
+  const mountedGeometry = useRef(false);
+  const mountedProjection = useRef(false);
+  const mountedPreset = useRef(false);
+  const prevProjection = useRef(projection);
+
+  function aspectOf() {
+    return size.width > 0 && size.height > 0 ? size.width / size.height : 1;
+  }
+
+  // --- Resize (and mount): keep every target/texel uniform matched to the
+  // drawing-buffer size, and re-fit instantly (a viewport resize isn't a
+  // "parameter change" worth tweening). Deliberately NOT keyed on geometry/
+  // preset/projection -- those each own their own effect below, so they
+  // don't fight this one (an instant snap would undo their tweens/matches). ---
   useEffect(() => {
     const dpr = gl.getPixelRatio();
     const w = Math.max(1, Math.round(size.width * dpr));
@@ -115,69 +390,111 @@ export function LineArtRenderer({ geometry, controlsRef }: LineArtRendererProps)
     passes.edgePass.uniforms.texel.value.set(1 / lw, 1 / lh);
     passes.thickenPass.uniforms.texel.value.set(1 / lw, 1 / lh);
     passes.fxaaPass.uniforms.resolution.value.set(1 / w, 1 / h);
-    invalidate();
-  }, [gl, size, targets, passes, invalidate]);
 
-  // --- Reframe: on every geometry or canvas-size change, point the camera
-  // along VIEW_DIR, fit the frustum to the model's projected vertices, and
-  // recompute the line weight from the projected bounds. ---
+    const fit = computeFit(geometry, settledDirection.current, settledUp.current, aspectOf(), fill, projection);
+    if (fit) {
+      applyFraming(activeCamera, projection, fit, settledDirection.current, settledUp.current, aspectOf(), size, controlsRef.current, passes.thickenPass, gl);
+      settledFit.current = fit;
+    }
+    kickInvalidate(invalidate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gl, size.width, size.height, targets, passes]);
+
+  // --- Parameter changes (issue #15 AC "tweened parameter changes"):
+  // whenever the geometry itself changes (a new design), ease the FIT
+  // (center/radius/half-height) from wherever it was to the new geometry's
+  // own bounds. The view direction never moves here -- see the preset
+  // effect below for that. First mount snaps instantly (nothing to tween
+  // from yet); so does reduced motion, and so does a geometry swap whose
+  // fit barely moved -- notably the issue #7 draft -> final resolution bump
+  // (same design, just a denser mesh): its own bounding sphere isn't
+  // bit-identical to the draft's, so every geometry change would otherwise
+  // kick off a (nearly imperceptible, but real, non-zero-duration) tween
+  // even when nothing a user would call "a parameter change" happened,
+  // which made e2e screenshots taken shortly after load flaky depending on
+  // exactly when the final mesh settled relative to the screenshot. ---
   useEffect(() => {
-    geometry.computeBoundingSphere();
-    const sphere = geometry.boundingSphere;
-    if (!sphere || sphere.radius <= 0) return;
-    const r = sphere.radius;
-    const aspect = size.width > 0 && size.height > 0 ? size.width / size.height : 1;
-
-    camera.up.copy(UP);
-    camera.position.copy(sphere.center).addScaledVector(VIEW_DIR, 2 * r);
-    camera.lookAt(sphere.center);
-    camera.updateMatrixWorld(true);
-
-    // Projected bounds of the actual vertices, in camera space.
-    const pos = geometry.getAttribute("position");
-    const inverse = camera.matrixWorldInverse;
-    const v = new THREE.Vector3();
-    const bounds = new THREE.Box2();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(inverse);
-      bounds.expandByPoint(new THREE.Vector2(v.x, v.y));
+    const toFit = computeFit(geometry, settledDirection.current, settledUp.current, aspectOf(), fill, projection);
+    if (!toFit) return;
+    const from = settledFit.current;
+    if (!mountedGeometry.current || reducedMotion || (from && fitsNearlyEqual(from, toFit))) {
+      mountedGeometry.current = true;
+      applyFraming(activeCamera, projection, toFit, settledDirection.current, settledUp.current, aspectOf(), size, controlsRef.current, passes.thickenPass, gl);
+      settledFit.current = toFit;
+      orientAnim.current = null;
+      scaleAnim.current = null;
+    } else {
+      scaleAnim.current = { from: from ?? toFit, to: toFit, start: performance.now(), duration: SCALE_TWEEN_MS };
     }
-    const mid = bounds.getCenter(new THREE.Vector2());
-    const extent = bounds.getSize(new THREE.Vector2());
+    kickInvalidate(invalidate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geometry]);
 
-    // Slide the camera sideways so the projected bounds are centred on its
-    // axis; orbit then pivots around the model's visual middle.
-    const shift = new THREE.Vector3(mid.x, mid.y, 0).applyQuaternion(camera.quaternion);
-    camera.position.add(shift);
-    const target = sphere.center.clone().add(shift);
-
-    const halfHeight = Math.max(extent.y / 2, extent.x / 2 / aspect) / FILL;
-    camera.left = -halfHeight * aspect;
-    camera.right = halfHeight * aspect;
-    camera.top = halfHeight;
-    camera.bottom = -halfHeight;
-    camera.zoom = 1;
-    // Distance 2r to the centre, so the bounding sphere (and every orbit of
-    // it) sits strictly between near and far and never reads as background.
-    camera.near = r * 0.5;
-    camera.far = r * 3.5;
-    camera.updateProjectionMatrix();
-
-    const controls = controlsRef.current;
-    if (controls) {
-      controls.target.copy(target);
-      controls.update();
+  // --- Preset views (issue #15 AC "slerped camera transitions"): slerp the
+  // orientation quaternion from wherever the view currently is to the
+  // preset's. Reduced motion jumps straight there. ---
+  useEffect(() => {
+    if (!mountedPreset.current) {
+      mountedPreset.current = true;
+      return; // the initial orientation refs already match this preset -- nothing to animate.
     }
+    const from = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().lookAt(settledDirection.current, new THREE.Vector3(), settledUp.current));
+    const to = presetQuaternion(preset);
+    if (reducedMotion) {
+      const { direction, up } = directionAndUpOf(to);
+      const fit = computeFit(geometry, direction, up, aspectOf(), fill, projection);
+      settledDirection.current = direction;
+      settledUp.current = up;
+      if (fit) {
+        applyFraming(activeCamera, projection, fit, direction, up, aspectOf(), size, controlsRef.current, passes.thickenPass, gl);
+        settledFit.current = fit;
+      }
+      orientAnim.current = null;
+    } else {
+      orientAnim.current = { from, to, start: performance.now(), duration: ORIENT_TWEEN_MS };
+    }
+    kickInvalidate(invalidate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preset]);
 
-    const cssPerWorld = size.height / (2 * halfHeight);
-    const diagonalCss = Math.hypot(extent.x, extent.y) * cssPerWorld;
-    const weight = THREE.MathUtils.clamp(diagonalCss * LINE_WEIGHT_PER_DIAGONAL_PX, MIN_LINE_WEIGHT, MAX_LINE_WEIGHT);
-    passes.thickenPass.uniforms.thicknessPx.value = Math.min(
-      weight * linePixelRatio(gl.getPixelRatio()),
-      MAX_THICKEN_RADIUS - 0.5,
-    );
-    invalidate();
-  }, [geometry, size.width, size.height, camera, controlsRef, gl, passes, invalidate]);
+  // --- Projection toggle (issue #15 AC "preserves on-screen scale"):
+  // re-fits the INCOMING camera to the same `fill` the outgoing one was
+  // last fit to, looking from wherever the outgoing camera actually
+  // currently is (a manual orbit-drag moves the live camera without
+  // touching `settledDirection`/`settledUp`, so those would silently
+  // discard it here otherwise). This is deliberately a fresh `computeFit`,
+  // not a direct read-and-copy of the outgoing camera's own on-screen
+  // scale: perspective's own fit (see computeFit's doc comment) already
+  // pads for foreshortening on a model with real depth, which a flat
+  // scale-copy doesn't account for and isn't safely invertible back out of
+  // either (earlier version of this effect: ortho -> perspective ->
+  // ortho drifted a real, visible amount because of exactly that). Fitting
+  // both directions through the SAME `fill` keeps the toggle visually
+  // continuous (no jarring zoom jump) AND makes it exactly reversible.
+  // Skipped on mount (the resize effect above already framed the initial
+  // camera; there is no "outgoing" camera to read from yet). ---
+  useEffect(() => {
+    const activated = projection === "ortho" ? orthoCamera : perspectiveCamera;
+    if (mountedProjection.current && prevProjection.current !== projection) {
+      const fromCamera = prevProjection.current === "ortho" ? orthoCamera : perspectiveCamera;
+      const target = settledFit.current?.center.clone() ?? fromCamera.position.clone();
+      const { direction, up } = currentOrientationOf(fromCamera, target);
+      const fit = computeFit(geometry, direction, up, aspectOf(), fill, projection);
+      if (fit) {
+        applyFraming(activated, projection, fit, direction, up, aspectOf(), size, controlsRef.current, passes.thickenPass, gl);
+        settledDirection.current = direction;
+        settledUp.current = up;
+        settledFit.current = fit;
+      }
+      orientAnim.current = null;
+      scaleAnim.current = null;
+    }
+    mountedProjection.current = true;
+    prevProjection.current = projection;
+    set({ camera: activated });
+    kickInvalidate(invalidate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projection]);
 
   // --- Hit-testing: read the thicken pass's alpha under the pointer so orbit
   // only starts on the outlined model, not on the transparent background. ---
@@ -214,11 +531,74 @@ export function LineArtRenderer({ geometry, controlsRef }: LineArtRendererProps)
   }, [gl, controlsRef, targets]);
 
   useFrame(() => {
-    // Recomputed per frame (cheap) because orbit zoom changes the pixel size.
+    // Self-healing orbit target: drei's OrbitControls swaps in a fresh
+    // THREE.OrbitControls instance (its own target reset to the origin)
+    // whenever the resolved default camera changes (see the projection
+    // effect's own comment), which can lag a frame behind our `set({
+    // camera })` call below. Re-asserting it here, every frame, is cheap
+    // and guarantees whichever instance is ACTUALLY active never drifts
+    // from this component's own `settledFit` bookkeeping.
+    if (controlsRef.current && settledFit.current) {
+      controlsRef.current.target.copy(settledFit.current.center);
+    }
+
+    // Progress a preset's orientation slerp, if one is running.
+    const orient = orientAnim.current;
+    if (orient) {
+      const t = THREE.MathUtils.clamp((performance.now() - orient.start) / orient.duration, 0, 1);
+      const eased = easeInOutCubic(t);
+      const q = new THREE.Quaternion().slerpQuaternions(orient.from, orient.to, eased);
+      const { direction, up } = directionAndUpOf(q);
+      const fit = computeFit(geometry, direction, up, aspectOf(), fill, projection);
+      if (fit) applyFraming(activeCamera, projection, fit, direction, up, aspectOf(), size, controlsRef.current, passes.thickenPass, gl);
+      if (t >= 1) {
+        orientAnim.current = null;
+        settledDirection.current = direction;
+        settledUp.current = up;
+        if (fit) settledFit.current = fit;
+        kickInvalidate(invalidate); // see kickInvalidate's own doc comment
+      } else {
+        invalidate();
+      }
+    }
+
+    // Progress a parameter-change scale tween, if one is running (and no
+    // orientation slerp is active right now -- that one already refits
+    // every frame against the live direction, which supersedes this).
+    const scale = scaleAnim.current;
+    if (scale && !orient) {
+      const t = THREE.MathUtils.clamp((performance.now() - scale.start) / scale.duration, 0, 1);
+      const eased = easeInOutCubic(t);
+      const fit: Fit = {
+        center: scale.from.center.clone().lerp(scale.to.center, eased),
+        r: THREE.MathUtils.lerp(scale.from.r, scale.to.r, eased),
+        halfHeight: THREE.MathUtils.lerp(scale.from.halfHeight, scale.to.halfHeight, eased),
+        extentX: THREE.MathUtils.lerp(scale.from.extentX, scale.to.extentX, eased),
+        extentY: THREE.MathUtils.lerp(scale.from.extentY, scale.to.extentY, eased),
+      };
+      applyFraming(activeCamera, projection, fit, settledDirection.current, settledUp.current, aspectOf(), size, controlsRef.current, passes.thickenPass, gl);
+      if (t >= 1) {
+        scaleAnim.current = null;
+        settledFit.current = scale.to;
+        kickInvalidate(invalidate); // see kickInvalidate's own doc comment
+      } else {
+        invalidate();
+      }
+    }
+
+    // Recomputed per frame (cheap) because orbit zoom/dolly changes the
+    // pixel size, for either projection.
     const pxH = targets.normalDepth.height;
-    const pixelWorld = (camera.top - camera.bottom) / camera.zoom / pxH;
     const edgeUniforms = passes.edgePass.uniforms;
-    edgeUniforms.depthRange.value = camera.far - camera.near;
+    let pixelWorld: number;
+    if (isOrthographic(activeCamera)) {
+      pixelWorld = (activeCamera.top - activeCamera.bottom) / activeCamera.zoom / pxH;
+    } else {
+      const target = controlsRef.current?.target ?? activeCamera.position;
+      const distance = activeCamera.position.distanceTo(target);
+      pixelWorld = (2 * distance * Math.tan(THREE.MathUtils.degToRad(activeCamera.fov) / 2)) / pxH;
+    }
+    edgeUniforms.depthRange.value = activeCamera.far - activeCamera.near;
     edgeUniforms.depthThreshold.value = DEPTH_STEP_PX * pixelWorld;
 
     const prevOverride = scene.overrideMaterial;
@@ -227,7 +607,7 @@ export function LineArtRenderer({ geometry, controlsRef }: LineArtRendererProps)
     gl.setRenderTarget(targets.normalDepth);
     gl.clear(true, true, false);
     scene.overrideMaterial = normalMaterial;
-    gl.render(scene, camera);
+    gl.render(scene, activeCamera);
     scene.overrideMaterial = prevOverride;
 
     edgeUniforms.tNormal.value = targets.normalDepth.texture;
