@@ -1,12 +1,33 @@
 :root {
   color-scheme: light;
+  --ink: #000;
+  --paper: #fff;
+  --muted: #6b6b6b;
+  --hairline: #000;
+  --hairline-soft: #d9d9d9;
+  --control-h: 40px;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: #fafafa;
-  color: #1a1a1a;
+  font-family: "system-ui", -apple-system, "Segoe UI", sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+.field-value,
+.stepper-number,
+.btn-primary,
+.advanced-summary {
+  font-family: "Kanit", "system-ui", -apple-system, "Segoe UI", sans-serif;
 }
 
 .app {
@@ -16,32 +37,57 @@ body {
 }
 
 header {
-  padding: 12px 20px;
-  border-bottom: 1px solid #ddd;
+  padding: 20px 24px 16px;
+  border-bottom: 2px solid var(--hairline);
 }
 
 header h1 {
-  margin: 0 0 4px;
-  font-size: 1.25rem;
+  margin: 0;
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
 }
 
 header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  max-width: 60ch;
+}
+
+.notice,
+.error {
   margin: 0;
-  color: #555;
-  font-size: 0.9rem;
+  padding: 10px 24px;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--hairline-soft);
+  display: flex;
+  gap: 8px;
 }
 
 .notice {
-  margin: 0;
-  padding: 8px 20px;
-  background: #fff3cd;
-  color: #7a5600;
-  font-size: 0.85rem;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.notice::before {
+  content: "!";
+  font-weight: 800;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  line-height: 15px;
+  text-align: center;
+  flex: none;
+  font-size: 0.7rem;
 }
 
 .error {
-  color: #b00020;
-  font-size: 0.85rem;
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom: none;
 }
 
 .layout {
@@ -51,10 +97,11 @@ header p {
 }
 
 .sidebar {
-  width: 320px;
-  padding: 16px;
+  width: 360px;
+  flex: none;
+  padding: 20px 24px 40px;
   overflow-y: auto;
-  border-right: 1px solid #ddd;
+  border-right: 2px solid var(--hairline);
   box-sizing: border-box;
 }
 
@@ -66,17 +113,13 @@ header p {
 
 .wire-toggle {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  top: 12px;
+  left: 12px;
   z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.85rem;
-  background: rgba(255, 255, 255, 0.85);
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid #ddd;
+  background: var(--paper);
+  padding: 6px 10px;
+  border-radius: 2px;
+  border: 1.5px solid var(--ink);
 }
 
 .coil-viewer-frame {
@@ -106,90 +149,466 @@ header p {
   }
 }
 
+/* ---------- Controls form ---------- */
+
 .controls {
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
 
-.controls-field {
+.ctl-section {
+  padding: 18px 0;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+.ctl-section:first-child {
+  padding-top: 4px;
+}
+
+.ctl-section-title {
+  margin: 0 0 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ctl-section-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 0.85rem;
+  gap: 16px;
 }
 
-.controls-field input,
-.controls-field select {
-  padding: 6px 8px;
-  font-size: 0.95rem;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-}
-
-.controls-lock {
+/* A single field: label on top, control below. Shared by plain selects and
+   the composite range/stepper fields. */
+.field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 6px 0;
-  border-top: 1px dashed #ddd;
-}
-
-.controls-lock-toggle {
-  display: flex;
-  align-items: center;
   gap: 6px;
   font-size: 0.85rem;
 }
 
-.controls-core-size {
+.field-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.field-select {
+  height: var(--control-h);
+  padding: 0 10px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) center,
+    calc(100% - 12px) center;
+  background-size:
+    6px 6px,
+    6px 6px;
+  background-repeat: no-repeat;
+}
+
+.field-select:disabled {
+  color: var(--muted);
+  border-color: var(--hairline-soft);
+}
+
+/* Custom range + synced number input with a unit suffix (issue #16 AC). */
+.field-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* The label, plus an optional leading control (the lock pictogram) that
+   sits inline with the label it controls, on the same row (issue #16
+   review) -- never on a row of its own above the field. */
+.field-top-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.field-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  flex: none;
+}
+
+.field-number {
+  width: 4.4em;
+  text-align: right;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px solid transparent;
+  padding: 0 0 1px;
+  font-family: inherit;
+  -moz-appearance: textfield;
+}
+
+.field-number:disabled {
+  color: var(--muted);
+}
+
+.field-number:focus-visible {
+  outline: none;
+  border-bottom-color: var(--ink);
+}
+
+.field-number::-webkit-outer-spin-button,
+.field-number::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.field-unit {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.field-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  margin: 0;
+  cursor: pointer;
+}
+
+.field-slider::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--ink);
+}
+
+.field-slider::-moz-range-track {
+  height: 2px;
+  background: var(--ink);
+}
+
+.field-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  margin-top: -8px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2.5px solid var(--ink);
+}
+
+.field-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--paper);
+  border: 2.5px solid var(--ink);
+}
+
+.field-slider:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+/* +/- stepper (layers). */
+.stepper {
+  display: flex;
+  align-items: stretch;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  width: fit-content;
+}
+
+.stepper-btn {
+  width: var(--control-h);
+  height: var(--control-h);
+  border: none;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.stepper-btn:not(:disabled):hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.stepper-btn:disabled {
+  color: var(--hairline-soft);
+  cursor: default;
+}
+
+.stepper-btn:first-child {
+  border-right: 1.5px solid var(--ink);
+}
+
+.stepper-btn:last-child {
+  border-left: 1.5px solid var(--ink);
+}
+
+.stepper-number {
+  width: 3.2em;
+  text-align: center;
+  font-size: 1rem;
+  font-weight: 700;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  -moz-appearance: textfield;
+}
+
+.stepper-number:disabled {
+  color: var(--muted);
+}
+
+.stepper-number::-webkit-outer-spin-button,
+.stepper-number::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Lock toggle: a real checkbox for testability/keyboard use, rendered as a
+   black-and-white padlock pictogram (open = free, closed/solid = locked) --
+   never a raw checkbox square (issue #16 AC). Sits inline on the field's own
+   label row as a `leading` element (issue #16 review), icon-only with an
+   invisible oversized hit target for an easy click/tap. */
+.lock-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  flex: none;
+  cursor: pointer;
+}
+
+.lock-toggle-input {
+  position: absolute;
+  inset: -8px;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.lock-icon {
+  position: relative;
+  width: 20px;
+  height: 18px;
+  flex: none;
+  /* Purely decorative: the real (invisible) checkbox above/below it in the
+     DOM must always receive the click, regardless of paint order. */
+  pointer-events: none;
+}
+
+.lock-icon-shackle {
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 11px;
+  height: 8px;
+  border: 2px solid var(--ink);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  transform-origin: left bottom;
+  transform: rotate(-38deg) translateX(-2px);
+  transition: transform 0.15s ease;
+}
+
+.lock-icon-body {
+  position: absolute;
+  left: 1px;
+  bottom: 1px;
+  width: 16px;
+  height: 10px;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+  transition: background 0.15s ease;
+}
+
+.lock-toggle-input:checked ~ .lock-icon .lock-icon-shackle {
+  transform: none;
+}
+
+.lock-toggle-input:checked ~ .lock-icon .lock-icon-body {
+  background: var(--ink);
+}
+
+/* Wire visibility toggle (issue #4/#16): same real-checkbox-behind-a-
+   pictogram technique as the lock toggle, here an eye / crossed-out eye. */
+.eye-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.eye-toggle-input {
+  position: absolute;
+  inset: -6px;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.eye-icon {
+  position: relative;
+  width: 22px;
+  height: 16px;
+  flex: none;
+  pointer-events: none;
+}
+
+.eye-icon-outer {
+  position: absolute;
+  inset: 1px 0;
+  border: 2px solid var(--ink);
+  border-radius: 60% 60% 40% 40% / 70% 70% 30% 30%;
+  background: var(--paper);
+}
+
+.eye-icon-pupil {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  background: var(--ink);
+  border-radius: 50%;
+}
+
+.eye-icon-slash {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: var(--ink);
+  transform: rotate(-20deg);
+}
+
+.eye-toggle-input:not(:checked) ~ .eye-icon .eye-icon-outer {
+  opacity: 0.4;
+}
+
+.eye-toggle-input:not(:checked) ~ .eye-icon .eye-icon-pupil {
+  display: none;
+}
+
+.eye-toggle-input:not(:checked) ~ .eye-icon .eye-icon-slash {
+  display: block;
+}
+
+.eye-toggle-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+  pointer-events: none;
+}
+
+/* ---------- Advanced disclosure ---------- */
+
+.advanced {
+  padding: 14px 0 18px;
+}
+
+.advanced-summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  list-style: none;
+}
+
+.advanced-summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-summary::before {
+  content: "+";
+  display: inline-block;
+  width: 1em;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.advanced[open] > .advanced-summary::before {
+  content: "\2212";
+}
+
+.advanced-summary:hover {
+  color: var(--ink);
+}
+
+.advanced-body {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  margin: 0;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+  gap: 16px;
+  margin-top: 14px;
 }
 
-.controls-core-size legend {
-  font-size: 0.8rem;
-  color: #555;
-  padding: 0 4px;
-}
+/* ---------- Result ---------- */
 
 .diagnosis {
-  padding: 8px;
-  border-radius: 4px;
-  font-size: 0.85rem;
-  background: #eee;
+  padding: 10px 12px;
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  font-size: 0.8rem;
+  margin: 0 0 12px;
 }
 
 .diagnosis-ok {
-  background: #e6f4ea;
+  border-style: solid;
 }
 
 .diagnosis-over-constrained,
 .diagnosis-infeasible {
-  background: #fdecea;
+  background: var(--ink);
+  color: var(--paper);
 }
 
 .diagnosis-under-constrained {
-  background: #fff3cd;
+  border-style: dashed;
 }
 
 .layer-table {
   width: 100%;
   border-collapse: collapse;
-  margin: 8px 0;
-  font-size: 0.8rem;
+  margin: 10px 0;
+  font-size: 0.78rem;
 }
 
 .layer-table th,
 .layer-table td {
-  border: 1px solid #ddd;
+  border: 1px solid var(--hairline-soft);
   padding: 4px 6px;
   text-align: right;
+}
+
+.layer-table th {
+  font-weight: 700;
+  color: var(--muted);
 }
 
 .layer-table th:first-child,
@@ -198,56 +617,192 @@ header p {
 }
 
 .alternate-candidate {
-  margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px dashed #ddd;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--hairline-soft);
 }
 
 .alternate-candidate h3 {
-  font-size: 0.9rem;
-  margin: 0 0 6px;
-}
-
-.result-panel {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid #ddd;
-}
-
-.result-panel h2 {
-  font-size: 1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
   margin: 0 0 8px;
 }
 
 .result-row {
   display: flex;
   justify-content: space-between;
-  padding: 4px 0;
-  font-size: 0.9rem;
+  padding: 5px 0;
+  font-size: 0.88rem;
+  border-bottom: 1px solid var(--hairline-soft);
 }
 
 .result-label {
-  color: #555;
+  color: var(--muted);
+}
+
+.result-value {
+  font-weight: 700;
 }
 
 .warnings {
-  margin: 8px 0;
+  margin: 10px 0;
   padding-left: 18px;
-  color: #7a5600;
+  color: var(--ink);
   font-size: 0.8rem;
 }
 
 .settling {
-  margin: 8px 0 0;
-  color: #555;
+  margin: 0 0 10px;
+  color: var(--muted);
   font-size: 0.8rem;
   font-style: italic;
 }
 
-.result-panel button {
-  margin-top: 12px;
+/* ---------- Buttons ---------- */
+
+.btn-primary {
+  display: block;
   width: 100%;
-  padding: 8px;
-  font-size: 0.9rem;
+  height: 48px;
+  margin-top: 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
   cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.btn-primary:disabled {
+  background: var(--paper);
+  color: var(--hairline-soft);
+  border-color: var(--hairline-soft);
+  cursor: default;
+}
+
+/* ---------- Mobile (~400px, issue #16 AC) ---------- */
+
+@media (max-width: 720px) {
+  header {
+    padding: 16px 16px 12px;
+  }
+
+  header h1 {
+    font-size: 1.6rem;
+  }
+
+  .app {
+    height: auto;
+  }
+
+  .layout {
+    flex-direction: column;
+  }
+
+  /* Stack the viewer above the controls. */
+  .viewer {
+    order: 1;
+    flex: none;
+    height: min(60vh, 92vw);
+    border-bottom: 2px solid var(--hairline);
+  }
+
+  .sidebar {
+    order: 2;
+    width: 100%;
+    max-height: none;
+    overflow-y: visible;
+    border-right: none;
+    padding: 16px 16px 48px;
+  }
+
+  .notice,
+  .error {
+    padding: 10px 16px;
+  }
+
+  /* Larger touch targets. */
+  :root {
+    --control-h: 46px;
+  }
+
+  .field-select,
+  .stepper-btn,
+  .stepper-number {
+    font-size: 1rem;
+  }
+
+  .lock-toggle {
+    width: 26px;
+    height: 24px;
+  }
+
+  .lock-toggle-input {
+    inset: -10px;
+  }
+
+  .lock-icon {
+    width: 26px;
+    height: 24px;
+  }
+
+  .lock-icon-shackle {
+    left: 5px;
+    top: 1px;
+    width: 14px;
+    height: 11px;
+    border-width: 2.5px;
+    border-radius: 8px 8px 0 0;
+  }
+
+  .lock-icon-body {
+    left: 2px;
+    width: 20px;
+    height: 13px;
+    border-width: 2.5px;
+  }
+
+  .eye-icon {
+    width: 28px;
+    height: 20px;
+  }
+
+  .eye-toggle-text {
+    font-size: 0.85rem;
+  }
+
+  .wire-toggle {
+    padding: 10px 12px;
+  }
+
+  .field-slider {
+    height: 32px;
+  }
+
+  .field-slider::-webkit-slider-thumb {
+    width: 24px;
+    height: 24px;
+    margin-top: -11px;
+  }
+
+  .field-slider::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+  }
+
+  .btn-primary {
+    height: 52px;
+    font-size: 1rem;
+  }
 }
