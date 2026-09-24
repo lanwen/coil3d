@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // End-to-end checks for issue #8 (bottom rim keyhole and inner channel):
 // docs/research.md "Wire ends" -- "keyhole in the bottom flange rim at the
@@ -9,19 +9,23 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // the wound-cable toggle visibly changes it (the schematic's lead-in runs
 // from the keyhole through the channel, wire.ts's `buildInnerEndLeadIn`).
 //
-// A short, single-layer core (small `h`) keeps the bottom flange a large
-// fraction of the frame, so a modest zoom toward it (mirrors
-// e2e/top-cap.spec.ts's own "zoom near the pointer" technique) reaches a
-// real close-up without the orbit zoom's re-centering (observed empirically:
-// many more wheel notches drift the view back toward the model's vertical
-// centre, away from the flange) pushing the keyhole out of frame.
-const ROUND = "#v=1&L=800&d=4&size=60&h=20";
-const SQUARE = "#v=1&L=800&d=4&size=60&h=20&shape=sq&sq.rc=20";
+// Close-up framing: `?debugFocusInnerEnd=1` (CoilViewer.tsx, mirroring the
+// existing `?debugAxis=1` screenshot-only debug convention) rotates the
+// rendered geometry about the coil axis so the keyhole's own (data-
+// dependent) azimuth lines up with the default "iso" preset's camera
+// azimuth, and substitutes a SMALL framing geometry (just
+// `innerEndLeadIn`'s own extent, keyhole to groove start) for
+// LineArtRenderer's fit -- so the existing iso camera, unchanged, ends up
+// looking down at the keyhole/channel from iso's own ~32 degree elevation,
+// zoomed in tight, with the actual rendered scene (core + wire) unaffected.
+// A plain mouse-wheel zoom was tried first and rejected: LineArtRenderer
+// re-locks the orbit target to the WHOLE model's own centre every frame
+// (its "self-healing" reframe, see that file's own useFrame comment), so
+// no amount of scrolling/panning keeps an off-centre feature like the
+// bottom flange in frame once zoomed in far enough.
+const ROUND = "?debugFocusInnerEnd=1#v=1&L=800&d=4&size=60&h=20";
+const SQUARE = "?debugFocusInnerEnd=1#v=1&L=800&d=4&size=60&h=20&shape=sq&sq.rc=20";
 
-// A fixed viewport (not the project default): the zoom targets below are
-// tuned pixel fractions of the canvas, found empirically for this exact
-// size -- a different canvas aspect ratio points the same fractions at a
-// different part of the model.
 test.use({ viewport: { width: 900, height: 700 } });
 
 async function gotoDesign(page: Page, hash: string) {
@@ -30,23 +34,10 @@ async function gotoDesign(page: Page, hash: string) {
   await page.waitForTimeout(800);
 }
 
-async function zoomAt(page: Page, canvas: Locator, fx: number, fy: number, notches: number) {
-  const box = (await canvas.boundingBox())!;
-  await page.mouse.move(box.x + box.width * fx, box.y + box.height * fy);
-  for (let i = 0; i < notches; i++) {
-    await page.mouse.wheel(0, -120);
-    await page.waitForTimeout(30);
-  }
-  await page.waitForTimeout(150);
-}
-
 test.describe("bottom rim keyhole + channel close-up (issue #8)", () => {
-  test("round core: the keyhole is visible, and toggling the wound cable changes the render", async ({ page }) => {
+  test("round core: the keyhole is centred and visible, and toggling the wound cable changes the render", async ({ page }) => {
     await gotoDesign(page, ROUND);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
-
-    await zoomAt(page, canvas, 0.7, 0.78, 6);
-    await zoomAt(page, canvas, 0.72, 0.68, 5);
 
     await expect(canvas).toHaveScreenshot("inner-end-round-keyhole-wire.png");
     const withWire = await canvas.screenshot();
@@ -64,12 +55,9 @@ test.describe("bottom rim keyhole + channel close-up (issue #8)", () => {
     expect(withWire.equals(withoutWire), "the wound-cable toggle must change the keyhole close-up").toBe(false);
   });
 
-  test("rounded-square core: the keyhole is visible, and toggling the wound cable changes the render", async ({ page }) => {
+  test("rounded-square core: the keyhole is centred and visible, and toggling the wound cable changes the render", async ({ page }) => {
     await gotoDesign(page, SQUARE);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
-
-    await zoomAt(page, canvas, 0.73, 0.79, 6);
-    await zoomAt(page, canvas, 0.79, 0.72, 6);
 
     await expect(canvas).toHaveScreenshot("inner-end-square-keyhole-wire.png");
     const withWire = await canvas.screenshot();
