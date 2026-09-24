@@ -35,8 +35,10 @@ scope.onmessage = (ev) => {
   design(spec, resolution).then(
     (d) =>
       scope.postMessage({ id, ok: true, design: d }, [
-        d.mesh.positions.buffer,
-        d.mesh.indices.buffer,
+        // Issue #9: every part's mesh (not just the core's -- `d.mesh` is the
+        // same buffer as `d.parts[0].mesh`, so transferring it twice would
+        // throw) is a typed array; transfer them all for zero-copy.
+        ...d.parts.flatMap((p) => [p.mesh.positions.buffer, p.mesh.indices.buffer]),
         // The schematic wound-cable path per layer (issue #4) is typed
         // arrays too; transfer them for the same zero-copy reason as the mesh.
         ...d.wirePaths.map((p) => p.points.buffer),

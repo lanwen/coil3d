@@ -204,6 +204,9 @@ function finishSolution(
   const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSize = env + 2 * FLANGE_MARGIN;
   const capsAuto = resolved.layers > 1;
+  // Issue #9: the spec's topCap override (auto|on|off) resolves against
+  // capsAuto -- "auto" just follows the automatic recommendation above.
+  const topCapEnabled = spec.topCap === "on" ? true : spec.topCap === "off" ? false : capsAuto;
   const deltaPct = ((totalWireLength - target) / target) * 100;
 
   if (innerBore <= 0) {
@@ -260,6 +263,7 @@ function finishSolution(
     envelopeDiameter: env,
     flangeSize,
     capsAuto,
+    topCapEnabled,
     minOuterSizeForBend,
     alternates: [],
   };

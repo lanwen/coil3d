@@ -111,15 +111,25 @@ header p {
   position: relative;
 }
 
-.wire-toggle {
+.wire-toggle,
+.explode-toggle {
   position: absolute;
-  top: 12px;
   left: 12px;
   z-index: 1;
   background: var(--paper);
   padding: 6px 10px;
   border-radius: 2px;
   border: 1.5px solid var(--ink);
+}
+
+.wire-toggle {
+  top: 12px;
+}
+
+/* Exploded-view toggle (issue #9): only rendered once there's more than one
+   part, stacked below the wire toggle. */
+.explode-toggle {
+  top: 52px;
 }
 
 .coil-viewer-frame {

@@ -63,3 +63,45 @@ export const LAYERS_HI = 40;
  * better-shaped alternative that covers the target length.
  */
 export const MIN_TURNS_PER_LAYER = 5;
+
+// Top cap + joints (issue #9, docs/research.md §1 "Cap joint" & §4
+// "Joints / tolerances"). The cap is a symmetric "top flange": same outer
+// footprint as the bottom flange (FLANGE_MARGIN/FLANGE_THICKNESS), sitting
+// above the wall's z=height the same way the flange sits below z=0. All
+// three joints share one circular engagement collar centered on the coil
+// axis, regardless of the core's own cross-section (round/sq/tri) -- a
+// circular collar is simple, always manifold, and needs only one global
+// tolerance (docs/research.md). For a non-round bore the collar contacts the
+// bore's flat sides, not its corners: a normal, printable fit, not a defect.
+export const CAP_THICKNESS = 3; // mm, mirrors FLANGE_THICKNESS
+/** One global print tolerance the user can dial in, scaling every joint's fit. */
+export const DEFAULT_TOLERANCE = 0.2; // mm
+export const TOLERANCE_MIN = 0.05; // mm
+export const TOLERANCE_MAX = 0.8; // mm
+/** How far the cap's engagement collar reaches down into the core's bore. */
+export const JOINT_ENGAGE_DEPTH = 7; // mm
+/** Height of the frustum that flares the collar's top out from `collarRadius` to (the bore's own radius + WELD_OVERLAP), so it genuinely overlaps the plate's inner edge -- welds the collar to the plate as one solid instead of leaving two that merely touch. */
+export const JOINT_TRANSITION_HEIGHT = 2; // mm
+/** A real volumetric overlap (not just a coincident, razor-thin seam) between two independently-tessellated curved surfaces meeting at "the same" nominal radius, so their boolean union is robust rather than producing stray degenerate slivers. */
+export const WELD_OVERLAP = 1; // mm
+/** Fixed clearance between the collar's nominal OD and the bore's own inscribed (flat-side) radius, before `tolerance` -- keeps the collar clear of a non-round bore's corners too. */
+export const JOINT_FIT_GAP = 0.3; // mm
+/** Bore inscribed radius below which bayonet/snap core-side cuts are skipped (falls back to a plain press collar): too small to cut real features into a 3 mm wall without breaking through. */
+export const JOINT_MIN_BORE_RADIUS = 4; // mm
+
+export const BAYONET_LUG_COUNT = 3;
+export const BAYONET_GAP = 0.4; // mm, fixed sliding clearance for the twist motion
+export const BAYONET_LUG_HEIGHT = 1.2; // mm, radial protrusion of each lug past the collar
+export const BAYONET_LUG_WIDTH = 5; // mm, tangential width of each lug and its entry slot
+export const BAYONET_LEAD = 4; // mm, straight vertical entry depth before the twist-lock groove
+export const BAYONET_GROOVE_HEIGHT = 2.2; // mm, axial height of the twist-lock groove
+
+export const SNAP_HOOK_COUNT = 3;
+export const SNAP_GAP = 0.3; // mm, fixed clearance so the fingers always enter freely
+export const SNAP_BARB = 0.9; // mm, how far each hook's barb protrudes past the finger's nominal OD
+export const SNAP_BARB_HEIGHT = 1.6; // mm, axial height of the barb band
+export const SNAP_RIDGE_THICKNESS = 1.4; // mm, axial height of the core-side retaining ridge
+export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot between fingers
+
+/** Rim keyhole (top cap, outer cable end): the retaining slit is narrower than the hole so the cable grips after insertion. */
+export const KEYHOLE_SLIT_FRACTION = 0.6;

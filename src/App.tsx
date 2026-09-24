@@ -19,6 +19,10 @@ export default function App() {
   // (design() always computes wirePaths regardless), so it's tracked
   // alongside the spec here rather than inside it.
   const [showWire, setShowWire] = useState(initialShowWire);
+  // Exploded view (issue #9) is a view-only toggle, not part of the shared
+  // hash (only cap/joint/tol are, per the ticket) -- it resets on reload,
+  // same as the wire toggle's initial value would if it weren't persisted.
+  const [exploded, setExploded] = useState(false);
 
   // The hash reflects both the spec and the wire toggle, but toggling the
   // wire never needs a re-solve, so it's independent of useDesignPreview below.
@@ -51,7 +55,11 @@ export default function App() {
     // alone: exports must always use the final resolution (issue #7).
     if (!result || !finalReady) return;
     const bytes = await exportDesign(result, "stl");
-    downloadBytes(bytes, "coil.stl", "model/stl");
+    // One part -> a plain STL; two or more (issue #9: a top cap) -> a zip of
+    // one STL per part, each already in its own print-bed orientation (see
+    // core/export.ts).
+    const multiPart = result.parts.length > 1;
+    downloadBytes(bytes, multiPart ? "coil-parts.zip" : "coil.stl", multiPart ? "application/zip" : "model/stl");
   };
 
   const handleDownloadStep = async () => {
@@ -108,12 +116,18 @@ export default function App() {
               <div className="wire-toggle">
                 <EyeToggle testId="wire" label="Show wound cable" checked={showWire} onChange={setShowWire} />
               </div>
+              {result.parts.length > 1 && (
+                <div className="explode-toggle">
+                  <EyeToggle testId="exploded" label="Exploded view" checked={exploded} onChange={setExploded} />
+                </div>
+              )}
               <CoilViewer
-                mesh={result.mesh}
+                parts={result.parts}
                 resolution={result.resolution}
                 wirePaths={result.wirePaths}
                 wireDiameter={result.spec.wire.diameter}
                 showWire={showWire}
+                exploded={exploded}
               />
             </>
           )}

@@ -24,6 +24,9 @@ const spec: CoilSpec = {
   height: { locked: true, value: 45 },
   layers: { locked: true, value: 1 },
   objective: "minVolume",
+  topCap: "auto",
+  joint: "press",
+  tolerance: 0.2,
 };
 
 describe("memory stability across repeated designs (issue #7)", () => {

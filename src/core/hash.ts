@@ -16,9 +16,9 @@
 // `wire=0` is written to the hash.
 
 import { z } from "zod";
-import { DEFAULT_CORNER_RADIUS, MAX_WIRE_LENGTH } from "./constants";
+import { DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, MAX_WIRE_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
-import type { CoilSpec, CoreSizeLock, Lock, ShapeKind, ShapeSpec, WireTypeId } from "./types";
+import type { CoilSpec, CoreSizeLock, JointKind, Lock, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
 
 const HASH_VERSION = "1";
 
@@ -34,6 +34,9 @@ export const DEFAULT_SPEC: CoilSpec = {
   height: { locked: false },
   layers: { locked: true, value: DEFAULT_LAYERS },
   objective: "minVolume",
+  topCap: "auto",
+  joint: "press",
+  tolerance: DEFAULT_TOLERANCE,
 };
 
 export const DEFAULT_SHOW_WIRE = true;
@@ -58,6 +61,9 @@ const QuerySchema = z.object({
   h: z.coerce.number().finite().min(1).max(1000).optional(),
   ly: z.coerce.number().int().min(1).max(100).optional(),
   wire: z.enum(["0", "1"]).optional(),
+  cap: z.enum(["auto", "on", "off"]).optional(),
+  joint: z.enum(["press", "bayonet", "snap"]).optional(),
+  tol: z.coerce.number().finite().min(TOLERANCE_MIN).max(TOLERANCE_MAX).optional(),
 });
 
 export interface ParsedHash {
@@ -81,6 +87,9 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
     height: { ...spec.height },
     layers: { ...spec.layers },
     objective: spec.objective,
+    topCap: spec.topCap,
+    joint: spec.joint,
+    tolerance: spec.tolerance,
   };
 }
 
@@ -137,6 +146,10 @@ export function parseHash(hash: string): ParsedHash {
   const height: Lock<number> = lockTokens.has("h") ? { locked: true, value: p.h ?? DEFAULT_HEIGHT } : { locked: false };
   const layers: Lock<number> = lockTokens.has("ly") ? { locked: true, value: p.ly ?? DEFAULT_LAYERS } : { locked: false };
 
+  const topCap: TopCapMode = p.cap ?? DEFAULT_SPEC.topCap;
+  const joint: JointKind = p.joint ?? DEFAULT_SPEC.joint;
+  const tolerance = p.tol ?? DEFAULT_SPEC.tolerance;
+
   const spec: CoilSpec = {
     wire: {
       length: p.L ?? DEFAULT_SPEC.wire.length,
@@ -150,6 +163,9 @@ export function parseHash(hash: string): ParsedHash {
     height,
     layers,
     objective: p.obj === "ar" ? "aspectRatio" : "minVolume",
+    topCap,
+    joint,
+    tolerance,
   };
   const showWire = p.wire !== undefined ? p.wire !== "0" : DEFAULT_SHOW_WIRE;
   return { spec, showWire };
@@ -191,6 +207,10 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE): s
   }
   if (lockTokens.join(",") !== DEFAULT_LOCK_TOKENS.join(",")) params.set("lock", lockTokens.join(","));
   if (showWire !== DEFAULT_SHOW_WIRE) params.set("wire", showWire ? "1" : "0");
+
+  if (spec.topCap !== DEFAULT_SPEC.topCap) params.set("cap", spec.topCap);
+  if (spec.joint !== DEFAULT_SPEC.joint) params.set("joint", spec.joint);
+  if (spec.tolerance !== DEFAULT_SPEC.tolerance) params.set("tol", String(spec.tolerance));
 
   return `#${params.toString()}`;
 }

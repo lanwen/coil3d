@@ -35,7 +35,11 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
       <Row testId={`${prefix}capacity-range`} label="Capacity range" value={`${solution.capacityRange[0].toFixed(0)} - ${solution.capacityRange[1].toFixed(0)} mm`} />
       <Row testId={`${prefix}envelope`} label="Envelope" value={`${solution.envelopeDiameter.toFixed(1)} mm`} />
       <Row testId={`${prefix}flange`} label="Flange size" value={`${solution.flangeSize.toFixed(1)} mm`} />
-      <Row testId={`${prefix}caps`} label="Top cap" value={solution.capsAuto ? "on (auto, > 1 layer)" : "off"} />
+      <Row
+        testId={`${prefix}caps`}
+        label="Top cap"
+        value={`${solution.topCapEnabled ? "on" : "off"} (auto would be ${solution.capsAuto ? "on" : "off"})`}
+      />
       <table className="layer-table" data-testid={`${prefix}layer-table`}>
         <thead>
           <tr>
@@ -76,8 +80,9 @@ export function ResultPanel({
   onDownloadStep: () => void;
   stepBusy: boolean;
 }) {
-  const { solution, warnings, mesh, resolution } = design;
+  const { solution, warnings, parts, resolution } = design;
   const { diagnosis } = solution;
+  const totalTriangles = parts.reduce((n, p) => n + p.mesh.indices.length / 3, 0);
 
   return (
     <>
@@ -90,7 +95,7 @@ export function ResultPanel({
         <Row
           testId="mesh-detail"
           label="Mesh detail"
-          value={`${resolution} (${(mesh.indices.length / 3).toLocaleString()} triangles)`}
+          value={`${resolution} (${totalTriangles.toLocaleString()} triangles) · ${parts.length} part${parts.length === 1 ? "" : "s"}`}
         />
         <SolutionSummary solution={solution} prefix="" shapeKind={design.spec.shape.kind} />
         {warnings.length > 0 && (

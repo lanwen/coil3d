@@ -15,6 +15,9 @@ const baseSpec: CoilSpec = {
   height: { locked: true, value: 40 },
   layers: { locked: true, value: 1 },
   objective: "minVolume",
+  topCap: "auto",
+  joint: "press",
+  tolerance: 0.2,
 };
 
 describe("design().mesh is a valid, expected manifold", () => {
@@ -278,6 +281,9 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
     height: { locked: true, value: 40 },
     layers: { locked: true, value: 1 },
     objective: "minVolume",
+    topCap: "auto",
+    joint: "press",
+    tolerance: 0.2,
   };
 
   it("is a valid watertight manifold with the analytically-expected volume", async () => {
@@ -368,6 +374,9 @@ describe("exportDesign(design, 'step') for a non-round shape (issue #6)", () => 
       height: { locked: true, value: 40 },
       layers: { locked: true, value: 1 },
       objective: "minVolume",
+      topCap: "auto",
+      joint: "press",
+      tolerance: 0.2,
     };
     const d = await design(spec);
     const stepBytes = await exportDesign(d, "step");

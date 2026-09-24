@@ -52,6 +52,9 @@ describe("parseHash / toHash", () => {
       height: { locked: true, value: 50 },
       layers: { locked: false },
       objective: "aspectRatio",
+      topCap: "auto",
+      joint: "press",
+      tolerance: 0.2,
     };
     expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
@@ -141,5 +144,30 @@ describe("parseHash / toHash", () => {
 
     // An explicit wire=1 is accepted too, even though it's never written.
     expect(parseHash("#v=1&wire=1").showWire).toBe(true);
+  });
+
+  it("top cap/joint/tolerance (issue #9) round-trip and omit defaults", () => {
+    expect(toHash({ ...DEFAULT_SPEC, topCap: "auto", joint: "press", tolerance: 0.2 })).toBe("#v=1");
+
+    const spec: CoilSpec = { ...DEFAULT_SPEC, topCap: "on", joint: "bayonet", tolerance: 0.35 };
+    const hash = toHash(spec);
+    expect(hash).toContain("cap=on");
+    expect(hash).toContain("joint=bayonet");
+    expect(hash).toContain("tol=0.35");
+    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+
+    const off: CoilSpec = { ...DEFAULT_SPEC, topCap: "off", joint: "snap" };
+    expect(parseHash(toHash(off))).toEqual({ spec: off, showWire: DEFAULT_SHOW_WIRE });
+  });
+
+  it("falls back to defaults with a notice on an out-of-range tolerance", () => {
+    const { spec, notice } = parseHash("#v=1&tol=5");
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
+  });
+
+  it("falls back to defaults with a notice on an unknown cap/joint value", () => {
+    expect(parseHash("#v=1&cap=maybe").notice).toBeDefined();
+    expect(parseHash("#v=1&joint=glue").notice).toBeDefined();
   });
 });

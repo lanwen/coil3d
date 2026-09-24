@@ -17,6 +17,12 @@ export type { ShapeKind } from "./shapes";
  */
 export type ShapeSpec = { kind: "round" } | { kind: "sq"; cornerRadius: number } | { kind: "tri"; cornerRadius: number };
 
+/** Top-cap override (issue #9): `auto` follows `Solution.capsAuto` (on when layers > 1). */
+export type TopCapMode = "auto" | "on" | "off";
+
+/** Permanent, glue-friendly cap joints (issue #9, docs/research.md §1 "Cap joint"). */
+export type JointKind = "press" | "bayonet" | "snap";
+
 export type WireTypeId = "usb" | "flex" | "stiff" | "custom";
 
 export interface WireTypePreset {
@@ -73,6 +79,12 @@ export interface CoilSpec {
   layers: Lock<number>;
   /** Used only when exactly two of {coreSize, height, layers} are free. */
   objective: Objective;
+  /** Top-cap override (issue #9): defaults to "auto" (on when layers > 1). */
+  topCap: TopCapMode;
+  /** Cap joint (issue #9): press-fit, bayonet/twist-lock or snap clips, all permanent and glue-friendly. */
+  joint: JointKind;
+  /** One global print tolerance (mm) that scales every joint's fit (docs/research.md §4 "Joints / tolerances"). */
+  tolerance: number;
 }
 
 export interface LayerResult {
@@ -117,7 +129,10 @@ export interface Solution {
   capacityRange: [number, number];
   envelopeDiameter: number;
   flangeSize: number;
+  /** True iff layers > 1 -- the AUTOMATIC recommendation, independent of `CoilSpec.topCap`'s override. */
   capsAuto: boolean;
+  /** The RESOLVED decision (issue #9): `capsAuto` unless `CoilSpec.topCap` overrides it to "on"/"off". This is what actually controls whether `Design.parts` includes a topCap part. */
+  topCapEnabled: boolean;
   minOuterSizeForBend: number;
   /**
    * Sibling candidates shown side by side (2-3 total including this one),
@@ -152,22 +167,66 @@ export interface WireLayerPath {
   points: Float32Array;
 }
 
+export type PartRole = "core" | "topCap";
+
+/**
+ * A rigid transform (rotation about X, then translation) applied to a
+ * part's mesh to get it into ITS OWN print-bed orientation (issue #9): the
+ * core is already built flat on the bed (bottom flange down, matching both
+ * its assembled AND print position, docs/research.md "flat on the bed, core
+ * upright"), so its transform is the identity. The top cap, however, is
+ * built in the shared ASSEMBLY frame -- sitting on top of the core with its
+ * joint boss/lugs/hooks pointing DOWN into the core's bore -- which would
+ * need supports if printed as-is; its transform flips it upside-down (so
+ * the joint features point up, unsupported) and lands it on the bed.
+ */
+export interface RigidTransform {
+  /** Rotation about the X axis, radians (0 or Math.PI in practice). */
+  rotateX: number;
+  /** Translation applied AFTER rotation, mm. */
+  translate: [number, number, number];
+}
+
+/**
+ * A named, printable part of the design (issue #9: "the design gets a
+ * separate top cap"). Every part's `mesh` is manifold and shares ONE
+ * coordinate frame -- the assembled scene (the core's own build frame,
+ * flange at the bottom, cap's underside meeting the core's top at
+ * z=solution.height) -- so the viewer can draw every part together with no
+ * per-part repositioning, and the exploded view is just a Z translation of
+ * the non-core parts. Only `printTransform` differs per part.
+ */
+export interface Part {
+  name: string;
+  role: PartRole;
+  mesh: CoilMesh;
+  printTransform: RigidTransform;
+}
+
 /** The solved coil, ready to render or export. */
 export interface Design {
   spec: CoilSpec;
   solution: Solution;
   /** Non-fatal notices about the solved design (solver + geometry). */
   warnings: string[];
+  /** Every printable part (issue #9): always includes the core (wall +
+   * integral bottom flange); a topCap part is appended when
+   * `solution.topCapEnabled`. */
+  parts: Part[];
+  /** Trivial derived convenience: `parts.find(p => p.role === "core").mesh`.
+   * Kept because most existing analysis (volume/manifoldness checks, the
+   * golden-numbers regression) only ever cared about the core body; new
+   * code that needs every part should use `parts` directly. */
   mesh: CoilMesh;
-  /** The resolution `mesh` was built at (issue #7). The orchestration layer
-   * gates exports on `resolution === "final"` -- exports must always use the
-   * final resolution, never a still-in-progress draft. */
+  /** The resolution every part's mesh was built at (issue #7). The
+   * orchestration layer gates exports on `resolution === "final"` -- exports
+   * must always use the final resolution, never a still-in-progress draft. */
   resolution: Resolution;
   /** The schematic wound-cable path per layer (issue #4), one entry per
    * layer with turns > 0. Empty layers (turns === 0) are omitted. */
   wirePaths: WireLayerPath[];
-  /** The exact wall and flange parameters used to build `mesh`, kept so the
-   * STEP exporter can fit its B-spline from the same grid (see
+  /** The exact wall and flange parameters used to build the core part, kept
+   * so the STEP exporter can fit its B-spline from the same grid (see
    * `step/build.ts` and `wall.ts`'s `createWallProfile`). Not for UI use. */
   wallSpec: WallSpec;
   flangeSpec: FlangeSpec;
