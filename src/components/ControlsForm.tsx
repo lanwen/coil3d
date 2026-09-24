@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, Objective, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
+import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, Objective, PlateJoint, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
 import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, LABEL_MAX_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
 import { LockRangeField, LockStepperField, RangeField, Section, TextField } from "./fields";
 
@@ -31,6 +31,13 @@ const SHAPE_OPTIONS: Array<{ id: ShapeKind; label: string }> = [
 const MOUNT_OPTIONS: Array<{ id: MountKind; label: string }> = [
   { id: "none", label: "None" },
   { id: "keyhole", label: "Screw keyhole (wall mount)" },
+  { id: "skadis", label: "IKEA SKÅDIS clip plate" },
+  { id: "opengrid", label: "openGrid clip plate" },
+];
+
+const PLATE_JOINT_OPTIONS: Array<{ id: PlateJoint; label: string }> = [
+  { id: "glue", label: "Glue (alignment pegs)" },
+  { id: "snap", label: "Snap tabs" },
 ];
 
 export function ControlsForm({
@@ -184,6 +191,18 @@ export function ControlsForm({
             ))}
           </select>
         </label>
+        {(spec.mount === "skadis" || spec.mount === "opengrid") && (
+          <label className="field">
+            <span className="field-label">Plate joint</span>
+            <select className="field-select" data-testid="select-plateJoint" value={spec.plateJoint} onChange={(e) => onChange({ ...spec, plateJoint: e.target.value as PlateJoint })}>
+              {PLATE_JOINT_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </Section>
 
       <details className="advanced" ref={advancedRef}>

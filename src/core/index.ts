@@ -30,6 +30,7 @@ export type {
   Objective,
   Part,
   PartRole,
+  PlateJoint,
   PrintSpec,
   Resolution,
   RigidTransform,

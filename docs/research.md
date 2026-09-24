@@ -316,6 +316,68 @@ It's a full SaaS (Vercel, Liveblocks collab, CQRS, three kernels: brepjs/OCCT ~2
 - **Viewer UX:** add a draft → exact edge fade, persp/ortho preset views, and tweened parameter changes.
 - **3MF:** add `paint_color` output if multi-color parts matter. Otherwise single-color named objects are enough.
 
+## 10c. Clip mount plate research (issue #14, 2026-09-24)
+
+**SKÅDIS.** 40mm grid, confirmed by §10b's own review of skapa. The clip hook
+profile reused here is the same 7-point polygon §10b already recorded (from
+skapa, reimplemented — not copied — per that section's own licence note:
+skapa has no licence, "reimplement the technique; don't copy files"). Real-
+board fit (does a printed hook actually seat and hold on a genuine SKÅDIS
+board) is **still unverified** — flagged in issue #1's own "Further Notes"
+("Values still to verify with real hardware: the SKÅDIS clip fit and
+openGrid pitch...") and repeated in this PR's own body; the clip
+half-extents and grid math are covered by vitest, but the physical
+engagement is not.
+
+**openGrid.** Researched fresh for this ticket (WebSearch + `gh api` against
+the project's own GitHub docs repo, since `opengrid.world` itself returned
+HTTP 403 to a direct fetch from this sandbox):
+- Grid pitch: **28×28mm**, stated directly in openGrid's own docs —
+  `github.com/openGrid-3D/openGrid-docs`, `src/content/docs/guides/board.mdx`:
+  "The board system uses a 28×28mm grid pattern," and again under "Gridfinity
+  Compatibility": "3 openGrid units = 84mm (3 × 28mm)." Corroborated
+  independently by Printables/MakerWorld listings ("28mm grid size,
+  Gridfinity-compatible"). This is the one openGrid number this ticket
+  implements with confidence (`OPENGRID_PITCH`, constants.ts).
+- Board thickness: Full board 6.8mm, Lite board 4mm (same docs repo,
+  `guides/snaps.mdx` / `guides/board.mdx`) — not currently used by this
+  ticket's geometry (the mount plate doesn't need to match board thickness),
+  recorded here for whoever implements the real connector next.
+- Licence: openGrid's own connector system and generator ("openConnect") is
+  described as CC-BY (system) / CC-BY-SA (generator models) — see
+  `github.com/mitufy/opengrid-projects` (OpenSCAD + BOSL2 snap/connector
+  generator) and its Printables/MakerWorld listings.
+- **The snap/connector's own engagement geometry (the shape that actually
+  clicks into a 28mm board hole) is NOT published as text or plain
+  dimensions anywhere in openGrid's docs** — only as STL/STEP downloads or
+  parametric OpenSCAD source (`mitufy/opengrid-projects`), which this ticket
+  did not reverse-engineer or import (out of scope for the time available,
+  and copying a BOSL2-generated shape verbatim would need its own licence
+  review). Per this ticket's own brief ("if the openGrid geometry can't be
+  verified, implement SKÅDIS fully and leave openGrid behind a clearly
+  marked TODO"): openGrid support ships with the **correct, verified grid
+  pitch** but a **placeholder connector** (`OPENGRID_PLACEHOLDER_PEG_SIZE`/
+  `OPENGRID_PLACEHOLDER_PEG_REACH`, constants.ts) — a plain square push-fit
+  peg, not the real openGrid snap. Swapping in the real geometry (from
+  `opengrid-projects`' own OpenSCAD source, reimplemented, or from
+  measuring a printed board) is a follow-up, not done here.
+
+**Mount plate mechanics (this ticket's own design, not sourced from either
+project).** The plate is a flat panel, inset from the flange's own outline
+by a fixed margin (`MOUNT_PLATE_EDGE_MARGIN`) so it always fits inside the
+flange regardless of shape — see mountPlate.ts. Clips/glue-pegs/snap-tabs
+are placed in a grid on the flange's own WALL_UP-aligned axis (mount.ts's
+`bestAxisDeg`, the same axis the screw-keyhole mount already used), so a
+non-round core still hangs level. A boolean-CSG hazard specific to small
+features glued/cut flush against a flat face (not the curved-surface
+`WELD_OVERLAP` hazard already documented above, but the flat-face
+analogue) surfaced during implementation: an un-embedded ~2.4mm-radius
+peg/hole, cut or fused exactly flush with its target face, silently failed
+(passed `status()`/`genus()` but left a disconnected "ghost" copy on
+`decompose()`) below roughly 3.3–3.5mm in this setup. Fixed by genuinely
+embedding every such feature past its own attaching face by a fixed margin
+(`MOUNT_PLATE_EMBED`, constants.ts) — see that constant's own doc comment.
+
 ## 11. References
 
 - Kernels: [replicad](https://github.com/sgenoud/replicad) · [opencascade.js](https://github.com/donalffons/opencascade.js) ([file size](https://ocjs.org/docs/getting-started/file-size), [custom builds](https://ocjs.org/docs/app-dev-workflow/custom-builds)) · [occt-wasm](https://github.com/andymai/occt-wasm) · [manifold](https://github.com/elalish/manifold) · [OCP.wasm](https://github.com/Yeicor/OCP.wasm) · [openscad-playground](https://github.com/openscad/openscad-playground)

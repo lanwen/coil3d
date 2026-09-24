@@ -1,5 +1,12 @@
-import type { Design, Solution } from "../core";
+import type { Design, MountKind, Solution } from "../core";
 import { Section } from "./fields";
+
+const MOUNT_LABELS: Record<MountKind, string> = {
+  none: "None",
+  keyhole: "Screw keyhole",
+  skadis: "SKÅDIS clip plate",
+  opengrid: "openGrid clip plate",
+};
 
 const FREE_VARIABLE_LABELS: Record<"coreSize" | "height" | "layers", string> = {
   coreSize: "core size",
@@ -99,7 +106,7 @@ export function ResultPanel({
           label="Mesh detail"
           value={`${resolution} (${totalTriangles.toLocaleString()} triangles) · ${parts.length} part${parts.length === 1 ? "" : "s"}`}
         />
-        <Row testId="mount" label="Mount" value={design.spec.mount === "keyhole" ? "Screw keyhole" : "None"} />
+        <Row testId="mount" label="Mount" value={MOUNT_LABELS[design.spec.mount]} />
         <SolutionSummary solution={solution} prefix="" shapeKind={design.spec.shape.kind} />
         {warnings.length > 0 && (
           <ul className="warnings" data-testid="warnings">

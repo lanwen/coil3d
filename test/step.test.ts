@@ -320,4 +320,71 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
       STEP_TIMEOUT_MS,
     );
   });
+
+  describe("clip mount plate (issue #14)", () => {
+    const plateSpec: CoilSpec = {
+      wire: { length: 2000, diameter: 3.8, type: "usb" },
+      shape: { kind: "round" },
+      windingQuality: 0.7,
+      coreSize: { locked: true, dimension: "outer", value: 100 },
+      height: { locked: true, value: 60 },
+      layers: { locked: true, value: 1 },
+      objective: "minVolume",
+      topCap: "auto",
+      joint: "press",
+      tolerance: 0.2,
+      print: { bedX: 256, bedY: 256, bedZ: 256 },
+      mount: "skadis",
+      plateJoint: "glue",
+    };
+
+    it(
+      "STEP export produces one file with one solid per part (core + mount-plate), each volume matching its own mesh",
+      async () => {
+        const d = await design(plateSpec);
+        expect(d.parts.map((p) => p.role)).toContain("mountPlate");
+
+        const stepBytes = await exportDesign(d, "step");
+        expect(stepBytes.byteLength).toBeGreaterThan(0);
+
+        const { default: initOC } = await import("replicad-opencascadejs");
+        const oc = await initOC();
+        const path = "/reimport-mount-plate.step";
+        oc.FS.writeFile(path, stepBytes);
+        const reader = new oc.STEPControl_Reader();
+        reader.ReadFile(path);
+        reader.TransferRoots();
+        const shape = reader.OneShape();
+        oc.FS.unlink(path);
+
+        const analyzer = new oc.BRepCheck_Analyzer(shape, true, false, false);
+        expect(analyzer.IsValid()).toBe(true);
+
+        let solidCount = 0;
+        let totalVolume = 0;
+        const explorer = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+        for (; explorer.More(); explorer.Next()) {
+          solidCount++;
+          const gprops = new oc.GProp_GProps();
+          oc.BRepGProp.VolumeProperties(explorer.Current(), gprops, 1e-5, false, false);
+          totalVolume += gprops.Mass();
+        }
+        expect(solidCount).toBe(2); // core + mount-plate
+
+        const expectedVolume = d.parts.reduce((sum, p) => sum + meshVolume(p.mesh), 0);
+        expect(Math.abs(totalVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
+      },
+      STEP_TIMEOUT_MS,
+    );
+
+    it(
+      "also validates for the snap plate joint",
+      async () => {
+        const d = await design({ ...plateSpec, plateJoint: "snap" });
+        const stepBytes = await exportDesign(d, "step");
+        expect(stepBytes.byteLength).toBeGreaterThan(0);
+      },
+      STEP_TIMEOUT_MS,
+    );
+  });
 });
