@@ -33,7 +33,14 @@ const scope = self as unknown as WorkerScope;
 scope.onmessage = (ev) => {
   const { id, spec, resolution } = ev.data;
   design(spec, resolution).then(
-    (d) => scope.postMessage({ id, ok: true, design: d }, [d.mesh.positions.buffer, d.mesh.indices.buffer]),
+    (d) =>
+      scope.postMessage({ id, ok: true, design: d }, [
+        d.mesh.positions.buffer,
+        d.mesh.indices.buffer,
+        // The schematic wound-cable path per layer (issue #4) is typed
+        // arrays too; transfer them for the same zero-copy reason as the mesh.
+        ...d.wirePaths.map((p) => p.points.buffer),
+      ]),
     (err: unknown) => scope.postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) }),
   );
 };
