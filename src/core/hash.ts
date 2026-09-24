@@ -24,7 +24,7 @@
 import { z } from "zod";
 import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_BED_SIZE, DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, LABEL_MAX_LENGTH, MAX_WIRE_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
-import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
+import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, PlateJoint, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
 
 const HASH_VERSION = "1";
 
@@ -45,6 +45,7 @@ export const DEFAULT_SPEC: CoilSpec = {
   tolerance: DEFAULT_TOLERANCE,
   print: { bedX: DEFAULT_BED_SIZE, bedY: DEFAULT_BED_SIZE, bedZ: DEFAULT_BED_SIZE },
   mount: "none",
+  plateJoint: "glue",
 };
 
 export const DEFAULT_SHOW_WIRE = true;
@@ -64,7 +65,8 @@ const QuerySchema = z.object({
   shape: z.enum(["round", "sq", "tri"]).optional(),
   "sq.rc": z.coerce.number().finite().min(0).max(1000).optional(),
   "tri.rc": z.coerce.number().finite().min(0).max(1000).optional(),
-  mount: z.enum(["none", "keyhole"]).optional(),
+  mount: z.enum(["none", "keyhole", "skadis", "opengrid"]).optional(),
+  pj: z.enum(["glue", "snap"]).optional(),
   lock: z.string().optional(),
   size: z.coerce.number().finite().min(1).max(1000).optional(),
   h: z.coerce.number().finite().min(1).max(1000).optional(),
@@ -106,6 +108,7 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
     print: { ...spec.print },
     label: spec.label,
     mount: spec.mount,
+    plateJoint: spec.plateJoint,
   };
 }
 
@@ -162,6 +165,7 @@ export function parseHash(hash: string): ParsedHash {
   const height: Lock<number> = lockTokens.has("h") ? { locked: true, value: p.h ?? DEFAULT_HEIGHT } : { locked: false };
   const layers: Lock<number> = lockTokens.has("ly") ? { locked: true, value: p.ly ?? DEFAULT_LAYERS } : { locked: false };
   const mount: MountKind = p.mount ?? "none";
+  const plateJoint: PlateJoint = p.pj ?? DEFAULT_SPEC.plateJoint;
 
   const topCap: TopCapMode = p.cap ?? DEFAULT_SPEC.topCap;
   const joint: JointKind = p.joint ?? DEFAULT_SPEC.joint;
@@ -191,6 +195,7 @@ export function parseHash(hash: string): ParsedHash {
     print,
     label: p.label || undefined,
     mount,
+    plateJoint,
   };
   const showWire = p.wire !== undefined ? p.wire !== "0" : DEFAULT_SHOW_WIRE;
   return { spec, showWire };
@@ -238,6 +243,7 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE): s
   if (spec.tolerance !== DEFAULT_SPEC.tolerance) params.set("tol", String(spec.tolerance));
   if (spec.label) params.set("label", spec.label);
   if (spec.mount !== "none") params.set("mount", spec.mount);
+  if ((spec.mount === "skadis" || spec.mount === "opengrid") && spec.plateJoint !== DEFAULT_SPEC.plateJoint) params.set("pj", spec.plateJoint);
 
   if (spec.print.bedX !== DEFAULT_SPEC.print.bedX) params.set("bx", String(spec.print.bedX));
   if (spec.print.bedY !== DEFAULT_SPEC.print.bedY) params.set("by", String(spec.print.bedY));

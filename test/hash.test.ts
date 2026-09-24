@@ -57,6 +57,7 @@ describe("parseHash / toHash", () => {
       tolerance: 0.2,
       print: { bedX: 256, bedY: 256, bedZ: 256 },
       mount: "none",
+      plateJoint: "glue",
     };
     expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
@@ -221,7 +222,9 @@ describe("parseHash / toHash", () => {
   });
 
   it("falls back to defaults with a notice on an unknown mount value", () => {
-    const { spec, notice } = parseHash("#v=1&mount=skadis");
+    // "skadis"/"opengrid" are now real values (issue #14) -- use a value
+    // that's still unknown to keep testing the fallback path itself.
+    const { spec, notice } = parseHash("#v=1&mount=bogus");
     expect(spec).toEqual(DEFAULT_SPEC);
     expect(notice).toBeDefined();
   });

@@ -29,6 +29,7 @@ const spec: CoilSpec = {
   tolerance: 0.2,
   print: { bedX: 256, bedY: 256, bedZ: 256 },
   mount: "none",
+  plateJoint: "glue",
 };
 
 describe("memory stability across repeated designs (issue #7)", () => {

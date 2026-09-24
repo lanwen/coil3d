@@ -28,8 +28,28 @@ import {
   JOINT_TRANSITION_HEIGHT,
   KEYHOLE_SLIT_FRACTION,
   LABEL_DEPTH,
+  MOUNT_PLATE_EMBED,
+  MOUNT_PLATE_PEG_HEIGHT,
+  MOUNT_PLATE_PEG_HOLE_CLEARANCE,
+  MOUNT_PLATE_PEG_HOLE_DEPTH,
+  MOUNT_PLATE_PEG_RADIUS,
+  MOUNT_PLATE_SNAP_BARB,
+  MOUNT_PLATE_SNAP_GAP,
+  MOUNT_PLATE_SNAP_POCKET_DEPTH,
+  MOUNT_PLATE_SNAP_RIDGE_BAND,
+  MOUNT_PLATE_SNAP_TAB_REACH,
+  MOUNT_PLATE_SNAP_TAB_THICKNESS,
+  MOUNT_PLATE_SNAP_TAB_WIDTH,
+  MOUNT_PLATE_THICKNESS,
+  OPENGRID_PITCH,
+  OPENGRID_PLACEHOLDER_PEG_REACH,
+  OPENGRID_PLACEHOLDER_PEG_SIZE,
   SCREW_MOUNT_HEAD_RADIUS,
   SCREW_MOUNT_SHANK_RADIUS,
+  SKADIS_CLIP_PROFILE,
+  SKADIS_CLIP_PROFILE_CHAMFERED,
+  SKADIS_CLIP_WIDTH,
+  SKADIS_PITCH,
   SNAP_BARB,
   SNAP_BARB_HEIGHT,
   SNAP_GAP,
@@ -44,10 +64,22 @@ import type { LabelLoop, ResolvedLabel } from "../label";
 import { meshVolume } from "../meshVolume";
 import { layoutKeyholeMount } from "../mount";
 import type { KeyholeSlot } from "../mount";
+import { layoutMountPlate, openGridClipHalfExtents, skadisClipHalfExtents } from "../mountPlate";
+import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
 import { circumscribedRadius, offsetOutline, pointAt, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
-import type { Design } from "../types";
+import type { Design, PlateJoint } from "../types";
+
+/** Recompute mountPlate.ts's layout from `design.flangeSpec`/`design.spec` (mirrors this file's own `layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin)` re-derivation for the keyhole mount): the STEP backend never stores its own copy, so it can't drift from the mesh backend's. */
+function mountPlateLayoutFor(design: Design): MountPlateLayout {
+  const { flangeSpec, spec } = design;
+  const mountKind = spec.mount as "skadis" | "opengrid";
+  const pitch = mountKind === "skadis" ? SKADIS_PITCH : OPENGRID_PITCH;
+  const { halfSide, halfUp } = mountKind === "skadis" ? skadisClipHalfExtents() : openGridClipHalfExtents();
+  const flangeOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
+  return layoutMountPlate(flangeOutline, flangeSpec.boreOutline, pitch, halfSide, halfUp);
+}
 
 /**
  * A solid prism of the given outline, extruded from `zBase` upward by
@@ -227,6 +259,20 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     }
   }
 
+  // Issue #14: cut the same alignment-peg holes/snap-tab pockets the mesh
+  // backend cuts into the flange's outer face (manifold.ts's `fuseFlange`'s
+  // `mountPlateCut`), from the identical layout (mountPlate.ts), so STEP and
+  // STL/preview never drift apart. Only when the plate itself actually got
+  // built (there's a `mountPlate` part) -- an empty layout means the plate
+  // was skipped, and there's nothing on the flange to cut for.
+  if (design.parts.some((p) => p.role === "mountPlate")) {
+    const layout = mountPlateLayoutFor(design);
+    for (const anchor of layout.anchors) {
+      const cutter = mountPlateAnchorCutterSolid(design.spec.plateJoint, design.spec.tolerance).rotate(anchor.rotationDeg, [0, 0, 0], [0, 0, 1]).translate([anchor.x, anchor.y, -flangeSpec.thickness]);
+      coreSolid = coreSolid.cut(cutter);
+    }
+  }
+
   const corePart = design.parts.find((p) => p.role === "core")!;
   validateSolid(kernel, coreSolid, corePart.mesh, corePart.name);
 
@@ -243,6 +289,17 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     const capSolid = await buildTopCapSolid(design);
     validateSolid(kernel, capSolid, topCapPart.mesh, topCapPart.name);
     shapes.push({ shape: capSolid, name: topCapPart.name });
+  }
+
+  // Issue #14: the clip mount plate, mirroring manifold.ts's own
+  // `buildMountPlate` primitive-for-primitive (a flat panel plus clips on
+  // its back face and pegs/tabs on its front), sharing the SAME dimensions
+  // via constants.ts and the SAME layout via mountPlateLayoutFor.
+  const mountPlatePart = design.parts.find((p) => p.role === "mountPlate");
+  if (mountPlatePart) {
+    const plateSolid = buildMountPlateSolid(design);
+    validateSolid(kernel, plateSolid, mountPlatePart.mesh, mountPlatePart.name);
+    shapes.push({ shape: plateSolid, name: mountPlatePart.name });
   }
 
   const blob = R.exportSTEP(shapes);
@@ -453,4 +510,90 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   }
 
   return assembled.translate([0, 0, solution.height]);
+}
+
+// --- Clip mount plate (issue #14) -- mirrors manifold.ts's own "Clip mount
+// plate" section primitive-for-primitive, replicad in place of manifold-3d.
+// See that file's header for the shared canonical-local-frame convention
+// (local +X = "up", local +Y = "side", local -Z = "reach") every clip/anchor
+// is built in before being rotated (`ClipInstance.rotationDeg`/
+// `AnchorPoint.rotationDeg`) and translated to its own true position. ------
+
+/** A closed 2D polygon, in the XY plane at z=0, extruded along +Z by `height` -- the replicad equivalent of manifold.ts's `CrossSection` extrude, built via `makePolygon` (mirrors `labelLoopSolid`'s own reasoning: a single call, not a chained chained `draw().lineTo()` pen, avoids replicad's FinalizationRegistry GC hazard on a long point run). */
+function loopSolid(loop: [number, number][], height: number): R.Shape3D {
+  const face = R.makePolygon(loop.map(([x, y]): [number, number, number] => [x, y, 0]));
+  const sketch = new R.Sketch(face.outerWire(), { defaultOrigin: [0, 0, 0], defaultDirection: [0, 0, 1] });
+  return sketch.extrude(height);
+}
+
+/** One SKÅDIS clip hook (mirrors manifold.ts's `skadisHookSolid`): the profile's own (up, reach) loop extruded along local Z by `SKADIS_CLIP_WIDTH`, then rotated -90 degrees about local X so that extrusion axis becomes local Y ("side", centered) and the profile's own reach axis becomes local -Z. */
+function skadisHookSolidStep(chamfered: boolean): R.Shape3D {
+  const profile = chamfered ? SKADIS_CLIP_PROFILE_CHAMFERED : SKADIS_CLIP_PROFILE;
+  const rightLoop: [number, number][] = profile.map(([u, r]) => [u, r]);
+  const leftLoop: [number, number][] = profile.map(([u, r]): [number, number] => [-u, r]).reverse();
+  const solid = loopSolid(rightLoop, SKADIS_CLIP_WIDTH).fuse(loopSolid(leftLoop, SKADIS_CLIP_WIDTH));
+  // Embedded MOUNT_PLATE_EMBED into the panel -- mirrors manifold.ts's
+  // `skadisHookSolid` (same razor-thin-coincident-face hazard this
+  // constant guards against, for a boolean fuse instead of a cut).
+  return solid.translate([0, 0, -SKADIS_CLIP_WIDTH / 2]).rotate(-90, [0, 0, 0], [1, 0, 0]).translate([0, 0, MOUNT_PLATE_EMBED]);
+}
+
+/** The openGrid placeholder connector (mirrors manifold.ts's `openGridConnectorSolid` -- see constants.ts's TODO). Embedded into the panel by MOUNT_PLATE_EMBED. */
+function openGridConnectorSolidStep(): R.Shape3D {
+  const s = OPENGRID_PLACEHOLDER_PEG_SIZE;
+  return R.makeBox([-s / 2, -s / 2, -OPENGRID_PLACEHOLDER_PEG_REACH], [s / 2, s / 2, MOUNT_PLATE_EMBED]);
+}
+
+/** One clip instance, placed at its own true (x, y) and rotated onto the layout's up/side axes (mirrors manifold.ts's `mountPlateClipSolid`). */
+function mountPlateClipSolidStep(mountKind: "skadis" | "opengrid", clip: ClipInstance, zBase: number): R.Shape3D {
+  const canonical = mountKind === "skadis" ? skadisHookSolidStep(!clip.topmost) : openGridConnectorSolidStep();
+  return canonical.rotate(clip.rotationDeg, [0, 0, 0], [0, 0, 1]).translate([clip.x, clip.y, zBase]);
+}
+
+/** One alignment peg (glue) or snap tab (snap), reaching from local Z=0 toward local +Z (mirrors manifold.ts's `mountPlateAnchorSolid`). */
+function mountPlateAnchorSolidStep(plateJoint: PlateJoint, anchor: AnchorPoint, zBase: number): R.Shape3D {
+  let canonical: R.Shape3D;
+  if (plateJoint === "glue") {
+    canonical = R.makeCylinder(MOUNT_PLATE_PEG_RADIUS, MOUNT_PLATE_PEG_HEIGHT + MOUNT_PLATE_EMBED, [0, 0, -MOUNT_PLATE_EMBED]);
+  } else {
+    const t = MOUNT_PLATE_SNAP_TAB_THICKNESS / 2;
+    const w = MOUNT_PLATE_SNAP_TAB_WIDTH / 2;
+    const base = R.makeBox([-t, -w, -MOUNT_PLATE_EMBED], [t, w, MOUNT_PLATE_SNAP_TAB_REACH]);
+    const barbHeight = 1.2;
+    const bt = t + MOUNT_PLATE_SNAP_BARB;
+    const barb = R.makeBox([-bt, -w, MOUNT_PLATE_SNAP_TAB_REACH - barbHeight], [bt, w, MOUNT_PLATE_SNAP_TAB_REACH]);
+    canonical = base.fuse(barb);
+  }
+  return canonical.rotate(anchor.rotationDeg, [0, 0, 0], [0, 0, 1]).translate([anchor.x, anchor.y, zBase]);
+}
+
+/** The flange-side cutter for one anchor (mirrors manifold.ts's `mountPlateAnchorCutter`): a shallow blind hole (glue), or a stepped blind pocket (snap) -- narrow at the mouth (clears only the finger's shaft), wide beyond it (clears the barb, retaining it once inserted). */
+function mountPlateAnchorCutterSolid(plateJoint: PlateJoint, tolerance: number): R.Shape3D {
+  if (plateJoint === "glue") {
+    const r = MOUNT_PLATE_PEG_RADIUS + MOUNT_PLATE_PEG_HOLE_CLEARANCE + tolerance;
+    // Pierces MOUNT_PLATE_EMBED past the flange's outer face -- mirrors manifold.ts's `mountPlateAnchorCutter`.
+    return R.makeCylinder(r, MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_EMBED, [0, 0, -MOUNT_PLATE_EMBED]);
+  }
+  const wideT = MOUNT_PLATE_SNAP_TAB_THICKNESS / 2 + MOUNT_PLATE_SNAP_BARB + MOUNT_PLATE_SNAP_GAP;
+  const narrowT = MOUNT_PLATE_SNAP_TAB_THICKNESS / 2 + MOUNT_PLATE_SNAP_GAP;
+  const w = MOUNT_PLATE_SNAP_TAB_WIDTH / 2 + MOUNT_PLATE_SNAP_GAP;
+  const narrow = R.makeBox([-narrowT, -w, -MOUNT_PLATE_EMBED], [narrowT, w, MOUNT_PLATE_SNAP_RIDGE_BAND]);
+  // Starts MOUNT_PLATE_EMBED before the narrow band ends, so the two boxes overlap at their own shared internal seam too.
+  const wideHeight = MOUNT_PLATE_SNAP_POCKET_DEPTH - MOUNT_PLATE_SNAP_RIDGE_BAND + MOUNT_PLATE_EMBED;
+  const wide = R.makeBox([-wideT, -w, MOUNT_PLATE_SNAP_RIDGE_BAND - MOUNT_PLATE_EMBED], [wideT, w, MOUNT_PLATE_SNAP_RIDGE_BAND - MOUNT_PLATE_EMBED + wideHeight]);
+  return narrow.fuse(wide);
+}
+
+/** Build the mount plate solid (issue #14): a flat panel (`layout.outline`, `outlineSolid` -- no bore, unlike the core/flange) with every clip fused onto its back face and every peg/tab fused onto its front face, in the shared ASSEMBLY frame -- mirrors manifold.ts's own `buildMountPlate`. */
+function buildMountPlateSolid(design: Design): R.Shape3D {
+  const { flangeSpec, spec } = design;
+  const mountKind = spec.mount as "skadis" | "opengrid";
+  const layout = mountPlateLayoutFor(design);
+  const backZ = -flangeSpec.thickness - MOUNT_PLATE_THICKNESS;
+  const frontZ = -flangeSpec.thickness;
+
+  let plate = outlineSolid(layout.outline, MOUNT_PLATE_THICKNESS, backZ);
+  for (const clip of layout.clips) plate = plate.fuse(mountPlateClipSolidStep(mountKind, clip, backZ));
+  for (const anchor of layout.anchors) plate = plate.fuse(mountPlateAnchorSolidStep(spec.plateJoint, anchor, frontZ));
+  return plate;
 }

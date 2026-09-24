@@ -44,6 +44,7 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
     mount: "none",
+    plateJoint: "glue",
   };
 
   describe("exportDesign(design, 'step')", () => {
@@ -105,6 +106,7 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
           tolerance: 0.2,
           print: { bedX: 256, bedY: 256, bedZ: 256 },
           mount: "none",
+          plateJoint: "glue",
         };
         const d = await design(spec);
         const stepBytes = await exportDesign(d, "step");
@@ -157,6 +159,7 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
           tolerance: 0.2,
           print: { bedX: 256, bedY: 256, bedZ: 256 },
           mount: "keyhole",
+          plateJoint: "glue",
         };
         const d = await design(spec);
         expect(d.flangeSpec.mount).toBe("keyhole");
@@ -209,6 +212,7 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
       tolerance: 0.2,
       print: { bedX: 256, bedY: 256, bedZ: 256 },
       mount: "none",
+      plateJoint: "glue",
     };
 
     it.each(JOINTS)(
@@ -268,6 +272,7 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
       print: { bedX: 256, bedY: 256, bedZ: 256 },
       label: "USB-C 2m",
       mount: "none",
+      plateJoint: "glue",
     };
 
     it(
