@@ -7,9 +7,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 const SQUAT = "#v=1&L=1000&d=4&size=40";
 const LONG = "#v=1&L=6000&d=4&size=30";
-// The widest flange this build can make relative to its core (the flange
-// margin is fixed until the multi-layer solver, #5, lands).
-const BIG_FLANGE = "#v=1&L=150&d=4&size=12";
+// Layers locked at 2: the solver sizes the flange to clear both wound layers.
+const TWO_LAYER = "#v=1&L=3000&d=4&size=40&ly=2";
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -69,9 +68,10 @@ test.describe("IKEA line-art renderer", () => {
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("lineart-long.png");
   });
 
-  test("renders a coil with a large flange", async ({ page }) => {
-    await gotoDesign(page, BIG_FLANGE);
-    await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("lineart-flange.png");
+  test("renders a 2-layer coil with its large flange", async ({ page }) => {
+    await gotoDesign(page, TWO_LAYER);
+    await expect(page.getByTestId("layers")).toHaveText("2");
+    await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("lineart-two-layer.png");
   });
 
   test("the fill is pure white and the silhouette is a dark line against the background", async ({ page }) => {
