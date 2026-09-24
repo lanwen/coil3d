@@ -29,7 +29,7 @@
 import opentype from "opentype.js";
 import { ARCHIVO_BLACK_TTF_BASE64 } from "./label-font-data";
 import { LABEL_CURVE_SEGMENTS, LABEL_MARGIN, LABEL_MAX_HEIGHT, LABEL_MIN_HEIGHT } from "./constants";
-import { circumscribedRadius } from "./shapes";
+import { evalOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 
 /** A single closed polygon loop (mm), as plain [x, y] tuples -- consumed
@@ -197,20 +197,48 @@ export interface LabelFit {
 }
 
 /**
+ * The bearing (degrees, standard math convention: 0 = +X, 90 = +Y) the
+ * text band's OWN radial axis points along -- i.e. which direction is
+ * "outward" for this label. Round has no preferred direction (every
+ * bearing is equally valid by symmetry): 90 degrees is the existing,
+ * already-screenshotted convention, kept for round only so its render
+ * doesn't change. sq/tri instead use flat side 0's own outward normal --
+ * read directly off `evalOutline` (shapes.ts) rather than re-derived by
+ * hand, since a side's normal is constant along its whole length (the
+ * `u` parameter is irrelevant here, unlike a corner). Placing the band's
+ * radial axis exactly along that bearing, not an arbitrary or
+ * corner-pointing one, is what `fitLabel` below relies on: it lets the
+ * (otherwise merely-conservative) `apothem` bound become the EXACT
+ * boundary distance in that one specific direction (see `fitLabel`'s own
+ * doc comment), and it keeps the rendered text centered on a flat side
+ * instead of running diagonally toward a corner (issue #12 review).
+ */
+function sideBearingDeg(outline: ShapeOutline): number {
+  const isRound = outline.cornerRadius === outline.apothem;
+  if (isRound) return 90;
+  const side0 = evalOutline(outline, { seg: 1, u: 0 }, 0); // seg 1 = side index 0 (seg odd => side (seg-1)/2); offset 0 for the outline's own outward normal
+  return (Math.atan2(side0.ny, side0.nx) * 180) / Math.PI;
+}
+
+/**
  * The largest font size (as ink bounding-box height, clamped to
- * [minHeight, maxHeight]) that fits the annulus between `innerExclusion`
- * (mm; the bore outline's own `circumscribedRadius` -- the bore's farthest
- * reach at ANY angle, so a text band starting beyond it never overlaps the
- * bore regardless of where the bore's own corners point) and `outerSafe`
- * (mm; the plate outline's own apothem -- the inscribed-circle guarantee of
- * real material at ANY angle, see shapes.ts's `inscribedRadius`/`apothem`
- * doc comments). The text sits as a horizontal band centered on x=0, its
- * near edge at `innerExclusion + margin`: as fontSize grows, both the
- * band's ink height and width grow (worse) while the outer radius budget for
- * width shrinks (also worse) -- monotonic, so a bisection between a size
- * that fits (`minHeight`) and one that may not (`maxHeight`) finds the
- * threshold. Returns undefined if even `minHeight` doesn't fit -- the
- * ticket's "hide it and emit a warning" case.
+ * [minHeight, maxHeight]) that fits the annulus between `innerExclusion` and
+ * `outerSafe` (mm, both measured along the band's own radial bearing --
+ * see `sideBearingDeg`). For round, or for sq/tri aligned to a flat side's
+ * own bearing (the only way this is called -- `resolveLabel` always passes
+ * `boreOutline.apothem`/`outline.apothem + flangeMargin` computed at that
+ * exact bearing), these are the EXACT boundary distances in that direction,
+ * not just conservative worst-case bounds: `apothem` is BY DEFINITION the
+ * center-to-flat-side distance (shapes.ts), and corner rounding never
+ * reaches a side's own midpoint region, so evaluating exactly there always
+ * gives that outline's true radius, whatever the corner radius. The text
+ * sits as a band centered on the tangential axis (perpendicular to the
+ * bearing), its near edge at `innerExclusion + margin`: as fontSize grows,
+ * both the band's ink height and width grow (worse) while the outer radius
+ * budget for width shrinks (also worse) -- monotonic, so a bisection
+ * between a size that fits (`minHeight`) and one that may not (`maxHeight`)
+ * finds the threshold. Returns undefined if even `minHeight` doesn't fit --
+ * the ticket's "hide it and emit a warning" case.
  */
 export function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSafe: number, minHeight: number = LABEL_MIN_HEIGHT, maxHeight: number = LABEL_MAX_HEIGHT, margin: number = LABEL_MARGIN): LabelFit | undefined {
   if (metrics.heightPerUnit <= 0 || metrics.widthPerUnit <= 0) return undefined;
@@ -244,14 +272,17 @@ export function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSaf
 }
 
 /** A fitted label, ready to place: the text, the chosen font size (mm, ink
- * height), and the near-edge radius its band starts at. Both backends
- * (manifold.ts, step/build.ts) turn this into glyph loops via `labelLoops`
- * below, positioned identically. */
+ * height), the near-edge radius its band starts at, and the bearing its
+ * radial axis points along (`sideBearingDeg`). Both backends (manifold.ts,
+ * step/build.ts) turn this into glyph loops via `labelLoops` below,
+ * positioned identically. */
 export interface ResolvedLabel {
   text: string;
   fontSize: number;
   /** Distance from center to the text band's near (bottom) edge, mm. */
   yLo: number;
+  /** Bearing (degrees) the band's radial axis points along -- see `sideBearingDeg`. */
+  bearingDeg: number;
 }
 
 export interface LabelResolution {
@@ -267,8 +298,16 @@ export interface LabelResolution {
  * STEP) so they can never fit the text differently. `outline`/`boreOutline`
  * are the core wall's own outline pair (issue #6/#9's ShapeOutline), i.e.
  * design.ts's `outline`/`boreOutline` locals (== wallSpec's), and
- * `flangeMargin` is `flangeSpec.margin` -- together they give the plate's own
- * apothem (`outline.apothem + flangeMargin`, Steiner-additive, shapes.ts).
+ * `flangeMargin` is `flangeSpec.margin`.
+ *
+ * The band is placed along `sideBearingDeg(outline)` -- for sq/tri, flat
+ * side 0's own outward normal (a straight edge, not a corner), for round an
+ * arbitrary-but-fixed 90 degrees. `boreOutline`/`outline` share that SAME
+ * bearing convention (both are built from the same n and corner-angle
+ * convention, offsetOutline/design.ts's inward wall-thickness offset never
+ * rotates it), so `boreOutline.apothem` and `outline.apothem + flangeMargin`
+ * are each the EXACT (not merely conservative) boundary distance at that
+ * bearing -- see shapes.ts's apothem doc comment and `fitLabel`'s own.
  */
 export async function resolveLabel(rawText: string | undefined, outline: ShapeOutline, boreOutline: ShapeOutline, flangeMargin: number, topCapEnabled: boolean): Promise<LabelResolution> {
   const text = (rawText ?? "").trim();
@@ -279,7 +318,8 @@ export async function resolveLabel(rawText: string | undefined, outline: ShapeOu
 
   const font = await getLabelFont();
   const metrics = measureLabel(font, text);
-  const innerExclusion = circumscribedRadius(boreOutline, 0);
+  const bearingDeg = sideBearingDeg(outline);
+  const innerExclusion = boreOutline.apothem;
   const outerSafe = outline.apothem + flangeMargin;
   const fit = fitLabel(metrics, innerExclusion, outerSafe);
   if (!fit) {
@@ -287,27 +327,42 @@ export async function resolveLabel(rawText: string | undefined, outline: ShapeOu
       warning: `Label text "${text}" doesn't fit the top cap at a legible height (>= ${LABEL_MIN_HEIGHT} mm) and has been hidden. Use shorter text or a bigger cap.`,
     };
   }
-  return { label: { text, fontSize: fit.fontSize, yLo: innerExclusion + LABEL_MARGIN } };
+  return { label: { text, fontSize: fit.fontSize, yLo: innerExclusion + LABEL_MARGIN, bearingDeg } };
 }
 
 /**
  * The positioned glyph loops for a resolved label, in the plate's own local
- * XY frame (same frame `buildOutlineRing`'s plate uses): centered
- * horizontally on x=0, occupying y in [label.yLo, label.yLo + inkHeight].
+ * XY frame (same frame `buildOutlineRing`'s plate uses): centered on the
+ * tangential axis, occupying radial distance [label.yLo, label.yLo +
+ * inkHeight] measured along `label.bearingDeg` (issue #12 review: the band
+ * sits on a flat side for sq/tri, not a corner-pointing bearing -- see
+ * `sideBearingDeg`).
  *
- * Flipped in Y only (empirically verified against rendered screenshots, not
- * just reasoned about up front): the cap's room-facing surface (+Z locally,
- * see manifold.ts's/step/build.ts's file headers) is viewed under
- * viewer/lineArt's oblique isometric camera (`up: [0,0,1]`, looking down -Z
- * with +Y as screen-up), and text placed in the font's own native
+ * Built in a canonical (tangential, radial) frame -- exactly the old
+ * (x, y) frame from before bearings existed, with "radial" flipped in Y
+ * (empirically verified against rendered screenshots, not just reasoned
+ * about up front: the cap's room-facing surface, +Z locally, see
+ * manifold.ts's/step/build.ts's file headers, is viewed under
+ * viewer/lineArt's oblique isometric camera -- `up: [0,0,1]`, looking down
+ * -Z with +Y as screen-up -- and text placed in the font's own native
  * orientation there appears upside-down (flip both axes) or mirrored/
- * backwards (flip X only) -- flipping Y alone is the one single-axis
- * reflection that reads correctly. `classifyLabelLoops`'s doc comment
- * covers the winding-sign consequence for the STEP backend.
+ * backwards (flip X only); flipping Y alone is the one single-axis
+ * reflection that reads correctly; `classifyLabelLoops`'s doc comment
+ * covers the winding-sign consequence for the STEP backend) -- then rotated
+ * by `bearingDeg - 90` so the radial axis (old +Y) points along
+ * `bearingDeg` instead of a fixed 90 degrees. At `bearingDeg === 90`
+ * (round) this rotation is the identity, so round's render is byte-for-byte
+ * unchanged from before bearings existed.
  */
 export function labelLoops(font: opentype.Font, label: ResolvedLabel): LabelLoop[] {
   const path = font.getPath(label.text, 0, 0, label.fontSize);
   const bbox = path.getBoundingBox();
   const cx = (bbox.x1 + bbox.x2) / 2;
-  return pathToLoops(path).map((loop) => loop.map(([x, y]): [number, number] => [x - cx, label.yLo + (bbox.y2 - y)]));
+  const canonical = pathToLoops(path).map((loop) => loop.map(([x, y]): [number, number] => [x - cx, label.yLo + (bbox.y2 - y)]));
+
+  const delta = ((label.bearingDeg - 90) * Math.PI) / 180;
+  if (delta === 0) return canonical;
+  const cos = Math.cos(delta);
+  const sin = Math.sin(delta);
+  return canonical.map((loop) => loop.map(([x, y]): [number, number] => [x * cos - y * sin, x * sin + y * cos]));
 }

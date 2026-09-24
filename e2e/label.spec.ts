@@ -12,7 +12,15 @@ import { expect, test, type Page } from "@playwright/test";
 // grows well past the core's own outline, leaving plenty of room for a
 // short label at a legible height.
 const ROOMY_ROUND = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=30&h=60&ly=6";
-const ROOMY_SQUARE = `${ROOMY_ROUND}&shape=sq`;
+// A bigger core (70mm, vs. round's 30mm) so a requested corner radius of 16
+// clears the bend-limit floor for the default "usb" wire type at 3.8mm
+// (MBR = 4 x 3.8 = 15.2mm) instead of being silently clamped UP to it --
+// issue #12 review: the earlier fixture used the default corner radius
+// (8mm) at size=30, which the solver clamps to the apothem (15mm), so the
+// "square"/"triangle" core rendered fully round. rc=16 is comfortably above
+// that floor, so these actually render as a rounded square/triangle.
+const ROOMY_SQUARE = `${ROOMY_ROUND.replace("size=30", "size=70")}&shape=sq&sq.rc=16`;
+const ROOMY_TRIANGLE = `${ROOMY_ROUND.replace("size=30", "size=70")}&shape=tri&tri.rc=16`;
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -70,17 +78,25 @@ test.describe("top cap label controls (issue #12)", () => {
   });
 });
 
-test.describe("engraved label render, round and square (issue #12)", () => {
+test.describe("engraved label render, round/square/triangle (issue #12)", () => {
   test("round cap: the label is visible, legible in the line-art render", async ({ page }) => {
     await gotoDesign(page, `${ROOMY_ROUND}&label=USB-C%202m`);
     const canvas = await zoomOnCapFace(page);
     await expect(canvas).toHaveScreenshot("label-round.png");
   });
 
-  test("square cap: the label is visible, legible in the line-art render", async ({ page }) => {
+  test("square cap: a real rounded square (not clamped round), label centered on a flat side", async ({ page }) => {
     await gotoDesign(page, `${ROOMY_SQUARE}&label=USB-C%202m`);
+    await expect(page.getByTestId("corner-radius")).toContainText("16.0 mm"); // not clamped up to the apothem -- see ROOMY_SQUARE's own comment
     const canvas = await zoomOnCapFace(page);
     await expect(canvas).toHaveScreenshot("label-square.png");
+  });
+
+  test("triangle cap: label centered on a flat side, not pointing at a corner", async ({ page }) => {
+    await gotoDesign(page, `${ROOMY_TRIANGLE}&label=USB-C%202m`);
+    await expect(page.getByTestId("corner-radius")).toContainText("16.0 mm");
+    const canvas = await zoomOnCapFace(page);
+    await expect(canvas).toHaveScreenshot("label-triangle.png");
   });
 
   test("engraving the label actually changes the render vs. no label", async ({ page }) => {
