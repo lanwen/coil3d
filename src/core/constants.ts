@@ -33,6 +33,18 @@ export const FINAL_ROWS_PER_PITCH = 8; // mesh rows per helical pitch
 export const DRAFT_COLUMNS = 24;
 export const DRAFT_ROWS_PER_PITCH = 3;
 
+// The schematic wound-cable centerline (issue #4, wire.ts) gets the same
+// draft/final split: a coarse, cheap sample while the user is still editing,
+// and a dense one once input settles (and always for the on-screen final
+// render -- the wire path is schematic, never exported, so there's no STEP
+// analogue here). Density is arc-length-driven (samples per turn scale with
+// how long a turn actually is), with a floor so a small, tightly-wound coil
+// still gets enough samples per turn for a smooth curve.
+export const FINAL_WIRE_MIN_SAMPLES_PER_TURN = 96;
+export const FINAL_WIRE_MAX_ARC_LENGTH = 1; // mm per sample, at most
+export const DRAFT_WIRE_MIN_SAMPLES_PER_TURN = 16;
+export const DRAFT_WIRE_MAX_ARC_LENGTH = 4; // mm per sample, at most
+
 /** Cords longer than this are not supported (docs/research.md §1). */
 export const MAX_WIRE_LENGTH = 15000; // mm
 
