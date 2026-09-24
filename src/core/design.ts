@@ -41,6 +41,7 @@ import { buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut } from "./manifold";
 import { printBBox } from "./plate";
 import { layoutKeyholeMount, requiredFlangeMargin } from "./mount";
+import type { MountLayout } from "./mount";
 import { circumscribedRadius, makeOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { resolveLabel } from "./label";
@@ -121,9 +122,14 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (wantsKeyhole && thickness > FLANGE_THICKNESS) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
   }
+  // Kept (not just its warning) so it can be surfaced on the returned
+  // Design below: a consumer that wants to actually SHOW the mount's real
+  // hung orientation -- not just cut it -- needs `axisDeg` too (see
+  // mount.ts's own MountLayout doc comment).
+  let mountLayout: MountLayout | undefined;
   if (wantsKeyhole) {
-    const layout = layoutKeyholeMount(outline, boreOutline, margin);
-    if (layout.warning) warnings.push(layout.warning);
+    mountLayout = layoutKeyholeMount(outline, boreOutline, margin);
+    if (mountLayout.warning) warnings.push(mountLayout.warning);
   }
 
   const flangeSpec = {
@@ -210,7 +216,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     }
   }
 
-  return { spec, solution, warnings, parts, mesh, resolution, wirePaths, wallSpec, flangeSpec };
+  return { spec, solution, warnings, parts, mesh, resolution, wirePaths, wallSpec, flangeSpec, mountAxisDeg: mountLayout?.axisDeg };
 }
 
 /** A copy of `mesh` with every vertex shifted by [dx, dy, dz]; `indices` is shared (never mutated). */

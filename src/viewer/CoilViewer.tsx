@@ -37,6 +37,8 @@ export interface CoilViewerProps {
   showWire?: boolean;
   /** Animated exploded view (issue #9): lifts every non-core part along the coil axis, away from the core. The wound cable stays on the core regardless. Respects prefers-reduced-motion. */
   exploded?: boolean;
+  /** `Design.mountAxisDeg` (issue #13): the screw-keyhole mount's own true "hangs level" axis, when it differs from the design's local +Y (WALL_UP) -- see `buildViewRotations`'s comment. Omit (or leave undefined) when there's no mount, or it fits exactly on local +Y already. */
+  mountAxisDeg?: number;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -176,6 +178,126 @@ const WALL_REMAP = new THREE.Matrix4().makeBasis(
 // particular design.
 const WALL_VIEW_ROTATION = new THREE.Matrix4().makeRotationX(-0.42285392613294076).multiply(WALL_REMAP);
 
+// Wall-MOUNT-face preset (issue #13 PR review, round 2): "a screenshot
+// looking straight at the bottom flange's wall-facing face (camera behind
+// the wall looking into the room, i.e. what the wall 'sees')". The
+// room-side preset above (WALL_VIEW_ROTATION) is a world-axis PERMUTATION
+// plus a single-axis spin fix-up -- good enough to lay the coil on its
+// side, but it only ROUGHLY points the coil's axis at this renderer's
+// camera (a permuted world axis, not the camera's actual view direction),
+// so a circle perpendicular to that axis still renders as a foreshortened
+// ellipse, not a true circle -- fine for "is it horizontal", not precise
+// enough for "are these two slots screen-symmetric".
+//
+// This preset instead builds the rotation directly from the camera's own
+// basis, so the flange face renders perfectly face-on (an undistorted
+// circle) with no separate spin correction needed:
+//   - local +Z (the coil's axis, flange -> open end) -> `forward`, the
+//     camera's actual view direction (normalize(-VIEW_DIR)) -- so the axis
+//     points straight INTO the screen, exactly the "camera behind the wall
+//     looking into the room" ask, with the flange (at the LEAST local Z)
+//     nearest the camera and the rest of the coil receding away from it.
+//   - local +Y (mount.ts's WALL_UP) -> `realUp`, the camera's own up vector
+//     (cross(right, forward), the same construction LineArtRenderer's
+//     `lookAt`/Gram-Schmidt does from VIEW_DIR/UP) -- lands exactly on
+//     screen-vertical, with no residual tilt to correct for.
+//   - local +X -> cross(realUp, forward) (the remaining right-handed axis,
+//     Y x Z = X), which numerically comes out to -(sqrt(2)/2, sqrt(2)/2, 0).
+// Recomputing this by hand isn't needed to change it: this whole basis only
+// depends on LineArtRenderer's fixed VIEW_DIR/UP, not on any particular
+// design, so it's derived once and hardcoded (see the issue #13 PR body for
+// the derivation script) the same way WALL_VIEW_ROTATION's spin angle is.
+const WALL_MOUNT_VIEW_ROTATION = new THREE.Matrix4().makeBasis(
+  new THREE.Vector3(-Math.SQRT1_2, -Math.SQRT1_2, 0), // local +X
+  new THREE.Vector3(-0.37964208654863807, 0.37964208654863807, 0.84364908121919568), // local +Y (WALL_UP) -> camera's realUp
+  new THREE.Vector3(-0.59654998627189371, 0.59654998627189371, -0.53689498764470434), // local +Z (coil axis) -> camera's forward
+);
+
+type ViewMode = "standing" | "wallRoom" | "wallMount";
+
+/**
+ * Both wall presets rotate the design's LOCAL frame (local +Y = WALL_UP is
+ * literal vertical there) onto the camera. But mount.ts's own `MountLayout.
+ * axisDeg` isn't always 0: a shape with no genuine mirror axis at literal
+ * local +Y (a triangle, at this construction's fixed corner angles -- see
+ * that field's own doc comment) still hangs level, just with a DIFFERENT
+ * axis vertical instead. Showing the design's unrotated local frame as-is
+ * would render that case with the mount's own true hanging axis tilted away
+ * from screen-vertical -- not wrong geometry, but a misleading picture of
+ * how it actually hangs (and, for the mount-side preset specifically, the
+ * two slots would render off the vertical centreline instead of mirrored
+ * about it). Pre-rotating the LOCAL geometry about local Z (the coil's own
+ * axis -- a rotation that, being about local Z, leaves EXPLODE_AXES below
+ * unaffected) by the STANDARD-math-convention angle `+axisDeg` (which,
+ * because `bestAxisDeg`'s own theta convention runs the OPPOSITE way from
+ * a standard CCW angle -- see `standardAngleRad`'s `90 - thetaDeg` -- is
+ * exactly what SUBTRACTS `axisDeg` from every point's own theta, moving
+ * the mount's true axis from theta=`axisDeg` to theta=0) before either
+ * wall preset's own transform cancels that out, so the screen always shows
+ * the axis that's ACTUALLY vertical once mounted.
+ */
+function buildViewRotations(mountAxisDeg: number | undefined): Record<ViewMode, THREE.Matrix4 | null> {
+  if (!mountAxisDeg) {
+    return { standing: null, wallRoom: WALL_VIEW_ROTATION, wallMount: WALL_MOUNT_VIEW_ROTATION };
+  }
+  const correction = new THREE.Matrix4().makeRotationZ((mountAxisDeg * Math.PI) / 180);
+  return {
+    standing: null,
+    wallRoom: new THREE.Matrix4().copy(WALL_VIEW_ROTATION).multiply(correction),
+    wallMount: new THREE.Matrix4().copy(WALL_MOUNT_VIEW_ROTATION).multiply(correction),
+  };
+}
+
+// The coil's own axis (local +Z), wherever each preset renders it -- see
+// WALL_REMAP's comment for the room-side case (world +X; a rotation about
+// world X, its spin correction, never moves points along world X, so it
+// needs no correction of its own) and WALL_MOUNT_VIEW_ROTATION's comment
+// for the mount-side case (the camera's own `forward` vector, since that
+// preset points the axis straight down the camera's view direction).
+const EXPLODE_AXES: Record<ViewMode, THREE.Vector3> = {
+  standing: new THREE.Vector3(0, 0, 1),
+  wallRoom: new THREE.Vector3(1, 0, 0),
+  wallMount: new THREE.Vector3(-0.59654998627189371, 0.59654998627189371, -0.53689498764470434),
+};
+
+const VIEW_MODE_ORDER: ViewMode[] = ["standing", "wallRoom", "wallMount"];
+// What clicking the toggle button will switch TO, i.e. the next preset in
+// the cycle -- matches this component's existing convention of labelling
+// the button with its destination, not its current state.
+const NEXT_VIEW_LABEL: Record<ViewMode, string> = {
+  standing: "Wall-mount view (room side)",
+  wallRoom: "Wall-mount view (mount side)",
+  wallMount: "Standing view",
+};
+const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
+  wallRoom: "Bottom flange against the wall -- top cap faces the room",
+  wallMount: "Wall-facing side -- line up screws with the keyhole slots here",
+};
+
+/**
+ * Screenshot-only debug overlay (issue #13 PR review, round 2): a thin
+ * vertical centreline and a dot at the coil axis, to help a reviewer
+ * (or this implementer) confirm the wall-mount-face preset's slot layout
+ * is actually centred/symmetric. Gated behind a URL query flag so it never
+ * ships visible in the normal UI -- `?debugAxis=1` (checked once at mount,
+ * not reactively, since it's a screenshot tool, not a user-facing control).
+ * Pure CSS overlay, not a 3D scene element: LineArtRenderer's reframe
+ * effect centres the model's own projected bounds on the canvas, so a
+ * plain screen-centred line + dot already lines up with the coil axis
+ * without any extra 3D math.
+ */
+function useDebugAxisOverlay(): boolean {
+  const [enabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return new URLSearchParams(window.location.search).get("debugAxis") === "1";
+    } catch {
+      return false;
+    }
+  });
+  return enabled;
+}
+
 /**
  * The IKEA line-art look (issue #3, docs/research.md §5 & §10b): the mesh is
  * never shaded directly. `LineArtRenderer` takes over the render loop and
@@ -189,12 +311,14 @@ const WALL_VIEW_ROTATION = new THREE.Matrix4().makeRotationX(-0.4228539261329407
  * away from the core. The wound cable is built from the SOLVED layer
  * offsets, which live on the core, so it never moves with the cap.
  */
-export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWire = true, exploded = false }: CoilViewerProps) {
+export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWire = true, exploded = false, mountAxisDeg }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const prevResolution = useRef<Resolution>(resolution);
   const reducedMotion = usePrefersReducedMotion();
-  const [wallView, setWallView] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("standing");
+  const debugAxisOverlay = useDebugAxisOverlay();
+  const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg), [mountAxisDeg]);
 
   const partGeometries = useMemo(() => parts.map((part) => ({ part, geometry: buildCreasedGeometry(part.mesh) })), [parts]);
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
@@ -217,36 +341,36 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   // and the crease pass above both key off of), so toggling the preset never
   // disturbs those.
   const viewPartGeometries = useMemo(() => {
-    if (!wallView) return partGeometries;
+    const rotation = viewRotations[viewMode];
+    if (!rotation) return partGeometries;
     return partGeometries.map(({ part, geometry }) => {
       const rotated = geometry.clone();
-      rotated.applyMatrix4(WALL_VIEW_ROTATION);
+      rotated.applyMatrix4(rotation);
       return { part, geometry: rotated };
     });
-  }, [partGeometries, wallView]);
+  }, [partGeometries, viewMode, viewRotations]);
   useEffect(() => {
     if (viewPartGeometries === partGeometries) return;
     return () => viewPartGeometries.forEach(({ geometry }) => geometry.dispose());
   }, [viewPartGeometries, partGeometries]);
 
   const viewWireGeometries = useMemo(() => {
-    if (!wallView) return wireGeometries;
+    const rotation = viewRotations[viewMode];
+    if (!rotation) return wireGeometries;
     return wireGeometries.map((g) => {
       const rotated = g.clone();
-      rotated.applyMatrix4(WALL_VIEW_ROTATION);
+      rotated.applyMatrix4(rotation);
       return rotated;
     });
-  }, [wireGeometries, wallView]);
+  }, [wireGeometries, viewMode, viewRotations]);
   useEffect(() => {
     if (viewWireGeometries === wireGeometries) return;
     return () => viewWireGeometries.forEach((g) => g.dispose());
   }, [viewWireGeometries, wireGeometries]);
 
-  // The exploded-view lift direction: the coil's own axis, wherever it
-  // currently renders -- world Z when standing, or world X once
-  // WALL_VIEW_ROTATION remaps it (see that matrix's own comment: "local +Z
-  // (the coil's own axis) -> world +X").
-  const explodeAxis = useMemo(() => new THREE.Vector3(wallView ? 1 : 0, 0, wallView ? 0 : 1), [wallView]);
+  // The exploded-view lift direction: the coil's own axis, wherever the
+  // current preset renders it (see EXPLODE_AXES above).
+  const explodeAxis = useMemo(() => EXPLODE_AXES[viewMode], [viewMode]);
 
   // A stable framing geometry (issue #9): every non-core part contributes
   // its FULLY exploded position, not its live animated one, so the camera
@@ -301,13 +425,24 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
 
   return (
     <div ref={frameRef} data-testid="coil-viewer" className="coil-viewer-frame">
-      <button type="button" data-testid="toggle-wall-view" className="wall-view-toggle" onClick={() => setWallView((v) => !v)}>
-        {wallView ? "Standing view" : "Wall-mount view"}
+      <button
+        type="button"
+        data-testid="toggle-wall-view"
+        className="wall-view-toggle"
+        onClick={() => setViewMode((mode) => VIEW_MODE_ORDER[(VIEW_MODE_ORDER.indexOf(mode) + 1) % VIEW_MODE_ORDER.length])}
+      >
+        {NEXT_VIEW_LABEL[viewMode]}
       </button>
-      {wallView && (
+      {VIEW_CAPTION[viewMode] && (
         <p className="wall-view-caption" data-testid="wall-view-caption">
-          Bottom flange against the wall -- top cap faces the room
+          {VIEW_CAPTION[viewMode]}
         </p>
+      )}
+      {debugAxisOverlay && viewMode === "wallMount" && (
+        <div className="debug-axis-overlay" data-testid="debug-axis-overlay" aria-hidden="true">
+          <div className="debug-axis-overlay-line" />
+          <div className="debug-axis-overlay-dot" />
+        </div>
       )}
       <Canvas
         orthographic

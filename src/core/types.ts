@@ -266,6 +266,16 @@ export interface Design {
    * `step/build.ts` and `wall.ts`'s `createWallProfile`). Not for UI use. */
   wallSpec: WallSpec;
   flangeSpec: FlangeSpec;
+  /**
+   * The `bestAxisDeg` theta the screw-keyhole mount's slot(s) are actually
+   * centred/mirrored on (undefined when `spec.mount !== "keyhole"`, or the
+   * mount didn't fit at all). Not always 0 -- see mount.ts's `MountLayout`
+   * doc comment: a shape without a genuine mirror axis at literal vertical
+   * (a triangle) still hangs level, just with THIS axis vertical instead of
+   * local +Y. The viewer's wall presets rotate by this to actually show
+   * that real hung orientation, rather than the design's own local frame.
+   */
+  mountAxisDeg?: number;
 }
 
 export type ExportFormat = "stl" | "step" | "3mf";

@@ -181,6 +181,18 @@ export interface MountLayout {
   recessDepth: number;
   /** Set (with an empty `slots`) when the flange annulus is too narrow to fit even a single slot. */
   warning?: string;
+  /**
+   * The `bestAxisDeg` theta this layout's slot(s) are actually centred/
+   * mirrored on (undefined when `slots` is empty). Not always 0: per the
+   * file header, a shape without a genuine mirror axis at literal vertical
+   * (a triangle, at this construction's fixed corner angles) still hangs
+   * level, just with THIS axis vertical instead of local +Y -- so a
+   * consumer that wants to actually SHOW the real hung orientation (rather
+   * than the design's own unrotated local frame) needs this value to
+   * correct for the difference (CoilViewer.tsx's wall presets do exactly
+   * that).
+   */
+  axisDeg?: number;
 }
 
 /**
@@ -216,14 +228,14 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
     const axis = bestAxisDeg(boreOutline, SCREW_MOUNT_TWO_SLOT_ANGLE);
     const left = slotAt(axis - SCREW_MOUNT_TWO_SLOT_ANGLE);
     const right = slotAt(axis + SCREW_MOUNT_TWO_SLOT_ANGLE);
-    if (left && right) return { slots: [left, right], recessDepth: SCREW_MOUNT_RECESS_DEPTH };
+    if (left && right) return { slots: [left, right], recessDepth: SCREW_MOUNT_RECESS_DEPTH, axisDeg: axis };
     // Fall through to the single-slot layout below rather than ever emit
     // invalid (or asymmetric, one-sided) geometry.
   }
 
   const singleAxis = bestAxisDeg(boreOutline, 0);
   const single = slotAt(singleAxis);
-  if (single) return { slots: [single], recessDepth: SCREW_MOUNT_RECESS_DEPTH };
+  if (single) return { slots: [single], recessDepth: SCREW_MOUNT_RECESS_DEPTH, axisDeg: singleAxis };
 
   return {
     slots: [],

@@ -535,6 +535,13 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
       expect(a.up).toBeCloseTo(b.up, 6);
       // Not on the axis itself (2 DISTINCT slots, not one doubled up).
       expect(Math.abs(a.side)).toBeGreaterThan(1);
+
+      // MountLayout surfaces the SAME axis it actually used (issue #13 PR
+      // review round 2), and design() re-surfaces it on the Design itself:
+      // a consumer (the viewer's wall presets) needs this to show the
+      // mount's real hung orientation -- see mount.ts's own doc comment.
+      expect(layout.axisDeg).toBeCloseTo(axisDeg, 9);
+      expect(d.mountAxisDeg).toBeCloseTo(axisDeg, 9);
     });
 
     it("places a single slot centred on the shape's own best axis, above centre, channel pointing literally up, on a modest flange", async () => {
@@ -561,6 +568,17 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
       const anchor = project(anchorOf(slot), axisDeg);
       expect(anchor.side).toBeCloseTo(0, 6);
       expect(anchor.up).toBeGreaterThan(0);
+
+      expect(layout.axisDeg).toBeCloseTo(axisDeg, 9);
+      expect(d.mountAxisDeg).toBeCloseTo(axisDeg, 9);
     });
+  });
+
+  it("design()'s mountAxisDeg is undefined without the keyhole mount, and also when the mount doesn't fit at all", async () => {
+    const none = await design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 100 }, height: { locked: true, value: 60 } }));
+    expect(none.mountAxisDeg).toBeUndefined();
+
+    const tooSmall = await design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 6 }, height: { locked: true, value: 20 }, mount: "keyhole" }));
+    expect(tooSmall.mountAxisDeg).not.toBeUndefined(); // requiredFlangeMargin grows the flange to fit -- see the "tiny, sharp core" test above
   });
 });
