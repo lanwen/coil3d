@@ -1,8 +1,8 @@
-// Build-plate math shared by the per-part bed-fit warnings (design.ts) and
-// the 3MF plate layout (threeMf.ts) -- issue #10, docs/research.md §1
-// "Print"/"bed size", "Out of scope": "Automatic part splitting or plate
-// arrangement beyond placing parts side by side; the bed size only
-// triggers a warning."
+// Build-plate math shared by the per-part bed-fit warnings (design.ts), the
+// STL exporter (export.ts) and the 3MF plate layout (threeMf.ts) -- issue
+// #10, docs/research.md §1 "Print"/"bed size", "Out of scope": "Automatic
+// part splitting or plate arrangement beyond placing parts side by side;
+// the bed size only triggers a warning."
 //
 // `printBBox` reads each part in ITS OWN print orientation (printTransform,
 // types.ts) -- the same transform already used for STL export (transform.ts)
@@ -11,7 +11,7 @@
 
 import { PLATE_GAP } from "./constants";
 import { applyRigidTransform } from "./transform";
-import type { CoilMesh, Part, PrintSpec } from "./types";
+import type { CoilMesh, Part, PrintSpec, RigidTransform } from "./types";
 
 export interface BBox {
   minX: number;
@@ -50,24 +50,41 @@ export function printBBox(part: Part): BBox {
 }
 
 /**
- * Per-part [dx, dy, dz] offsets (mm) to ADD to each part's own
- * `printTransform.translate`: places every part's already-print-oriented
- * footprint side by side along X with a fixed gap, centers the whole row on
- * the bed, AND snaps each part's own min Z to exactly 0.
+ * `part.printTransform` with its Z translation corrected so the part's own
+ * min Z lands at EXACTLY 0 -- i.e. the transform that actually rests the
+ * part on the bed, as opposed to `printTransform` alone (issue #10 review:
+ * PR #31 originally used `printTransform` as-is for both STL and 3MF and
+ * assumed that was enough; it isn't).
  *
- * `dz` is NOT a "printTransform already handles this" no-op: `printTransform`
- * only orients each part (rotate + a fixed translate baked in at design()
- * time, types.ts); it does not promise the result's min Z is 0. It happens
- * to be for the top cap (its print-orientation flip is derived from
- * `solution.height`, which cancels out), but NOT for the core -- the core's
- * own mesh has its bottom flange a few mm below the wall's own z=0 origin
- * (FLANGE_THICKNESS, constants.ts), and `printTransform` for the core is the
- * identity, so without this `dz` the core would sit a few mm below the
- * plate. Computing `dz = -minZ` per part, independent of the mesh's own
- * local-frame convention, is what actually guarantees "every part rests on
- * the bed" (issue #10 review) rather than relying on that convention.
+ * `printTransform` only orients each part (rotate + a fixed translate baked
+ * in at design() time, types.ts) -- it does not promise the result's min Z
+ * is 0. That happens to hold for the top cap (its print-orientation flip is
+ * derived from `solution.height`, which cancels out), but NOT for the core:
+ * the core's own mesh has its bottom flange a few mm below the wall's own
+ * z=0 origin (FLANGE_THICKNESS, constants.ts), and the core's
+ * `printTransform` is the identity, so using it as-is would sit the core a
+ * few mm below the plate.
+ *
+ * Every exporter that places a part on a real bed (STL: export.ts, 3MF:
+ * threeMf.ts) must go through THIS function rather than re-deriving its own
+ * Z offset, so they can't independently drift on what "resting on the bed"
+ * means.
  */
-export function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, number, number]> {
+export function bedRestingTransform(part: Part): RigidTransform {
+  const box = printBBox(part);
+  const [tx, ty, tz] = part.printTransform.translate;
+  return { rotateX: part.printTransform.rotateX, translate: [tx, ty, tz - box.minZ] };
+}
+
+/**
+ * Per-part [dx, dy] offsets (mm) to ADD to each part's own
+ * (already bed-resting, see `bedRestingTransform`) translation: places every
+ * part's already-print-oriented footprint side by side along X with a fixed
+ * gap, and centers the whole row on the bed. X/Y sizing reads `printBBox`
+ * (unaffected by `bedRestingTransform`'s Z-only correction) -- Z itself is
+ * `bedRestingTransform`'s concern, not this function's.
+ */
+export function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, number]> {
   const boxes = parts.map(printBBox);
   const widths = boxes.map((b) => b.maxX - b.minX);
   const totalWidth = widths.reduce((sum, w) => sum + w, 0) + PLATE_GAP * Math.max(0, parts.length - 1);
@@ -76,8 +93,7 @@ export function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, numbe
   return boxes.map((b, i) => {
     const dx = cursor - b.minX + bed.bedX / 2;
     const dy = -(b.minY + b.maxY) / 2 + bed.bedY / 2;
-    const dz = -b.minZ;
     cursor += widths[i] + PLATE_GAP;
-    return [dx, dy, dz];
+    return [dx, dy];
   });
 }

@@ -223,6 +223,59 @@ describe("exportDesign for a two-part design (issue #9)", () => {
     expect(text).toContain("top-cap.stl");
   });
 
+  // Issue #10 review: a bed-fit fix in this same ticket found the core
+  // sitting a few mm below the plate in the 3MF export; the STL exporter
+  // shares the exact same `bedRestingTransform` (plate.ts), so pin the
+  // invariant here too, per part, not just for 3MF -- "each exported STL
+  // part's min z is 0".
+  it("every part in the STL zip rests exactly on the bed (min Z = 0), not just the 3MF export", async () => {
+    const d = await design(twoPartSpec);
+    const bytes = await exportDesign(d, "stl");
+
+    // Independent zip (STORE-only) reader, mirroring src/core/zip.ts's own
+    // writer (no compression, no zip64, no archive comment) and
+    // test/threeMf.test.ts's `readZipStore` -- proves the writer produced a
+    // real zip, not just bytes this test happens to tolerate.
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const eocdOffset = bytes.length - 22;
+    expect(dv.getUint32(eocdOffset, true)).toBe(0x06054b50);
+    const entryCount = dv.getUint16(eocdOffset + 10, true);
+    const centralStart = dv.getUint32(eocdOffset + 16, true);
+
+    let pos = centralStart;
+    const files: Array<{ name: string; data: Uint8Array }> = [];
+    for (let i = 0; i < entryCount; i++) {
+      expect(dv.getUint32(pos, true)).toBe(0x02014b50);
+      const compSize = dv.getUint32(pos + 20, true);
+      const nameLen = dv.getUint16(pos + 28, true);
+      const extraLen = dv.getUint16(pos + 30, true);
+      const commentLen = dv.getUint16(pos + 32, true);
+      const localOffset = dv.getUint32(pos + 42, true);
+      const name = new TextDecoder().decode(bytes.subarray(pos + 46, pos + 46 + nameLen));
+
+      const localNameLen = dv.getUint16(localOffset + 26, true);
+      const localExtraLen = dv.getUint16(localOffset + 28, true);
+      const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+      files.push({ name, data: bytes.subarray(dataStart, dataStart + compSize) });
+      pos += 46 + nameLen + extraLen + commentLen;
+    }
+    expect(files.map((f) => f.name)).toEqual(d.parts.map((p) => `${p.name}.stl`));
+
+    for (const file of files) {
+      const fdv = new DataView(file.data.buffer, file.data.byteOffset, file.data.byteLength);
+      const triCount = fdv.getUint32(80, true);
+      let minZ = Infinity;
+      for (let i = 0; i < triCount; i++) {
+        const off = 84 + i * 50 + 12;
+        for (let v = 0; v < 3; v++) {
+          const z = fdv.getFloat32(off + v * 12 + 8, true);
+          if (z < minZ) minZ = z;
+        }
+      }
+      expect(minZ, `${file.name} min Z is exactly 0`).toBeCloseTo(0, 4);
+    }
+  });
+
   it.each(JOINTS)("STEP export produces one file with one solid per part, each volume matching its own mesh (joint=%s)", async (joint) => {
     const d = await design({ ...twoPartSpec, joint });
     const stepBytes = await exportDesign(d, "step");

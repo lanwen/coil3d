@@ -23,12 +23,14 @@
 // export backend reading the identical vertex data, so they can never
 // drift apart from one another.
 //
-// `layoutParts` (plate.ts) supplies a per-part [dx, dy, dz]; dz snaps that
-// part's own min Z to exactly 0 (issue #10 review) -- it is NOT redundant
-// with `printTransform` (a part's own rotate+translate can still land its
-// mesh a few mm off the plate; see plate.ts's `layoutParts` doc comment).
+// Z placement goes through `plate.ts`'s `bedRestingTransform`, not
+// `part.printTransform` directly (issue #10 review: a plain `printTransform`
+// does not promise the part's min Z is 0 -- see that function's doc
+// comment). `export.ts`'s STL branch uses the exact same function, so STL
+// and 3MF can never independently drift on what "resting on the bed"
+// means. `layoutParts` only ever supplies the X/Y plate-arrangement offset.
 
-import { layoutParts } from "./plate";
+import { bedRestingTransform, layoutParts } from "./plate";
 import { writeZip } from "./zip";
 import type { CoilMesh, Design, RigidTransform } from "./types";
 
@@ -89,10 +91,11 @@ export function write3mf(design: Design): Uint8Array<ArrayBuffer> {
 
   const items = parts
     .map((part, i) => {
-      const [ox, oy, oz] = offsets[i];
+      const [ox, oy] = offsets[i];
+      const resting = bedRestingTransform(part);
       const t: RigidTransform = {
-        rotateX: part.printTransform.rotateX,
-        translate: [part.printTransform.translate[0] + ox, part.printTransform.translate[1] + oy, part.printTransform.translate[2] + oz],
+        rotateX: resting.rotateX,
+        translate: [resting.translate[0] + ox, resting.translate[1] + oy, resting.translate[2]],
       };
       return `<item objectid="${i + 1}" transform="${transformAttr(t)}"/>`;
     })

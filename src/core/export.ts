@@ -13,10 +13,17 @@
 // (#28) to restyle. Consumers tell the two apart by extension/part count
 // (`design.parts.length`), matching how the UI already names the STEP file.
 //
+// Every part is placed with `plate.ts`'s `bedRestingTransform`, not
+// `part.printTransform` directly (issue #10 review: a plain `printTransform`
+// does not promise the part's min Z is 0 -- see that function's doc
+// comment) -- 3mf.ts uses the exact same function, so STL and 3MF can never
+// independently drift on what "resting on the bed" means.
+//
 // `3mf` (issue #10) is the one-file-for-everything alternative to the STL
 // zip: one object + one plate-placed build item per part, all in one
 // download. See threeMf.ts.
 
+import { bedRestingTransform } from "./plate";
 import { applyRigidTransform } from "./transform";
 import { writeBinaryStl } from "./stl";
 import { write3mf } from "./threeMf";
@@ -27,12 +34,12 @@ export async function exportDesign(design: Design, format: ExportFormat): Promis
   if (format === "stl") {
     if (design.parts.length === 1) {
       const part = design.parts[0];
-      return writeBinaryStl(applyRigidTransform(part.mesh, part.printTransform), part.name);
+      return writeBinaryStl(applyRigidTransform(part.mesh, bedRestingTransform(part)), part.name);
     }
     return writeZip(
       design.parts.map((part) => ({
         name: `${part.name}.stl`,
-        data: writeBinaryStl(applyRigidTransform(part.mesh, part.printTransform), part.name),
+        data: writeBinaryStl(applyRigidTransform(part.mesh, bedRestingTransform(part)), part.name),
       })),
     ) as Uint8Array<ArrayBuffer>;
   }
