@@ -114,6 +114,18 @@ export function RotateIcon({ label }: { label: string }) {
   );
 }
 
+/** A hand pulling a cable straight out, struck through -- "don't pull the cable" (step 7, paired with RotateIcon). */
+export function NoPullIcon({ label }: { label: string }) {
+  return (
+    <Icon label={label}>
+      <path d="M10 32 H40" {...STROKE} />
+      <path d="M40 32 l -7 -6 M40 32 l -7 6" {...STROKE} />
+      <path d="M42 14 C 48 20, 52 26, 52 32 C 52 40, 46 46, 42 50" {...STROKE} />
+      <line x1="14" y1="12" x2="50" y2="52" {...STROKE} />
+    </Icon>
+  );
+}
+
 /** A part footprint on a bed line with a barred "no supports" mark. */
 export function NoSupportsIcon({ label }: { label: string }) {
   return (

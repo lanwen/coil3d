@@ -35,13 +35,13 @@ test.describe("printable assembly guide (issue #17)", () => {
     // One part (no cap) -> exactly one print-orientation figure.
     await expect(page.getByTestId("guide-print-part-core")).toBeVisible();
     await expect(page.getByTestId("guide-print-part-top-cap")).toHaveCount(0);
-    await expect(page.getByTestId("guide-step-1")).toContainText("prints as 1 part");
+    await expect(page.getByTestId("guide-step-1")).toContainText("1 part");
   });
 
   test("a 2-layer design with a top cap includes the cap steps, and both parts print separately", async ({ page }) => {
     await gotoGuide(page, TWO_LAYER_CAP);
     await expect(page.getByTestId("guide-step-1")).toContainText("Print the parts");
-    await expect(page.getByTestId("guide-step-1")).toContainText("prints as 2 parts");
+    await expect(page.getByTestId("guide-step-1")).toContainText("2 parts");
     await expect(page.getByTestId("guide-step-2")).toContainText("Thread the inner cable end");
     await expect(page.getByTestId("guide-step-3")).toContainText("Wind the cable");
     await expect(page.getByTestId("guide-step-3")).toContainText("2 layers");
@@ -61,9 +61,9 @@ test.describe("printable assembly guide (issue #17)", () => {
   // matching the rest of this suite's convention (e.g. top-cap.spec.ts's
   // JOINTS loop), rather than reusing one page across several `gotoGuide` calls.
   const JOINTS: Array<{ id: "press" | "bayonet" | "snap"; wording: string }> = [
-    { id: "press", wording: "Press the top cap" },
+    { id: "press", wording: "Press the cap down" },
     { id: "bayonet", wording: "twist to lock" },
-    { id: "snap", wording: "click into place" },
+    { id: "snap", wording: "clips click" },
   ];
   for (const { id, wording } of JOINTS) {
     test(`joint=${id}: the fit-the-cap step uses joint-specific wording, plus the glue note`, async ({ page }) => {
@@ -76,18 +76,18 @@ test.describe("printable assembly guide (issue #17)", () => {
 
   test("the tip to unwind by rotating the coil, not pulling the cable, is present", async ({ page }) => {
     await gotoGuide(page, ONE_LAYER);
-    await expect(page.getByTestId("guide-step-5")).toContainText(/rotate the whole coil/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/rotate the coil/i);
     await expect(page.getByTestId("guide-step-5")).toContainText(/don't pull the cable/i);
   });
 
   test("the wall-mount step is generic with no mount selected", async ({ page }) => {
     await gotoGuide(page, ONE_LAYER);
-    await expect(page.getByTestId("guide-step-4")).toContainText("No wall mount is selected");
+    await expect(page.getByTestId("guide-step-4")).toContainText("mounts are coming soon");
   });
 
   test("the wall-mount step gives real instructions once the screw-keyhole mount is selected", async ({ page }) => {
     await gotoGuide(page, `${ONE_LAYER}&mount=keyhole`);
-    await expect(page.getByTestId("guide-step-4")).toContainText("screw-keyhole slot");
+    await expect(page.getByTestId("guide-step-4")).toContainText("keyhole slot on a screw");
   });
 
   test("the toolbar opens the guide from the design view and back again, without losing the design", async ({ page }) => {

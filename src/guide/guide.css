@@ -94,16 +94,36 @@
   align-items: center;
 }
 
+/* Fixed at src/guide/projection.ts's FIGURE_ASPECT (4/3) -- one constant
+   both sides read, so a point projected in TS always lands where the CSS
+   box actually puts it, at any rendered width. */
 .guide-figure {
   width: 100%;
-  height: 220px;
+  aspect-ratio: 4 / 3;
   border: 1.5px solid var(--hairline);
   border-radius: 2px;
 }
 
-.guide-figure-row > .guide-figure {
+.guide-figure-row > .guide-figure,
+.guide-figure-row > .guide-figure-stage {
   flex: 1 1 320px;
-  height: 260px;
+}
+
+/* A row holding exactly one figure (steps with an overlay or a zoom inset)
+   is capped at a KNOWN width -- src/guide/overlays.tsx's `HOST_FIGURE_WIDTH`
+   -- rather than growing to fill the page, so a zoom inset's "how many
+   times bigger" is a real, known ratio, not a guess against whatever width
+   flexbox happened to grow the figure to. */
+.guide-figure-row--solo {
+  max-width: 480px;
+}
+
+.guide-figure-row--solo > .guide-figure-stage {
+  flex: 0 0 100%;
+}
+
+.guide-figure-stage {
+  position: relative;
 }
 
 .guide-part figcaption {
@@ -123,6 +143,75 @@
 .guide-callout p {
   margin: 0;
   font-size: 0.9rem;
+}
+
+/* ---------- Geometry-attached overlays (issue #17 review) ---------- */
+
+.guide-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  color: var(--ink);
+}
+
+.guide-overlay-arrow {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.guide-overlay-mark {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.guide-overlay-wall-hatch {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.guide-overlay-wall-border {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.guide-zoom-inset {
+  position: absolute;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 0 0 0 3px var(--paper);
+}
+
+.guide-zoom-inset-bottom-right {
+  right: 6px;
+  bottom: 6px;
+}
+
+.guide-zoom-inset-bottom-left {
+  left: 6px;
+  bottom: 6px;
+}
+
+.guide-zoom-inset-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.guide-zoom-inset-figure {
+  width: 100%;
+  height: 100%;
+  border: none;
+  aspect-ratio: auto;
 }
 
 .pictogram {
@@ -174,7 +263,6 @@
   }
 
   .guide-figure {
-    height: 55mm;
     border-color: #000;
   }
 }

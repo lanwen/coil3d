@@ -1,18 +1,31 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CoilMesh, Part, WireLayerPath } from "../core";
-import { LineArtRenderer } from "./lineArt/LineArtRenderer";
+import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
+import type { PresetId } from "./lineArt/presets";
 import { buildWireGeometries } from "./wireGeometry";
 
-// Extracted from CoilViewer (issue #17, "printable assembly guide"): the
-// guide's illustrations reuse this exact scene-building logic through a
-// SEPARATE, lighter host component (GuideFigure.tsx) instead of duplicating
-// it -- CoilViewer itself only adds the interactive frame (OrbitControls,
-// the draft/final edge-fade). Moving here is a pure extraction; nothing
-// about how a scene is built or rendered changed.
+// A small, STANDALONE scene builder for the printable assembly guide (issue
+// #17) -- not an extraction from `CoilViewer.tsx` (issue #13's wall-mount
+// rewrite, and issue #15's camera/preset rework right after it, both landed
+// mid-implementation and substantially changed that file; re-extracting from
+// its current, still-actively-edited state each time would make this code
+// hostage to unrelated viewer work). Instead this reuses the parts of the
+// pipeline that already ARE shared, stable modules -- `LineArtRenderer`
+// (the line-art render pass itself) and `presets.ts` (camera direction/up
+// data) -- and reimplements the small, self-contained amount of glue around
+// them (creased geometry, the exploded-view lift, framing) independently,
+// the same way `CoilViewer.tsx` itself does. `CoilViewer.tsx` is untouched
+// by this ticket.
+//
+// Unlike `CoilViewer`, every guide figure is a STATIC, one-shot render (no
+// user ever drags or toggles a single figure), so this always asks
+// `LineArtRenderer` for `reducedMotion=true` (no tweens to wait out) and
+// never reserves headroom for an explode that isn't actually happening --
+// see `framingGeometry` below.
 
 // Normals are split where faces meet at more than this angle, so the edge
 // shader sees a hard jump at every real crease (rims, the flange, each groove
@@ -24,12 +37,7 @@ const CREASE_ANGLE = (30 * Math.PI) / 180;
 // bounding-box height, so it visibly separates from the core regardless of
 // design scale (a tiny cap on a tiny coil still needs to clear the core's
 // own top rim, not just a few sub-millimeter joint features).
-const EXPLODE_GAP = 20; // mm
-// How quickly the explode offset eases toward its target (an exponential
-// decay rate for THREE.MathUtils.damp, frame-rate independent). Reaches
-// ~95% of the way there in about a third of a second.
-const EXPLODE_EASE_RATE = 9;
-const EXPLODE_SETTLE_EPS = 0.01; // mm
+export const EXPLODE_GAP = 20; // mm
 
 export interface CoilSceneProps {
   /** Every printable part (issue #9): the core is drawn in place; every other part (currently only the top cap) can be lifted along the coil axis in the exploded view. */
@@ -40,24 +48,16 @@ export interface CoilSceneProps {
   wireDiameter?: number;
   /** Wire visibility toggle (issue #4), mirrored in the URL hash by the caller. */
   showWire?: boolean;
-  /** Animated exploded view (issue #9): lifts every non-core part along the coil axis, away from the core. The wound cable stays on the core regardless. Respects prefers-reduced-motion. */
+  /** A STATIC exploded pose (issue #9's animated toggle doesn't apply here -- every guide figure is one-shot): lifts every non-core part along the coil axis, away from the core, and reframes tightly around exactly that pose (no reserved headroom for the OTHER pose -- issue #17 review). */
   exploded?: boolean;
+  /** Which standard view to render (`presets.ts`, issue #15); the guide always uses "iso", the same 3/4 assembly-manual look the interactive viewer defaults to. */
+  preset?: PresetId;
+  /** How much of the canvas's tighter axis the fit targets (`LineArtRenderer`'s own `fill`, issue #15) -- the guide asks for a tighter default than the interactive viewer's 0.75 so each step's model reads bigger (issue #17 review: "the model fills ~70% of its figure"). */
+  fill?: number;
   /** Forwarded to LineArtRenderer for reframing/hit-testing; a host with no
    * OrbitControls (GuideFigure) passes a ref that is simply never attached
    * to anything -- LineArtRenderer already null-checks it. */
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
-}
-
-export function usePrefersReducedMotion(): boolean {
-  const query = "(prefers-reduced-motion: reduce)";
-  const [reduced, setReduced] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
-  useEffect(() => {
-    const mq = window.matchMedia(query);
-    const onChange = () => setReduced(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return reduced;
 }
 
 /** The Z-extent of a mesh, mm -- used to size the exploded-view lift so a part clears its own height. */
@@ -81,34 +81,15 @@ function buildCreasedGeometry(mesh: CoilMesh): THREE.BufferGeometry {
   return creased;
 }
 
-/**
- * A non-core part, lifted along Z by `offset` mm when `exploded`. Eases
- * toward its target with `THREE.MathUtils.damp` (frame-rate independent) and
- * re-invalidates the demand-mode canvas every frame until it settles;
- * `prefers-reduced-motion` (and a one-shot guide illustration, which passes
- * `reducedMotion` unconditionally) skips the easing and jumps straight there.
- */
-function ExplodedPart({ geometry, offset, exploded, reducedMotion }: { geometry: THREE.BufferGeometry; offset: number; exploded: boolean; reducedMotion: boolean }) {
+/** A non-core part, held at Z=`offset` when `exploded`, Z=0 otherwise -- a plain static position (no easing: every guide figure is a one-shot render, never toggled live). */
+function ExplodedPart({ geometry, offset, exploded }: { geometry: THREE.BufferGeometry; offset: number; exploded: boolean }) {
   const groupRef = useRef<THREE.Group>(null);
   const invalidate = useThree((s) => s.invalidate);
-  const target = exploded ? offset : 0;
-
-  useEffect(() => {
-    invalidate(); // kick the demand-mode loop whenever the target changes
-  }, [target, invalidate]);
-
-  useFrame((_, delta) => {
+  useEffect(() => invalidate(), [exploded, invalidate]); // kick the demand-mode loop when the pose changes
+  useFrame(() => {
     const group = groupRef.current;
-    if (!group) return;
-    if (reducedMotion) {
-      group.position.z = target;
-      return;
-    }
-    const next = THREE.MathUtils.damp(group.position.z, target, EXPLODE_EASE_RATE, delta);
-    group.position.z = next;
-    if (Math.abs(next - target) > EXPLODE_SETTLE_EPS) invalidate();
+    if (group) group.position.z = exploded ? offset : 0;
   });
-
   return (
     <group ref={groupRef}>
       <mesh geometry={geometry} />
@@ -117,26 +98,19 @@ function ExplodedPart({ geometry, offset, exploded, reducedMotion }: { geometry:
 }
 
 /**
- * The IKEA line-art look (issue #3, docs/research.md §5 & §10b): the mesh is
- * never shaded directly. `LineArtRenderer` takes over the render loop and
- * draws white fill and black lines from a normal+depth pass (via
- * `scene.overrideMaterial`), so no part's own material is ever seen. The
- * schematic wound-cable meshes (issue #4) are plain siblings in the same
- * scene, so the same pass outlines them for free.
+ * The IKEA line-art look (issue #3, docs/research.md §5 & §10b) for one
+ * static guide illustration: the mesh is never shaded directly --
+ * `LineArtRenderer` draws white fill and black lines from a normal+depth
+ * pass. Every part (issue #9) is drawn: the core in place, and any other
+ * part (currently only the top cap) at its assembled or exploded Z per
+ * `exploded`. The wound cable (issue #4) is a plain sibling mesh, outlined
+ * by the same pass.
  *
- * Every part (issue #9) is drawn: the core in place, and any other part
- * (currently only the top cap) inside an `ExplodedPart` group that can lift
- * away from the core. The wound cable is built from the SOLVED layer
- * offsets, which live on the core, so it never moves with the cap.
- *
- * This is the scene content ONLY -- no `<Canvas>`, no `OrbitControls`. Two
- * hosts wrap it: `CoilViewer` (interactive, issue #3/#9) and `GuideFigure`
- * (issue #17's static assembly-guide illustrations), so the two never
- * duplicate how a design is turned into a line-art render.
+ * This is scene content ONLY -- no `<Canvas>`. `GuideFigure` (issue #17)
+ * wraps it in a `Canvas`, with no `OrbitControls` (a static illustration
+ * needs none).
  */
-export function CoilScene({ parts, wirePaths, wireDiameter, showWire = true, exploded = false, controlsRef }: CoilSceneProps) {
-  const reducedMotion = usePrefersReducedMotion();
-
+export function CoilScene({ parts, wirePaths, wireDiameter, showWire = true, exploded = false, preset = "iso", fill, controlsRef }: CoilSceneProps) {
   const partGeometries = useMemo(() => parts.map((part) => ({ part, geometry: buildCreasedGeometry(part.mesh) })), [parts]);
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
 
@@ -144,14 +118,27 @@ export function CoilScene({ parts, wirePaths, wireDiameter, showWire = true, exp
   // fixed gap, so it clears itself regardless of design scale.
   const explodeOffsets = useMemo(() => new Map(parts.filter((p) => p.role !== "core").map((p) => [p.name, zExtent(p.mesh) + EXPLODE_GAP])), [parts]);
 
-  // A stable framing geometry (issue #9): every non-core part contributes
-  // its FULLY exploded position, not its live animated one, so the camera
-  // never reframes mid-explode -- only the parts themselves move (see
-  // ExplodedPart above). Position-only (no index/normals needed):
-  // LineArtRenderer only reads bounding-sphere/vertex bounds from it.
+  // Deliberately NOT creased (unlike the coil geometry above): a tube's own
+  // radial facets would otherwise draw a spurious line at every facet ridge,
+  // hatching the whole coil (see src/viewer/wireGeometry.ts / S3 spike RESULT.md).
+  const wireGeometries = useMemo(() => {
+    if (!showWire || !wirePaths?.length || !wireDiameter) return [];
+    return buildWireGeometries(wirePaths, wireDiameter / 2);
+  }, [showWire, wirePaths, wireDiameter]);
+  useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
+
+  // Framing (issue #17 review: "the model fills ~70% of its figure"): every
+  // non-core part contributes its CURRENT pose only -- offset when
+  // `exploded`, unshifted otherwise -- never both, since (unlike
+  // `CoilViewer`) a guide figure's pose never changes after mount, so there
+  // is no "reframe mid-toggle" to keep stable against. This is what actually
+  // fixes steps 5/6/7 (assembled, not exploded) reading as a small, distant
+  // model in a mostly-empty frame: the old always-reserve-explode-headroom
+  // framing padded every figure for a lift that, for those steps, never
+  // happens.
   const framingGeometry = useMemo(() => {
     const chunks = parts.map((part) => {
-      const offset = explodeOffsets.get(part.name) ?? 0;
+      const offset = exploded ? (explodeOffsets.get(part.name) ?? 0) : 0;
       if (offset === 0) return part.mesh.positions;
       const shifted = new Float32Array(part.mesh.positions.length);
       for (let i = 0; i < shifted.length; i += 3) {
@@ -170,17 +157,10 @@ export function CoilScene({ parts, wirePaths, wireDiameter, showWire = true, exp
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [parts, explodeOffsets]);
+  }, [parts, explodeOffsets, exploded]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
-  // Deliberately NOT creased (unlike the coil geometry above): a tube's own
-  // radial facets would otherwise draw a spurious line at every facet ridge,
-  // hatching the whole coil (see src/viewer/wireGeometry.ts / S3 spike RESULT.md).
-  const wireGeometries = useMemo(() => {
-    if (!showWire || !wirePaths?.length || !wireDiameter) return [];
-    return buildWireGeometries(wirePaths, wireDiameter / 2);
-  }, [showWire, wirePaths, wireDiameter]);
-  useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
+  const projection: Projection = "ortho";
 
   return (
     <>
@@ -188,13 +168,13 @@ export function CoilScene({ parts, wirePaths, wireDiameter, showWire = true, exp
         part.role === "core" ? (
           <mesh key={part.name} geometry={geometry} />
         ) : (
-          <ExplodedPart key={part.name} geometry={geometry} offset={explodeOffsets.get(part.name) ?? 0} exploded={exploded} reducedMotion={reducedMotion} />
+          <ExplodedPart key={part.name} geometry={geometry} offset={explodeOffsets.get(part.name) ?? 0} exploded={exploded} />
         ),
       )}
       {wireGeometries.map((g, i) => (
         <mesh key={i} geometry={g} />
       ))}
-      <LineArtRenderer geometry={framingGeometry} controlsRef={controlsRef} />
+      <LineArtRenderer geometry={framingGeometry} controlsRef={controlsRef} projection={projection} preset={preset} fill={fill} reducedMotion />
     </>
   );
 }
