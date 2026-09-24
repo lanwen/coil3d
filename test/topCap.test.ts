@@ -26,23 +26,6 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   };
 }
 
-/** Volume of a closed, consistently-oriented triangle mesh, by the divergence theorem (mirrors test/geometry.test.ts's own copy -- an independent check, not core/meshVolume.ts). */
-function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): number {
-  const { positions: v, indices: t } = mesh;
-  let volume = 0;
-  for (let i = 0; i < t.length; i += 3) {
-    const a = t[i] * 3;
-    const b = t[i + 1] * 3;
-    const c = t[i + 2] * 3;
-    volume +=
-      (v[a] * (v[b + 1] * v[c + 2] - v[b + 2] * v[c + 1]) -
-        v[a + 1] * (v[b] * v[c + 2] - v[b + 2] * v[c]) +
-        v[a + 2] * (v[b] * v[c + 1] - v[b + 1] * v[c])) /
-      6;
-  }
-  return Math.abs(volume);
-}
-
 async function assertManifold(mesh: { positions: Float32Array; indices: Uint32Array }, label: string) {
   const wasm = await Module();
   wasm.setup();
@@ -276,36 +259,7 @@ describe("exportDesign for a two-part design (issue #9)", () => {
     }
   });
 
-  it.each(JOINTS)("STEP export produces one file with one solid per part, each volume matching its own mesh (joint=%s)", async (joint) => {
-    const d = await design({ ...twoPartSpec, joint });
-    const stepBytes = await exportDesign(d, "step");
-    expect(stepBytes.byteLength).toBeGreaterThan(0);
-
-    const { default: initOC } = await import("replicad-opencascadejs");
-    const oc = await initOC();
-    const path = `/reimport-cap-${joint}.step`;
-    oc.FS.writeFile(path, stepBytes);
-    const reader = new oc.STEPControl_Reader();
-    reader.ReadFile(path);
-    reader.TransferRoots();
-    const shape = reader.OneShape();
-    oc.FS.unlink(path);
-
-    const analyzer = new oc.BRepCheck_Analyzer(shape, true, false, false);
-    expect(analyzer.IsValid()).toBe(true);
-
-    let solidCount = 0;
-    let totalVolume = 0;
-    const explorer = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
-    for (; explorer.More(); explorer.Next()) {
-      solidCount++;
-      const gprops = new oc.GProp_GProps();
-      oc.BRepGProp.VolumeProperties(explorer.Current(), gprops, 1e-5, false, false);
-      totalVolume += gprops.Mass();
-    }
-    expect(solidCount).toBe(2); // core + top-cap, per the ticket "one solid per part"
-
-    const expectedVolume = d.parts.reduce((sum, p) => sum + meshVolume(p.mesh), 0);
-    expect(Math.abs(totalVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
-  });
+  // Issue #32: the per-joint STEP export test moved to test/step.test.ts,
+  // grouped with the other STEP/OCCT tests so they don't run concurrently
+  // with each other and get a generous explicit timeout.
 });
