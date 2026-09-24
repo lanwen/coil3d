@@ -1,0 +1,121 @@
+:root {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #fafafa;
+  color: #1a1a1a;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header {
+  padding: 12px 20px;
+  border-bottom: 1px solid #ddd;
+}
+
+header h1 {
+  margin: 0 0 4px;
+  font-size: 1.25rem;
+}
+
+header p {
+  margin: 0;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.notice {
+  margin: 0;
+  padding: 8px 20px;
+  background: #fff3cd;
+  color: #7a5600;
+  font-size: 0.85rem;
+}
+
+.error {
+  color: #b00020;
+  font-size: 0.85rem;
+}
+
+.layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  width: 320px;
+  padding: 16px;
+  overflow-y: auto;
+  border-right: 1px solid #ddd;
+  box-sizing: border-box;
+}
+
+.viewer {
+  flex: 1;
+  min-width: 0;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.controls-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.controls-field input {
+  padding: 6px 8px;
+  font-size: 0.95rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.result-panel {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #ddd;
+}
+
+.result-panel h2 {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+.result-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 0.9rem;
+}
+
+.result-label {
+  color: #555;
+}
+
+.warnings {
+  margin: 8px 0;
+  padding-left: 18px;
+  color: #7a5600;
+  font-size: 0.8rem;
+}
+
+.result-panel button {
+  margin-top: 12px;
+  width: 100%;
+  padding: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}

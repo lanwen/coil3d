@@ -1,0 +1,29 @@
+node_modules
+dist
+dist-ssr
+*.local
+*.tsbuildinfo
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# Playwright
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/e2e/downloads/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+
+# Sandbox-only scratch files (never part of this ticket's scope)
+/spikes/
+/sbxenv.yaml
