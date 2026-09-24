@@ -251,8 +251,26 @@ function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete():
  */
 function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, depth: number, zBase: number) {
   const { Manifold } = wasm;
-  const head = Manifold.cylinder(depth, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_HEAD_RADIUS, 32).translate(slot.head.x, slot.head.y, zBase);
-  const shankEnd = Manifold.cylinder(depth, SCREW_MOUNT_SHANK_RADIUS, SCREW_MOUNT_SHANK_RADIUS, 32).translate(slot.shankEnd.x, slot.shankEnd.y, zBase);
+  // Poke WELD_OVERLAP past the flange's true outer face (zBase) at the
+  // cutter's mouth, instead of starting exactly flush with it: this
+  // recess is a BLIND pocket (unlike the inner-end keyhole's through-cut,
+  // which already pokes past both faces -- see buildInnerEndCutter), so
+  // its bottom cap would otherwise sit exactly coincident with the ring's
+  // own bottom annulus face. That razor-thin, exactly-coincident seam is
+  // the same hazard `mountPlateAnchorCutter`'s own MOUNT_PLATE_EMBED
+  // fixes ("an un-embedded cutter... left the flange's material
+  // completely uncut, as a separate, disconnected 'ghost' copy of the
+  // cutter itself") -- issue #41 traced the stray-sliver genus failure to
+  // exactly this: `fused.subtract(cutter)` occasionally leaving a whole,
+  // inverted copy of the cutter behind as a disconnected negative-volume
+  // piece instead of actually cutting the recess, once manifold-3d's own
+  // floating-point tolerance made the exact coincidence resolve badly.
+  // Only the mouth end moves; the recess's own depth (zBase+depth, the
+  // pocket's floor) is unchanged.
+  const zLo = zBase - WELD_OVERLAP;
+  const h = depth + WELD_OVERLAP;
+  const head = Manifold.cylinder(h, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_HEAD_RADIUS, 32).translate(slot.head.x, slot.head.y, zLo);
+  const shankEnd = Manifold.cylinder(h, SCREW_MOUNT_SHANK_RADIUS, SCREW_MOUNT_SHANK_RADIUS, 32).translate(slot.shankEnd.x, slot.shankEnd.y, zLo);
   const dx = slot.shankEnd.x - slot.head.x;
   const dy = slot.shankEnd.y - slot.head.y;
   const len = Math.hypot(dx, dy);
@@ -268,7 +286,7 @@ function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, depth: numb
       [slot.shankEnd.x - px, slot.shankEnd.y - py],
       [slot.shankEnd.x + px, slot.shankEnd.y + py],
     ];
-    parts.push(Manifold.extrude([channelPolygon], depth).translate(0, 0, zBase));
+    parts.push(Manifold.extrude([channelPolygon], h).translate(0, 0, zLo));
   }
   return Manifold.union(parts);
 }
