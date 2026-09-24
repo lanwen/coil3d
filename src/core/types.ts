@@ -2,6 +2,9 @@
 // full domain model; this tracer-bullet slice only covers a round core,
 // single layer (issue #2).
 
+import type { WallSpec } from "./wall";
+import type { FlangeSpec } from "./manifold";
+
 /** What the user controls. Round core only in this slice. */
 export interface CoilSpec {
   /** Total cable length to store, mm. */
@@ -40,6 +43,11 @@ export interface Design {
   /** Non-fatal notices about the solved design (e.g. degenerate inputs). */
   warnings: string[];
   mesh: CoilMesh;
+  /** The exact wall and flange parameters used to build `mesh`, kept so the
+   * STEP exporter can fit its B-spline from the same grid (see
+   * `step/build.ts` and `wall.ts`'s `createWallProfile`). Not for UI use. */
+  wallSpec: WallSpec;
+  flangeSpec: FlangeSpec;
 }
 
-export type ExportFormat = "stl";
+export type ExportFormat = "stl" | "step";

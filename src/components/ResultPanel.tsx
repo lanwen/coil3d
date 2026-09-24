@@ -11,7 +11,17 @@ function Row({ testId, label, value }: { testId: string; label: string; value: s
   );
 }
 
-export function ResultPanel({ design, onDownloadStl }: { design: Design; onDownloadStl: () => void }) {
+export function ResultPanel({
+  design,
+  onDownloadStl,
+  onDownloadStep,
+  stepBusy,
+}: {
+  design: Design;
+  onDownloadStl: () => void;
+  onDownloadStep: () => void;
+  stepBusy: boolean;
+}) {
   return (
     <section className="result-panel">
       <h2>Result</h2>
@@ -28,6 +38,9 @@ export function ResultPanel({ design, onDownloadStl }: { design: Design; onDownl
       )}
       <button type="button" data-testid="download-stl" onClick={onDownloadStl}>
         Download STL
+      </button>
+      <button type="button" data-testid="download-step" onClick={onDownloadStep} disabled={stepBusy}>
+        {stepBusy ? "Preparing STEP…" : "Download STEP"}
       </button>
     </section>
   );
