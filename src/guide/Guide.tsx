@@ -224,23 +224,29 @@ function StepSecureOuterEnd({ design, n }: { design: Design; n: number }) {
 /**
  * Data-driven off `spec.mount` (issue #13 landed the "keyhole" case while
  * this ticket was in flight -- `CoilSpec.mount: MountKind` is a real,
- * public core field now, not a guess). `"none"` (still the default, and the
- * only case before #14's clip-plate mount ships) falls through to a
- * generic, still-useful instruction rather than an empty step -- exactly
- * the ticket's "render it generically when there's no mount".
+ * public core field now, not a guess; issue #14 landed "skadis" the same
+ * way, after this ticket shipped). `"none"` falls through to a generic,
+ * still-useful instruction rather than an empty step -- exactly the
+ * ticket's "render it generically when there's no mount". `"opengrid"` is
+ * not reachable from the UI or a shared link (issue #14 PR review round 2:
+ * its connector geometry is a placeholder, so the mount is hidden until a
+ * real one exists -- see hash.ts/ControlsForm.tsx), so it shares the same
+ * generic fallback as "none" rather than getting its own, possibly
+ * misleading, line.
  */
 function mountLine(mount: MountKind): string {
   switch (mount) {
     case "keyhole":
       return "Hang the keyhole slot on a screw, then slide down to seat.";
-    // "none": no mount selected. A pegboard/openGrid clip plate (issue #14)
-    // lands here as its own case once it ships.
+    case "skadis":
+      return "Glue or snap the mount plate onto the flange, then press its clips onto your SKÅDIS board.";
+    // "none" (and "opengrid", not reachable -- see this function's own doc comment).
     default:
       return "Fix the flange to the wall your own way -- mounts are coming soon.";
   }
 }
 
-/** No real hung orientation to show (no mount, or a future SKÅDIS/openGrid mount) -- the coil stays in its standing pose next to a plain, decorative wall strip (issue #17 review: "for SKÅDIS/none, render generically as before"). */
+/** No illustrated hung orientation (no mount, or issue #14's SKÅDIS clip-plate mount, which -- unlike the keyhole mount below -- attaches via a separate mount plate rather than rotating the core itself onto the wall) -- the coil stays in its standing pose next to a plain, decorative wall strip (issue #17 review: "for SKÅDIS/none, render generically as before"). `mountLine` still gives SKÅDIS its own accurate instruction text. */
 function StepMountGeneric({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
   const wallAnchor = approxRimPoint(core.mesh, 0.05, -1);
