@@ -415,7 +415,7 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
 });
 
 describe("design() screw-keyhole wall mount (issue #13)", () => {
-  it("defaults to no mount, with the flange at its usual thickness and no keyhole warnings", async () => {
+  it("defaults to no mount, with the flange thickness derived from the cable diameter (issue #43) and no keyhole warnings", async () => {
     const d = await design(
       baseSpec({
         coreSize: { locked: true, dimension: "outer", value: 60 },
@@ -425,12 +425,21 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
     );
     expect(d.spec.mount).toBe("none");
     expect(d.flangeSpec.mount).toBe("none");
-    // Thickness is bumped ONLY for the mount (issue #13): it never grows for
-    // any other reason, unlike margin (which the wound layers can already
-    // push past FLANGE_MARGIN -- issue #5 -- so it's not usable as a
-    // "did the mount touch this" signal on its own; see the next test).
-    expect(d.flangeSpec.thickness).toBe(FLANGE_THICKNESS);
+    // Issue #43: thickness now tracks the cable's own diameter (roughly
+    // idealChannelDepth + a small shelf -- INNER_CHANNEL_DEPTH_FACTOR=1.0,
+    // INNER_CHANNEL_MIN_SHELF=1.5mm, constants.ts, reimplemented
+    // independently here) so the wound cable's first turn lies flush --
+    // this is the new baseline every design gets, mount or not, so it's no
+    // longer pinned to a fixed FLANGE_THICKNESS, but never below it either.
+    const INNER_CHANNEL_DEPTH_FACTOR = 1.0;
+    const INNER_CHANNEL_MIN_SHELF = 1.5;
+    const expectedThickness = Math.max(FLANGE_THICKNESS, INNER_CHANNEL_DEPTH_FACTOR * d.spec.wire.diameter + INNER_CHANNEL_MIN_SHELF);
+    expect(d.flangeSpec.thickness).toBeCloseTo(expectedThickness, 9);
     expect(d.warnings.some((w) => /keyhole/i.test(w))).toBe(false);
+    // The channel-driven baseline itself isn't a "thickness increased"
+    // event (that stays reserved for extra growth a MOUNT causes on top of
+    // it -- see the next test).
+    expect(d.warnings.some((w) => /thickness increased/i.test(w))).toBe(false);
   });
 
   it("bumps the flange's thickness and margin (and warns) to fit the recessed mount, on a comfortably large core", async () => {

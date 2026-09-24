@@ -166,12 +166,26 @@ describe("design() clip mount plate (issue #14)", () => {
     expect(keyhole.parts.map((p) => p.role)).not.toContain("mountPlate");
   });
 
-  it("adds a separate, named mount-plate part for mount=skadis, with the alignment-hole warning", async () => {
+  it("adds a separate, named mount-plate part for mount=skadis", async () => {
     const d = await design(baseSpec({ mount: "skadis" }));
     const plate = d.parts.find((p) => p.role === "mountPlate");
     expect(plate).toBeDefined();
     expect(plate!.name).toBe("mount-plate");
-    expect(d.warnings.some((w) => /flange thickness increased/i.test(w))).toBe(true);
+    // Issue #43: at this default 3.8mm cable diameter, the flange's own
+    // channel-depth-driven baseline thickness (design.ts) already clears
+    // the plate's own anchor-hole minimum (MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE,
+    // 3.9mm < the ~5.3mm baseline), so the plate no longer has to bump
+    // thickness -- or warn -- on top of it. See the next test for a thin
+    // enough cable that the plate's own minimum still bites.
+    expect(d.warnings.some((w) => /flange thickness increased/i.test(w))).toBe(false);
+  });
+
+  it("still bumps the flange thickness (and warns) for a thin cable whose channel-depth baseline alone wouldn't clear the plate's own anchor-hole minimum", async () => {
+    const thinWire = { length: 500, diameter: 0.5, type: "usb" as const };
+    const none = await design(baseSpec({ mount: "none", wire: thinWire }));
+    const skadis = await design(baseSpec({ mount: "skadis", wire: thinWire }));
+    expect(skadis.flangeSpec.thickness).toBeGreaterThan(none.flangeSpec.thickness);
+    expect(skadis.warnings.some((w) => /flange thickness increased/i.test(w))).toBe(true);
   });
 
   it("adds a mount-plate part for mount=opengrid too (placeholder connector geometry -- see constants.ts's TODO)", async () => {
