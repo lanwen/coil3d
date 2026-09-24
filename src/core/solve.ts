@@ -22,8 +22,22 @@
 // continuous "size" search).
 
 import { computeCapacity, envelopeDiameter } from "./capacity";
-import { MARGIN, CLEARANCE, FLANGE_MARGIN, GROOVE_DEPTH_FACTOR, HEIGHT_HI, LAYERS_HI, MAX_WIRE_LENGTH, SHAPE_ROUNDING_EPS, SIZE_HI, SIZE_LO_FLOOR, WALL_THICKNESS } from "./constants";
-import { makeOutline, shapePlugin } from "./shapes";
+import type { CapacityResult } from "./capacity";
+import {
+  MARGIN,
+  CLEARANCE,
+  FLANGE_MARGIN,
+  GROOVE_DEPTH_FACTOR,
+  HEIGHT_HI,
+  LAYERS_HI,
+  MAX_WIRE_LENGTH,
+  MIN_TURNS_PER_LAYER,
+  SHAPE_ROUNDING_EPS,
+  SIZE_HI,
+  SIZE_LO_FLOOR,
+  WALL_THICKNESS,
+} from "./constants";
+import { makeOutline, offsetArea, shapePlugin } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf } from "./types";
 import type { CoilSpec, Diagnosis, Objective, ShapeSpec, Solution } from "./types";
@@ -123,12 +137,33 @@ function lengthFor(spec: CoilSpec, g: Resolved): number {
   return capacityOf(spec, spec.windingQuality, g).totalWoundLength;
 }
 
+/**
+ * Multiplier that grows quickly once any layer's turn count falls below
+ * `MIN_TURNS_PER_LAYER` (issue #23): a squat many-layer stack with only 1-2
+ * turns per layer can score as "small volume" purely because height shrinks
+ * faster than the envelope grows as layers are added, even though nobody
+ * would wind a coil that way. Quadratic in the shortfall so the penalty
+ * dominates the volume score well before the shortfall reaches this floor,
+ * without hard-excluding the candidate (it can still win if nothing better
+ * covers the target length).
+ */
+function turnsPerLayerPenalty(cap: CapacityResult): number {
+  const minTurns = cap.layerResults.reduce((m, l) => Math.min(m, l.turns), Infinity);
+  const shortfall = Math.max(0, MIN_TURNS_PER_LAYER - minTurns);
+  return 1 + shortfall * shortfall;
+}
+
 function envelopeVolumeFor(spec: CoilSpec, g: Resolved): number {
   const cap = capacityOf(spec, spec.windingQuality, g);
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire));
-  const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
-  // Treat the footprint as its bounding circle for a relative volume score.
-  return (Math.PI / 4) * env * env * g.height;
+  // True swept envelope volume (docs/research.md §10a, shapes.ts's
+  // `offsetArea`): the outline's own enclosed area at the outermost wound
+  // wire's outer edge, not a bounding-circle overestimate across the
+  // envelope diameter -- matters for sq/tri, where the true footprint is
+  // smaller than its circumscribed bounding circle.
+  const outerOffset = cap.outermostOffset + spec.wire.diameter / 2;
+  const trueVolume = offsetArea(outline, outerOffset) * g.height;
+  return trueVolume * turnsPerLayerPenalty(cap);
 }
 
 function aspectScoreFor(spec: CoilSpec, g: Resolved): number {
@@ -179,6 +214,19 @@ function finishSolution(
   }
   if (Math.abs(deltaPct) > 10) {
     warnings.push(`Resulting capacity is ${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}% vs. the target cable length.`);
+  }
+  // Capacity range too wide (issue #23): "ok" only means the CHOSEN winding
+  // quality covers the target -- a design can still leave a loose/stacked
+  // winding well short. Warn explicitly whenever the low end of the range
+  // (the worst-case winding quality, whichever end that is -- see
+  // capacityRange's own min/max ordering above) falls under the target, so
+  // this isn't silently hidden behind an "ok" status.
+  const capacityLo = Math.min(lengthLo, lengthHi);
+  if (capacityLo < target * (1 - CAPACITY_EPS)) {
+    const pctOfTarget = (capacityLo / target) * 100;
+    warnings.push(
+      `At the loosest winding quality, capacity is only ${capacityLo.toFixed(0)} mm (${pctOfTarget.toFixed(0)}% of the ${target.toFixed(0)} mm target) -- a loose winding may not fit; wind snugly to reach the full target length.`,
+    );
   }
   if (spec.shape.kind !== "round") {
     const label = shapePlugin(spec.shape.kind).label.toLowerCase();

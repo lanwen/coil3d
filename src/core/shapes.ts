@@ -107,6 +107,27 @@ export function inscribedRadius(o: ShapeOutline, offset: number): number {
 }
 
 /**
+ * TRUE enclosed area of the offset outline (issue #23): the outline is the
+ * Minkowski sum of a sharp-corner "core" polygon (apothem `o.apothem -
+ * o.cornerRadius`, invariant under offset -- rounding/offsetting only grows
+ * the corner disk, see `offsetPerimeter`) with a disk of radius `o.cornerRadius
+ * + offset`, so its area is the standard polygon-plus-disk decomposition:
+ * `Area(core polygon) + Perimeter(core polygon)*rc + pi*rc^2`. This replaces
+ * a bounding-circle volume estimate (`pi/4 * envelopeDiameter^2`), which
+ * overstates a round core's swept volume for nothing (round has no corners
+ * to bulge past) but understates how much SMALLER a square/triangle core's
+ * true footprint is than its circumscribed bounding circle (docs/research.md
+ * §10a) -- see solve.ts's `envelopeVolumeFor`. Round reduces to `pi*rc^2` for
+ * free (innerApothem = 0, same as `pi/4*diameter^2`).
+ */
+export function offsetArea(o: ShapeOutline, offset: number): number {
+  const half = Math.PI / o.n;
+  const innerApothem = o.apothem - o.cornerRadius;
+  const rc = o.cornerRadius + offset;
+  return o.n * innerApothem * innerApothem * Math.tan(half) + 2 * o.n * innerApothem * Math.tan(half) * rc + Math.PI * rc * rc;
+}
+
+/**
  * TRUE circumscribed radius of the offset outline: the farthest point from
  * center is always the midpoint of a corner arc, at distance `Rc + cornerRadius
  * + offset`, where `Rc` is the corner arc's own center distance from the

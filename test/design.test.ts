@@ -246,6 +246,80 @@ describe("design() solver (round core)", () => {
   });
 });
 
+describe("design() solver (min-volume objective and capacity range, issue #23)", () => {
+  it("no longer prefers a squat many-layer stack with too few turns per layer (regression for the reported 6-layer/2-turn case)", async () => {
+    const spec = baseSpec({
+      wire: { length: 3000, diameter: 4, type: "usb" },
+      coreSize: { locked: true, dimension: "outer", value: 60 },
+      height: { locked: false },
+      layers: { locked: false },
+      objective: "minVolume",
+    });
+    const d = await design(spec);
+
+    expect(d.solution.diagnosis.status).toBe("ok");
+    expect(d.solution.objectiveUsed).toBe("minVolume");
+    // This exact case used to resolve to 6 layers x ~16 mm height with only
+    // 2 turns per layer and a 1681-3077 mm capacity range -- nobody would
+    // wind a coil like that.
+    expect(d.solution.layers).toBeLessThan(6);
+    for (const layer of d.solution.layerResults) {
+      expect(layer.turns).toBeGreaterThanOrEqual(5);
+    }
+    // Still covers the target at the chosen winding quality.
+    expect(d.solution.totalWireLength).toBeGreaterThanOrEqual(d.solution.targetWireLength * (1 - 1e-6));
+  });
+
+  it("uses the true swept envelope volume (not a bounding circle), so a squat stack is avoided for non-round shapes too", async () => {
+    const spec = baseSpec({
+      shape: { kind: "sq", cornerRadius: 8 },
+      wire: { length: 3000, diameter: 4, type: "usb" },
+      coreSize: { locked: true, dimension: "outer", value: 60 },
+      height: { locked: false },
+      layers: { locked: false },
+      objective: "minVolume",
+    });
+    const d = await design(spec);
+
+    expect(d.solution.diagnosis.status).toBe("ok");
+    for (const layer of d.solution.layerResults) {
+      expect(layer.turns).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  it("warns when the loosest winding quality's capacity falls short of the target, even though the chosen quality is 'ok'", async () => {
+    const spec = baseSpec({
+      wire: { length: 3000, diameter: 4, type: "usb" },
+      coreSize: { locked: true, dimension: "outer", value: 60 },
+      height: { locked: false },
+      layers: { locked: false },
+      objective: "minVolume",
+    });
+    const d = await design(spec);
+
+    expect(d.solution.diagnosis.status).toBe("ok");
+    expect(d.solution.capacityRange[0]).toBeLessThan(d.solution.targetWireLength);
+    expect(d.warnings.some((w) => /loose winding may not fit/i.test(w))).toBe(true);
+  });
+
+  it("does not warn about the capacity range when capacity is quality-independent (single fully-locked layer)", async () => {
+    const outerSize = 64;
+    const height = 40;
+    const wireDiameter = 3.8;
+    const expected = expectedSingleLayer(outerSize, height, wireDiameter);
+    const spec = baseSpec({
+      wire: { length: expected.length, diameter: wireDiameter, type: "usb" },
+      coreSize: { locked: true, dimension: "outer", value: outerSize },
+      height: { locked: true, value: height },
+      layers: { locked: true, value: 1 },
+    });
+    const d = await design(spec);
+
+    expect(d.solution.capacityRange[0]).toBeCloseTo(d.solution.capacityRange[1], 6);
+    expect(d.warnings.some((w) => /loose winding may not fit/i.test(w))).toBe(false);
+  });
+});
+
 describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)", () => {
   it("uses the requested corner radius as-is when it's within the bend-limit/size range", async () => {
     const spec = baseSpec({
