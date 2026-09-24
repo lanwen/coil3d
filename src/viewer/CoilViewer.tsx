@@ -7,7 +7,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CAP_THICKNESS, JOINT_ENGAGE_DEPTH, JOINT_TRANSITION_HEIGHT } from "../core";
 import type { CoilMesh, MountKind, Part, Resolution, WireLayerPath } from "../core";
 import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
-import type { PresetId } from "./lineArt/presets";
+import { getPreset, type PresetId } from "./lineArt/presets";
 import { ViewControls } from "./ViewControls";
 import { buildWireGeometries } from "./wireGeometry";
 
@@ -38,6 +38,11 @@ const EXPLODE_SETTLE_EPS = 0.01; // mm
 // slight camera reframe while exploded"): the separated joint reads clearer
 // when the frame isn't also reserving its usual slack margin around it.
 const EXPLODED_FILL = 0.85;
+// A looser fill for the inner-end debug close-up: `innerEndLeadIn`'s own
+// extent is tiny (a few mm), so the default 0.75 leaves almost no context
+// around the keyhole/channel -- this keeps some of the surrounding flange
+// and groove visible too.
+const FOCUS_FILL = 0.4;
 
 export interface CoilViewerProps {
   /** Every printable part (issue #9): the core is drawn in place; every other part (currently only the top cap) can be lifted along the coil axis in the exploded view. */
@@ -45,6 +50,8 @@ export interface CoilViewerProps {
   resolution: Resolution;
   /** The schematic wound-cable path per layer (issue #4), or omitted/empty to draw none. */
   wirePaths?: WireLayerPath[];
+  /** `Design.innerEndLeadIn` (issue #8): the inner-end keyhole-through-channel centerline, drawn as one more small tube alongside `wirePaths` so the wound cable reads as one continuous line from the keyhole into the groove. Omitted/too short to draw none. */
+  innerEndLeadIn?: Float32Array;
   /** Cable outer diameter, mm -- sets the drawn wire's tube radius. */
   wireDiameter?: number;
   /** Wire visibility toggle (issue #4), mirrored in the URL hash by the caller. */
@@ -318,6 +325,24 @@ function useDebugAxisOverlay(): boolean {
 }
 
 /**
+ * Screenshot-only close-up on the bottom flange's own inner-end keyhole +
+ * channel (issue #8 PR review), gated behind `?debugFocusInnerEnd=1` (same
+ * "checked once at mount, not reactively" convention as
+ * `useDebugAxisOverlay` above -- a screenshot tool, not a user control).
+ */
+function useDebugFocusInnerEnd(): boolean {
+  const [enabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return new URLSearchParams(window.location.search).get("debugFocusInnerEnd") === "1";
+    } catch {
+      return false;
+    }
+  });
+  return enabled;
+}
+
+/**
  * The IKEA line-art look (issue #3, docs/research.md §5 & §10b): the mesh is
  * never shaded directly. `LineArtRenderer` takes over the render loop and
  * draws white fill and black lines from a normal+depth pass (via
@@ -330,14 +355,41 @@ function useDebugAxisOverlay(): boolean {
  * away from the core. The wound cable is built from the SOLVED layer
  * offsets, which live on the core, so it never moves with the cap.
  */
-export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWire = true, exploded = false, mountAxisDeg, mount = "none" }: CoilViewerProps) {
+export function CoilViewer({
+  parts,
+  resolution,
+  wirePaths,
+  innerEndLeadIn,
+  wireDiameter,
+  showWire = true,
+  exploded = false,
+  mountAxisDeg,
+  mount = "none",
+}: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const prevResolution = useRef<Resolution>(resolution);
   const reducedMotion = usePrefersReducedMotion();
   const [viewMode, setViewMode] = useState<ViewMode>("standing");
   const debugAxisOverlay = useDebugAxisOverlay();
+  const debugFocusInnerEnd = useDebugFocusInnerEnd();
   const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg), [mountAxisDeg]);
+
+  // Debug close-up on the inner-end keyhole + channel (issue #8 PR review):
+  // rotates the rendered geometry about the coil axis so the keyhole's own
+  // (data-dependent) azimuth lines up with the DEFAULT "iso" preset's own
+  // fixed camera azimuth (-45 degrees, equal parts +X/-Y -- presets.ts's
+  // ISO_DIR) -- so the existing iso camera, entirely unchanged, already
+  // looks straight at it from iso's own ~32 degree elevation. Only active
+  // in the "standing" view (the wall presets already own their own
+  // rotation), and only once `innerEndLeadIn` has real samples (empty when
+  // layer 1 has no turns -- see wire.ts's own doc comment).
+  const focusRotation = useMemo(() => {
+    if (!debugFocusInnerEnd || viewMode !== "standing" || !innerEndLeadIn || innerEndLeadIn.length < 6) return null;
+    const isoAzimuth = Math.atan2(getPreset("iso").direction.y, getPreset("iso").direction.x);
+    const keyholeAzimuth = Math.atan2(innerEndLeadIn[1], innerEndLeadIn[0]);
+    return new THREE.Matrix4().makeRotationZ(isoAzimuth - keyholeAzimuth);
+  }, [debugFocusInnerEnd, viewMode, innerEndLeadIn]);
 
   const partGeometries = useMemo(() => parts.map((part) => ({ part, geometry: buildCreasedGeometry(part.mesh) })), [parts]);
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
@@ -379,9 +431,16 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   // radial facets would otherwise draw a spurious line at every facet ridge,
   // hatching the whole coil (see src/viewer/wireGeometry.ts / S3 spike RESULT.md).
   const wireGeometries = useMemo(() => {
-    if (!showWire || !wirePaths?.length || !wireDiameter) return [];
-    return buildWireGeometries(wirePaths, wireDiameter / 2);
-  }, [showWire, wirePaths, wireDiameter]);
+    if (!showWire || !wireDiameter) return [];
+    const paths = wirePaths ? [...wirePaths] : [];
+    // The inner-end lead-in (issue #8) is drawn as one more small path
+    // alongside the real layers -- `turns: 1` keeps it well under
+    // wireGeometry.ts's TURNS_FOR_ENVELOPE, so it always gets the full,
+    // non-schematic tube regardless of how layer 1 itself is drawn.
+    if (innerEndLeadIn && innerEndLeadIn.length >= 6) paths.push({ layer: 0, turns: 1, points: innerEndLeadIn });
+    if (!paths.length) return [];
+    return buildWireGeometries(paths, wireDiameter / 2);
+  }, [showWire, wirePaths, innerEndLeadIn, wireDiameter]);
   useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
 
   // Wall-view preset: physically rotated COPIES of every part's geometry (not
@@ -389,28 +448,28 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   // and the crease pass above both key off of), so toggling the preset never
   // disturbs those.
   const viewPartGeometries = useMemo(() => {
-    const rotation = viewRotations[viewMode];
+    const rotation = viewRotations[viewMode] ?? focusRotation;
     if (!rotation) return partGeometries;
     return partGeometries.map(({ part, geometry }) => {
       const rotated = geometry.clone();
       rotated.applyMatrix4(rotation);
       return { part, geometry: rotated };
     });
-  }, [partGeometries, viewMode, viewRotations]);
+  }, [partGeometries, viewMode, viewRotations, focusRotation]);
   useEffect(() => {
     if (viewPartGeometries === partGeometries) return;
     return () => viewPartGeometries.forEach(({ geometry }) => geometry.dispose());
   }, [viewPartGeometries, partGeometries]);
 
   const viewWireGeometries = useMemo(() => {
-    const rotation = viewRotations[viewMode];
+    const rotation = viewRotations[viewMode] ?? focusRotation;
     if (!rotation) return wireGeometries;
     return wireGeometries.map((g) => {
       const rotated = g.clone();
       rotated.applyMatrix4(rotation);
       return rotated;
     });
-  }, [wireGeometries, viewMode, viewRotations]);
+  }, [wireGeometries, viewMode, viewRotations, focusRotation]);
   useEffect(() => {
     if (viewWireGeometries === wireGeometries) return;
     return () => viewWireGeometries.forEach((g) => g.dispose());
@@ -468,6 +527,48 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
+  // Debug close-up (continued): a SMALL framing geometry -- just
+  // `innerEndLeadIn`'s own extent (keyhole to groove start), rotated the
+  // same way as the rendered parts above -- so LineArtRenderer's fit zooms
+  // tight on that region instead of the whole model (its `geometry` prop
+  // only ever drives the camera FIT; the actual RENDERED scene is every
+  // `<mesh>` in the Canvas below, unaffected by this substitution -- see
+  // LineArtRenderer's own file header). Two extra points, far along iso's
+  // own view direction from the keyhole (a zero contribution to the
+  // on-screen X/Y fit -- lookAt's local Z axis IS that direction, so an
+  // offset purely along it always resolves to local (0,0,+-k) -- see
+  // computeFit's own rotation/inverse math), keep the fit's near/far planes
+  // wide enough to cover the ACTUAL (much bigger) rendered model instead of
+  // clipping it to this tiny region's own bounding sphere.
+  const focusFramingGeometry = useMemo(() => {
+    if (!focusRotation || !innerEndLeadIn || innerEndLeadIn.length < 6) return null;
+    // Rotate the real lead-in points FIRST: the far points below are placed
+    // along the camera's own (unrotated) view direction, so they must be
+    // anchored to the ALREADY-rotated keyhole position, not rotated a
+    // second time themselves (which would misalign them with that
+    // direction and corrupt the on-screen fit).
+    const rotatedLeadIn = new Float32Array(innerEndLeadIn.length);
+    const p = new THREE.Vector3();
+    for (let i = 0; i < innerEndLeadIn.length; i += 3) {
+      p.set(innerEndLeadIn[i], innerEndLeadIn[i + 1], innerEndLeadIn[i + 2]).applyMatrix4(focusRotation);
+      rotatedLeadIn[i] = p.x;
+      rotatedLeadIn[i + 1] = p.y;
+      rotatedLeadIn[i + 2] = p.z;
+    }
+    const isoDirection = getPreset("iso").direction;
+    const anchor = new THREE.Vector3(rotatedLeadIn[0], rotatedLeadIn[1], rotatedLeadIn[2]);
+    const FAR_RADIUS = 600; // mm, comfortably past the solver's own SIZE_HI (500mm) upper bound
+    const far1 = anchor.clone().addScaledVector(isoDirection, FAR_RADIUS);
+    const far2 = anchor.clone().addScaledVector(isoDirection, -FAR_RADIUS);
+    const positions = new Float32Array(rotatedLeadIn.length + 6);
+    positions.set(rotatedLeadIn, 0);
+    positions.set([far1.x, far1.y, far1.z, far2.x, far2.y, far2.z], rotatedLeadIn.length);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    return geometry;
+  }, [focusRotation, innerEndLeadIn]);
+  useEffect(() => () => focusFramingGeometry?.dispose(), [focusFramingGeometry]);
+
   // Draft -> final swap gets a short edge fade (issue #7 AC), matching the
   // gridfinity-layout-tool review's approach (docs/research.md §10b: "the
   // exact mesh replaces it with a ... edge fade"). Draft -> draft (still
@@ -524,11 +625,11 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
           <mesh key={i} geometry={g} />
         ))}
         <LineArtRenderer
-          geometry={framingGeometry}
+          geometry={focusFramingGeometry ?? framingGeometry}
           controlsRef={controlsRef}
           projection={projection}
           preset={effectivePreset}
-          fill={exploded ? EXPLODED_FILL : undefined}
+          fill={focusFramingGeometry ? FOCUS_FILL : exploded ? EXPLODED_FILL : undefined}
           reducedMotion={reducedMotion}
         />
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />

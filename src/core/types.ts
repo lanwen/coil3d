@@ -292,6 +292,16 @@ export interface Design {
    * than the design's own local frame.
    */
   mountAxisDeg?: number;
+  /**
+   * The inner-end lead-in centerline (issue #8): from the bottom flange's
+   * own rim keyhole, through the recessed channel, to where layer 1's own
+   * wound-cable path (`wirePaths[0]`) begins -- xyz per sample, flat at
+   * z=0 (the flange's inner face). A separate field, not a prefix on
+   * `wirePaths[0].points` (see wire.ts's `buildInnerEndLeadIn`), so it never
+   * disturbs that path's own constant-radial-offset/monotonic-z invariants.
+   * Empty when layer 1 has no turns (nothing to lead into).
+   */
+  innerEndLeadIn: Float32Array;
 }
 
 export type ExportFormat = "stl" | "step" | "3mf";

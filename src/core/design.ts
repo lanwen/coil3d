@@ -43,7 +43,8 @@ import {
   WALL_THICKNESS,
 } from "./constants";
 import { buildMountPlate, buildTopCap, fuseFlange } from "./manifold";
-import type { CoreJointCut, MountPlateFlangeCut } from "./manifold";
+import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
+import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
 import { printBBox } from "./plate";
 import { layoutKeyholeMount, requiredFlangeMargin } from "./mount";
 import type { MountLayout } from "./mount";
@@ -52,9 +53,10 @@ import { circumscribedRadius, makeOutline, offsetOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { resolveLabel } from "./label";
 import { solve } from "./solve";
+import { bendMultiplierOf } from "./types";
 import type { CoilSpec, Design, Part, Resolution } from "./types";
 import { buildWall } from "./wall";
-import { buildWirePaths } from "./wire";
+import { buildInnerEndLeadIn, buildWirePaths } from "./wire";
 
 export async function design(spec: CoilSpec, resolution: Resolution = "final"): Promise<Design> {
   const { solution, warnings } = solve(spec);
@@ -142,6 +144,28 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (mountKindForPlate && thickness > FLANGE_THICKNESS) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the mount plate's alignment features.`);
   }
+
+  // Issue #8 (inner-end fixing): the recessed channel on the flange's inner
+  // (z=0) face wants to be roughly a full cable diameter deep, so the wound
+  // cable's first turn lies flush rather than proud of the surrounding
+  // annulus (INNER_CHANNEL_DEPTH_FACTOR). `resolveChannelDepth` caps it to
+  // whatever the flange's own (already-resolved) thickness leaves below a
+  // small shelf, and below the screw-keyhole mount's own recess on the
+  // OTHER face too when one is present -- so the two never meet in the
+  // middle -- rather than growing the flange's thickness for it (see that
+  // function's own comment for why: doing so tripped an unrelated,
+  // pre-existing manifold-3d robustness bug in the mount's own recess cut
+  // at several thickness values). Warn when the mount is what forced a
+  // shallower-than-ideal channel; a channel capped by the DEFAULT thickness
+  // alone (no mount) is the ordinary case and doesn't warn -- flange
+  // thickness otherwise never changes, see test/design.test.ts's "flange at
+  // its usual thickness" case.
+  const channelDepth = resolveChannelDepth(wireDiameter, thickness, wantsKeyhole);
+  if (wantsKeyhole && channelDepth < idealChannelDepth(wireDiameter) - 1e-6) {
+    warnings.push(
+      `The inner-end channel is only ${channelDepth.toFixed(1)} mm deep, limited by the screw-keyhole mount's own recess on the flange's other face; the first turn may sit slightly proud of the surrounding flange face.`,
+    );
+  }
   // Kept (not just its warning) so it can be surfaced on the returned
   // Design below: a consumer that wants to actually SHOW the mount's real
   // hung orientation -- not just cut it -- needs `axisDeg` too (see
@@ -151,6 +175,17 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     mountLayout = layoutKeyholeMount(outline, boreOutline, margin);
     if (mountLayout.warning) warnings.push(mountLayout.warning);
   }
+
+  // Inner-end fixing (issue #8): the bottom flange's own rim keyhole for the
+  // inner cable end, plus the recessed channel leading it to the groove
+  // start -- always present, unlike the (optional) mount. `layoutInnerEnd`
+  // is called again, identically, inside `fuseFlange`/`buildStep` (the same
+  // "one shared pure function, called once per backend" convention as
+  // `layoutKeyholeMount` above), so it's computed here only to surface its
+  // warning and to build the wound-cable schematic's lead-in (wire.ts).
+  const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
+  const innerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, spec.tolerance, bendRadius);
+  if (innerEndLayout.warning) warnings.push(innerEndLayout.warning);
 
   const flangeSpec = {
     outline,
@@ -196,8 +231,10 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       ? { boreOutline, height: solution.height, joint: spec.joint, tolerance: spec.tolerance }
       : undefined;
 
+  const innerEndCut: InnerEndCut = { wireDiameter, tolerance: spec.tolerance, bendRadius, channelDepth, flangeThickness: thickness };
+
   const wall = buildWall(wallSpec);
-  const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint, mountPlateCut);
+  const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint, innerEndCut, mountPlateCut);
 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
 
@@ -253,6 +290,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const mesh = parts[0].mesh;
   const wirePaths = buildWirePaths(solution.layerResults, wallSpec, spec.windingQuality, resolution);
+  // Issue #8: the wound-cable schematic's lead-in, from the SAME channel
+  // path just cut into the flange -- never a re-derivation, so the drawn
+  // cable can't show it entering the groove anywhere but where it was
+  // actually cut. Kept as its own field, not folded into `wirePaths[0]`
+  // (see buildInnerEndLeadIn's own doc comment for why).
+  const innerEndLeadIn = buildInnerEndLeadIn(innerEndLayout.channelPath);
 
   // Per-part bed-fit warnings (issue #10 AC): each part in ITS OWN print
   // orientation (printBBox reads printTransform, same as the STL/3MF
@@ -280,7 +323,19 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     }
   }
 
-  return { spec, solution, warnings, parts, mesh, resolution, wirePaths, wallSpec, flangeSpec, mountAxisDeg: mountLayout?.axisDeg ?? mountPlateLayout?.axisDeg };
+  return {
+    spec,
+    solution,
+    warnings,
+    parts,
+    mesh,
+    resolution,
+    wirePaths,
+    wallSpec,
+    flangeSpec,
+    mountAxisDeg: mountLayout?.axisDeg ?? mountPlateLayout?.axisDeg,
+    innerEndLeadIn,
+  };
 }
 
 /** A copy of `mesh` with every vertex shifted by [dx, dy, dz]; `indices` is shared (never mutated). */

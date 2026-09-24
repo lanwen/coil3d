@@ -59,6 +59,11 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // it can follow a non-round outline too). Volume is the meaningful,
     // stable invariant; manifold-3d's own dedup/welding vertex count is that
     // library's implementation detail, not a property of the physical part.
-    expect(meshVolume(d.mesh)).toBeCloseTo(27373.35113865865, 3);
+    //
+    // Issue #8 bumped this golden number down from 27373.35113865865: every
+    // core now ALWAYS gets the bottom flange's own inner-end fixing (rim
+    // keyhole + recessed channel, see innerEnd.ts), which removes real,
+    // intentional material -- not a regression this guard is meant to catch.
+    expect(meshVolume(d.mesh)).toBeCloseTo(27315.823587649567, 3);
   });
 });

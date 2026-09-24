@@ -21,6 +21,7 @@ import {
   FINAL_WIRE_MIN_SAMPLES_PER_TURN,
 } from "./constants";
 import { clamp01 } from "./capacity";
+import type { XY } from "./innerEnd";
 import { pointAt } from "./shapes";
 import { createWallProfile, type WallSpec } from "./wall";
 import type { LayerResult, Resolution } from "./types";
@@ -102,4 +103,27 @@ export function buildWirePaths(layerResults: LayerResult[], wallSpec: WallSpec, 
   }
 
   return paths;
+}
+
+/**
+ * The inner-end lead-in centerline (issue #8, docs/research.md "Wire ends"):
+ * `innerEnd.ts`'s own `channelPath` (keyhole-to-groove order), flattened flat
+ * at z=0 (the flange's inner face -- the channel is a shallow recess there,
+ * not a helix). Deliberately kept OUT of `buildWirePaths`'s own per-layer
+ * `WireLayerPath.points` (layer 1's path there sits at one constant radial
+ * offset for its WHOLE run and climbs z monotonically at a constant pitch --
+ * invariants test/wire.test.ts checks precisely -- which a flat, varying-
+ * radius lead-in prefix would break): a separate small curve the viewer
+ * draws alongside layer 1's own tube instead, so the wound-cable schematic
+ * still reads as one continuous line from the keyhole through the channel
+ * into the groove, without disturbing layer 1's own solved geometry.
+ */
+export function buildInnerEndLeadIn(channelPath: XY[]): Float32Array {
+  const points = new Float32Array(channelPath.length * 3);
+  for (let i = 0; i < channelPath.length; i++) {
+    points[i * 3] = channelPath[i].x;
+    points[i * 3 + 1] = channelPath[i].y;
+    points[i * 3 + 2] = 0;
+  }
+  return points;
 }
