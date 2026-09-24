@@ -115,6 +115,7 @@
    times bigger" is a real, known ratio, not a guess against whatever width
    flexbox happened to grow the figure to. */
 .guide-figure-row--solo {
+  position: relative;
   max-width: 480px;
 }
 
@@ -212,6 +213,15 @@
   height: 100%;
   border: none;
   aspect-ratio: auto;
+}
+
+.guide-inset-mark {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px;
+  border: 2px dashed var(--ink);
+  border-radius: 50%;
 }
 
 .pictogram {

@@ -155,6 +155,13 @@ export function meshBounds(mesh: CoilMesh): THREE.Box3 {
   return box;
 }
 
+/** The union bounding box of every part's mesh (public `CoilMesh` data only). */
+export function partsBounds(parts: Part[]): THREE.Box3 {
+  const box = new THREE.Box3();
+  for (const part of parts) box.union(meshBounds(part.mesh));
+  return box;
+}
+
 /**
  * A schematic anchor point for a rim feature (a keyhole, the groove's
  * start) that the guide has no exact coordinates for -- `Design.wallSpec`/

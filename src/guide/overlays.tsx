@@ -214,15 +214,11 @@ export function Figure({ parts, wirePaths, wireDiameter, showWire, exploded, pre
 }
 
 /**
- * A schematic hatched wall plane along a figure's left edge -- issue #17
- * review's "the wall as a hatched plane" (step 6). Deliberately a FIXED 2D
- * decoration (not a projected 3D point): the interactive viewer's own
- * precise wall-mount rotation (`CoilViewer.tsx`'s `WALL_VIEW_ROTATION`) only
- * makes sense together with its exact fixed camera; reusing it here would
- * mean either editing that file (out of scope, see CoilScene.tsx's own file
- * header) or duplicating a fragile, camera-specific derivation. A flat
- * schematic wall beside the model -- like many real assembly manuals draw a
- * wall or floor -- reads clearly without either.
+ * A schematic hatched wall plane along a figure's left edge -- the GENERIC
+ * mount step (no mount selected, or a future SKÅDIS/openGrid mount): there's
+ * no real hung orientation to show yet, so this stays a plain 2D decoration
+ * rather than the real, projected `WallQuad` below (issue #17 review: "for
+ * SKÅDIS/none, render generically as before").
  */
 export function WallPlane() {
   const bandW = VB_W * 0.09;
@@ -240,6 +236,58 @@ export function WallPlane() {
       <rect className="guide-overlay-wall-border" x={0} y={0} width={bandW} height={VB_H} />
     </g>
   );
+}
+
+function lerpPt(a: Pt, b: Pt, t: number): Pt {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+/**
+ * A real, projected wall plane -- issue #17 review: "the wall plane drawn
+ * behind the flange in proper perspective (a hatched plane parallel to the
+ * flange face, not a 2D strip)". `corners` are 4 points already projected
+ * (`projectToFigure`) from a quadrilateral that is genuinely coplanar with,
+ * and parallel to, the flange's own face in 3D (see Guide.tsx's `StepMount`:
+ * the quad sits in the SAME rotated frame the coil itself renders in, offset
+ * sideways so it never overlaps the coil's own silhouette), wound in order
+ * around the perimeter (0-1-2-3-0) with (0,1) and (3,2) as the two edges the
+ * hatch lines connect (so they run PARALLEL to the real plane's own edge,
+ * not at an arbitrary angle).
+ */
+export function WallQuad({ corners }: { corners: [Pt, Pt, Pt, Pt] }) {
+  const vb = corners.map(toVb) as [Pt, Pt, Pt, Pt];
+  const pointsAttr = vb.map((p) => `${p.x},${p.y}`).join(" ");
+  const hatchCount = 5;
+  const hatches = Array.from({ length: hatchCount - 1 }, (_, i) => {
+    const t = (i + 1) / hatchCount;
+    const p1 = lerpPt(vb[0], vb[1], t);
+    const p2 = lerpPt(vb[3], vb[2], t);
+    return <line key={t} className="guide-overlay-wall-hatch" x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} />;
+  });
+  const clipId = "guide-wallquad-clip";
+  return (
+    <g className="guide-overlay-wall">
+      <clipPath id={clipId}>
+        <polygon points={pointsAttr} />
+      </clipPath>
+      <g clipPath={`url(#${clipId})`}>{hatches}</g>
+      <polygon className="guide-overlay-wall-border" points={pointsAttr} />
+    </g>
+  );
+}
+
+/** A small round window in a fixed corner, for a figure rendered at a DIFFERENT orientation than the host (the mount-side face-on view, issue #17 review) -- unlike `ZoomInset`, this isn't a crop of the host's own render, so it needs no fill/zoom math: whatever's passed as `children` (typically another `GuideFigure` plus an `InsetMark`) is simply drawn at the window's own natural size. */
+export function CornerInset({ children, corner = "bottom-right" }: { children: React.ReactNode; corner?: "bottom-right" | "bottom-left" }) {
+  return (
+    <div className={`guide-zoom-inset guide-zoom-inset-${corner}`} style={{ width: INSET_SIZE, height: INSET_SIZE }}>
+      {children}
+    </div>
+  );
+}
+
+/** A dashed circle mark inside a `CornerInset`, positioned by plain CSS percentage (not the main figure's fixed-aspect SVG viewBox: a `CornerInset` is a 1:1 square, so a percentage position needs no aspect conversion at all). */
+export function InsetMark({ at }: { at: Pt }) {
+  return <div className="guide-inset-mark" style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }} />;
 }
 
 /** A thin leader line from the source point (on the host figure) to the zoom inset's fixed corner, plus a small dashed circle marking exactly what's being zoomed -- the two visual halves of one call-out. */

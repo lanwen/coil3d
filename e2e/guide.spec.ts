@@ -120,22 +120,37 @@ test.describe("printable assembly guide (issue #17)", () => {
     expect(breaks).toEqual(["avoid", "auto", "always", "auto", "always", "auto", "always"]);
   });
 
+  // Each guide screenshot renders several WebGL canvases at once (every
+  // step's figure, plus a zoom/rotated inset on some steps) -- slower than
+  // the single-canvas screenshots elsewhere in this suite, especially under
+  // heavy parallel SwiftShader contention. `test.slow()` triples this
+  // test's own overall timeout (not just the assertion's), on top of the
+  // generous `toHaveScreenshot` timeout below.
   test.describe("screenshots (visual review)", () => {
     test("1-layer design (no cap)", async ({ page }) => {
+      test.slow();
       await gotoGuide(page, ONE_LAYER);
-      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-one-layer.png", { timeout: 15000 });
+      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-one-layer.png", { timeout: 25000 });
     });
 
-    test("2-layer design with a top cap", async ({ page }) => {
-      await gotoGuide(page, TWO_LAYER_CAP);
-      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-two-layer-cap.png", { timeout: 15000 });
+    test("2-layer design with a top cap (bayonet joint)", async ({ page }) => {
+      test.slow();
+      await gotoGuide(page, `${TWO_LAYER_CAP}&joint=bayonet`);
+      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-two-layer-cap.png", { timeout: 25000 });
+    });
+
+    test("with the screw-keyhole wall mount", async ({ page }) => {
+      test.slow();
+      await gotoGuide(page, `${ONE_LAYER}&mount=keyhole`);
+      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-keyhole-mount.png", { timeout: 25000 });
     });
 
     test("print-media emulation", async ({ page }) => {
+      test.slow();
       await gotoGuide(page, TWO_LAYER_CAP);
       await page.emulateMedia({ media: "print" });
       await page.waitForTimeout(300);
-      await expect(page).toHaveScreenshot("guide-print-media.png", { timeout: 15000 });
+      await expect(page).toHaveScreenshot("guide-print-media.png", { timeout: 25000 });
     });
   });
 });

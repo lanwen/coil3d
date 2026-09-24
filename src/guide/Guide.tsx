@@ -20,10 +20,12 @@
 
 import * as THREE from "three";
 import type { CoilMesh, Design, JointKind, MountKind, Part } from "../core";
+import { GuideFigure } from "../viewer/GuideFigure";
 import { EXPLODE_GAP } from "../viewer/CoilScene";
 import { partInPrintPose } from "./printOrientation";
-import { approxRimPoint, explodedParts, meshBounds, projectToFigure } from "./projection";
-import { CircleMark, ClickMark, Figure, PolylineArrow, StraightArrow, TwistMark, WallPlane } from "./overlays";
+import { approxRimPoint, computeGuideFit, explodedParts, meshBounds, partsBounds, projectToFigure } from "./projection";
+import { CircleMark, ClickMark, CornerInset, Figure, InsetMark, PolylineArrow, StraightArrow, TwistMark, WallPlane, WallQuad, type Pt } from "./overlays";
+import { rotateParts, rotatePoint, wallMountRotation, wallRoomRotation } from "./wallView";
 import { ClickIcon, GlueDropIcon, KeyholeIcon, NoPullIcon, NoSupportsIcon, PressIcon, RotateIcon, TwistIcon, WallMountIcon, WindIcon } from "./pictograms";
 import "./guide.css";
 
@@ -117,7 +119,7 @@ function StepThreadInnerEnd({ design }: { design: Design }) {
 function StepWind({ design }: { design: Design }) {
   const core = corePart(design);
   const { layers } = design.solution;
-  const path = design.wirePaths[0]?.points;
+  const layer0 = design.wirePaths[0];
   return (
     <StepCard n={3} title="Wind the cable">
       <div className="guide-figure-row guide-figure-row--solo">
@@ -128,13 +130,27 @@ function StepWind({ design }: { design: Design }) {
           showWire
           testId="guide-wind"
           renderOverlay={
-            path && path.length >= 12
+            layer0 && layer0.points.length >= 24 && layer0.turns > 0
               ? (fit) => {
-                  const n = Math.floor(path.length / 3);
-                  const fracs = [0.14, 0.3, 0.46];
-                  const points = fracs.map((f) => {
-                    const i = Math.min(n - 1, Math.floor(f * n));
-                    return projectToFigure(fit, new THREE.Vector3(path[i * 3], path[i * 3 + 1], path[i * 3 + 2]));
+                  const path = layer0.points;
+                  const sampleCount = Math.floor(path.length / 3);
+                  const samplesPerTurn = (sampleCount - 1) / layer0.turns;
+                  // A visible SPIRAL segment (issue #17 review: "follow the
+                  // helix direction visibly ... a spiral segment around the
+                  // coil, not a sine-like curve across the front"): well
+                  // under one turn, but DENSELY sampled (many points, not a
+                  // sparse few smoothed together), so the curve genuinely
+                  // hugs the coil's own curvature as it wraps, instead of a
+                  // few widely-spaced points that a wide multi-turn span
+                  // would otherwise stretch into a wandering zigzag.
+                  const spanTurns = Math.min(layer0.turns, 0.72);
+                  const spanSamples = Math.max(10, Math.round(spanTurns * samplesPerTurn));
+                  const startIdx = Math.max(0, Math.floor(sampleCount * 0.08));
+                  const endIdx = Math.min(sampleCount - 1, startIdx + spanSamples);
+                  const N = 18;
+                  const points = Array.from({ length: N + 1 }, (_, i) => {
+                    const idx = startIdx + Math.round(((endIdx - startIdx) * i) / N);
+                    return projectToFigure(fit, new THREE.Vector3(path[idx * 3], path[idx * 3 + 1], path[idx * 3 + 2]));
                   });
                   return <PolylineArrow points={points} />;
                 }
@@ -224,11 +240,10 @@ function mountLine(mount: MountKind): string {
   }
 }
 
-function StepMount({ design, n }: { design: Design; n: number }) {
+/** No real hung orientation to show (no mount, or a future SKÅDIS/openGrid mount) -- the coil stays in its standing pose next to a plain, decorative wall strip (issue #17 review: "for SKÅDIS/none, render generically as before"). */
+function StepMountGeneric({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
-  const mount = design.spec.mount;
   const wallAnchor = approxRimPoint(core.mesh, 0.05, -1);
-
   return (
     <StepCard n={n} title="Mount on the wall">
       <div className="guide-figure-row guide-figure-row--solo">
@@ -241,20 +256,105 @@ function StepMount({ design, n }: { design: Design; n: number }) {
               <>
                 <WallPlane />
                 <StraightArrow from={{ x: 0.11, y: at.y }} to={at} />
-                {mount === "keyhole" && (
-                  <>
-                    <CircleMark at={{ x: 0.06, y: Math.max(0.1, at.y - 0.14) }} r={0.02} />
-                    <StraightArrow from={{ x: 0.06, y: Math.max(0.1, at.y - 0.1) }} to={{ x: 0.06, y: at.y }} />
-                  </>
-                )}
               </>
             );
           }}
         />
       </div>
-      <Callout icons={<WallMountIcon label="Mount on the wall" />}>{mountLine(mount)}</Callout>
+      <Callout icons={<WallMountIcon label="Mount on the wall" />}>{mountLine(design.spec.mount)}</Callout>
     </StepCard>
   );
+}
+
+/**
+ * The screw-keyhole mount's REAL hung orientation (issue #17 review: the
+ * coil's axis points out of the wall, the bottom flange sits flat against
+ * the wall, the top cap faces the room -- docs/research.md, mount.ts's
+ * `WALL_UP`). Rotates every part with the SAME matrices `CoilViewer.tsx`
+ * uses for its own "wall mount (room side)"/"wall mount (mount side)"
+ * presets (src/guide/wallView.ts), so this is the genuine hung pose, not a
+ * schematic stand-in.
+ *
+ * The wall itself is a real, projected `WallQuad`: coplanar with, and
+ * parallel to, the flange's own face (constant along the rotated axis),
+ * offset SIDEWAYS (along the axis mount.ts calls "left/right between 2
+ * slots") so its footprint never overlaps the coil's own silhouette --
+ * connected to the flange by an axis-aligned "move onto the wall" arrow, per
+ * the review's own ask, rather than attempting a literal behind-the-model
+ * plane an SVG overlay can't correctly occlude against the WebGL render
+ * beneath it.
+ *
+ * The inset uses the mount-side face-on rotation to show the flange as the
+ * wall would see it. The exact slot count/radius are core internals
+ * (mount.ts, "not for UI use"), so the screw mark is a schematic
+ * approximation along the real `mountAxisDeg` axis, at a plausible radius
+ * inside the flange -- not a precise measurement.
+ */
+function StepMountKeyhole({ design, n }: { design: Design; n: number }) {
+  const core = corePart(design);
+  const roomRotation = wallRoomRotation(design.mountAxisDeg);
+  const roomParts = rotateParts(design.parts, roomRotation);
+  const box = partsBounds(roomParts);
+  const center = box.getCenter(new THREE.Vector3());
+  const extentY = box.max.y - box.min.y;
+  const extentZ = box.max.z - box.min.z;
+  const wallSize = Math.max(extentY, extentZ) * 0.95;
+  const sideOffset = wallSize * 0.98; // beside the coil, not behind it -- see the file's own doc comment
+  const wallX = box.min.x - wallSize * 0.05; // just behind (less than) the flange's own face
+  const wallY = center.y - sideOffset;
+  const half = wallSize / 2;
+  const wallCorners: [THREE.Vector3, THREE.Vector3, THREE.Vector3, THREE.Vector3] = [
+    new THREE.Vector3(wallX, wallY - half, center.z - half),
+    new THREE.Vector3(wallX, wallY + half, center.z - half),
+    new THREE.Vector3(wallX, wallY + half, center.z + half),
+    new THREE.Vector3(wallX, wallY - half, center.z + half),
+  ];
+  // "Moving the coil onto the wall along its axis": the rotated frame's own
+  // +X is the coil's axis (WALL_REMAP: local +Z -> world +X).
+  const approachFrom = new THREE.Vector3(center.x + (box.max.x - box.min.x) * 0.08, wallY, center.z);
+  const approachTo = new THREE.Vector3(box.min.x + extentY * 0.02, wallY, center.z);
+  // "Slide down to seat": mount.ts's WALL_UP (local +Y) -> rotated +Z, so
+  // sliding DOWN to seat is decreasing rotated Z. Anchored beside the flange
+  // (the wall's own offset Y), not on the coil's own silhouette, so the mark
+  // reads as "at the wall" rather than floating on the model's surface.
+  const slideFrom = new THREE.Vector3(box.min.x, wallY + extentY * 0.35, center.z + extentZ * 0.2);
+  const slideTo = new THREE.Vector3(box.min.x, wallY + extentY * 0.35, center.z + extentZ * 0.02);
+
+  const mountRotation = wallMountRotation(design.mountAxisDeg);
+  const mountCoreParts = rotateParts([core], mountRotation);
+  const screwLocal = new THREE.Vector3(0, Math.max(1, design.solution.flangeSize / 2) * 0.8, meshBounds(core.mesh).min.z + 1);
+  const screwRotated = rotatePoint(screwLocal, mountRotation);
+  const insetFit = computeGuideFit(mountCoreParts, "iso", 0.92, 1);
+  const screwFrac = insetFit ? projectToFigure(insetFit, screwRotated) : { x: 0.5, y: 0.32 };
+
+  return (
+    <StepCard n={n} title="Mount on the wall">
+      <div className="guide-figure-row guide-figure-row--solo">
+        <Figure
+          parts={roomParts}
+          testId="guide-mount"
+          renderOverlay={(fit) => (
+            <>
+              <WallQuad corners={wallCorners.map((p) => projectToFigure(fit, p)) as [Pt, Pt, Pt, Pt]} />
+              <StraightArrow from={projectToFigure(fit, approachFrom)} to={projectToFigure(fit, approachTo)} />
+              <StraightArrow from={projectToFigure(fit, slideFrom)} to={projectToFigure(fit, slideTo)} />
+              <CircleMark at={projectToFigure(fit, slideFrom)} r={0.035} />
+            </>
+          )}
+        />
+        <CornerInset>
+          <GuideFigure parts={mountCoreParts} preset="iso" fill={0.92} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
+          <InsetMark at={screwFrac} />
+        </CornerInset>
+      </div>
+      <Callout icons={<WallMountIcon label="Mount on the wall" />}>{mountLine("keyhole")}</Callout>
+    </StepCard>
+  );
+}
+
+function StepMount({ design, n }: { design: Design; n: number }) {
+  if (design.spec.mount === "keyhole") return <StepMountKeyhole design={design} n={n} />;
+  return <StepMountGeneric design={design} n={n} />;
 }
 
 function StepUnwind({ design, n }: { design: Design; n: number }) {
