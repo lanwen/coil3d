@@ -1,10 +1,12 @@
-// Forward capacity math: given a FULLY specified geometry (outer size,
+// Forward capacity math: given a FULLY specified geometry (a shape outline,
 // height, layers) and a winding-quality scalar, compute turns/layer,
 // per-layer lengths and total wound length (docs/research.md §3).
 // Adapted from spikes/s5-solver/src/solver/capacity.ts, with the
-// shape-registry lookup dropped (round only, see shapes.ts).
+// shape-registry lookup generalised to any convex ShapeOutline (issue #6,
+// see shapes.ts) instead of a per-kind switch.
 
-import { footprintDiameter, growSize, offsetPerimeter } from "./shapes";
+import { circumscribedRadius, offsetPerimeter } from "./shapes";
+import type { ShapeOutline } from "./shapes";
 import type { LayerResult } from "./types";
 
 const SQRT3 = Math.sqrt(3);
@@ -22,8 +24,8 @@ export function radialPitch(d: number, quality: number): number {
 }
 
 export interface GeometryInputs {
-  /** Full winding-surface size (diameter for round), mm. */
-  outerSize: number;
+  /** The winding surface's outline at offset 0 (docs/research.md §2 ShapePlugin). */
+  outline: ShapeOutline;
   /** USABLE winding height (core height minus top/bottom margins), mm. */
   height: number;
   layers: number;
@@ -64,7 +66,7 @@ export function computeCapacity(g: GeometryInputs): CapacityResult {
 
   for (let k = 1; k <= g.layers; k++) {
     const offset = o1 + (k - 1) * h;
-    const perimeter = offsetPerimeter(g.outerSize, offset);
+    const perimeter = offsetPerimeter(g.outline, offset);
     const turns = turnsForLayer(g.height, pitch, k, g.quality);
     // Helix length correction per turn: sqrt(perimeter^2 + pitch^2) (docs/research.md §3).
     const length = turns * Math.sqrt(perimeter * perimeter + pitch * pitch);
@@ -76,8 +78,9 @@ export function computeCapacity(g: GeometryInputs): CapacityResult {
   return { layerResults, totalWoundLength, outermostOffset: lastOffset };
 }
 
-/** Footprint diameter at the outside of the outermost wound wire. */
-export function envelopeDiameter(outerSize: number, lastLayerOffset: number, wireDiameter: number): number {
-  const effectiveSize = growSize(outerSize, lastLayerOffset + wireDiameter / 2);
-  return footprintDiameter(effectiveSize);
+/** Footprint diameter at the outside of the outermost wound wire -- the
+ * outline's own TRUE circumscribed extent at that offset, not a bounding
+ * circle across a sharp corner (docs/research.md §10a, shapes.ts). */
+export function envelopeDiameter(outline: ShapeOutline, lastLayerOffset: number, wireDiameter: number): number {
+  return 2 * circumscribedRadius(outline, lastLayerOffset + wireDiameter / 2);
 }

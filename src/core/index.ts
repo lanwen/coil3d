@@ -28,12 +28,16 @@ export type {
   Objective,
   Resolution,
   ShapeKind,
+  ShapeSpec,
   Solution,
   WireSpec,
   WireTypeId,
   WireTypePreset,
 } from "./types";
 export { DEFAULT_CUSTOM_BEND_MULTIPLIER, WIRE_TYPE_PRESETS } from "./types";
+export { DEFAULT_CORNER_RADIUS } from "./constants";
+export { SHAPES } from "./shapes";
+export type { ShapePlugin } from "./shapes";
 export { parseHash, toHash, DEFAULT_SPEC } from "./hash";
 export type { ParsedHash } from "./hash";
 export { design } from "./design";

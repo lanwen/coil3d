@@ -22,9 +22,40 @@
 // continuous "size" search).
 
 import { computeCapacity, envelopeDiameter } from "./capacity";
-import { MARGIN, CLEARANCE, FLANGE_MARGIN, GROOVE_DEPTH_FACTOR, HEIGHT_HI, LAYERS_HI, MAX_WIRE_LENGTH, SIZE_HI, SIZE_LO_FLOOR, WALL_THICKNESS } from "./constants";
+import { MARGIN, CLEARANCE, FLANGE_MARGIN, GROOVE_DEPTH_FACTOR, HEIGHT_HI, LAYERS_HI, MAX_WIRE_LENGTH, SHAPE_ROUNDING_EPS, SIZE_HI, SIZE_LO_FLOOR, WALL_THICKNESS } from "./constants";
+import { makeOutline, shapePlugin } from "./shapes";
+import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf } from "./types";
-import type { CoilSpec, Diagnosis, Objective, Solution } from "./types";
+import type { CoilSpec, Diagnosis, Objective, ShapeSpec, Solution } from "./types";
+
+/**
+ * Bend-limit floor on the corner radius (issue #6): the innermost wound
+ * layer's corner must clear the wire's minimum bend radius, exactly like
+ * round's `minOuterSizeForBend` below but expressed as a corner-radius floor
+ * instead of a size floor -- it's what a non-round shape's corner radius
+ * gets clamped UP to (docs/research.md §2 "cornerRadiusRange", spikes/s1
+ * RESULT.md "bend radius vs size"). Independent of the resolved size.
+ */
+function bendCornerRadiusFloor(wire: CoilSpec["wire"]): number {
+  const mbr = bendMultiplierOf(wire) * wire.diameter;
+  const o1 = wire.diameter / 2 - GROOVE_DEPTH_FACTOR * wire.diameter;
+  return Math.max(0, mbr - o1);
+}
+
+/** The shape outline actually used for a candidate outer size: round is
+ * always fully round; sq/tri clamp the requested corner radius into
+ * [bend-limit floor, outerSize/2] (see `bendCornerRadiusFloor` above). */
+function resolveOutline(shape: ShapeSpec, outerSize: number, rcMin: number): ShapeOutline {
+  if (shape.kind === "round") return makeOutline("round", outerSize, outerSize / 2);
+  const rcMax = outerSize / 2;
+  // A hairline short of fully round (SHAPE_ROUNDING_EPS): keeps a
+  // non-degenerate (nonzero-length) straight side even when the bend limit
+  // forces the shape as round as this size allows, so the geometry backends
+  // (the polygon-fillet solid in step/build.ts) never see an exactly
+  // zero-length side. Imperceptible at print resolution.
+  const rc = Math.min(Math.max(shape.cornerRadius, rcMin), Math.max(0, rcMax - SHAPE_ROUNDING_EPS));
+  return makeOutline(shape.kind, outerSize, rc);
+}
 
 /** Relative tolerance on "capacity >= target", to absorb floating-point noise only. */
 const CAPACITY_EPS = 1e-6;
@@ -72,11 +103,13 @@ function toOuterSize(lock: Extract<CoilSpec["coreSize"], { locked: true }>): num
   return lock.dimension === "outer" ? lock.value : lock.value + 2 * WALL_THICKNESS;
 }
 
-function capacityOf(wire: CoilSpec["wire"], quality: number, g: Resolved) {
+function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
+  const wire = spec.wire;
   const grooveDepth = GROOVE_DEPTH_FACTOR * wire.diameter;
   const usableHeight = Math.max(0, g.height - 2 * MARGIN);
+  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(wire));
   return computeCapacity({
-    outerSize: g.outerSize,
+    outline,
     height: usableHeight,
     layers: g.layers,
     wireDiameter: wire.diameter,
@@ -87,19 +120,21 @@ function capacityOf(wire: CoilSpec["wire"], quality: number, g: Resolved) {
 }
 
 function lengthFor(spec: CoilSpec, g: Resolved): number {
-  return capacityOf(spec.wire, spec.windingQuality, g).totalWoundLength;
+  return capacityOf(spec, spec.windingQuality, g).totalWoundLength;
 }
 
 function envelopeVolumeFor(spec: CoilSpec, g: Resolved): number {
-  const cap = capacityOf(spec.wire, spec.windingQuality, g);
-  const env = envelopeDiameter(g.outerSize, cap.outermostOffset, spec.wire.diameter);
+  const cap = capacityOf(spec, spec.windingQuality, g);
+  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire));
+  const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   // Treat the footprint as its bounding circle for a relative volume score.
   return (Math.PI / 4) * env * env * g.height;
 }
 
 function aspectScoreFor(spec: CoilSpec, g: Resolved): number {
-  const cap = capacityOf(spec.wire, spec.windingQuality, g);
-  const env = envelopeDiameter(g.outerSize, cap.outermostOffset, spec.wire.diameter);
+  const cap = capacityOf(spec, spec.windingQuality, g);
+  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire));
+  const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   return Math.abs(g.height - env);
 }
 
@@ -118,15 +153,20 @@ function finishSolution(
   const warnings: string[] = [];
   const target = spec.wire.length;
 
-  const cap = capacityOf(spec.wire, spec.windingQuality, resolved);
-  const capLo = capacityOf(spec.wire, 0, resolved);
-  const capHi = capacityOf(spec.wire, 1, resolved);
+  const cap = capacityOf(spec, spec.windingQuality, resolved);
+  const capLo = capacityOf(spec, 0, resolved);
+  const capHi = capacityOf(spec, 1, resolved);
   const totalWireLength = cap.totalWoundLength;
   const lengthLo = capLo.totalWoundLength;
   const lengthHi = capHi.totalWoundLength;
 
+  const rcMin = bendCornerRadiusFloor(spec.wire);
+  const rcMax = resolved.outerSize / 2;
+  const outline = resolveOutline(spec.shape, resolved.outerSize, rcMin);
+  const cornerRadius = outline.cornerRadius;
+
   const innerBore = resolved.outerSize - 2 * WALL_THICKNESS;
-  const env = envelopeDiameter(resolved.outerSize, cap.outermostOffset, spec.wire.diameter);
+  const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSize = env + 2 * FLANGE_MARGIN;
   const capsAuto = resolved.layers > 1;
   const deltaPct = ((totalWireLength - target) / target) * 100;
@@ -140,11 +180,26 @@ function finishSolution(
   if (Math.abs(deltaPct) > 10) {
     warnings.push(`Resulting capacity is ${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}% vs. the target cable length.`);
   }
+  if (spec.shape.kind !== "round") {
+    const label = shapePlugin(spec.shape.kind).label.toLowerCase();
+    const requested = spec.shape.cornerRadius;
+    if (rcMin >= rcMax) {
+      warnings.push(
+        `The bend limit needs at least a ${rcMin.toFixed(1)} mm corner radius, but the core is only ${resolved.outerSize.toFixed(1)} mm across -- the ${label} core is effectively round.`,
+      );
+    } else if (requested < rcMin - 1e-9) {
+      warnings.push(`Corner radius clamped up to ${rcMin.toFixed(1)} mm (requested ${requested.toFixed(1)} mm) to respect the bend limit.`);
+    } else if (requested > rcMax + 1e-9) {
+      warnings.push(`Corner radius clamped down to ${rcMax.toFixed(1)} mm (half the core size).`);
+    }
+  }
 
   const solution: Solution = {
     diagnosis,
     objectiveUsed,
     outerSize: resolved.outerSize,
+    cornerRadius,
+    cornerRadiusRange: [Math.min(rcMin, rcMax), rcMax],
     innerBore,
     height: resolved.height,
     layers: resolved.layers,

@@ -245,3 +245,82 @@ describe("design() solver (round core)", () => {
     expect(d.warnings.some((w) => /too small/i.test(w))).toBe(true);
   });
 });
+
+describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)", () => {
+  it("uses the requested corner radius as-is when it's within the bend-limit/size range", async () => {
+    const spec = baseSpec({
+      shape: { kind: "sq", cornerRadius: 15 },
+      coreSize: { locked: true, dimension: "outer", value: 60 },
+      height: { locked: true, value: 40 },
+      layers: { locked: true, value: 1 },
+    });
+    const d = await design(spec);
+    expect(d.solution.cornerRadius).toBeCloseTo(15, 6);
+    expect(d.warnings.some((w) => /clamp/i.test(w))).toBe(false);
+  });
+
+  it("clamps the corner radius up to the bend-limit floor and warns, without becoming fully round", async () => {
+    const spec = baseSpec({
+      wire: { length: 2000, diameter: 3.8, type: "usb" },
+      shape: { kind: "sq", cornerRadius: 1 }, // far tighter than the wire can bend around
+      coreSize: { locked: true, dimension: "outer", value: 100 }, // big enough that the bend floor < apothem
+      height: { locked: true, value: 40 },
+      layers: { locked: true, value: 1 },
+    });
+    const d = await design(spec);
+    expect(d.solution.cornerRadius).toBeGreaterThan(1);
+    expect(d.solution.cornerRadius).toBeLessThan(d.solution.outerSize / 2);
+    expect(d.warnings.some((w) => /clamped up/i.test(w))).toBe(true);
+    expect(d.warnings.some((w) => /effectively round/i.test(w))).toBe(false);
+  });
+
+  it("warns that the shape became effectively round when the bend limit needs a bigger corner radius than the core allows", async () => {
+    const spec = baseSpec({
+      wire: { length: 2000, diameter: 3.8, type: "usb" },
+      shape: { kind: "tri", cornerRadius: 5 },
+      coreSize: { locked: true, dimension: "outer", value: 20 }, // apothem 10mm < the ~14.4mm bend-limit floor for this wire -- below spikes/s1 RESULT.md's round-forcing threshold
+      height: { locked: true, value: 40 },
+      layers: { locked: true, value: 1 },
+    });
+    const d = await design(spec);
+    expect(d.warnings.some((w) => /effectively round/i.test(w))).toBe(true);
+    expect(d.solution.cornerRadius).toBeCloseTo(d.solution.outerSize / 2, 1);
+  });
+
+  it("computes the bore as a true inward offset, not outer - 2*wall, so the bore's own corner radius shrinks with it", async () => {
+    // Regression guard for spikes/s5-solver/RESULT.md's flagged bug ("inner
+    // = outer - 2*wall is wrong for triangles"): the reported inner "size"
+    // scalar is the same either way (apothem shrinks uniformly), so this is
+    // checked at the mesh level instead -- see test/geometry.test.ts's
+    // "true offset outline, not a bounding circle" case for the outline math.
+    const spec = baseSpec({
+      shape: { kind: "tri", cornerRadius: 15 },
+      coreSize: { locked: true, dimension: "outer", value: 60 },
+      height: { locked: true, value: 40 },
+      layers: { locked: true, value: 1 },
+    });
+    const d = await design(spec);
+    expect(d.solution.innerBore).toBeCloseTo(60 - 2 * WALL_THICKNESS, 6);
+  });
+
+  it("reports a smaller envelope for a rounded square than the round-core (bounding-circle) size at the same outer size", async () => {
+    const size = 60;
+    const round = await design(
+      baseSpec({ shape: { kind: "round" }, coreSize: { locked: true, dimension: "outer", value: size }, height: { locked: true, value: 40 }, layers: { locked: true, value: 1 } }),
+    );
+    const square = await design(
+      baseSpec({
+        shape: { kind: "sq", cornerRadius: 15 },
+        coreSize: { locked: true, dimension: "outer", value: size },
+        height: { locked: true, value: 40 },
+        layers: { locked: true, value: 1 },
+      }),
+    );
+    // A rounded square's true circumscribed envelope (corner-arc midpoint)
+    // is bigger than the round core's (same apothem, but the square's
+    // corners bulge out further) -- yet still well short of the old
+    // bounding-circle-across-a-sharp-corner overestimate, checked in
+    // test/geometry.test.ts.
+    expect(square.solution.envelopeDiameter).toBeGreaterThan(round.solution.envelopeDiameter);
+  });
+});

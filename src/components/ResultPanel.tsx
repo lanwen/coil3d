@@ -17,10 +17,11 @@ function Row({ testId, label, value }: { testId: string; label: string; value: s
   );
 }
 
-function SolutionSummary({ solution, prefix }: { solution: Solution; prefix: string }) {
+function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; prefix: string; shapeKind: Design["spec"]["shape"]["kind"] }) {
   return (
     <>
       <Row testId={`${prefix}outer-size`} label="Outer size" value={`${solution.outerSize.toFixed(1)} mm`} />
+      {shapeKind !== "round" && <Row testId={`${prefix}corner-radius`} label="Corner radius" value={`${solution.cornerRadius.toFixed(1)} mm`} />}
       <Row testId={`${prefix}inner-bore`} label="Inner bore" value={`${solution.innerBore.toFixed(1)} mm`} />
       <Row testId={`${prefix}height`} label="Core height" value={`${solution.height.toFixed(1)} mm`} />
       <Row testId={`${prefix}layers`} label="Layers" value={String(solution.layers)} />
@@ -90,7 +91,7 @@ export function ResultPanel({
         label="Mesh detail"
         value={`${resolution} (${(mesh.indices.length / 3).toLocaleString()} triangles)`}
       />
-      <SolutionSummary solution={solution} prefix="" />
+      <SolutionSummary solution={solution} prefix="" shapeKind={design.spec.shape.kind} />
       {warnings.length > 0 && (
         <ul className="warnings" data-testid="warnings">
           {warnings.map((warning) => (
@@ -106,7 +107,7 @@ export function ResultPanel({
                 Alternate candidate {i + 1} (layers={alt.layers}
                 {alt.objectiveUsed ? `, ${alt.objectiveUsed}` : ""})
               </h3>
-              <SolutionSummary solution={alt} prefix={`alt${i}-`} />
+              <SolutionSummary solution={alt} prefix={`alt${i}-`} shapeKind={design.spec.shape.kind} />
             </div>
           ))}
         </div>
