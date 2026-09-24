@@ -8,28 +8,32 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { EdgeShader } from "./edgeShader";
 import { MAX_THICKEN_RADIUS, ThickenShader } from "./thickenShader";
 
-// docs/research.md §10b: thickness = k * devicePixelRatio / diagonal(projected
-// bounding box). k is tuned by eye against the acceptance goal ("thin, even
-// black lines", not the spike's too-thick outlines) — see the screenshot
-// baselines this ticket adds.
-const THICKNESS_K = 32;
-const MIN_THICKNESS_PX = 0.6;
-// Capped well under MAX_THICKEN_RADIUS: a coil with many tightly-packed
-// helical turns projects a small diagonal even though it has lots of fine
-// detail, and the raw k/diagonal formula would otherwise ask for a dilate
-// radius wide enough to fuse every turn into a solid black mass (the exact
-// failure this ticket replaces). Capping trades "on-screen weight tracks
-// footprint exactly" for "never fuses adjacent detail" — see the long/many-
-// turn screenshot baseline.
-const MAX_THICKNESS_PX = Math.min(1.8, MAX_THICKEN_RADIUS);
+// A 3/4 "assembly manual" view: the coil stands on its flange (z up) and is
+// seen from about 32 degrees above, so the open top end and the bore show.
+const VIEW_DIR = new THREE.Vector3(1, -1, 0.9).normalize();
+const UP = new THREE.Vector3(0, 0, 1);
+// The model's projected bounds fill this fraction of the canvas's tighter axis.
+const FILL = 0.75;
+// Line weight (thicken radius, CSS px) scales gently with the model's
+// on-screen diagonal (docs/research.md §10b), clamped so it stays a thin pen
+// line on small canvases and never fuses the groove rings on large ones.
+const LINE_WEIGHT_PER_DIAGONAL_PX = 1 / 500;
+const MIN_LINE_WEIGHT = 1.0;
+const MAX_LINE_WEIGHT = 1.6;
+// A depth step counts as an occlusion edge when it exceeds this many
+// line-pass pixels' worth of world-space distance.
+const DEPTH_STEP_PX = 4;
 
-// A fixed 3/4 "IKEA manual" viewing direction. Orbiting away from it doesn't
-// need a reframe: the camera is fitted to the model's bounding *sphere*, so
-// every rotation stays inside the frustum without recomputing on each frame.
-const VIEW_DIR = new THREE.Vector3(0.6, 0.55, 0.75).normalize();
-const FRAME_MARGIN = 1.15;
+/**
+ * Pixels per CSS pixel for the edge and thicken passes. On a 1x screen they
+ * run at 2x and OutputPass box-filters the result down, so thin lines come
+ * out smooth instead of stair-stepped. On a 2x-or-better screen, native.
+ */
+function linePixelRatio(dpr: number): number {
+  return dpr >= 2 ? dpr : 2 * dpr;
+}
 
-function disableBlendAndDepth(material: THREE.ShaderMaterial | THREE.RawShaderMaterial) {
+function disableBlendAndDepth(material: THREE.ShaderMaterial) {
   material.depthTest = false;
   material.depthWrite = false;
   material.blending = THREE.NoBlending;
@@ -37,34 +41,37 @@ function disableBlendAndDepth(material: THREE.ShaderMaterial | THREE.RawShaderMa
 }
 
 export interface LineArtRendererProps {
-  /** The coil geometry to frame and outline. Null while nothing is designed yet. */
-  geometry: THREE.BufferGeometry | null;
+  /** The coil geometry to frame and outline. */
+  geometry: THREE.BufferGeometry;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
 }
 
 /**
- * The IKEA line-art post pipeline (issue #3, docs/research.md §10b — the
- * "skapa" technique reimplemented from the written description only, no
- * skapa source was read):
+ * The IKEA line-art post pipeline (issue #3, docs/research.md §10b):
  *
  *   normal+depth pass -> edge shader -> thicken (dilate) -> OutputPass
  *   (colour-space conversion) -> FXAA -> screen
  *
- * Drives its own render targets and `Pass` instances directly (a hand-rolled
- * composer) inside a `useFrame` with a priority, which hands this component
- * full control of the render loop for as long as it is mounted.
+ * Drives its own render targets and passes inside a `useFrame` with a
+ * priority, which takes over R3F's render loop while mounted. The canvas
+ * renders on demand (the pipeline is heavy on software GL), so every change
+ * made here outside R3F's own props calls `invalidate()`.
  */
 export function LineArtRenderer({ geometry, controlsRef }: LineArtRendererProps) {
-  const { gl, scene, camera, size } = useThree();
-  const orthoCamera = camera as THREE.OrthographicCamera;
+  const { gl, scene, size, invalidate } = useThree();
+  const camera = useThree((s) => s.camera) as THREE.OrthographicCamera;
 
   const normalMaterial = useMemo(() => new THREE.MeshNormalMaterial({ side: THREE.DoubleSide }), []);
 
   const targets = useMemo(() => {
     const depthTexture = new THREE.DepthTexture(1, 1);
     depthTexture.type = THREE.FloatType;
-    const normalDepth = new THREE.WebGLRenderTarget(1, 1, { depthTexture });
-    const edge = new THREE.WebGLRenderTarget(1, 1);
+    const nearest = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
+    // Half-float normals: 8-bit quantisation is too coarse for the crease test.
+    const normalDepth = new THREE.WebGLRenderTarget(1, 1, { ...nearest, type: THREE.HalfFloatType, depthTexture });
+    const edge = new THREE.WebGLRenderTarget(1, 1, nearest);
+    // Linear, so OutputPass's lookups at screen-pixel centres average the
+    // supersampled texels (a 2x2 box filter at 2x).
     const thicken = new THREE.WebGLRenderTarget(1, 1);
     const output = new THREE.WebGLRenderTarget(1, 1);
     return { normalDepth, edge, thicken, output };
@@ -79,153 +86,118 @@ export function LineArtRenderer({ geometry, controlsRef }: LineArtRendererProps)
     disableBlendAndDepth(thickenPass.material);
     disableBlendAndDepth(outputPass.material);
     disableBlendAndDepth(fxaaPass.material);
+    fxaaPass.renderToScreen = true;
     return { edgePass, thickenPass, outputPass, fxaaPass };
   }, []);
 
   useEffect(
     () => () => {
-      targets.normalDepth.dispose();
-      targets.edge.dispose();
-      targets.thicken.dispose();
-      targets.output.dispose();
-      passes.edgePass.dispose();
-      passes.thickenPass.dispose();
-      passes.outputPass.dispose();
-      passes.fxaaPass.dispose();
+      Object.values(targets).forEach((t) => t.dispose());
+      Object.values(passes).forEach((p) => p.dispose());
       normalMaterial.dispose();
     },
     [targets, passes, normalMaterial],
   );
 
-  // --- Resize: keep every target and the FXAA/edge/thicken texel uniforms
-  // matched to the drawing-buffer size. ---
+  // --- Resize: keep every target and texel uniform matched to the
+  // drawing-buffer size. ---
   useEffect(() => {
     const dpr = gl.getPixelRatio();
     const w = Math.max(1, Math.round(size.width * dpr));
     const h = Math.max(1, Math.round(size.height * dpr));
-
-    targets.normalDepth.setSize(w, h);
-    targets.edge.setSize(w, h);
-    targets.thicken.setSize(w, h);
+    const lineRatio = linePixelRatio(dpr);
+    const lw = Math.max(1, Math.round(size.width * lineRatio));
+    const lh = Math.max(1, Math.round(size.height * lineRatio));
+    targets.normalDepth.setSize(lw, lh);
+    targets.edge.setSize(lw, lh);
+    targets.thicken.setSize(lw, lh);
     targets.output.setSize(w, h);
-
-    const texel = new THREE.Vector2(1 / w, 1 / h);
-    passes.edgePass.uniforms.texel.value.copy(texel);
-    passes.thickenPass.uniforms.texel.value.copy(texel);
+    passes.edgePass.uniforms.texel.value.set(1 / lw, 1 / lh);
+    passes.thickenPass.uniforms.texel.value.set(1 / lw, 1 / lh);
     passes.fxaaPass.uniforms.resolution.value.set(1 / w, 1 / h);
-  }, [gl, size, targets, passes]);
+    invalidate();
+  }, [gl, size, targets, passes, invalidate]);
 
-  // --- Reframe: refit the orthographic camera to the model, and recompute
-  // the dilate thickness from the freshly-projected screen-space bounds.
-  // Runs once per geometry or canvas-size change, not per frame/orbit — see
-  // docs/research.md §10b and the shader files for why that is the point. ---
+  // --- Reframe: on every geometry or canvas-size change, point the camera
+  // along VIEW_DIR, fit the frustum to the model's projected vertices, and
+  // recompute the line weight from the projected bounds. ---
   useEffect(() => {
-    if (!geometry) return;
-    geometry.computeBoundingBox();
-    const box = geometry.boundingBox;
-    if (!box || box.isEmpty()) return;
-
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    const sphere = new THREE.Sphere();
-    box.getBoundingSphere(sphere);
-    const radius = Math.max(1e-3, sphere.radius);
-
-    orthoCamera.position.copy(center).addScaledVector(VIEW_DIR, radius * 4);
-    orthoCamera.up.set(0, 1, 0);
-    orthoCamera.lookAt(center);
-
+    geometry.computeBoundingSphere();
+    const sphere = geometry.boundingSphere;
+    if (!sphere || sphere.radius <= 0) return;
+    const r = sphere.radius;
     const aspect = size.width > 0 && size.height > 0 ? size.width / size.height : 1;
-    const halfHeight = radius * FRAME_MARGIN;
-    orthoCamera.left = -halfHeight * aspect;
-    orthoCamera.right = halfHeight * aspect;
-    orthoCamera.top = halfHeight;
-    orthoCamera.bottom = -halfHeight;
-    orthoCamera.near = radius * 0.01;
-    orthoCamera.far = radius * 8;
-    orthoCamera.updateProjectionMatrix();
-    orthoCamera.updateMatrixWorld(true);
+
+    camera.up.copy(UP);
+    camera.position.copy(sphere.center).addScaledVector(VIEW_DIR, 2 * r);
+    camera.lookAt(sphere.center);
+    camera.updateMatrixWorld(true);
+
+    // Projected bounds of the actual vertices, in camera space.
+    const pos = geometry.getAttribute("position");
+    const inverse = camera.matrixWorldInverse;
+    const v = new THREE.Vector3();
+    const bounds = new THREE.Box2();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(inverse);
+      bounds.expandByPoint(new THREE.Vector2(v.x, v.y));
+    }
+    const mid = bounds.getCenter(new THREE.Vector2());
+    const extent = bounds.getSize(new THREE.Vector2());
+
+    // Slide the camera sideways so the projected bounds are centred on its
+    // axis; orbit then pivots around the model's visual middle.
+    const shift = new THREE.Vector3(mid.x, mid.y, 0).applyQuaternion(camera.quaternion);
+    camera.position.add(shift);
+    const target = sphere.center.clone().add(shift);
+
+    const halfHeight = Math.max(extent.y / 2, extent.x / 2 / aspect) / FILL;
+    camera.left = -halfHeight * aspect;
+    camera.right = halfHeight * aspect;
+    camera.top = halfHeight;
+    camera.bottom = -halfHeight;
+    camera.zoom = 1;
+    // Distance 2r to the centre, so the bounding sphere (and every orbit of
+    // it) sits strictly between near and far and never reads as background.
+    camera.near = r * 0.5;
+    camera.far = r * 3.5;
+    camera.updateProjectionMatrix();
 
     const controls = controlsRef.current;
     if (controls) {
-      controls.target.copy(center);
+      controls.target.copy(target);
       controls.update();
     }
 
-    // Project the 8 box corners to find the on-screen bounds diagonal.
-    const dpr = gl.getPixelRatio();
-    const pxW = Math.max(1, Math.round(size.width * dpr));
-    const pxH = Math.max(1, Math.round(size.height * dpr));
-
-    // Crease sensitivity in world units, converted to the depth buffer's
-    // normalized range for the *current* near/far span (which changes with
-    // model size), so a groove reads the same regardless of coil size.
-    //
-    // Scaled off the world-space size of one screen pixel (the orthographic
-    // frustum's height divided by the canvas height in device pixels), not
-    // off the model's own bounding-box size: the edge test only ever compares
-    // *adjacent pixels*, so the right yardstick for "is this a real depth
-    // step" is a few pixels' worth of world-space distance, regardless of how
-    // big or how elongated the model is. Tying it to overall model size
-    // instead over- or under-shoots for oblong coils (a wound-up long cord
-    // has a bounding radius dominated by its length, not its much smaller
-    // diameter): too tight and the near-silhouette depth gradient on the
-    // curved wall flags almost every pixel as an edge (a solid-black
-    // render); too loose and fine groove creases drop out into dashed lines.
-    const pixelWorldSize = (orthoCamera.top - orthoCamera.bottom) / pxH;
-    const worldEps = pixelWorldSize * 3;
-    passes.edgePass.uniforms.depthThreshold.value = worldEps / (orthoCamera.far - orthoCamera.near);
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-    const corner = new THREE.Vector3();
-    for (let i = 0; i < 8; i++) {
-      corner.set(
-        i & 1 ? box.max.x : box.min.x,
-        i & 2 ? box.max.y : box.min.y,
-        i & 4 ? box.max.z : box.min.z,
-      );
-      corner.project(orthoCamera);
-      const px = ((corner.x + 1) / 2) * pxW;
-      const py = ((1 - corner.y) / 2) * pxH;
-      if (px < minX) minX = px;
-      if (px > maxX) maxX = px;
-      if (py < minY) minY = py;
-      if (py > maxY) maxY = py;
-    }
-    const diagonalPx = Math.max(1, Math.hypot(maxX - minX, maxY - minY));
-    const thickness = (THICKNESS_K * dpr) / diagonalPx;
-    passes.thickenPass.uniforms.thicknessPx.value = THREE.MathUtils.clamp(
-      thickness,
-      MIN_THICKNESS_PX,
-      MAX_THICKNESS_PX,
+    const cssPerWorld = size.height / (2 * halfHeight);
+    const diagonalCss = Math.hypot(extent.x, extent.y) * cssPerWorld;
+    const weight = THREE.MathUtils.clamp(diagonalCss * LINE_WEIGHT_PER_DIAGONAL_PX, MIN_LINE_WEIGHT, MAX_LINE_WEIGHT);
+    passes.thickenPass.uniforms.thicknessPx.value = Math.min(
+      weight * linePixelRatio(gl.getPixelRatio()),
+      MAX_THICKEN_RADIUS - 0.5,
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geometry, size.width, size.height, orthoCamera, controlsRef, gl, passes]);
+    invalidate();
+  }, [geometry, size.width, size.height, camera, controlsRef, gl, passes, invalidate]);
 
-  // --- Hit-testing: read the thicken pass's alpha at the pointer so orbit
-  // only starts when the pointer is actually over the outlined model. ---
+  // --- Hit-testing: read the thicken pass's alpha under the pointer so orbit
+  // only starts on the outlined model, not on the transparent background. ---
   useEffect(() => {
     const el = gl.domElement;
-    const dpr = gl.getPixelRatio();
     const pixel = new Uint8Array(4);
 
     function alphaAt(clientX: number, clientY: number): number {
+      const ratio = linePixelRatio(gl.getPixelRatio());
       const rect = el.getBoundingClientRect();
-      const px = Math.round((clientX - rect.left) * dpr);
-      const pyTop = Math.round((clientY - rect.top) * dpr);
-      const h = targets.thicken.height;
-      const py = h - 1 - pyTop;
-      if (px < 0 || py < 0 || px >= targets.thicken.width || py >= h) return 0;
+      const px = Math.floor((clientX - rect.left) * ratio);
+      const py = targets.thicken.height - 1 - Math.floor((clientY - rect.top) * ratio);
+      if (px < 0 || py < 0 || px >= targets.thicken.width || py >= targets.thicken.height) return 0;
       gl.readRenderTargetPixels(targets.thicken, px, py, 1, 1, pixel);
       return pixel[3];
     }
 
     function onPointerDown(e: PointerEvent) {
       const controls = controlsRef.current;
-      if (!controls) return;
-      controls.enabled = alphaAt(e.clientX, e.clientY) > 0;
+      if (controls) controls.enabled = alphaAt(e.clientX, e.clientY) > 0;
     }
 
     function onPointerUp() {
@@ -242,25 +214,29 @@ export function LineArtRenderer({ geometry, controlsRef }: LineArtRendererProps)
   }, [gl, controlsRef, targets]);
 
   useFrame(() => {
-    const prevOverride = scene.overrideMaterial;
+    // Recomputed per frame (cheap) because orbit zoom changes the pixel size.
+    const pxH = targets.normalDepth.height;
+    const pixelWorld = (camera.top - camera.bottom) / camera.zoom / pxH;
+    const edgeUniforms = passes.edgePass.uniforms;
+    edgeUniforms.depthRange.value = camera.far - camera.near;
+    edgeUniforms.depthThreshold.value = DEPTH_STEP_PX * pixelWorld;
 
+    const prevOverride = scene.overrideMaterial;
+    const prevClearAlpha = gl.getClearAlpha();
+    gl.setClearAlpha(0);
     gl.setRenderTarget(targets.normalDepth);
     gl.clear(true, true, false);
     scene.overrideMaterial = normalMaterial;
     gl.render(scene, camera);
     scene.overrideMaterial = prevOverride;
 
-    passes.edgePass.uniforms.tNormal.value = targets.normalDepth.texture;
-    passes.edgePass.uniforms.tDepth.value = targets.normalDepth.depthTexture;
+    edgeUniforms.tNormal.value = targets.normalDepth.texture;
+    edgeUniforms.tDepth.value = targets.normalDepth.depthTexture;
     passes.edgePass.render(gl, targets.edge, targets.normalDepth, 0, false);
-
     passes.thickenPass.render(gl, targets.thicken, targets.edge, 0, false);
     passes.outputPass.render(gl, targets.output, targets.thicken, 0, false);
-
-    passes.fxaaPass.renderToScreen = true;
-    gl.setRenderTarget(null);
-    gl.clear(true, true, false);
-    passes.fxaaPass.render(gl, targets.output, targets.output, 0, false);
+    passes.fxaaPass.render(gl, targets.output, targets.output, 0, false); // renderToScreen: writes the canvas
+    gl.setClearAlpha(prevClearAlpha);
   }, 1);
 
   return null;

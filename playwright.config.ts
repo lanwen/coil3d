@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 5182;
+// E2E_PORT lets parallel checkouts (e.g. agent worktrees) use their own port.
+const PORT = Number(process.env.E2E_PORT ?? 5182);
 
 // The sandbox's globally-installed Chromium (kept in sync with the kit's
 // pinned revision) is the only build in this environment that can create a
@@ -26,7 +27,7 @@ export default defineConfig({
     toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
   },
   webServer: {
-    command: "npm run build && npm run preview -- --port 5182 --strictPort",
+    command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
