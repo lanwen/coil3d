@@ -15,9 +15,31 @@ import initOpenCascade from "replicad-opencascadejs";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
 import { fitPeriodicUClampedV, type Vec3 } from "./bspfit";
 import { createWallProfile } from "../wall";
+import {
+  BAYONET_GAP,
+  BAYONET_GROOVE_HEIGHT,
+  BAYONET_LEAD,
+  BAYONET_LUG_COUNT,
+  BAYONET_LUG_HEIGHT,
+  BAYONET_LUG_WIDTH,
+  CAP_THICKNESS,
+  JOINT_ENGAGE_DEPTH,
+  JOINT_MIN_BORE_RADIUS,
+  JOINT_TRANSITION_HEIGHT,
+  KEYHOLE_SLIT_FRACTION,
+  SNAP_BARB,
+  SNAP_BARB_HEIGHT,
+  SNAP_GAP,
+  SNAP_HOOK_COUNT,
+  SNAP_RIDGE_THICKNESS,
+  SNAP_SLOT_WIDTH,
+  WELD_OVERLAP,
+} from "../constants";
+import { jointGeometry } from "../joints";
 import { meshVolume } from "../meshVolume";
-import { offsetOutline, polygonVertex } from "../shapes";
+import { circumscribedRadius, offsetOutline, pointAt, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
+import type { CoreJointCut } from "../manifold";
 import type { Design } from "../types";
 
 /**
@@ -140,23 +162,192 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
   const flange = flangeOuter.cut(flangeInner);
 
-  const fused = tube.fuse(flange);
+  let coreSolid = tube.fuse(flange);
 
-  const analyzer = new kernel.BRepCheck_Analyzer(fused.wrapped, true, false, false);
+  // Issue #9: bayonet/snap cut a mating groove/relief into the core's own
+  // top rim; press engages the bore's existing surface directly (no
+  // core-side cut at all -- see manifold.ts's `applyCoreJointCut`, which
+  // this mirrors so the mesh and STEP backends never drift on fit).
+  if (design.solution.topCapEnabled && (design.spec.joint === "bayonet" || design.spec.joint === "snap")) {
+    coreSolid = applyCoreJointCutSolid(coreSolid, {
+      boreOutline,
+      height: design.solution.height,
+      joint: design.spec.joint,
+      tolerance: design.spec.tolerance,
+    });
+  }
+
+  const corePart = design.parts.find((p) => p.role === "core")!;
+  validateSolid(kernel, coreSolid, corePart.mesh, corePart.name);
+
+  const shapes: { shape: R.Shape3D; name: string }[] = [{ shape: coreSolid, name: corePart.name }];
+
+  // Issue #9: the top cap, when present, mirrors manifold.ts's buildTopCap
+  // almost primitive-for-primitive (plate + engagement collar + joint
+  // feature + keyhole cut), sharing the SAME dimensions via joints.ts so
+  // the two backends can't drift on fit. Built directly in the shared
+  // ASSEMBLY frame (see design.ts): plate at z=[height, height+CAP_THICKNESS],
+  // collar reaching down to z=height-JOINT_ENGAGE_DEPTH.
+  const topCapPart = design.parts.find((p) => p.role === "topCap");
+  if (topCapPart) {
+    const capSolid = buildTopCapSolid(design);
+    validateSolid(kernel, capSolid, topCapPart.mesh, topCapPart.name);
+    shapes.push({ shape: capSolid, name: topCapPart.name });
+  }
+
+  const blob = R.exportSTEP(shapes);
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+/** Validate one part's solid: manifold-valid, exactly one solid, and its volume matches the part's own mesh within tolerance. Throws with a descriptive message otherwise. */
+function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Design["mesh"], name: string): void {
+  const analyzer = new kernel.BRepCheck_Analyzer(solid.wrapped, true, false, false);
   const valid = analyzer.IsValid();
-  const solidCount = fused.solids.length;
-  const stepVolume = R.measureVolume(fused);
-  const expectedVolume = meshVolume(design.mesh);
+  const solidCount = solid.solids.length;
+  const stepVolume = R.measureVolume(solid);
+  const expectedVolume = meshVolume(mesh);
   const volumeError = Math.abs(stepVolume - expectedVolume) / expectedVolume;
 
   if (!valid || solidCount !== 1 || volumeError > VOLUME_TOLERANCE) {
     throw new Error(
-      `STEP export failed validation: valid=${valid} solids=${solidCount} ` +
+      `STEP export failed validation for part "${name}": valid=${valid} solids=${solidCount} ` +
         `step volume=${stepVolume.toFixed(1)} mesh volume=${expectedVolume.toFixed(1)} ` +
         `(${(volumeError * 100).toFixed(2)}% off, tolerance ${(VOLUME_TOLERANCE * 100).toFixed(0)}%)`,
     );
   }
+}
 
-  const blob = fused.blobSTEP();
-  return new Uint8Array(await blob.arrayBuffer());
+/** A solid frustum (or plain cylinder, if the two radii are equal) between two circular cross-sections, via a capped loft -- replicad's `makeCylinder` takes only one radius, unlike manifold-3d's. */
+function frustumSolid(rBottom: number, rTop: number, zBottom: number, zTop: number): R.Shape3D {
+  const bottom = R.sketchCircle(rBottom, { plane: "XY", origin: [0, 0, zBottom] });
+  const top = R.sketchCircle(rTop, { plane: "XY", origin: [0, 0, zTop] });
+  return bottom.loftWith(top);
+}
+
+/**
+ * The collar's welded base, shared by all three joints (mirrors manifold.ts's
+ * `collarBase`): a straight cylinder at `collarRadius`, flaring out to
+ * `boreRadius + WELD_OVERLAP` over the top `JOINT_TRANSITION_HEIGHT` so it
+ * genuinely overlaps the plate's own bore edge instead of merely touching it
+ * (a `collarRadius < boreRadius` collar centered in the plate's hole would
+ * otherwise be a second, disconnected solid -- `.fuse()` reports it as a
+ * `Compound` of 2 solids, not a proper single-solid weld).
+ */
+function collarBaseSolid(collarRadius: number, boreRadius: number): R.Shape3D {
+  const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT;
+  const straight = R.makeCylinder(collarRadius, straightHeight, [0, 0, -JOINT_ENGAGE_DEPTH]);
+  const transition = frustumSolid(collarRadius, boreRadius + WELD_OVERLAP, -JOINT_TRANSITION_HEIGHT, 0);
+  return straight.fuse(transition);
+}
+
+/** A box spanning radius [rLo, rHi] and tangential width `width`, at axial [zLo, zHi], rotated to `angleDeg` about Z -- the shared primitive for lugs, entry slots and relief slots (mirrors manifold.ts's `radialBox`). */
+function radialBoxSolid(rLo: number, rHi: number, width: number, zLo: number, zHi: number, angleDeg: number): R.Shape3D {
+  const box = R.makeBox([Math.min(rLo, rHi), -width / 2, zLo], [Math.max(rLo, rHi), width / 2, zHi]);
+  return box.rotate(angleDeg, [0, 0, 0], [0, 0, 1]);
+}
+
+/** `count` copies of `build(angleDeg)`, evenly spaced around Z, fused into one shape (mirrors manifold.ts's `unionAtAngles`). */
+function unionAtAngles(build: (angleDeg: number) => R.Shape3D, count: number): R.Shape3D {
+  let result: R.Shape3D | undefined;
+  for (let i = 0; i < count; i++) {
+    const m = build((360 * i) / count);
+    result = result ? result.fuse(m) : m;
+  }
+  return result!;
+}
+
+/** The rim keyhole cutter (mirrors manifold.ts's `buildKeyholeCutter`): a round hole sized to the cable, connected to the cap's true outer edge by a narrower retaining slit, at arc-length t=0. */
+function buildKeyholeSolid(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number): R.Shape3D {
+  const holeRadius = wireDiameter / 2 + tolerance;
+  const slitWidth = wireDiameter * KEYHOLE_SLIT_FRACTION + tolerance;
+  const skin = 1;
+  const edge = pointAt(outline, 0, margin);
+  const cx = edge.x - edge.nx * (holeRadius + skin);
+  const cy = edge.y - edge.ny * (holeRadius + skin);
+  const h = CAP_THICKNESS + 2;
+  const zLo = -1;
+
+  const hole = R.makeCylinder(holeRadius, h, [cx, cy, zLo]);
+  const slitLen = Math.hypot(edge.x - cx, edge.y - cy) + skin + 1;
+  const angleDeg = (Math.atan2(edge.ny, edge.nx) * 180) / Math.PI;
+  const slit = R.makeBox([0, -slitWidth / 2, zLo], [slitLen, slitWidth / 2, zLo + h])
+    .rotate(angleDeg, [0, 0, 0], [0, 0, 1])
+    .translate([cx, cy, 0]);
+  return hole.fuse(slit);
+}
+
+/**
+ * Cut the bayonet's or snap's mating feature into the core solid's top rim
+ * (mirrors manifold.ts's `applyCoreJointCut` primitive-for-primitive, so the
+ * mesh and STEP backends can't drift on fit). Returns `core` unchanged when
+ * the bore/height are too small for these features -- see JOINT_MIN_BORE_RADIUS.
+ */
+function applyCoreJointCutSolid(core: R.Shape3D, cut: CoreJointCut): R.Shape3D {
+  const { jointRadius, boreRadius } = jointGeometry(cut.boreOutline, cut.joint, cut.tolerance);
+  const minHeight = cut.joint === "bayonet" ? BAYONET_LEAD + BAYONET_GROOVE_HEIGHT + 2 : JOINT_ENGAGE_DEPTH + 2;
+  if (boreRadius < JOINT_MIN_BORE_RADIUS || cut.height < minHeight) return core;
+
+  const { height } = cut;
+
+  if (cut.joint === "bayonet") {
+    const grooveR = jointRadius + BAYONET_LUG_HEIGHT + BAYONET_GAP + 0.1;
+    const groove = R.makeCylinder(grooveR, BAYONET_GROOVE_HEIGHT, [0, 0, height - BAYONET_LEAD - BAYONET_GROOVE_HEIGHT]);
+    const entrySlots = unionAtAngles(
+      (angle) => radialBoxSolid(jointRadius - 1, grooveR + 0.1, BAYONET_LUG_WIDTH + 2 * BAYONET_GAP, height - BAYONET_LEAD - 0.1, height + 1, angle),
+      BAYONET_LUG_COUNT,
+    );
+    return core.cut(groove).cut(entrySlots);
+  }
+
+  // snap: a stepped counterbore, mirroring manifold.ts's own reasoning
+  // (`wideR`/ridge radius forced past `boreRadius`/`circumscribedRadius` so
+  // the cuts and the ridge-ring addition are never a near-tangent, nearly
+  // coincident seam against the bore's flat sides or corner arcs).
+  const wideR = Math.max(jointRadius - SNAP_GAP - cut.tolerance + SNAP_BARB + 0.3, boreRadius + WELD_OVERLAP);
+  const ridgeOuterR = Math.max(wideR, circumscribedRadius(cut.boreOutline, 0) + WELD_OVERLAP);
+  const ridgeInnerR = jointRadius - 0.1;
+  const ridgeZLo = height - JOINT_ENGAGE_DEPTH + SNAP_BARB_HEIGHT;
+  const ridgeZHi = ridgeZLo + SNAP_RIDGE_THICKNESS;
+
+  const wideLower = R.makeCylinder(wideR, ridgeZLo - (height - JOINT_ENGAGE_DEPTH - 1), [0, 0, height - JOINT_ENGAGE_DEPTH - 1]);
+  const wideUpper = R.makeCylinder(wideR, height + 1 - ridgeZHi, [0, 0, ridgeZHi]);
+  const ridgeOuter = R.makeCylinder(ridgeOuterR, SNAP_RIDGE_THICKNESS, [0, 0, ridgeZLo]);
+  const ridgeInner = R.makeCylinder(ridgeInnerR, SNAP_RIDGE_THICKNESS + 0.2, [0, 0, ridgeZLo - 0.1]);
+  const ridgeRing = ridgeOuter.cut(ridgeInner);
+
+  return core.cut(wideLower).cut(wideUpper).fuse(ridgeRing);
+}
+
+/** Build the top cap solid (plate + engagement collar for the chosen joint + rim keyhole), directly in the shared assembly frame -- see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin. */
+function buildTopCapSolid(design: Design): R.Shape3D {
+  const { flangeSpec, spec, solution } = design;
+  const outerOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
+  const plateOuter = outlineSolid(outerOutline, CAP_THICKNESS, 0);
+  const plateInner = outlineSolid(flangeSpec.boreOutline, CAP_THICKNESS + 2, -1);
+  const plate = plateOuter.cut(plateInner);
+
+  const { boreRadius, collarRadius } = jointGeometry(flangeSpec.boreOutline, spec.joint, spec.tolerance);
+  const canCutJoint = boreRadius >= JOINT_MIN_BORE_RADIUS && solution.height >= JOINT_ENGAGE_DEPTH + 2;
+
+  let collar: R.Shape3D;
+  if (spec.joint === "press" || !canCutJoint) {
+    collar = collarBaseSolid(collarRadius, boreRadius);
+  } else if (spec.joint === "bayonet") {
+    const base = collarBaseSolid(collarRadius, boreRadius);
+    const grooveZLo = -BAYONET_LEAD - BAYONET_GROOVE_HEIGHT;
+    const grooveZHi = -BAYONET_LEAD;
+    const lugs = unionAtAngles((a) => radialBoxSolid(collarRadius - 1, collarRadius + BAYONET_LUG_HEIGHT, BAYONET_LUG_WIDTH, grooveZLo, grooveZHi, a), BAYONET_LUG_COUNT);
+    collar = base.fuse(lugs);
+  } else {
+    const base = collarBaseSolid(collarRadius, boreRadius);
+    const barbR = collarRadius + SNAP_BARB;
+    const barb = R.makeCylinder(barbR, SNAP_BARB_HEIGHT, [0, 0, -JOINT_ENGAGE_DEPTH]);
+    const withBarb = base.fuse(barb);
+    const slots = unionAtAngles((a) => radialBoxSolid(0, barbR + 0.5, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, a), SNAP_HOOK_COUNT);
+    collar = withBarb.cut(slots);
+  }
+
+  const keyhole = buildKeyholeSolid(flangeSpec.outline, flangeSpec.margin, spec.wire.diameter, spec.tolerance);
+  const assembled = plate.fuse(collar).cut(keyhole);
+  return assembled.translate([0, 0, solution.height]);
 }

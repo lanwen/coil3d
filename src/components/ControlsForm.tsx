@@ -1,7 +1,19 @@
 import { useEffect, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, Lock, Objective, ShapeKind, Solution, WireTypeId } from "../core";
-import { DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, WIRE_TYPE_PRESETS } from "../core";
+import type { CoilSpec, CoreSizeLock, JointKind, Lock, Objective, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
+import { DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
 import { LockRangeField, LockStepperField, RangeField, Section } from "./fields";
+
+const TOP_CAP_OPTIONS: Array<{ id: TopCapMode; label: string }> = [
+  { id: "auto", label: "Auto (on when layers > 1)" },
+  { id: "on", label: "On" },
+  { id: "off", label: "Off" },
+];
+
+const JOINT_OPTIONS: Array<{ id: JointKind; label: string }> = [
+  { id: "press", label: "Press-fit" },
+  { id: "bayonet", label: "Bayonet / twist-lock" },
+  { id: "snap", label: "Snap clips" },
+];
 
 const WIRE_TYPE_OPTIONS: Array<{ id: WireTypeId; label: string }> = [
   { id: "usb", label: WIRE_TYPE_PRESETS.usb.label },
@@ -191,6 +203,39 @@ export function ControlsForm({
           )}
         </div>
       </details>
+
+      <Section title="Top cap & joint">
+        <label className="field">
+          <span className="field-label">Top cap</span>
+          <select className="field-select" data-testid="select-topCap" value={spec.topCap} onChange={(e) => onChange({ ...spec, topCap: e.target.value as TopCapMode })}>
+            {TOP_CAP_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span className="field-label">Joint</span>
+          <select className="field-select" data-testid="select-joint" value={spec.joint} onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}>
+            {JOINT_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <RangeField
+          testId="tolerance"
+          label="Joint tolerance"
+          unit="mm"
+          min={TOLERANCE_MIN}
+          max={TOLERANCE_MAX}
+          step={0.05}
+          value={spec.tolerance}
+          onChange={(v) => onChange({ ...spec, tolerance: v })}
+        />
+      </Section>
     </form>
   );
 }

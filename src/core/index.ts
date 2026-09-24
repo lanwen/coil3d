@@ -23,20 +23,25 @@ export type {
   Design,
   Diagnosis,
   ExportFormat,
+  JointKind,
   LayerResult,
   Lock,
   Objective,
+  Part,
+  PartRole,
   Resolution,
+  RigidTransform,
   ShapeKind,
   ShapeSpec,
   Solution,
+  TopCapMode,
   WireLayerPath,
   WireSpec,
   WireTypeId,
   WireTypePreset,
 } from "./types";
 export { DEFAULT_CUSTOM_BEND_MULTIPLIER, WIRE_TYPE_PRESETS } from "./types";
-export { DEFAULT_CORNER_RADIUS } from "./constants";
+export { DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
 export { SHAPES } from "./shapes";
 export type { ShapePlugin } from "./shapes";
 export { parseHash, toHash, DEFAULT_SPEC, DEFAULT_SHOW_WIRE } from "./hash";
