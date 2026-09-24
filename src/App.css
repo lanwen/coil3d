@@ -229,6 +229,24 @@ header p {
   border-color: var(--hairline-soft);
 }
 
+/* A plain single-line text field (issue #12: the top cap label), boxed like
+   .field-select rather than underlined like .field-number -- there's no
+   unit/slider companion here. */
+.field-text {
+  height: var(--control-h);
+  padding: 0 10px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+}
+
+.field-text::placeholder {
+  color: var(--muted);
+}
+
 /* Custom range + synced number input with a unit suffix (issue #16 AC). */
 .field-top {
   display: flex;

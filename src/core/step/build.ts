@@ -27,6 +27,7 @@ import {
   JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
   KEYHOLE_SLIT_FRACTION,
+  LABEL_DEPTH,
   SNAP_BARB,
   SNAP_BARB_HEIGHT,
   SNAP_GAP,
@@ -36,6 +37,8 @@ import {
   WELD_OVERLAP,
 } from "../constants";
 import { jointGeometry } from "../joints";
+import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
+import type { LabelLoop, ResolvedLabel } from "../label";
 import { meshVolume } from "../meshVolume";
 import { circumscribedRadius, offsetOutline, pointAt, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
@@ -190,7 +193,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   // collar reaching down to z=height-JOINT_ENGAGE_DEPTH.
   const topCapPart = design.parts.find((p) => p.role === "topCap");
   if (topCapPart) {
-    const capSolid = buildTopCapSolid(design);
+    const capSolid = await buildTopCapSolid(design);
     validateSolid(kernel, capSolid, topCapPart.mesh, topCapPart.name);
     shapes.push({ shape: capSolid, name: topCapPart.name });
   }
@@ -318,8 +321,51 @@ function applyCoreJointCutSolid(core: R.Shape3D, cut: CoreJointCut): R.Shape3D {
   return core.cut(wideLower).cut(wideUpper).fuse(ridgeRing);
 }
 
-/** Build the top cap solid (plate + engagement collar for the chosen joint + rim keyhole), directly in the shared assembly frame -- see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin. */
-function buildTopCapSolid(design: Design): R.Shape3D {
+/**
+ * A single glyph loop (label.ts's `LabelLoop`) as a closed straight-sided
+ * replicad solid, extruded from `zBase` up by `height` -- mirrors
+ * manifold.ts's `buildLabelCutter`, one prism per loop instead of one
+ * CrossSection, since replicad has no multi-contour nonzero-fill face
+ * primitive (see label.ts's `classifyLabelLoops` doc comment).
+ *
+ * Uses `makePolygon` (one edge per point, wired and faced in a single
+ * internally-`localGC`-protected call), NOT the chained `draw().lineTo()`
+ * pen used elsewhere in this file (`outlineSolid`): a glyph run's loops
+ * chain hundreds of `lineTo` calls, and the pen's own per-segment curve
+ * objects have no such protection -- empirically, replicad's
+ * FinalizationRegistry-based cleanup (see its `register.ts`) collects an
+ * still-in-use intermediate curve mid-chain under ordinary V8 GC pressure,
+ * throwing "This object has been deleted". `makePolygon` builds the whole
+ * closed loop in one call with no such window.
+ */
+function labelLoopSolid(loop: LabelLoop, height: number, zBase: number): R.Shape3D {
+  const face = R.makePolygon(loop.map(([x, y]): [number, number, number] => [x, y, zBase]));
+  const sketch = new R.Sketch(face.outerWire(), { defaultOrigin: [0, 0, zBase], defaultDirection: [0, 0, 1] });
+  return sketch.extrude(height);
+}
+
+/**
+ * The engraved label cutter solid (issue #12): fuse every SOLID glyph loop
+ * (label.ts's `classifyLabelLoops`, sign-of-signed-area) into one shape,
+ * then cut every HOLE loop out of it -- e.g. "O" becomes an outer disk with
+ * an inner disk cut out, a real ring, not two overlapping solids. Undefined
+ * when the text renders to no ink at all (e.g. an all-whitespace string that
+ * still passed `resolveLabel`'s `trim()` check via internal spaces).
+ */
+async function buildLabelCutterSolid(label: ResolvedLabel): Promise<R.Shape3D | undefined> {
+  const font = await getLabelFont();
+  const { solids, holes } = classifyLabelLoops(labelLoops(font, label));
+  if (solids.length === 0) return undefined;
+
+  const cutterHeight = LABEL_DEPTH + 1;
+  const zBase = CAP_THICKNESS - LABEL_DEPTH;
+  let cutter = solids.map((loop) => labelLoopSolid(loop, cutterHeight, zBase)).reduce((a, b) => a.fuse(b));
+  for (const hole of holes) cutter = cutter.cut(labelLoopSolid(hole, cutterHeight, zBase));
+  return cutter;
+}
+
+/** Build the top cap solid (plate + engagement collar for the chosen joint + rim keyhole + engraved label), directly in the shared assembly frame -- see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin. */
+async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
   const outerOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
   const plateOuter = outlineSolid(outerOutline, CAP_THICKNESS, 0);
@@ -348,6 +394,16 @@ function buildTopCapSolid(design: Design): R.Shape3D {
   }
 
   const keyhole = buildKeyholeSolid(flangeSpec.outline, flangeSpec.margin, spec.wire.diameter, spec.tolerance);
-  const assembled = plate.fuse(collar).cut(keyhole);
+  let assembled = plate.fuse(collar).cut(keyhole);
+
+  // Mirrors design.ts's own call: the SAME `resolveLabel` the mesh backend
+  // uses, against the SAME outline/boreOutline/margin, so the two backends
+  // can never fit the label text differently.
+  const { label } = await resolveLabel(spec.label, flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin, solution.topCapEnabled);
+  if (label) {
+    const labelCutter = await buildLabelCutterSolid(label);
+    if (labelCutter) assembled = assembled.cut(labelCutter);
+  }
+
   return assembled.translate([0, 0, solution.height]);
 }

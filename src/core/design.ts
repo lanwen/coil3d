@@ -41,6 +41,7 @@ import type { CoreJointCut } from "./manifold";
 import { printBBox } from "./plate";
 import { circumscribedRadius, makeOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
+import { resolveLabel } from "./label";
 import { solve } from "./solve";
 import type { CoilSpec, Design, Part, Resolution } from "./types";
 import { buildWall } from "./wall";
@@ -126,8 +127,16 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
 
+  // Top cap label (issue #12): resolved against the SAME outline/boreOutline/
+  // flange margin the STEP backend re-derives from `wallSpec`/`flangeSpec`
+  // (step/build.ts calls the same `resolveLabel`), so the two backends can
+  // never fit the text differently -- mirrors how CoreJointCut/wallSpec/
+  // flangeSpec already keep the mesh and STEP walls from drifting.
+  const { label, warning: labelWarning } = await resolveLabel(spec.label, outline, boreOutline, flangeSpec.margin, topCapEnabled);
+  if (labelWarning) warnings.push(labelWarning);
+
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: flangeSpec, joint: spec.joint, tolerance: spec.tolerance, wireDiameter });
+    const capMesh = await buildTopCap({ flange: flangeSpec, joint: spec.joint, tolerance: spec.tolerance, wireDiameter, label });
     // `capMesh` is built in a LOCAL frame (plate z=[0, CAP_THICKNESS], collar
     // reaching down to z=-JOINT_ENGAGE_DEPTH); translating by `height` lands
     // it in the shared assembly frame, flush against the wall's top rim.

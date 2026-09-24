@@ -91,6 +91,40 @@ export function RangeField({
   );
 }
 
+/** A plain single-line text field (issue #12: the top cap label). Styled
+ * like `.field-select` (a bordered box) rather than the underlined
+ * `.field-number`, since there's no unit/slider companion here. */
+export function TextField({
+  testId,
+  label,
+  value,
+  placeholder,
+  maxLength,
+  onChange,
+}: {
+  testId: string;
+  label: string;
+  value: string;
+  placeholder?: string;
+  maxLength?: number;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="field">
+      <span className="field-label">{label}</span>
+      <input
+        type="text"
+        className="field-text"
+        data-testid={`input-${testId}`}
+        value={value}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  );
+}
+
 /** A +/- stepper paired with a number input, for small integer counts (layers). */
 export function StepperField({
   testId,
