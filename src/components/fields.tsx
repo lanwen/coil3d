@@ -31,6 +31,10 @@ export function RangeField({
   max,
   step,
   disabled,
+  /** Rendered before the label, on the same row (e.g. the lock pictogram) --
+   * issue #16 review: the lock must sit inline with the field it controls,
+   * not on a row of its own above it. */
+  leading,
   onChange,
 }: {
   testId: string;
@@ -41,6 +45,7 @@ export function RangeField({
   max: number;
   step: number;
   disabled?: boolean;
+  leading?: ReactNode;
   onChange: (value: number) => void;
 }) {
   const handleNumber = (event: ChangeEvent<HTMLInputElement>) => {
@@ -52,7 +57,10 @@ export function RangeField({
   return (
     <div className="field">
       <div className="field-top">
-        <span className="field-label">{label}</span>
+        <span className="field-top-label">
+          {leading}
+          <span className="field-label">{label}</span>
+        </span>
         <span className="field-value">
           <input
             type="number"
@@ -91,6 +99,7 @@ export function StepperField({
   min,
   max,
   disabled,
+  leading,
   onChange,
 }: {
   testId: string;
@@ -99,6 +108,7 @@ export function StepperField({
   min: number;
   max: number;
   disabled?: boolean;
+  leading?: ReactNode;
   onChange: (value: number) => void;
 }) {
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
@@ -110,7 +120,10 @@ export function StepperField({
   return (
     <div className="field">
       <div className="field-top">
-        <span className="field-label">{label}</span>
+        <span className="field-top-label">
+          {leading}
+          <span className="field-label">{label}</span>
+        </span>
       </div>
       <div className="stepper">
         <button
@@ -151,7 +164,11 @@ export function StepperField({
  * The lock toggle: a real checkbox (so Playwright's check()/uncheck()/
  * toBeChecked() keep working unchanged) styled entirely via CSS as a black
  * and white padlock pictogram -- open when free, closed (solid) when locked
- * -- never a raw square checkbox (issue #16 AC).
+ * -- never a raw square checkbox (issue #16 AC). Rendered as a `leading`
+ * element inline on the field's own label row (issue #16 review: a lock on
+ * a row of its own, above the field, left it ambiguous which field it
+ * controlled), with an explicit "Lock {label}" accessible name since the
+ * visible row carries the pictogram only, no text.
  */
 function LockCheckbox({ testId, label, checked, onChange }: { testId: string; label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
@@ -160,6 +177,7 @@ function LockCheckbox({ testId, label, checked, onChange }: { testId: string; la
         type="checkbox"
         className="lock-toggle-input"
         data-testid={`lock-${testId}`}
+        aria-label={`Lock ${label}`}
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
@@ -167,7 +185,6 @@ function LockCheckbox({ testId, label, checked, onChange }: { testId: string; la
         <span className="lock-icon-shackle" />
         <span className="lock-icon-body" />
       </span>
-      <span className="lock-toggle-text">{checked ? "Locked" : "Free"}</span>
     </label>
   );
 }
@@ -199,20 +216,18 @@ export function LockRangeField({
     if (lock.locked) onChange({ locked: true, value });
   };
   return (
-    <div className="lock-field">
-      <LockCheckbox testId={testId} label={label} checked={lock.locked} onChange={toggle} />
-      <RangeField
-        testId={testId}
-        label={label}
-        unit={unit}
-        value={lock.locked ? lock.value : round1(freeValue)}
-        min={min}
-        max={max}
-        step={step}
-        disabled={!lock.locked}
-        onChange={setValue}
-      />
-    </div>
+    <RangeField
+      testId={testId}
+      label={label}
+      unit={unit}
+      value={lock.locked ? lock.value : round1(freeValue)}
+      min={min}
+      max={max}
+      step={step}
+      disabled={!lock.locked}
+      leading={<LockCheckbox testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
+      onChange={setValue}
+    />
   );
 }
 
@@ -239,17 +254,41 @@ export function LockStepperField({
     if (lock.locked) onChange({ locked: true, value });
   };
   return (
-    <div className="lock-field">
-      <LockCheckbox testId={testId} label={label} checked={lock.locked} onChange={toggle} />
-      <StepperField
-        testId={testId}
-        label={label}
-        value={lock.locked ? lock.value : Math.round(freeValue)}
-        min={min}
-        max={max}
-        disabled={!lock.locked}
-        onChange={setValue}
+    <StepperField
+      testId={testId}
+      label={label}
+      value={lock.locked ? lock.value : Math.round(freeValue)}
+      min={min}
+      max={max}
+      disabled={!lock.locked}
+      leading={<LockCheckbox testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
+      onChange={setValue}
+    />
+  );
+}
+
+/**
+ * A view-only visibility toggle (currently: "show wound cable" over the
+ * viewer), styled the same way as the lock toggle -- a real checkbox behind
+ * a black/white pictogram, here an eye / crossed-out eye -- never a raw
+ * checkbox (issue #16 review).
+ */
+export function EyeToggle({ testId, label, checked, onChange }: { testId: string; label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="eye-toggle" title={checked ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}>
+      <input
+        type="checkbox"
+        className="eye-toggle-input"
+        data-testid={`toggle-${testId}`}
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
       />
-    </div>
+      <span className="eye-icon" aria-hidden="true">
+        <span className="eye-icon-outer" />
+        <span className="eye-icon-pupil" />
+        <span className="eye-icon-slash" />
+      </span>
+      <span className="eye-toggle-text">{label}</span>
+    </label>
   );
 }

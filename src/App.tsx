@@ -5,6 +5,7 @@ import { useDesignPreview } from "./geometry/useDesignPreview";
 import { ControlsForm } from "./components/ControlsForm";
 import { ResultPanel } from "./components/ResultPanel";
 import { CoilViewer } from "./viewer/CoilViewer";
+import { EyeToggle } from "./components/fields";
 import "./App.css";
 
 function readInitialState() {
@@ -104,15 +105,9 @@ export default function App() {
         <div className="viewer">
           {result && (
             <>
-              <label className="wire-toggle">
-                <input
-                  type="checkbox"
-                  data-testid="toggle-wire"
-                  checked={showWire}
-                  onChange={(e) => setShowWire(e.target.checked)}
-                />
-                <span>Show wound cable</span>
-              </label>
+              <div className="wire-toggle">
+                <EyeToggle testId="wire" label="Show wound cable" checked={showWire} onChange={setShowWire} />
+              </div>
               <CoilViewer
                 mesh={result.mesh}
                 resolution={result.resolution}

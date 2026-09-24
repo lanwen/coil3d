@@ -113,17 +113,13 @@ header p {
 
 .wire-toggle {
   position: absolute;
-  top: 8px;
-  left: 8px;
+  top: 12px;
+  left: 12px;
   z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.85rem;
-  background: rgba(255, 255, 255, 0.85);
-  padding: 4px 8px;
-  border-radius: 4px;
-  border: 1px solid #ddd;
+  background: var(--paper);
+  padding: 6px 10px;
+  border-radius: 2px;
+  border: 1.5px solid var(--ink);
 }
 
 .coil-viewer-frame {
@@ -226,9 +222,19 @@ header p {
 /* Custom range + synced number input with a unit suffix (issue #16 AC). */
 .field-top {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* The label, plus an optional leading control (the lock pictogram) that
+   sits inline with the label it controls, on the same row (issue #16
+   review) -- never on a row of its own above the field. */
+.field-top-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .field-value {
@@ -378,51 +384,47 @@ header p {
 
 /* Lock toggle: a real checkbox for testability/keyboard use, rendered as a
    black-and-white padlock pictogram (open = free, closed/solid = locked) --
-   never a raw checkbox square (issue #16 AC). */
-.lock-field {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 0 0;
-}
-
+   never a raw checkbox square (issue #16 AC). Sits inline on the field's own
+   label row as a `leading` element (issue #16 review), icon-only with an
+   invisible oversized hit target for an easy click/tap. */
 .lock-toggle {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: fit-content;
-  padding: 4px 8px 4px 4px;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  flex: none;
   cursor: pointer;
-  border-radius: 4px;
 }
 
 .lock-toggle-input {
   position: absolute;
-  inset: 0;
+  inset: -8px;
   opacity: 0;
   margin: 0;
-  width: 100%;
-  height: 100%;
   cursor: pointer;
 }
 
 .lock-icon {
   position: relative;
-  width: 26px;
-  height: 24px;
+  width: 20px;
+  height: 18px;
   flex: none;
+  /* Purely decorative: the real (invisible) checkbox above/below it in the
+     DOM must always receive the click, regardless of paint order. */
+  pointer-events: none;
 }
 
 .lock-icon-shackle {
   position: absolute;
-  left: 5px;
+  left: 4px;
   top: 1px;
-  width: 14px;
-  height: 11px;
-  border: 2.5px solid var(--ink);
+  width: 11px;
+  height: 8px;
+  border: 2px solid var(--ink);
   border-bottom: none;
-  border-radius: 8px 8px 0 0;
+  border-radius: 7px 7px 0 0;
   transform-origin: left bottom;
   transform: rotate(-38deg) translateX(-2px);
   transition: transform 0.15s ease;
@@ -430,13 +432,13 @@ header p {
 
 .lock-icon-body {
   position: absolute;
-  left: 2px;
+  left: 1px;
   bottom: 1px;
-  width: 20px;
-  height: 13px;
+  width: 16px;
+  height: 10px;
   background: var(--paper);
-  border: 2.5px solid var(--ink);
-  border-radius: 3px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
   transition: background 0.15s ease;
 }
 
@@ -448,14 +450,79 @@ header p {
   background: var(--ink);
 }
 
-.lock-toggle-text {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--muted);
+/* Wire visibility toggle (issue #4/#16): same real-checkbox-behind-a-
+   pictogram technique as the lock toggle, here an eye / crossed-out eye. */
+.eye-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 
-.lock-toggle-input:checked ~ .lock-toggle-text {
+.eye-toggle-input {
+  position: absolute;
+  inset: -6px;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.eye-icon {
+  position: relative;
+  width: 22px;
+  height: 16px;
+  flex: none;
+  pointer-events: none;
+}
+
+.eye-icon-outer {
+  position: absolute;
+  inset: 1px 0;
+  border: 2px solid var(--ink);
+  border-radius: 60% 60% 40% 40% / 70% 70% 30% 30%;
+  background: var(--paper);
+}
+
+.eye-icon-pupil {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  background: var(--ink);
+  border-radius: 50%;
+}
+
+.eye-icon-slash {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: var(--ink);
+  transform: rotate(-20deg);
+}
+
+.eye-toggle-input:not(:checked) ~ .eye-icon .eye-icon-outer {
+  opacity: 0.4;
+}
+
+.eye-toggle-input:not(:checked) ~ .eye-icon .eye-icon-pupil {
+  display: none;
+}
+
+.eye-toggle-input:not(:checked) ~ .eye-icon .eye-icon-slash {
+  display: block;
+}
+
+.eye-toggle-text {
+  font-size: 0.8rem;
+  font-weight: 600;
   color: var(--ink);
+  pointer-events: none;
 }
 
 /* ---------- Advanced disclosure ---------- */
@@ -677,12 +744,46 @@ header p {
   }
 
   .lock-toggle {
-    padding: 8px 10px 8px 4px;
+    width: 26px;
+    height: 24px;
+  }
+
+  .lock-toggle-input {
+    inset: -10px;
   }
 
   .lock-icon {
-    width: 30px;
-    height: 28px;
+    width: 26px;
+    height: 24px;
+  }
+
+  .lock-icon-shackle {
+    left: 5px;
+    top: 1px;
+    width: 14px;
+    height: 11px;
+    border-width: 2.5px;
+    border-radius: 8px 8px 0 0;
+  }
+
+  .lock-icon-body {
+    left: 2px;
+    width: 20px;
+    height: 13px;
+    border-width: 2.5px;
+  }
+
+  .eye-icon {
+    width: 28px;
+    height: 20px;
+  }
+
+  .eye-toggle-text {
+    font-size: 0.85rem;
+  }
+
+  .wire-toggle {
+    padding: 10px 12px;
   }
 
   .field-slider {
