@@ -325,4 +325,24 @@ describe("design().warnings: per-part bed-fit (issue #10)", () => {
     const d = await design(baseSpec());
     expect(d.warnings.some((w) => /bed/i.test(w))).toBe(false);
   });
+
+  it("accounts for the thicker flange a bigger cable now derives (issue #43) in the height bed-fit warning", async () => {
+    // The per-part height check reads each part's own actual mesh bounding
+    // box (plate.ts's printBBox), so it was ALWAYS going to reflect
+    // whatever the flange's real thickness happens to be -- this pins that
+    // it actually DOES track the now-variable thickness, not a fixed
+    // assumption: a bed tall enough for the OLD fixed 3mm flange (still
+    // what a thin-enough cable derives, floored at FLANGE_THICKNESS) must
+    // NOT warn, while the SAME bed with a thick 8mm cord -- whose own
+    // channel depth alone now demands a ~9.5mm flange -- must.
+    const height = 40;
+    const bedZ = height + 3.5; // clears height + the 3mm floor, nothing more
+    const thin = await design(baseSpec({ wire: { length: 500, diameter: 1, type: "usb" }, height: { locked: true, value: height }, print: { bedX: 256, bedY: 256, bedZ } }));
+    expect(thin.flangeSpec.thickness).toBeCloseTo(3, 9);
+    expect(thin.warnings.some((w) => /taller than/i.test(w))).toBe(false);
+
+    const thick = await design(baseSpec({ wire: { length: 500, diameter: 8, type: "stiff" }, height: { locked: true, value: height }, print: { bedX: 256, bedY: 256, bedZ } }));
+    expect(thick.flangeSpec.thickness).toBeGreaterThan(bedZ - height);
+    expect(thick.warnings.some((w) => /taller than/i.test(w))).toBe(true);
+  });
 });

@@ -64,6 +64,13 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // core now ALWAYS gets the bottom flange's own inner-end fixing (rim
     // keyhole + recessed channel, see innerEnd.ts), which removes real,
     // intentional material -- not a regression this guard is meant to catch.
-    expect(meshVolume(d.mesh)).toBeCloseTo(27315.823587649567, 3);
+    //
+    // Issue #43 bumped it back UP from 27315.823587649567: the bottom
+    // flange's own thickness is no longer a fixed 3mm -- it's now derived
+    // from the 3.8mm cable's own diameter (idealChannelDepth + a shelf,
+    // design.ts) so the wound cable's first turn lies flush instead of
+    // riding over a bump, which adds real, intentional material of its own
+    // (a thicker flange), not a regression this guard is meant to catch.
+    expect(meshVolume(d.mesh)).toBeCloseTo(31705.93202629695, 3);
   });
 });
