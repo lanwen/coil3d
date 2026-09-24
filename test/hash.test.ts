@@ -102,4 +102,31 @@ describe("parseHash / toHash", () => {
     expect(spec).toEqual(DEFAULT_SPEC);
     expect(notice).toBeDefined();
   });
+
+  it("round-trips a rounded-square shape, with the corner radius namespaced as sq.rc (issue #6)", () => {
+    const spec: CoilSpec = { ...DEFAULT_SPEC, shape: { kind: "sq", cornerRadius: 18 } };
+    const hash = toHash(spec);
+    expect(hash).toContain("shape=sq");
+    expect(hash).toContain("sq.rc=18");
+    expect(hash).not.toContain("tri.rc");
+    expect(parseHash(hash)).toEqual({ spec });
+  });
+
+  it("round-trips a rounded-triangle shape, with the corner radius namespaced as tri.rc (issue #6)", () => {
+    const spec: CoilSpec = { ...DEFAULT_SPEC, shape: { kind: "tri", cornerRadius: 12.5 } };
+    expect(parseHash(toHash(spec))).toEqual({ spec });
+  });
+
+  it("omits the shape param for round (the default) and a default-valued corner radius", () => {
+    expect(toHash({ ...DEFAULT_SPEC, shape: { kind: "round" } })).toBe("#v=1");
+    const hash = toHash({ ...DEFAULT_SPEC, shape: { kind: "sq", cornerRadius: 8 } }); // DEFAULT_CORNER_RADIUS
+    expect(hash).toContain("shape=sq");
+    expect(hash).not.toContain("sq.rc=");
+  });
+
+  it("falls back to defaults with a notice when a shape's corner radius is set without selecting that shape", () => {
+    const { spec, notice } = parseHash("#v=1&sq.rc=20");
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
+  });
 });

@@ -16,7 +16,34 @@ import type { OpenCascadeInstance } from "replicad-opencascadejs";
 import { fitPeriodicUClampedV, type Vec3 } from "./bspfit";
 import { createWallProfile } from "../wall";
 import { meshVolume } from "../meshVolume";
+import { offsetOutline, polygonVertex } from "../shapes";
+import type { ShapeOutline } from "../shapes";
 import type { Design } from "../types";
+
+/**
+ * A solid prism of the given outline, extruded from `zBase` upward by
+ * `height`. Round keeps the plain, well-proven cylinder (its outline is
+ * already an exact circle, see shapes.ts); sq/tri build a TRUE rounded
+ * polygon via replicad's corner-fillet sketcher, so the STEP bore/flange
+ * follow the same offset outline the mesh backend uses (issue #6 AC: "the
+ * flange for non-round shapes should follow the offset outline, not a
+ * circle") instead of a bounding cylinder.
+ */
+function outlineSolid(o: ShapeOutline, height: number, zBase: number): R.Shape3D {
+  if (o.n === 4 && o.cornerRadius === o.apothem) {
+    return R.makeCylinder(o.apothem, height, [0, 0, zBase]);
+  }
+  let pen = R.draw(polygonVertex(o, 0));
+  for (let i = 1; i < o.n; i++) {
+    pen = pen.lineTo(polygonVertex(o, i)).customCorner(o.cornerRadius);
+  }
+  const drawing = pen.closeWithCustomCorner(o.cornerRadius);
+  // The outline is always one simple closed convex profile, never a
+  // disjoint/compound sketch, so `sketchOnPlane` always resolves to a plain
+  // `Sketch` in practice, not the compound `Sketches` its return type also allows.
+  const sketch = drawing.sketchOnPlane("XY", zBase) as R.Sketch;
+  return sketch.extrude(height);
+}
 
 // S2 RESULT.md: ~20 V-samples per helical pitch keeps the max fitting
 // deviation under 0.1 mm; NU reuses the mesh's own column count so the two
@@ -41,7 +68,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const kernel = await getOC();
   const { wallSpec, flangeSpec } = design;
   const profile = createWallProfile(wallSpec);
-  const { height, columns: NU, boreRadius } = wallSpec;
+  const { height, columns: NU, boreOutline } = wallSpec;
 
   const NV = Math.max(MIN_V_SAMPLES, Math.round(V_SAMPLES_PER_PITCH * wallSpec.turns) + 1);
   const dz = 1e-4;
@@ -105,12 +132,12 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   outerFix.Perform(new kernel.Message_ProgressRange());
 
   const outer = R.cast(outerFix.Solid()).asShape3D();
-  const bore = R.makeCylinder(boreRadius, height + 2, [0, 0, -1]);
+  const bore = outlineSolid(boreOutline, height + 2, -1);
   const tube = outer.cut(bore);
 
-  const flangeOuterRadius = flangeSpec.outerRadius + flangeSpec.margin;
-  const flangeOuter = R.makeCylinder(flangeOuterRadius, flangeSpec.thickness, [0, 0, -flangeSpec.thickness]);
-  const flangeInner = R.makeCylinder(flangeSpec.boreRadius, flangeSpec.thickness + 2, [0, 0, -flangeSpec.thickness - 1]);
+  const flangeOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
+  const flangeOuter = outlineSolid(flangeOutline, flangeSpec.thickness, -flangeSpec.thickness);
+  const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
   const flange = flangeOuter.cut(flangeInner);
 
   const fused = tube.fuse(flange);

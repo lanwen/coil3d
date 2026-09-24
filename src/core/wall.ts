@@ -1,17 +1,23 @@
-// Direct parametric mesh for a round, grooved tube wall. No sweep, no
-// boolean: every vertex is placed analytically. Adapted from the S1 spike
-// (spikes/s1-grooved-wall/geom.ts), specialised to a round cross-section
-// only (docs/research.md §4, §10a).
+// Direct parametric mesh for a grooved tube wall, and the flange ring that
+// gets fused onto it. No sweep, no boolean: every vertex is placed
+// analytically. Adapted from the S1 spike (spikes/s1-grooved-wall/geom.ts),
+// generalised from round-only to any convex ShapeOutline (issue #6): round,
+// rounded square and rounded triangle share this one implementation (round
+// is the degenerate n=4, cornerRadius=apothem outline, see shapes.ts).
 //
 // The wall is already a closed, watertight torus-like solid on its own: the
 // outer wall, the bore, and the flat annuli at z=0 and z=height are all
 // connected. Fusing the bottom flange (see manifold.ts) only extends it.
 
+import { evalOutline, paramAt, pointAt } from "./shapes";
+import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
 export interface WallSpec {
-  outerRadius: number;
-  boreRadius: number;
+  /** The winding surface's outline at offset 0 (docs/research.md §2). */
+  outline: ShapeOutline;
+  /** The bore's own outline at offset 0 (a true inward offset of `outline` by the wall thickness -- see design.ts). */
+  boreOutline: ShapeOutline;
   height: number;
   wireDiameter: number;
   clearance: number;
@@ -50,7 +56,7 @@ export interface WallProfile {
 }
 
 export function createWallProfile(spec: WallSpec): WallProfile {
-  const { outerRadius, wireDiameter: d, clearance, grooveDepth: g, marginBottom, taperTurns: tau, turns } = spec;
+  const { outline, wireDiameter: d, clearance, grooveDepth: g, marginBottom, taperTurns: tau, turns } = spec;
 
   const pitch = d + clearance;
   // Teardrop profile: a groove circle of radius rho, with its upper flank
@@ -86,18 +92,16 @@ export function createWallProfile(spec: WallSpec): WallProfile {
   };
 
   const point = (t: number, z: number): [number, number, number] => {
-    const theta = 2 * Math.PI * t;
-    const nx = Math.cos(theta);
-    const ny = Math.sin(theta);
     const off = offset(t, z);
-    return [nx * (outerRadius + off), ny * (outerRadius + off), z];
+    const p = pointAt(outline, t, off);
+    return [p.x, p.y, z];
   };
 
   return { pitch, zStart, offset, point };
 }
 
-export function buildRoundWall(spec: WallSpec): CoilMesh {
-  const { boreRadius, height, marginBottom, marginTop, columns: C, rowsPerPitch } = spec;
+export function buildWall(spec: WallSpec): CoilMesh {
+  const { boreOutline, height, marginBottom, marginTop, columns: C, rowsPerPitch } = spec;
   const profile = createWallProfile(spec);
   const { pitch, zStart } = profile;
 
@@ -158,18 +162,17 @@ export function buildRoundWall(spec: WallSpec): CoilMesh {
     }
   }
 
-  // Bore (plain cylinder, 2 vertices per column) and the top/bottom annuli
-  // that close the wall into a watertight torus.
+  // Bore (its own outline, offset 0, 2 vertices per column) and the
+  // top/bottom annuli that close the wall into a watertight torus.
   const bottomI: number[] = [];
   const topI: number[] = [];
   for (let ci = 0; ci < C; ci++) {
-    const theta = 2 * Math.PI * (ci / C);
-    const nx = Math.cos(theta);
-    const ny = Math.sin(theta);
+    const t = ci / C;
+    const p = pointAt(boreOutline, t, 0);
     bottomI.push(positions.length / 3);
-    positions.push(nx * boreRadius, ny * boreRadius, 0);
+    positions.push(p.x, p.y, 0);
     topI.push(positions.length / 3);
-    positions.push(nx * boreRadius, ny * boreRadius, height);
+    positions.push(p.x, p.y, height);
   }
   for (let ci = 0; ci < C; ci++) {
     const cj = (ci + 1) % C;
@@ -182,6 +185,56 @@ export function buildRoundWall(spec: WallSpec): CoilMesh {
     // Top annulus faces +z.
     indices.push(topO[ci], topO[cj], topI[ci]);
     indices.push(topO[cj], topI[cj], topI[ci]);
+  }
+
+  return { positions: new Float32Array(positions), indices: new Uint32Array(indices) };
+}
+
+/**
+ * A flat, watertight prism ("washer") between two outlines: `outerOutline`
+ * at `outerOffset` (typically the wall's own outline, offset outward by the
+ * flange margin) and `innerOutline` at offset 0 (typically the same bore
+ * outline as the wall). Used by manifold.ts to build the bottom flange
+ * shaped like the core's own outline, not a bounding circle (issue #6 AC
+ * "the flange for non-round shapes should follow the offset outline").
+ */
+export function buildOutlineRing(outerOutline: ShapeOutline, outerOffset: number, innerOutline: ShapeOutline, zLo: number, zHi: number, columns: number): CoilMesh {
+  const positions: number[] = [];
+  const push = (x: number, y: number, z: number): number => {
+    const idx = positions.length / 3;
+    positions.push(x, y, z);
+    return idx;
+  };
+
+  const outerBottom: number[] = [];
+  const outerTop: number[] = [];
+  const innerBottom: number[] = [];
+  const innerTop: number[] = [];
+  for (let ci = 0; ci < columns; ci++) {
+    const t = ci / columns;
+    const o = evalOutline(outerOutline, paramAt(outerOutline, 0, t), outerOffset);
+    const inner = pointAt(innerOutline, t, 0);
+    outerBottom.push(push(o.x, o.y, zLo));
+    outerTop.push(push(o.x, o.y, zHi));
+    innerBottom.push(push(inner.x, inner.y, zLo));
+    innerTop.push(push(inner.x, inner.y, zHi));
+  }
+
+  const indices: number[] = [];
+  for (let ci = 0; ci < columns; ci++) {
+    const cj = (ci + 1) % columns;
+    // Outer side wall faces outward.
+    indices.push(outerBottom[ci], outerBottom[cj], outerTop[ci]);
+    indices.push(outerTop[ci], outerBottom[cj], outerTop[cj]);
+    // Inner side wall (bore) faces inward.
+    indices.push(innerBottom[ci], innerTop[ci], innerBottom[cj]);
+    indices.push(innerBottom[cj], innerTop[ci], innerTop[cj]);
+    // Bottom annulus faces -z.
+    indices.push(outerBottom[ci], innerBottom[ci], outerBottom[cj]);
+    indices.push(outerBottom[cj], innerBottom[ci], innerBottom[cj]);
+    // Top annulus faces +z.
+    indices.push(outerTop[ci], outerTop[cj], innerTop[ci]);
+    indices.push(outerTop[cj], innerTop[cj], innerTop[ci]);
   }
 
   return { positions: new Float32Array(positions), indices: new Uint32Array(indices) };

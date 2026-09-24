@@ -1,12 +1,18 @@
 import type { ChangeEvent } from "react";
-import type { CoilSpec, CoreSizeLock, Lock, Objective, Solution, WireTypeId } from "../core";
-import { DEFAULT_CUSTOM_BEND_MULTIPLIER, WIRE_TYPE_PRESETS } from "../core";
+import type { CoilSpec, CoreSizeLock, Lock, Objective, ShapeKind, Solution, WireTypeId } from "../core";
+import { DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, WIRE_TYPE_PRESETS } from "../core";
 
 const WIRE_TYPE_OPTIONS: Array<{ id: WireTypeId; label: string }> = [
   { id: "usb", label: WIRE_TYPE_PRESETS.usb.label },
   { id: "flex", label: WIRE_TYPE_PRESETS.flex.label },
   { id: "stiff", label: WIRE_TYPE_PRESETS.stiff.label },
   { id: "custom", label: "Custom" },
+];
+
+const SHAPE_OPTIONS: Array<{ id: ShapeKind; label: string }> = [
+  { id: "round", label: "Round" },
+  { id: "sq", label: "Rounded square" },
+  { id: "tri", label: "Rounded triangle" },
 ];
 
 function NumberField({
@@ -123,6 +129,14 @@ export function ControlsForm({
     onChange({ ...spec, coreSize: { locked: true, dimension, value: spec.coreSize.value } });
   };
 
+  const setShapeKind = (kind: ShapeKind) => {
+    onChange({ ...spec, shape: kind === "round" ? { kind } : { kind, cornerRadius: DEFAULT_CORNER_RADIUS } });
+  };
+  const setShapeCornerRadius = (cornerRadius: number) => {
+    if (spec.shape.kind === "round") return;
+    onChange({ ...spec, shape: { kind: spec.shape.kind, cornerRadius } });
+  };
+
   const freeCount = [spec.coreSize.locked, spec.height.locked, spec.layers.locked].filter((locked) => !locked).length;
 
   return (
@@ -169,6 +183,32 @@ export function ControlsForm({
           onChange={(e) => onChange({ ...spec, windingQuality: Number(e.target.value) })}
         />
       </label>
+
+      <fieldset className="controls-shape">
+        <legend>Core shape</legend>
+        <label className="controls-field">
+          <span>Shape</span>
+          <select data-testid="select-shape" value={spec.shape.kind} onChange={(e) => setShapeKind(e.target.value as ShapeKind)}>
+            {SHAPE_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {spec.shape.kind !== "round" && (
+          <NumberField
+            testId="input-shapeCornerRadius"
+            label="Corner radius"
+            unit="mm"
+            min={0}
+            max={250}
+            step={0.5}
+            value={spec.shape.cornerRadius}
+            onChange={setShapeCornerRadius}
+          />
+        )}
+      </fieldset>
 
       <fieldset className="controls-core-size">
         <legend>Core size</legend>

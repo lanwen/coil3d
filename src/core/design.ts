@@ -20,6 +20,7 @@ import {
   FLANGE_THICKNESS,
   GROOVE_DEPTH_FACTOR,
   MARGIN,
+  MIN_BORE_CORNER_RADIUS,
   MIN_BORE_RADIUS,
   FINAL_ROWS_PER_PITCH,
   FINAL_COLUMNS,
@@ -30,29 +31,47 @@ import {
   WALL_THICKNESS,
 } from "./constants";
 import { fuseFlange } from "./manifold";
+import { circumscribedRadius, makeOutline } from "./shapes";
+import type { ShapeOutline } from "./shapes";
 import { solve } from "./solve";
 import type { CoilSpec, Design, Resolution } from "./types";
-import { buildRoundWall } from "./wall";
+import { buildWall } from "./wall";
 
 export async function design(spec: CoilSpec, resolution: Resolution = "final"): Promise<Design> {
   const { solution, warnings } = solve(spec);
   const columns = resolution === "draft" ? DRAFT_COLUMNS : FINAL_COLUMNS;
   const rowsPerPitch = resolution === "draft" ? DRAFT_ROWS_PER_PITCH : FINAL_ROWS_PER_PITCH;
 
-  const outerRadius = solution.outerSize / 2;
-  let boreRadius = solution.innerBore / 2;
-  if (boreRadius < MIN_BORE_RADIUS) {
+  const outline = makeOutline(spec.shape.kind, solution.outerSize, solution.cornerRadius);
+
+  // The bore is a TRUE inward offset of the wall's own outline by the wall
+  // thickness (issue #6 AC: "the triangle wall is computed from the true
+  // inward offset", not `outer - 2*wall`): both apothem and corner radius
+  // shrink by the same amount (Steiner), floored so the outline never
+  // inverts (spikes/s1-grooved-wall/geom.ts's `boreMinCornerR`).
+  let boreApothem = outline.apothem - WALL_THICKNESS;
+  if (boreApothem < MIN_BORE_RADIUS) {
     warnings.push(`Core size ${solution.outerSize.toFixed(1)} mm is too small for a ${WALL_THICKNESS} mm wall; the bore has been reduced.`);
-    boreRadius = MIN_BORE_RADIUS;
+    boreApothem = MIN_BORE_RADIUS;
   }
+  // Round's defining invariant is apothem === cornerRadius (see shapes.ts);
+  // apothem and corner radius are floored independently above/below (they
+  // guard different things -- MIN_BORE_RADIUS keeps a printable bore at
+  // all, MIN_BORE_CORNER_RADIUS keeps a non-round bore's corner from
+  // folding), so at the small end they can hit different floors and break
+  // that invariant. Preserve it explicitly for round, or a tiny locked core
+  // would get a very-slightly-square bore instead of a circle.
+  const isRound = outline.cornerRadius === outline.apothem;
+  const boreCornerRadius = isRound ? boreApothem : Math.min(Math.max(outline.cornerRadius - WALL_THICKNESS, MIN_BORE_CORNER_RADIUS), boreApothem);
+  const boreOutline: ShapeOutline = { n: outline.n, apothem: boreApothem, cornerRadius: boreCornerRadius };
 
   const wireDiameter = spec.wire.diameter;
   const grooveDepth = GROOVE_DEPTH_FACTOR * wireDiameter;
   const layer1Turns = solution.layerResults[0]?.turns ?? 0;
 
   const wallSpec = {
-    outerRadius,
-    boreRadius,
+    outline,
+    boreOutline,
     height: solution.height,
     wireDiameter,
     clearance: CLEARANCE,
@@ -65,18 +84,22 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     rowsPerPitch,
   };
   const flangeSpec = {
-    outerRadius,
-    boreRadius,
+    outline,
+    boreOutline,
     // The flange must clear the outermost wound layer, not just the core's
     // own wall (docs/research.md §1 "Flange size = final outer envelope +
     // margin"): solution.flangeSize already accounts for every layer, so the
-    // effective margin beyond the core's own radius grows with layer count.
-    margin: Math.max(FLANGE_MARGIN, solution.flangeSize / 2 - outerRadius),
+    // effective margin beyond the core's own outline grows with layer count.
+    // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
+    // (the offset term is additive, see shapes.ts), so this margin is exactly
+    // what's needed for the flange's own circumscribed radius to reach
+    // solution.flangeSize / 2.
+    margin: Math.max(FLANGE_MARGIN, solution.flangeSize / 2 - circumscribedRadius(outline, 0)),
     thickness: FLANGE_THICKNESS,
-    segments: columns,
+    columns,
   };
 
-  const wall = buildRoundWall(wallSpec);
+  const wall = buildWall(wallSpec);
   const mesh = await fuseFlange(wall, flangeSpec);
 
   return { spec, solution, warnings, mesh, resolution, wallSpec, flangeSpec };

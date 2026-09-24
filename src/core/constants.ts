@@ -15,13 +15,19 @@ export const TAPER_TURNS = 0.5;
 export const FLANGE_MARGIN = 4; // mm
 export const FLANGE_THICKNESS = 3; // mm
 export const MIN_BORE_RADIUS = 1; // mm, guards against a wall thicker than the core
+/** Bore corner radius floor for non-round shapes (spikes/s1-grooved-wall/geom.ts's `boreMinCornerR`): offsetting a corner inward by the wall thickness can drive it to <=0, which folds the outline. */
+export const MIN_BORE_CORNER_RADIUS = 0.5; // mm
+/** Non-round shapes (#6): a hairline hand-back from a fully-degenerate (zero-length straight side) corner radius, so the corner-fillet solid builder (STEP) never sees an exactly-round rounded polygon. Imperceptible at print resolution. */
+export const SHAPE_ROUNDING_EPS = 0.01; // mm
+/** Default corner radius offered for a new sq/tri shape before any bend-limit clamping (docs/research.md §2 "shape params"). */
+export const DEFAULT_CORNER_RADIUS = 8; // mm
 
 // Two mesh resolutions (issue #7, docs/research.md §10a/§10b): a coarse
 // "draft" while the user is still editing, tuned to roughly the S1 spike's
 // ~16k-triangle preview (25-33 ms), and a "final" for the settled view, STL,
 // 3MF and STEP, tuned to the spike's ~170k-triangle final (~240 ms). Both use
-// the same `buildRoundWall`/`fuseFlange` code path -- only these counts
-// differ -- so draft and final can never geometrically drift apart.
+// the same `buildWall`/`fuseFlange` code path -- only these counts differ --
+// so draft and final can never geometrically drift apart.
 export const FINAL_COLUMNS = 96; // mesh columns around the circumference
 export const FINAL_ROWS_PER_PITCH = 8; // mesh rows per helical pitch
 export const DRAFT_COLUMNS = 24;

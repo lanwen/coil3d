@@ -1,12 +1,21 @@
 // Public types for the headless coil core. See docs/research.md for the
-// full domain model. This ticket (#5) implements the full lock/free solver
-// for a round core; other cross-sections arrive in #6 (see ShapeKind below).
+// full domain model. Issue #5 implemented the full lock/free solver for a
+// round core; issue #6 adds the rounded-square and rounded-triangle shape
+// plugins (see ShapeKind/ShapeSpec below and shapes.ts).
 
 import type { WallSpec } from "./wall";
 import type { FlangeSpec } from "./manifold";
 
-/** Only round ships in this ticket; #6 widens this union (docs/research.md §2). */
-export type ShapeKind = "round";
+export type { ShapeKind } from "./shapes";
+
+/**
+ * What the user controls about the core's cross-section. Round has no extra
+ * params (it's always fully round); sq/tri carry a corner radius, namespaced
+ * in the hash as `sq.rc`/`tri.rc` (docs/research.md §7, §2 "Shape plugins").
+ * The solver clamps `cornerRadius` into the bend-limit-derived range each
+ * time it solves (solve.ts); this field is the user's un-clamped request.
+ */
+export type ShapeSpec = { kind: "round" } | { kind: "sq"; cornerRadius: number } | { kind: "tri"; cornerRadius: number };
 
 export type WireTypeId = "usb" | "flex" | "stiff" | "custom";
 
@@ -53,10 +62,10 @@ export type CoreSizeLock = { locked: true; dimension: "outer" | "inner"; value: 
 
 export type Objective = "minVolume" | "aspectRatio";
 
-/** What the user controls. Round core only (issue #6 adds shapes). */
+/** What the user controls. */
 export interface CoilSpec {
   wire: WireSpec;
-  shape: { kind: ShapeKind };
+  shape: ShapeSpec;
   /** 0 = worst case (stacked, h=d), 1 = ideal (orthocyclic, h=d*sqrt(3)/2). */
   windingQuality: number;
   coreSize: CoreSizeLock;
@@ -88,6 +97,14 @@ export interface Solution {
   /** Set when freeCount is 2 or 3 (an objective was needed to pick a candidate). */
   objectiveUsed?: Objective;
   outerSize: number;
+  /**
+   * Resolved corner radius, mm: `outerSize / 2` for round (always fully
+   * rounded); for sq/tri, the user's requested `shape.cornerRadius` clamped
+   * into `cornerRadiusRange` (docs/research.md §2 "cornerRadiusRange").
+   */
+  cornerRadius: number;
+  /** [bend-limit floor, outerSize/2]. When the floor exceeds the ceiling, the shape is forced fully round regardless of the request -- see the "became round" warning in solve.ts. */
+  cornerRadiusRange: [number, number];
   innerBore: number;
   height: number;
   layers: number;

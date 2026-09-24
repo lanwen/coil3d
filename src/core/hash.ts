@@ -10,9 +10,9 @@
 // from before this ticket (`v=1&L=..&d=..&size=..`) keep working.
 
 import { z } from "zod";
-import { MAX_WIRE_LENGTH } from "./constants";
+import { DEFAULT_CORNER_RADIUS, MAX_WIRE_LENGTH } from "./constants";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
-import type { CoilSpec, CoreSizeLock, Lock, WireTypeId } from "./types";
+import type { CoilSpec, CoreSizeLock, Lock, ShapeKind, ShapeSpec, WireTypeId } from "./types";
 
 const HASH_VERSION = "1";
 
@@ -42,6 +42,9 @@ const QuerySchema = z.object({
   mbr: z.coerce.number().finite().positive().max(50).optional(),
   q: z.coerce.number().finite().min(0).max(1).optional(),
   obj: z.enum(["mv", "ar"]).optional(),
+  shape: z.enum(["round", "sq", "tri"]).optional(),
+  "sq.rc": z.coerce.number().finite().min(0).max(1000).optional(),
+  "tri.rc": z.coerce.number().finite().min(0).max(1000).optional(),
   lock: z.string().optional(),
   size: z.coerce.number().finite().min(1).max(1000).optional(),
   h: z.coerce.number().finite().min(1).max(1000).optional(),
@@ -101,6 +104,20 @@ export function parseHash(hash: string): ParsedHash {
     return fallback('The link sets a custom bend multiplier ("mbr") without wt=custom -- showing default values instead.');
   }
 
+  const shapeKind: ShapeKind = p.shape ?? "round";
+  if (shapeKind !== "sq" && p["sq.rc"] !== undefined) {
+    return fallback('The link sets a square corner radius ("sq.rc") without shape=sq -- showing default values instead.');
+  }
+  if (shapeKind !== "tri" && p["tri.rc"] !== undefined) {
+    return fallback('The link sets a triangle corner radius ("tri.rc") without shape=tri -- showing default values instead.');
+  }
+  const shape: ShapeSpec =
+    shapeKind === "round"
+      ? { kind: "round" }
+      : shapeKind === "sq"
+        ? { kind: "sq", cornerRadius: p["sq.rc"] ?? DEFAULT_CORNER_RADIUS }
+        : { kind: "tri", cornerRadius: p["tri.rc"] ?? DEFAULT_CORNER_RADIUS };
+
   const coreSize: CoreSizeLock = lockTokens.has("outer")
     ? { locked: true, dimension: "outer", value: p.size ?? DEFAULT_OUTER_SIZE }
     : lockTokens.has("inner")
@@ -116,7 +133,7 @@ export function parseHash(hash: string): ParsedHash {
       type: wireType,
       customBendMultiplier: wireType === "custom" ? (p.mbr ?? DEFAULT_CUSTOM_BEND_MULTIPLIER) : undefined,
     },
-    shape: { kind: "round" },
+    shape,
     windingQuality: p.q ?? DEFAULT_SPEC.windingQuality,
     coreSize,
     height,
@@ -139,6 +156,13 @@ export function toHash(spec: CoilSpec): string {
   }
   if (spec.windingQuality !== DEFAULT_SPEC.windingQuality) params.set("q", String(spec.windingQuality));
   if (spec.objective !== DEFAULT_SPEC.objective) params.set("obj", spec.objective === "minVolume" ? "mv" : "ar");
+
+  if (spec.shape.kind !== "round") {
+    params.set("shape", spec.shape.kind);
+    if (spec.shape.cornerRadius !== DEFAULT_CORNER_RADIUS) {
+      params.set(spec.shape.kind === "sq" ? "sq.rc" : "tri.rc", String(spec.shape.cornerRadius));
+    }
+  }
 
   const lockTokens: LockToken[] = [];
   if (spec.coreSize.locked) {
