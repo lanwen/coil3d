@@ -18,6 +18,7 @@ const baseSpec: CoilSpec = {
   topCap: "auto",
   joint: "press",
   tolerance: 0.2,
+  print: { bedX: 256, bedY: 256, bedZ: 256 },
 };
 
 describe("design().mesh is a valid, expected manifold", () => {
@@ -284,6 +285,7 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
     topCap: "auto",
     joint: "press",
     tolerance: 0.2,
+    print: { bedX: 256, bedY: 256, bedZ: 256 },
   };
 
   it("is a valid watertight manifold with the analytically-expected volume", async () => {
@@ -377,6 +379,7 @@ describe("exportDesign(design, 'step') for a non-round shape (issue #6)", () => 
       topCap: "auto",
       joint: "press",
       tolerance: 0.2,
+      print: { bedX: 256, bedY: 256, bedZ: 256 },
     };
     const d = await design(spec);
     const stepBytes = await exportDesign(d, "step");

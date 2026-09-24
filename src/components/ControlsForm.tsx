@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { CoilSpec, CoreSizeLock, JointKind, Lock, Objective, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
-import { DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
+import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
 import { LockRangeField, LockStepperField, RangeField, Section } from "./fields";
 
 const TOP_CAP_OPTIONS: Array<{ id: TopCapMode; label: string }> = [
@@ -39,6 +39,7 @@ export function ControlsForm({
   onChange: (next: CoilSpec) => void;
 }) {
   const setWire = (patch: Partial<CoilSpec["wire"]>) => onChange({ ...spec, wire: { ...spec.wire, ...patch } });
+  const setPrint = (patch: Partial<CoilSpec["print"]>) => onChange({ ...spec, print: { ...spec.print, ...patch } });
 
   const setCoreSizeLock = (lock: Lock<number>) => {
     const coreSize: CoreSizeLock = lock.locked
@@ -235,6 +236,12 @@ export function ControlsForm({
           value={spec.tolerance}
           onChange={(v) => onChange({ ...spec, tolerance: v })}
         />
+      </Section>
+
+      <Section title="Print bed">
+        <RangeField testId="bedX" label="Bed X" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedX} onChange={(v) => setPrint({ bedX: v })} />
+        <RangeField testId="bedY" label="Bed Y" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedY} onChange={(v) => setPrint({ bedY: v })} />
+        <RangeField testId="bedZ" label="Bed Z" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedZ} onChange={(v) => setPrint({ bedZ: v })} />
       </Section>
     </form>
   );

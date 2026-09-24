@@ -68,6 +68,22 @@ export type CoreSizeLock = { locked: true; dimension: "outer" | "inner"; value: 
 
 export type Objective = "minVolume" | "aspectRatio";
 
+/**
+ * The printer's build volume (issue #10, docs/research.md §1 "Print" /
+ * user story 45: "I want to enter my printer's bed size, so that I'm
+ * warned when a part doesn't fit"). This is part of `CoilSpec` -- not a
+ * view-only setting like `showWire` -- because it changes real `design()`
+ * output (the per-part fit warnings) and `exportDesign()` output (the 3MF
+ * plate layout), and `exportDesign` only ever takes a `Design`, not extra
+ * arguments, so the bed size has to already be inside the spec it was
+ * solved from.
+ */
+export interface PrintSpec {
+  bedX: number;
+  bedY: number;
+  bedZ: number;
+}
+
 /** What the user controls. */
 export interface CoilSpec {
   wire: WireSpec;
@@ -85,6 +101,8 @@ export interface CoilSpec {
   joint: JointKind;
   /** One global print tolerance (mm) that scales every joint's fit (docs/research.md §4 "Joints / tolerances"). */
   tolerance: number;
+  /** The printer's bed size (issue #10); drives per-part fit warnings and the 3MF plate layout. */
+  print: PrintSpec;
 }
 
 export interface LayerResult {
@@ -232,7 +250,7 @@ export interface Design {
   flangeSpec: FlangeSpec;
 }
 
-export type ExportFormat = "stl" | "step";
+export type ExportFormat = "stl" | "step" | "3mf";
 
 /**
  * Mesh detail level (issue #7): `"draft"` is fast and coarse, for instant

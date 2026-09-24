@@ -12,9 +12,14 @@
 // keeps the new UI surface small for the parallel controls/CSS rewrite
 // (#28) to restyle. Consumers tell the two apart by extension/part count
 // (`design.parts.length`), matching how the UI already names the STEP file.
+//
+// `3mf` (issue #10) is the one-file-for-everything alternative to the STL
+// zip: one object + one plate-placed build item per part, all in one
+// download. See threeMf.ts.
 
 import { applyRigidTransform } from "./transform";
 import { writeBinaryStl } from "./stl";
+import { write3mf } from "./threeMf";
 import { writeZip } from "./zip";
 import type { Design, ExportFormat } from "./types";
 
@@ -30,6 +35,9 @@ export async function exportDesign(design: Design, format: ExportFormat): Promis
         data: writeBinaryStl(applyRigidTransform(part.mesh, part.printTransform), part.name),
       })),
     ) as Uint8Array<ArrayBuffer>;
+  }
+  if (format === "3mf") {
+    return write3mf(design);
   }
   if (format === "step") {
     const { exportStep } = await import("./step");

@@ -27,6 +27,7 @@ const spec: CoilSpec = {
   topCap: "auto",
   joint: "press",
   tolerance: 0.2,
+  print: { bedX: 256, bedY: 256, bedZ: 256 },
 };
 
 describe("memory stability across repeated designs (issue #7)", () => {
