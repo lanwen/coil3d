@@ -90,6 +90,18 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.getByTestId("guide-step-4")).toContainText("keyhole slot on a screw");
   });
 
+  // Issue #14 landed the SKÅDIS clip mount after this guide shipped (issue
+  // #17 PR review round 2, on #14's own PR): mountLine() must give it real
+  // wording too, not the generic "coming soon" fallback meant only for
+  // "none" (and "opengrid", which isn't reachable -- see mountLine's own
+  // doc comment in Guide.tsx).
+  test("the wall-mount step gives real instructions once the SKÅDIS clip mount is selected", async ({ page }) => {
+    await gotoGuide(page, `${ONE_LAYER}&mount=skadis`);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/mount plate/i);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/SK.DIS/i);
+    await expect(page.getByTestId("guide-step-4")).not.toContainText("coming soon");
+  });
+
   test("the toolbar opens the guide from the design view and back again, without losing the design", async ({ page }) => {
     await page.goto(`/${TWO_LAYER_CAP}`);
     await expect(page.getByTestId("coil-viewer")).toBeVisible();

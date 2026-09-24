@@ -38,8 +38,26 @@ import {
   JOINT_TRANSITION_HEIGHT,
   KEYHOLE_SLIT_FRACTION,
   LABEL_DEPTH,
+  MOUNT_PLATE_EMBED,
+  MOUNT_PLATE_PEG_HEIGHT,
+  MOUNT_PLATE_PEG_HOLE_CLEARANCE,
+  MOUNT_PLATE_PEG_HOLE_DEPTH,
+  MOUNT_PLATE_PEG_RADIUS,
+  MOUNT_PLATE_SNAP_BARB,
+  MOUNT_PLATE_SNAP_GAP,
+  MOUNT_PLATE_SNAP_POCKET_DEPTH,
+  MOUNT_PLATE_SNAP_RIDGE_BAND,
+  MOUNT_PLATE_SNAP_TAB_REACH,
+  MOUNT_PLATE_SNAP_TAB_THICKNESS,
+  MOUNT_PLATE_SNAP_TAB_WIDTH,
+  MOUNT_PLATE_THICKNESS,
+  OPENGRID_PLACEHOLDER_PEG_REACH,
+  OPENGRID_PLACEHOLDER_PEG_SIZE,
   SCREW_MOUNT_HEAD_RADIUS,
   SCREW_MOUNT_SHANK_RADIUS,
+  SKADIS_CLIP_HEIGHT,
+  SKADIS_CLIP_PROFILE,
+  SKADIS_CLIP_PROFILE_CHAMFERED,
   SNAP_BARB,
   SNAP_BARB_HEIGHT,
   SNAP_GAP,
@@ -54,9 +72,10 @@ import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
 import { layoutKeyholeMount } from "./mount";
 import type { KeyholeSlot } from "./mount";
+import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
 import { circumscribedRadius, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
-import type { CoilMesh, JointKind, MountKind } from "./types";
+import type { CoilMesh, JointKind, MountKind, PlateJoint } from "./types";
 
 let wasmPromise: Promise<ManifoldToplevel> | undefined;
 
@@ -233,8 +252,15 @@ function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, depth: numb
   return Manifold.union(parts);
 }
 
-/** Fuse a bottom flange (shaped like `flange.outline`, offset out by `flange.margin`) onto the wall, optionally cutting a bayonet/snap joint feature into the top rim, then cutting the screw-keyhole mount (issue #13) into the bottom flange if requested. */
-export async function fuseFlange(wall: CoilMesh, flange: FlangeSpec, coreJoint?: CoreJointCut): Promise<CoilMesh> {
+/** What `fuseFlange` needs to cut the clip mount plate's own alignment pegs/holes or snap pockets into the flange's outer (wall-facing) face (issue #14) -- mirrors `CoreJointCut`'s "one shared description, cut by whichever backend needs it" role. Omitted entirely when the plate has no anchors to cut for (see mountPlate.ts's `MountPlateLayout.anchors`). */
+export interface MountPlateFlangeCut {
+  anchors: AnchorPoint[];
+  plateJoint: PlateJoint;
+  tolerance: number;
+}
+
+/** Fuse a bottom flange (shaped like `flange.outline`, offset out by `flange.margin`) onto the wall, optionally cutting a bayonet/snap joint feature into the top rim, then cutting the screw-keyhole mount (issue #13) or the clip mount plate's alignment features (issue #14) into the bottom flange if requested. */
+export async function fuseFlange(wall: CoilMesh, flange: FlangeSpec, coreJoint?: CoreJointCut, mountPlateCut?: MountPlateFlangeCut): Promise<CoilMesh> {
   const wasm = await getWasm();
   const { Manifold, Mesh } = wasm;
   const trash: { delete(): void }[] = [];
@@ -272,6 +298,22 @@ export async function fuseFlange(wall: CoilMesh, flange: FlangeSpec, coreJoint?:
         status = fused.status();
         if (status !== "NoError") {
           throw new Error(`Keyhole mount cut is not a valid manifold: ${status}`);
+        }
+      }
+    }
+
+    // Issue #14: the clip mount plate's own alignment pegs (glue) or snap
+    // tabs (snap) mate with a shallow hole/pocket cut into this SAME
+    // outer face -- see `mountPlateAnchorCutter` and `buildMountPlate`
+    // below (the plate itself is a SEPARATE part, built by `buildMountPlate`,
+    // not fused here).
+    if (mountPlateCut) {
+      for (const anchor of mountPlateCut.anchors) {
+        const cutter = track(mountPlateAnchorCutter(wasm, anchor, mountPlateCut.plateJoint, mountPlateCut.tolerance, -flange.thickness));
+        fused = track(fused.subtract(cutter));
+        status = fused.status();
+        if (status !== "NoError") {
+          throw new Error(`Mount plate anchor cut is not a valid manifold: ${status}`);
         }
       }
     }
@@ -420,4 +462,226 @@ function buildKeyholeCutter(wasm: ManifoldToplevel, outline: ShapeOutline, margi
     .rotate([0, 0, angleDeg])
     .translate([cx, cy, zLo + h / 2]);
   return hole.add(slit);
+}
+
+// --- Clip mount plate (issue #14, docs/research.md §1 "Wall mounting" +
+// §10b "SKÅDIS clip") -------------------------------------------------
+//
+// The plate is a SEPARATE part (see `buildMountPlate`): a flat panel shaped
+// like `mountPlate.ts`'s own `MountPlateLayout.outline`, sitting flush
+// against the flange's outer (wall-facing) face. In the shared ASSEMBLY
+// frame (matching `FlangeSpec`'s own z=[-thickness,0] convention -- see
+// this file's header), the panel occupies
+// z=[-flangeThickness-MOUNT_PLATE_THICKNESS, -flangeThickness]: its FRONT
+// (mating) face flush against the flange's own outer face at
+// z=-flangeThickness, its BACK face (bearing the pegboard clips, reaching
+// further outward into more-negative z) at
+// z=-flangeThickness-MOUNT_PLATE_THICKNESS. Glue pegs/snap tabs protrude the
+// OTHER way, from the front face into a shallow hole/pocket cut into the
+// flange (z increasing from -flangeThickness, i.e. INTO the flange body).
+//
+// Every clip/anchor is built in a CANONICAL local frame first (local +X =
+// "up", local +Y = "side", local -Z = "reach", flush base at Z=0) then
+// rotated about Z by `ClipInstance.rotationDeg`/`AnchorPoint.rotationDeg`
+// (mountPlate.ts's file header: `90 - axisDeg`, the same value for every
+// clip/anchor in one layout) and translated to its own true (x, y, zBase) --
+// this mirrors `radialBox`'s own "rotate a canonical primitive, don't
+// hand-rotate its vertices" pattern above.
+
+/** A closed 2D polygon sampling `outline`'s own boundary (offset 0) -- the mount plate panel has NO bore (unlike the wall/flange's ring, `buildOutlineRing`), so a plain `CrossSection` extrude is enough. */
+function outlinePolygon(outline: ShapeOutline, columns: number): [number, number][] {
+  const pts: [number, number][] = [];
+  for (let ci = 0; ci < columns; ci++) {
+    const p = pointAt(outline, ci / columns, 0);
+    pts.push([p.x, p.y]);
+  }
+  return pts;
+}
+
+/** A solid prism of `outline`'s own footprint, extruded from `zBase` up by `height`. */
+function outlinePrismSolid(wasm: ManifoldToplevel, outline: ShapeOutline, height: number, zBase: number, columns: number): Manifold {
+  const poly = outlinePolygon(outline, columns);
+  return new wasm.CrossSection([poly], "NonZero").extrude(height).translate([0, 0, zBase]);
+}
+
+/**
+ * One SKÅDIS clip PAIR (docs/research.md §10b; constants.ts's
+ * `SKADIS_CLIP_PROFILE` doc comment for the mechanism and the reimplement-
+ * not-copy note), in the canonical local frame described above. The profile
+ * is a 2D loop in the (side, reach) plane -- built here as (local X, local
+ * Y) so `CrossSection.extrude` can sweep it along local Z by
+ * `SKADIS_CLIP_HEIGHT` -- then rotated -90 degrees about local X (so the
+ * extrusion axis becomes local Y, and the profile's own reach axis becomes
+ * local -Z: base flush at Z=0, tip at the most negative Z) and a further
+ * -90 degrees about local Z. That last step swaps this construction's own
+ * (side, height) axes into this file's shared canonical frame (local +X =
+ * "up", local +Y = "side" -- every OTHER clip/anchor solid in this file
+ * builds directly into that frame, but a hook's own natural build order
+ * produces (X=side, Y=height) instead); it relies on the pair being
+ * mirror-symmetric about side=0 (built into the profile below) to make the
+ * resulting side-sign flip harmless. Getting this rotation wrong is exactly
+ * the issue #14 PR review round 2 bug: a previous version omitted it, so
+ * `SKADIS_CLIP_HEIGHT` (meant to run along WALL_UP) rendered horizontally
+ * instead. Mirrored about local X=0 (research.md: "extruded 12mm and
+ * mirrored" -- the PAIR's own two legs, not two separate grid positions,
+ * per constants.ts's own doc comment) for one symmetric, spring-loaded pair.
+ * `chamfered` selects constants.ts's `SKADIS_CLIP_PROFILE_CHAMFERED` for
+ * every row except the lowest one (issue #14 AC: "chamfer the lower rows
+ * at 45").
+ */
+function skadisHookSolid(wasm: ManifoldToplevel, chamfered: boolean): Manifold {
+  const profile = chamfered ? SKADIS_CLIP_PROFILE_CHAMFERED : SKADIS_CLIP_PROFILE;
+  const rightLoop: [number, number][] = profile.map(([s, r]): [number, number] => [s, r]);
+  const leftLoop: [number, number][] = profile.map(([s, r]): [number, number] => [-s, r]).reverse();
+  const solid = new wasm.CrossSection([rightLoop, leftLoop], "NonZero").extrude(SKADIS_CLIP_HEIGHT);
+  // MOUNT_PLATE_EMBED shifts the whole hook slightly further INTO the
+  // panel (see that constant's doc comment): without it, the hook's own
+  // base sits EXACTLY flush with the panel's back face, a razor-thin
+  // coincident seam that this file's boolean union resolves unreliably at
+  // this feature size (empirically: a disconnected, wrongly-oriented
+  // "ghost" copy of the hook, passing `status()`/`genus()` but failing a
+  // `decompose()` connected-component count -- see test/mountPlate.test.ts).
+  return solid
+    .translate([0, 0, -SKADIS_CLIP_HEIGHT / 2])
+    .rotate([-90, 0, 0])
+    .rotate([0, 0, -90])
+    .translate([0, 0, MOUNT_PLATE_EMBED]);
+}
+
+/** The openGrid placeholder connector (constants.ts's `OPENGRID_PLACEHOLDER_PEG_SIZE` TODO): a plain square peg in the same canonical local frame, base flush at Z=0, reaching to local -Z. Embedded into the panel by `MOUNT_PLATE_EMBED` -- see `skadisHookSolid`'s comment. */
+function openGridConnectorSolid(wasm: ManifoldToplevel): Manifold {
+  const s = OPENGRID_PLACEHOLDER_PEG_SIZE;
+  const h = OPENGRID_PLACEHOLDER_PEG_REACH + MOUNT_PLATE_EMBED; // spans local Z=[-REACH, +EMBED] once centered and shifted below
+  return wasm.Manifold.cube([s, s, h], true).translate([0, 0, (MOUNT_PLATE_EMBED - OPENGRID_PLACEHOLDER_PEG_REACH) / 2]);
+}
+
+/** One clip instance (hook or placeholder connector), placed at its own true (x, y) and rotated onto the layout's up/side axes -- see the file header. */
+function mountPlateClipSolid(wasm: ManifoldToplevel, mountKind: Extract<MountKind, "skadis" | "opengrid">, clip: ClipInstance, zBase: number): Manifold {
+  const canonical = mountKind === "skadis" ? skadisHookSolid(wasm, !clip.plain) : openGridConnectorSolid(wasm);
+  return canonical.rotate([0, 0, clip.rotationDeg]).translate([clip.x, clip.y, zBase]);
+}
+
+/** One alignment peg (glue) or snap tab (snap), protruding from the plate's FRONT face at local Z=0 toward local +Z (into the flange, once assembled) -- the mirror image, in reach direction, of the clips on the back face. */
+function mountPlateAnchorSolid(wasm: ManifoldToplevel, plateJoint: PlateJoint, anchor: AnchorPoint, zBase: number): Manifold {
+  const { Manifold } = wasm;
+  let canonical: Manifold;
+  if (plateJoint === "glue") {
+    // Spans local Z=[-EMBED, PEG_HEIGHT] -- embedded into the panel by MOUNT_PLATE_EMBED (see skadisHookSolid's comment).
+    canonical = Manifold.cylinder(MOUNT_PLATE_PEG_HEIGHT + MOUNT_PLATE_EMBED, MOUNT_PLATE_PEG_RADIUS, MOUNT_PLATE_PEG_RADIUS, 24, false).translate([0, 0, -MOUNT_PLATE_EMBED]);
+  } else {
+    // Base spans local Z=[-EMBED, REACH] -- embedded the same way; the barb (which never touches the panel face) is unaffected.
+    const base = Manifold.cube([MOUNT_PLATE_SNAP_TAB_THICKNESS, MOUNT_PLATE_SNAP_TAB_WIDTH, MOUNT_PLATE_SNAP_TAB_REACH + MOUNT_PLATE_EMBED], true).translate([
+      0,
+      0,
+      (MOUNT_PLATE_SNAP_TAB_REACH - MOUNT_PLATE_EMBED) / 2,
+    ]);
+    const barbHeight = 1.2;
+    const barb = Manifold.cube([MOUNT_PLATE_SNAP_TAB_THICKNESS + 2 * MOUNT_PLATE_SNAP_BARB, MOUNT_PLATE_SNAP_TAB_WIDTH, barbHeight], true).translate([
+      0,
+      0,
+      MOUNT_PLATE_SNAP_TAB_REACH - barbHeight / 2,
+    ]);
+    canonical = base.add(barb);
+  }
+  return canonical.rotate([0, 0, anchor.rotationDeg]).translate([anchor.x, anchor.y, zBase]);
+}
+
+/**
+ * The flange-side cutter for one anchor (issue #14 AC): a shallow blind
+ * hole (glue) sized to the peg plus clearance/tolerance, or a stepped blind
+ * pocket (snap) -- a narrow band right at the mouth (clears only the
+ * finger's own shaft) followed by a wider interior region (clears the
+ * barb), so the barb springs past the narrow band on entry and is then
+ * retained behind it -- mirrors `applyCoreJointCut`'s own "wide except a
+ * retaining ridge band" snap pattern, in flat-box form instead of radial.
+ */
+function mountPlateAnchorCutter(wasm: ManifoldToplevel, anchor: AnchorPoint, plateJoint: PlateJoint, tolerance: number, zBase: number): Manifold {
+  const { Manifold } = wasm;
+  let canonical: Manifold;
+  if (plateJoint === "glue") {
+    const r = MOUNT_PLATE_PEG_RADIUS + MOUNT_PLATE_PEG_HOLE_CLEARANCE + tolerance;
+    // Spans local Z=[-EMBED, HOLE_DEPTH]: the cutter's own mouth face
+    // genuinely pierces MOUNT_PLATE_EMBED past the flange's outer face,
+    // rather than starting exactly flush with it -- see skadisHookSolid's
+    // comment (the SAME razor-thin-coincident-face hazard, here for a cut
+    // instead of a union: an un-embedded cutter of this size empirically
+    // left the flange's material completely uncut, as a separate,
+    // disconnected "ghost" copy of the cutter itself).
+    canonical = Manifold.cylinder(MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_EMBED, r, r, 24, false).translate([0, 0, -MOUNT_PLATE_EMBED]);
+  } else {
+    const wideThickness = MOUNT_PLATE_SNAP_TAB_THICKNESS + 2 * MOUNT_PLATE_SNAP_BARB + 2 * MOUNT_PLATE_SNAP_GAP;
+    const narrowThickness = MOUNT_PLATE_SNAP_TAB_THICKNESS + 2 * MOUNT_PLATE_SNAP_GAP;
+    const width = MOUNT_PLATE_SNAP_TAB_WIDTH + 2 * MOUNT_PLATE_SNAP_GAP;
+    // Narrow (mouth) band spans local Z=[-EMBED, RIDGE_BAND] -- embedded the same way; the wide interior band (never touches the flange's own outer face) is unaffected.
+    const narrow = Manifold.cube([narrowThickness, width, MOUNT_PLATE_SNAP_RIDGE_BAND + MOUNT_PLATE_EMBED], true).translate([
+      0,
+      0,
+      (MOUNT_PLATE_SNAP_RIDGE_BAND - MOUNT_PLATE_EMBED) / 2,
+    ]);
+    // Starts MOUNT_PLATE_EMBED before the narrow band ends, so the two
+    // differently-sized boxes making up this one cutter genuinely overlap
+    // at their own shared internal seam too -- the identical hazard as the
+    // cutter's outer (mouth) face, just one step further in.
+    const wideHeight = MOUNT_PLATE_SNAP_POCKET_DEPTH - MOUNT_PLATE_SNAP_RIDGE_BAND + MOUNT_PLATE_EMBED;
+    const wide = Manifold.cube([wideThickness, width, wideHeight], true).translate([0, 0, MOUNT_PLATE_SNAP_RIDGE_BAND - MOUNT_PLATE_EMBED + wideHeight / 2]);
+    canonical = narrow.add(wide);
+  }
+  return canonical.rotate([0, 0, anchor.rotationDeg]).translate([anchor.x, anchor.y, zBase]);
+}
+
+export interface MountPlateSpec {
+  layout: MountPlateLayout;
+  mountKind: Extract<MountKind, "skadis" | "opengrid">;
+  plateJoint: PlateJoint;
+  tolerance: number;
+  /** The core's own flange thickness (mm), so the plate's front face lands flush against z=-flangeThickness -- see the file header. */
+  flangeThickness: number;
+  /** Columns to sample the plate's own outline at (mirrors `FlangeSpec.columns`). */
+  columns: number;
+}
+
+/**
+ * Build the mount plate part: a flat panel (mountPlate.ts's own
+ * `MountPlateLayout.outline`) with every clip glued onto its back face and
+ * every alignment peg/snap tab glued onto its front face, already
+ * positioned in the shared ASSEMBLY frame (see the file header) -- design.ts
+ * uses the result as-is, with no further translation needed (unlike
+ * `buildTopCap`, which builds in a LOCAL frame because its own z-offset
+ * depends on the solved `height`; here `flangeThickness` is already fully
+ * resolved by the time this is called).
+ */
+export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
+  const wasm = await getWasm();
+  const trash: { delete(): void }[] = [];
+  const track = <T extends { delete(): void }>(m: T): T => {
+    trash.push(m);
+    return m;
+  };
+
+  try {
+    const { layout, mountKind, plateJoint, columns, flangeThickness } = spec;
+    const backZ = -flangeThickness - MOUNT_PLATE_THICKNESS; // the plate's own back (clip-bearing) face
+    const frontZ = -flangeThickness; // the plate's own front (flange-mating) face
+
+    let plate = track(outlinePrismSolid(wasm, layout.outline, MOUNT_PLATE_THICKNESS, backZ, columns));
+    if (plate.status() !== "NoError") {
+      throw new Error(`Mount plate panel mesh is not a valid manifold: ${plate.status()}`);
+    }
+
+    for (const clip of layout.clips) {
+      plate = track(plate.add(track(mountPlateClipSolid(wasm, mountKind, clip, backZ))));
+    }
+    for (const anchor of layout.anchors) {
+      plate = track(plate.add(track(mountPlateAnchorSolid(wasm, plateJoint, anchor, frontZ))));
+    }
+
+    if (plate.status() !== "NoError") {
+      throw new Error(`Mount plate mesh is not a valid manifold: ${plate.status()}`);
+    }
+
+    const outMesh = plate.getMesh();
+    return { positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) };
+  } finally {
+    for (const m of trash) m.delete();
+  }
 }

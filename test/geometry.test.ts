@@ -37,6 +37,7 @@ const baseSpec: CoilSpec = {
   tolerance: 0.2,
   print: { bedX: 256, bedY: 256, bedZ: 256 },
   mount: "none",
+  plateJoint: "glue",
 };
 
 describe("design().mesh is a valid, expected manifold", () => {
@@ -276,6 +277,7 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
     mount: "none",
+    plateJoint: "glue",
   };
 
   it("is a valid watertight manifold with the analytically-expected volume", async () => {
@@ -381,6 +383,7 @@ describe("design().mesh with the screw-keyhole wall mount (issue #13)", () => {
       tolerance: 0.2,
       print: { bedX: 256, bedY: 256, bedZ: 256 },
       mount,
+      plateJoint: "glue",
     });
 
     it("stays a valid, watertight, genus-1 manifold with the recess cut, and removes a real, non-trivial volume", async () => {

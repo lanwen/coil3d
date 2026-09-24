@@ -85,12 +85,24 @@ export interface PrintSpec {
 }
 
 /**
- * Wall mount (issue #13, docs/research.md "Mounting"): `"keyhole"` recesses
- * a screw-keyhole slot into the bottom flange's outer (wall-facing) face.
- * `"none"` is the default. SKÅDIS/openGrid clip mounts are a separate mount
- * plate (docs/research.md §1) and out of scope here.
+ * Wall mount (issue #13/#14, docs/research.md "Mounting"): `"keyhole"`
+ * recesses a screw-keyhole slot into the bottom flange's outer (wall-facing)
+ * face. `"skadis"`/`"opengrid"` (issue #14) instead produce a SEPARATE named
+ * "mount plate" part with pegboard clips, which glues or snaps onto that same
+ * flange face (see `PlateJoint`, mountPlate.ts) -- the core keeps printing
+ * flat with no clip features of its own. `"none"` is the default.
  */
-export type MountKind = "none" | "keyhole";
+export type MountKind = "none" | "keyhole" | "skadis" | "opengrid";
+
+/**
+ * How the clip mount plate (issue #14, `mount: "skadis" | "opengrid"`)
+ * attaches to the flange: `"glue"` -- a flat mating face with small
+ * alignment pegs into shallow holes in the flange, permanent once glued;
+ * `"snap"` -- printable cantilever snap tabs into matching pockets in the
+ * flange, no glue needed. Ignored (unread) when `mount` is `"none"` or
+ * `"keyhole"`.
+ */
+export type PlateJoint = "glue" | "snap";
 
 /** What the user controls. */
 export interface CoilSpec {
@@ -119,8 +131,10 @@ export interface CoilSpec {
    * at a legible height.
    */
   label?: string;
-  /** Wall mount (issue #13): recesses a screw-keyhole slot into the core's bottom flange. */
+  /** Wall mount (issue #13/#14): recesses a screw-keyhole slot into the core's bottom flange, or (skadis/opengrid) adds a separate clip mount-plate part. */
   mount: MountKind;
+  /** How the clip mount plate attaches to the flange (issue #14); ignored when `mount` isn't "skadis"/"opengrid". */
+  plateJoint: PlateJoint;
 }
 
 export interface LayerResult {
@@ -203,7 +217,7 @@ export interface WireLayerPath {
   points: Float32Array;
 }
 
-export type PartRole = "core" | "topCap";
+export type PartRole = "core" | "topCap" | "mountPlate";
 
 /**
  * A rigid transform (rotation about X, then translation) applied to a
@@ -267,13 +281,15 @@ export interface Design {
   wallSpec: WallSpec;
   flangeSpec: FlangeSpec;
   /**
-   * The `bestAxisDeg` theta the screw-keyhole mount's slot(s) are actually
-   * centred/mirrored on (undefined when `spec.mount !== "keyhole"`, or the
-   * mount didn't fit at all). Not always 0 -- see mount.ts's `MountLayout`
-   * doc comment: a shape without a genuine mirror axis at literal vertical
-   * (a triangle) still hangs level, just with THIS axis vertical instead of
-   * local +Y. The viewer's wall presets rotate by this to actually show
-   * that real hung orientation, rather than the design's own local frame.
+   * The `bestAxisDeg` theta the wall mount's own features are actually
+   * centred/mirrored on: the screw-keyhole mount's slot(s) (issue #13), or
+   * (issue #14) the clip mount plate's column layout (undefined when
+   * `spec.mount` is `"none"`, or the mount didn't fit at all). Not always 0
+   * -- see mount.ts's `MountLayout` doc comment: a shape without a genuine
+   * mirror axis at literal vertical (a triangle) still hangs level, just
+   * with THIS axis vertical instead of local +Y. The viewer's wall presets
+   * rotate by this to actually show that real hung orientation, rather
+   * than the design's own local frame.
    */
   mountAxisDeg?: number;
 }

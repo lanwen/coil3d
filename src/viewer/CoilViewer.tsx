@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CAP_THICKNESS, JOINT_ENGAGE_DEPTH, JOINT_TRANSITION_HEIGHT } from "../core";
-import type { CoilMesh, Part, Resolution, WireLayerPath } from "../core";
+import type { CoilMesh, MountKind, Part, Resolution, WireLayerPath } from "../core";
 import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
 import type { PresetId } from "./lineArt/presets";
 import { ViewControls } from "./ViewControls";
@@ -53,6 +53,8 @@ export interface CoilViewerProps {
   exploded?: boolean;
   /** `Design.mountAxisDeg` (issue #13): the screw-keyhole mount's own true "hangs level" axis, when it differs from the design's local +Y (WALL_UP) -- see `buildViewRotations`'s comment. Omit (or leave undefined) when there's no mount, or it fits exactly on local +Y already. */
   mountAxisDeg?: number;
+  /** `CoilSpec.mount` (issue #14): only used to pick the mount-side preset's own caption text (a screw-keyhole vs. a clip mount plate need different wording) -- every other wall-view behaviour is already mount-kind-agnostic. Defaults to "none" (no caption override). */
+  mount?: MountKind;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -287,6 +289,9 @@ const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
   wallRoom: "Bottom flange against the wall -- top cap faces the room",
   wallMount: "Wall-facing side -- line up screws with the keyhole slots here",
 };
+/** Issue #14: the mount-side caption is specific to the mount kind (a clip mount plate has no screws to line up) -- every other mount kind (including "none", where this preset shows the flange's plain wall-facing face) keeps the shared VIEW_CAPTION.wallMount text above. */
+const MOUNT_PLATE_KINDS: ReadonlySet<MountKind> = new Set(["skadis", "opengrid"]);
+const WALL_MOUNT_CAPTION_FOR_MOUNT_PLATE = "Wall-facing side -- the mount plate glues or snaps on here";
 
 /**
  * Screenshot-only debug overlay (issue #13 PR review, round 2): a thin
@@ -325,7 +330,7 @@ function useDebugAxisOverlay(): boolean {
  * away from the core. The wound cable is built from the SOLVED layer
  * offsets, which live on the core, so it never moves with the cap.
  */
-export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWire = true, exploded = false, mountAxisDeg }: CoilViewerProps) {
+export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWire = true, exploded = false, mountAxisDeg, mount = "none" }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const prevResolution = useRef<Resolution>(resolution);
@@ -415,6 +420,18 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   // current preset renders it (see EXPLODE_AXES above).
   const explodeAxis = useMemo(() => EXPLODE_AXES[viewMode], [viewMode]);
 
+  // Issue #14: the mount plate sits on the OPPOSITE side of the core from
+  // the top cap (bottom flange's outer face, negative local Z, vs. the
+  // cap's positive local Z past `solution.height`) -- exploding it along
+  // the SAME fixed `explodeAxis` the cap uses would lift it INTO the core
+  // instead of away from it. Every other non-core part (currently only the
+  // top cap) keeps the shared axis as-is.
+  // Always a FRESH clone: both call sites below mutate the vector they get
+  // back (`.multiplyScalar`/`ExplodedPart`'s own per-frame `.copy`), so
+  // returning the shared `explodeAxis` object as-is for the top-cap case
+  // would corrupt it for every other reader.
+  const explodeAxisFor = (role: Part["role"]): THREE.Vector3 => (role === "mountPlate" ? explodeAxis.clone().negate() : explodeAxis.clone());
+
   // A stable framing geometry (issue #9, reworked for #15): every non-core
   // part contributes its FULLY exploded position whenever `exploded` is on,
   // and its assembled (unshifted) position otherwise -- so toggling explode
@@ -430,7 +447,7 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
       const offset = exploded ? (explodeOffsets.get(part.name) ?? 0) : 0;
       const positions = (geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
       if (offset === 0) return positions;
-      const shift = explodeAxis.clone().multiplyScalar(offset);
+      const shift = explodeAxisFor(part.role).multiplyScalar(offset);
       const shifted = new Float32Array(positions.length);
       for (let i = 0; i < shifted.length; i += 3) {
         shifted[i] = positions[i] + shift.x;
@@ -481,7 +498,7 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
       </button>
       {VIEW_CAPTION[viewMode] && (
         <p className="wall-view-caption" data-testid="wall-view-caption">
-          {VIEW_CAPTION[viewMode]}
+          {viewMode === "wallMount" && MOUNT_PLATE_KINDS.has(mount) ? WALL_MOUNT_CAPTION_FOR_MOUNT_PLATE : VIEW_CAPTION[viewMode]}
         </p>
       )}
       {debugAxisOverlay && viewMode === "wallMount" && (
@@ -500,7 +517,7 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
           part.role === "core" ? (
             <mesh key={part.name} geometry={geometry} />
           ) : (
-            <ExplodedPart key={part.name} geometry={geometry} offset={explodeOffsets.get(part.name) ?? 0} axis={explodeAxis} exploded={exploded} reducedMotion={reducedMotion} />
+            <ExplodedPart key={part.name} geometry={geometry} offset={explodeOffsets.get(part.name) ?? 0} axis={explodeAxisFor(part.role)} exploded={exploded} reducedMotion={reducedMotion} />
           ),
         )}
         {viewWireGeometries.map((g, i) => (

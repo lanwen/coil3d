@@ -87,8 +87,13 @@ import type { ShapeOutline } from "./shapes";
  */
 export const WALL_UP = { x: 0, y: 1 } as const;
 
-/** `makeSlotAt`'s theta (degrees from WALL_UP) <-> shapes.ts's standard angle (radians from +X). */
-function standardAngleRad(thetaDeg: number): number {
+/**
+ * `makeSlotAt`'s theta (degrees from WALL_UP) <-> shapes.ts's standard angle
+ * (radians from +X). Exported so mountPlate.ts (issue #14) can place the
+ * clip mount plate's own columns/rows on the SAME WALL_UP-relative axis
+ * convention as the screw-keyhole slots, without redefining it.
+ */
+export function standardAngleRad(thetaDeg: number): number {
   return ((90 - thetaDeg) * Math.PI) / 180;
 }
 

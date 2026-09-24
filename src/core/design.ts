@@ -28,7 +28,12 @@ import {
   MARGIN,
   MIN_BORE_CORNER_RADIUS,
   MIN_BORE_RADIUS,
+  MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE,
   MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
+  MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE,
+  OPENGRID_PITCH,
+  SKADIS_PITCH,
+  SKADIS_ROW_STAGGER,
   FINAL_ROWS_PER_PITCH,
   FINAL_COLUMNS,
   DRAFT_ROWS_PER_PITCH,
@@ -37,12 +42,13 @@ import {
   CLEARANCE,
   WALL_THICKNESS,
 } from "./constants";
-import { buildTopCap, fuseFlange } from "./manifold";
-import type { CoreJointCut } from "./manifold";
+import { buildMountPlate, buildTopCap, fuseFlange } from "./manifold";
+import type { CoreJointCut, MountPlateFlangeCut } from "./manifold";
 import { printBBox } from "./plate";
 import { layoutKeyholeMount, requiredFlangeMargin } from "./mount";
 import type { MountLayout } from "./mount";
-import { circumscribedRadius, makeOutline } from "./shapes";
+import { layoutMountPlate, openGridClipHalfExtents, skadisClipHalfExtents } from "./mountPlate";
+import { circumscribedRadius, makeOutline, offsetOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { resolveLabel } from "./label";
 import { solve } from "./solve";
@@ -97,6 +103,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     rowsPerPitch,
   };
   const wantsKeyhole = spec.mount === "keyhole";
+  // Issue #14: skadis/opengrid don't cut anything into the flange's own
+  // OUTLINE (unlike keyhole) -- the separate mount plate's footprint
+  // shrinks to fit whatever margin the flange already has (mountPlate.ts's
+  // `layoutMountPlate` insets it) -- but its alignment pegs/snap tabs still
+  // need the flange to be a bit THICKER, exactly like the keyhole mount.
+  const mountKindForPlate = spec.mount === "skadis" || spec.mount === "opengrid" ? spec.mount : undefined;
 
   // The flange must clear the outermost wound layer, not just the core's
   // own wall (docs/research.md §1 "Flange size = final outer envelope +
@@ -115,12 +127,20 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // minimum and warn" -- the ticket's own wording, applied to both the
   // radial and axial minimums a real screw mount needs).
   const margin = wantsKeyhole ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline)) : baseMargin;
-  const thickness = wantsKeyhole ? Math.max(FLANGE_THICKNESS, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT) : FLANGE_THICKNESS;
+  const minPlateThickness = mountKindForPlate ? (spec.plateJoint === "snap" ? MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE : MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE) : 0;
+  const thickness = wantsKeyhole
+    ? Math.max(FLANGE_THICKNESS, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT)
+    : mountKindForPlate
+      ? Math.max(FLANGE_THICKNESS, minPlateThickness)
+      : FLANGE_THICKNESS;
   if (wantsKeyhole && margin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
   }
   if (wantsKeyhole && thickness > FLANGE_THICKNESS) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
+  }
+  if (mountKindForPlate && thickness > FLANGE_THICKNESS) {
+    warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the mount plate's alignment features.`);
   }
   // Kept (not just its warning) so it can be surfaced on the returned
   // Design below: a consumer that wants to actually SHOW the mount's real
@@ -141,6 +161,28 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     mount: spec.mount,
   };
 
+  // Issue #14: lay out the clip mount plate (SKÅDIS/openGrid) against the
+  // flange's own TRUE outer outline (offsetOutline(outline, margin) --
+  // matching manifold.ts's own `buildOutlineRing(flange.outline,
+  // flange.margin, ...)` call), so the layout and the actual cut geometry
+  // can never disagree on where the flange's edge is.
+  let mountPlateLayout: ReturnType<typeof layoutMountPlate> | undefined;
+  if (mountKindForPlate) {
+    const flangeOutline = offsetOutline(outline, margin);
+    const pitch = mountKindForPlate === "skadis" ? SKADIS_PITCH : OPENGRID_PITCH;
+    const { halfSide, halfUp } = mountKindForPlate === "skadis" ? skadisClipHalfExtents() : openGridClipHalfExtents();
+    // The real, staggered grid (constants.ts's SKADIS_ROW_STAGGER) is only
+    // confirmed for SKÅDIS; openGrid's own stagger (if any) isn't verified,
+    // so it gets a plain, unstaggered grid for now.
+    const columnStagger = mountKindForPlate === "skadis" ? SKADIS_ROW_STAGGER : 0;
+    mountPlateLayout = layoutMountPlate(flangeOutline, boreOutline, pitch, halfSide, halfUp, columnStagger);
+    if (mountPlateLayout.warning) warnings.push(mountPlateLayout.warning);
+  }
+  const mountPlateCut: MountPlateFlangeCut | undefined =
+    mountPlateLayout && mountPlateLayout.clips.length > 0 && mountPlateLayout.anchors.length > 0
+      ? { anchors: mountPlateLayout.anchors, plateJoint: spec.plateJoint, tolerance: spec.tolerance }
+      : undefined;
+
   // Top cap (issue #9): `solution.topCapEnabled` (solve.ts) already resolved
   // the spec's auto|on|off override against the automatic recommendation
   // (capsAuto, on when layers > 1). Only bayonet/snap need a core-side cut
@@ -155,7 +197,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       : undefined;
 
   const wall = buildWall(wallSpec);
-  const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint);
+  const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint, mountPlateCut);
 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
 
@@ -187,6 +229,28 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     });
   }
 
+  // Mount plate (issue #14): built directly in the shared assembly frame
+  // (manifold.ts's `buildMountPlate` bakes in the `flangeSpec.thickness`
+  // offset itself), so -- unlike the top cap above -- no further
+  // `translateMesh` is needed here. Skipped entirely when the layout
+  // couldn't fit at least 2 clips (its own warning already covers that).
+  if (mountPlateLayout && mountKindForPlate && mountPlateLayout.clips.length > 0) {
+    const plateMesh = await buildMountPlate({
+      layout: mountPlateLayout,
+      mountKind: mountKindForPlate,
+      plateJoint: spec.plateJoint,
+      tolerance: spec.tolerance,
+      flangeThickness: thickness,
+      columns,
+    });
+    // Print orientation: flip 180 deg about X so the clips (pointing away
+    // from the core in the assembled frame) print pointing UP with no
+    // overhang -- `bedRestingTransform` (plate.ts) recomputes the exact Z
+    // offset that actually rests it on the bed, so the translate here only
+    // needs to supply the rotation.
+    parts.push({ name: "mount-plate", role: "mountPlate", mesh: plateMesh, printTransform: { rotateX: Math.PI, translate: [0, 0, 0] } });
+  }
+
   const mesh = parts[0].mesh;
   const wirePaths = buildWirePaths(solution.layerResults, wallSpec, spec.windingQuality, resolution);
 
@@ -216,7 +280,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     }
   }
 
-  return { spec, solution, warnings, parts, mesh, resolution, wirePaths, wallSpec, flangeSpec, mountAxisDeg: mountLayout?.axisDeg };
+  return { spec, solution, warnings, parts, mesh, resolution, wirePaths, wallSpec, flangeSpec, mountAxisDeg: mountLayout?.axisDeg ?? mountPlateLayout?.axisDeg };
 }
 
 /** A copy of `mesh` with every vertex shifted by [dx, dy, dz]; `indices` is shared (never mutated). */
