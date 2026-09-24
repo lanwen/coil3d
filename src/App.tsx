@@ -6,10 +6,28 @@ import { ControlsForm } from "./components/ControlsForm";
 import { ResultPanel } from "./components/ResultPanel";
 import { CoilViewer } from "./viewer/CoilViewer";
 import { EyeToggle } from "./components/fields";
+import { Guide } from "./guide/Guide";
 import "./App.css";
 
 function readInitialState() {
   return parseHash(window.location.hash);
+}
+
+/**
+ * The design/guide view switch (issue #17) is a plain UI-routing concern,
+ * NOT part of `CoilSpec` or the versioned hash schema `core/hash.ts` owns --
+ * it changes nothing about the solved design, only which component App
+ * renders. It piggybacks on the same hash string (`&view=guide`) so a shared
+ * link opens straight into the guide, but it's read/written here with a
+ * plain `URLSearchParams`, never through `parseHash`/`toHash` (whose
+ * `QuerySchema` already ignores unknown keys, so this extra param round-trips
+ * through them harmlessly either way).
+ */
+type View = "design" | "guide";
+
+function readView(): View {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  return params.get("view") === "guide" ? "guide" : "design";
 }
 
 export default function App() {
@@ -23,12 +41,16 @@ export default function App() {
   // hash (only cap/joint/tol are, per the ticket) -- it resets on reload,
   // same as the wire toggle's initial value would if it weren't persisted.
   const [exploded, setExploded] = useState(false);
+  // Design/guide view switch (issue #17): see `readView` above.
+  const [view, setView] = useState<View>(readView);
 
-  // The hash reflects both the spec and the wire toggle, but toggling the
-  // wire never needs a re-solve, so it's independent of useDesignPreview below.
+  // The hash reflects the spec, the wire toggle and the view, but none of
+  // toggling the wire, exploding the view or switching views ever needs a
+  // re-solve, so this is independent of useDesignPreview below.
   useEffect(() => {
-    window.history.replaceState(null, "", toHash(currentSpec, showWire));
-  }, [currentSpec, showWire]);
+    const base = toHash(currentSpec, showWire);
+    window.history.replaceState(null, "", view === "guide" ? `${base}&view=guide` : base);
+  }, [currentSpec, showWire, view]);
 
   // Issue #7: design() runs off the main thread in a worker, debounced, with
   // a fast draft while editing and the final (FDM-tuned) mesh once input
@@ -82,6 +104,22 @@ export default function App() {
     }
   };
 
+  // The guide (issue #17) is generated straight from the current solved
+  // Design -- same hash, same spec -- so a shared `&view=guide` link opens
+  // it directly. Before the first design resolves (a brand-new page load),
+  // show a plain placeholder rather than nothing: `result` starts null even
+  // for the very first draft (useDesignPreview.ts), and the guide has no
+  // meaningful content without at least one solved design to draw.
+  if (view === "guide") {
+    return result ? (
+      <Guide design={result} onBack={() => setView("design")} />
+    ) : (
+      <p className="settling" data-testid="guide-loading">
+        Solving the design…
+      </p>
+    );
+  }
+
   return (
     <div className="app">
       <header>
@@ -115,6 +153,11 @@ export default function App() {
             <p className="error" data-testid="step-error">
               {stepError}
             </p>
+          )}
+          {result && (
+            <button type="button" className="btn-primary guide-nav-btn" data-testid="open-guide" onClick={() => setView("guide")}>
+              Assembly guide
+            </button>
           )}
         </div>
         <div className="viewer">

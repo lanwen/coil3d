@@ -56,6 +56,15 @@ header p {
   max-width: 60ch;
 }
 
+/* Opens the printable assembly guide (issue #17), generated from the same
+   design currently on screen. Lives at the end of the sidebar (next to the
+   export buttons it's a sibling of) rather than in the header, so adding it
+   never resizes the header and shifts every other screenshot baseline's
+   canvas dimensions. */
+.guide-nav-btn {
+  margin-top: 18px;
+}
+
 .notice,
 .error {
   margin: 0;

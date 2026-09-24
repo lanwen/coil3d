@@ -1,0 +1,278 @@
+/* The printable assembly guide (issue #17). Reuses the app's tokens
+   (--ink/--paper/--hairline, App.css) so it looks like part of the same
+   strictly black/white product, not a bolted-on page. */
+
+.guide {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 24px 64px;
+}
+
+.guide-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.guide-toolbar-btn {
+  width: auto;
+  padding: 0 20px;
+}
+
+.guide-header {
+  padding-bottom: 16px;
+  margin-bottom: 8px;
+  border-bottom: 2px solid var(--hairline);
+}
+
+.guide-header h1 {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 800;
+}
+
+.guide-header p {
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
+.guide-step {
+  padding: 22px 0;
+  border-bottom: 1px solid var(--hairline-soft);
+}
+
+.guide-step:last-child {
+  border-bottom: none;
+}
+
+.guide-step-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.guide-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.guide-step-head h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.guide-lede {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.guide-figure-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.guide-part {
+  margin: 0;
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* Fixed at src/guide/projection.ts's FIGURE_ASPECT (4/3) -- one constant
+   both sides read, so a point projected in TS always lands where the CSS
+   box actually puts it, at any rendered width. */
+.guide-figure {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1.5px solid var(--hairline);
+  border-radius: 2px;
+}
+
+.guide-figure-row > .guide-figure,
+.guide-figure-row > .guide-figure-stage {
+  flex: 1 1 320px;
+}
+
+/* A row holding exactly one figure (steps with an overlay or a zoom inset)
+   is capped at a KNOWN width -- src/guide/overlays.tsx's `HOST_FIGURE_WIDTH`
+   -- rather than growing to fill the page, so a zoom inset's "how many
+   times bigger" is a real, known ratio, not a guess against whatever width
+   flexbox happened to grow the figure to. */
+.guide-figure-row--solo {
+  position: relative;
+  max-width: 480px;
+}
+
+.guide-figure-row--solo > .guide-figure-stage {
+  flex: 0 0 100%;
+}
+
+.guide-figure-stage {
+  position: relative;
+}
+
+.guide-part figcaption {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.guide-callout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.guide-callout p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+/* ---------- Geometry-attached overlays (issue #17 review) ---------- */
+
+.guide-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  color: var(--ink);
+}
+
+.guide-overlay-arrow {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.guide-overlay-mark {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+}
+
+.guide-overlay-wall-hatch {
+  stroke: var(--ink);
+  stroke-width: 1.5;
+}
+
+.guide-overlay-wall-border {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.guide-zoom-inset {
+  position: absolute;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1.5px solid var(--ink);
+  background: var(--paper);
+  box-shadow: 0 0 0 3px var(--paper);
+}
+
+.guide-zoom-inset-bottom-right {
+  right: 6px;
+  bottom: 6px;
+}
+
+.guide-zoom-inset-bottom-left {
+  left: 6px;
+  bottom: 6px;
+}
+
+.guide-zoom-inset-inner {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.guide-zoom-inset-figure {
+  width: 100%;
+  height: 100%;
+  border: none;
+  aspect-ratio: auto;
+}
+
+.guide-inset-mark {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  margin: -7px;
+  border: 2px dashed var(--ink);
+  border-radius: 50%;
+}
+
+.pictogram {
+  width: 46px;
+  height: 46px;
+  flex: none;
+  color: var(--ink);
+}
+
+/* ---------- Print (issue #17 AC: "Print CSS gives clean A4 pages") ---------- */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+
+  .app,
+  .guide-toolbar {
+    display: none !important;
+  }
+
+  .guide {
+    max-width: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .guide-header {
+    page-break-after: avoid;
+  }
+
+  /* Two numbered steps per printed page: force a page break before every
+     odd-numbered step after the first, so pairs of steps (1-2, 3-4, ...)
+     land on their own sheet with no orphaned half-step at a page edge. */
+  .guide-step {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .guide-step:nth-of-type(2n + 1) {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  .guide-step:first-of-type {
+    page-break-before: avoid;
+    break-before: avoid;
+  }
+
+  .guide-figure {
+    border-color: #000;
+  }
+}
