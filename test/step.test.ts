@@ -267,6 +267,7 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
       tolerance: 0.2,
       print: { bedX: 256, bedY: 256, bedZ: 256 },
       label: "USB-C 2m",
+      mount: "none",
     };
 
     it(
