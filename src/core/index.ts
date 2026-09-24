@@ -1,6 +1,14 @@
 // The headless coil core. This is the ONLY module the UI and renderer may
 // import from -- its public interface is exactly parseHash/toHash,
-// design(spec) and exportDesign(design, fmt). No React, no three.js.
+// design(spec, resolution?) and exportDesign(design, fmt). No React, no
+// three.js.
+//
+// design() itself never touches a Worker or the DOM -- it's plain,
+// synchronous-under-the-hood business logic wrapped in a Promise. Running it
+// off the main thread is an orchestration-layer concern (issue #7,
+// src/geometry/), not this module's: the UI decides when to call it in a
+// Worker and at which `resolution` ("draft" while editing, "final" once
+// input settles and always for exports).
 //
 // exportDesign is async: "stl" resolves immediately, but "step" lazy-loads
 // replicad (OpenCascade WASM), in a Web Worker in the browser (see
@@ -18,6 +26,7 @@ export type {
   LayerResult,
   Lock,
   Objective,
+  Resolution,
   ShapeKind,
   Solution,
   WireSpec,

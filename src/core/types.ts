@@ -128,6 +128,10 @@ export interface Design {
   /** Non-fatal notices about the solved design (solver + geometry). */
   warnings: string[];
   mesh: CoilMesh;
+  /** The resolution `mesh` was built at (issue #7). The orchestration layer
+   * gates exports on `resolution === "final"` -- exports must always use the
+   * final resolution, never a still-in-progress draft. */
+  resolution: Resolution;
   /** The exact wall and flange parameters used to build `mesh`, kept so the
    * STEP exporter can fit its B-spline from the same grid (see
    * `step/build.ts` and `wall.ts`'s `createWallProfile`). Not for UI use. */
@@ -136,3 +140,11 @@ export interface Design {
 }
 
 export type ExportFormat = "stl" | "step";
+
+/**
+ * Mesh detail level (issue #7): `"draft"` is fast and coarse, for instant
+ * feedback while editing; `"final"` is the tuned-for-FDM resolution used
+ * once input settles, and always for exports. `design()` defaults to
+ * `"final"` so every existing caller (tests, exports) is unaffected.
+ */
+export type Resolution = "draft" | "final";

@@ -10,15 +10,34 @@
 // exporter (issue #11, src/core/step/build.ts) can fit its B-spline from
 // the exact same parametric grid the mesh backend used -- the two backends
 // must never drift apart (docs/research.md "STEP").
+//
+// `resolution` (issue #7) only ever changes the mesh's column/row density
+// (see constants.ts); the solved numbers, warnings and wall/flange specs are
+// identical between draft and final for the same spec.
 
-import { FLANGE_MARGIN, FLANGE_THICKNESS, GROOVE_DEPTH_FACTOR, MARGIN, MIN_BORE_RADIUS, ROWS_PER_PITCH, TAPER_TURNS, COLUMNS, CLEARANCE, WALL_THICKNESS } from "./constants";
+import {
+  FLANGE_MARGIN,
+  FLANGE_THICKNESS,
+  GROOVE_DEPTH_FACTOR,
+  MARGIN,
+  MIN_BORE_RADIUS,
+  FINAL_ROWS_PER_PITCH,
+  FINAL_COLUMNS,
+  DRAFT_ROWS_PER_PITCH,
+  DRAFT_COLUMNS,
+  TAPER_TURNS,
+  CLEARANCE,
+  WALL_THICKNESS,
+} from "./constants";
 import { fuseFlange } from "./manifold";
 import { solve } from "./solve";
-import type { CoilSpec, Design } from "./types";
+import type { CoilSpec, Design, Resolution } from "./types";
 import { buildRoundWall } from "./wall";
 
-export async function design(spec: CoilSpec): Promise<Design> {
+export async function design(spec: CoilSpec, resolution: Resolution = "final"): Promise<Design> {
   const { solution, warnings } = solve(spec);
+  const columns = resolution === "draft" ? DRAFT_COLUMNS : FINAL_COLUMNS;
+  const rowsPerPitch = resolution === "draft" ? DRAFT_ROWS_PER_PITCH : FINAL_ROWS_PER_PITCH;
 
   const outerRadius = solution.outerSize / 2;
   let boreRadius = solution.innerBore / 2;
@@ -42,8 +61,8 @@ export async function design(spec: CoilSpec): Promise<Design> {
     marginTop: MARGIN,
     taperTurns: TAPER_TURNS,
     turns: layer1Turns,
-    columns: COLUMNS,
-    rowsPerPitch: ROWS_PER_PITCH,
+    columns,
+    rowsPerPitch,
   };
   const flangeSpec = {
     outerRadius,
@@ -54,11 +73,11 @@ export async function design(spec: CoilSpec): Promise<Design> {
     // effective margin beyond the core's own radius grows with layer count.
     margin: Math.max(FLANGE_MARGIN, solution.flangeSize / 2 - outerRadius),
     thickness: FLANGE_THICKNESS,
-    segments: COLUMNS,
+    segments: columns,
   };
 
   const wall = buildRoundWall(wallSpec);
   const mesh = await fuseFlange(wall, flangeSpec);
 
-  return { spec, solution, warnings, mesh, wallSpec, flangeSpec };
+  return { spec, solution, warnings, mesh, resolution, wallSpec, flangeSpec };
 }

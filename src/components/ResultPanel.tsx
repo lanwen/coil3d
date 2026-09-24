@@ -60,16 +60,21 @@ function SolutionSummary({ solution, prefix }: { solution: Solution; prefix: str
 
 export function ResultPanel({
   design,
+  finalReady,
   onDownloadStl,
   onDownloadStep,
   stepBusy,
 }: {
   design: Design;
+  /** True once `design` is final-resolution and matches the current spec
+   * (issue #7): downloads are disabled otherwise, so exports always use the
+   * final resolution. */
+  finalReady: boolean;
   onDownloadStl: () => void;
   onDownloadStep: () => void;
   stepBusy: boolean;
 }) {
-  const { solution, warnings } = design;
+  const { solution, warnings, mesh, resolution } = design;
   const { diagnosis } = solution;
 
   return (
@@ -80,6 +85,11 @@ export function ResultPanel({
         {diagnosis.freeVariables.map((v) => FREE_VARIABLE_LABELS[v]).join(", ") || "none"}) --{" "}
         {diagnosis.message}
       </p>
+      <Row
+        testId="mesh-detail"
+        label="Mesh detail"
+        value={`${resolution} (${(mesh.indices.length / 3).toLocaleString()} triangles)`}
+      />
       <SolutionSummary solution={solution} prefix="" />
       {warnings.length > 0 && (
         <ul className="warnings" data-testid="warnings">
@@ -101,10 +111,15 @@ export function ResultPanel({
           ))}
         </div>
       )}
-      <button type="button" data-testid="download-stl" onClick={onDownloadStl}>
+      {!finalReady && (
+        <p className="settling" data-testid="resolution-settling">
+          Rendering the full-resolution model for export…
+        </p>
+      )}
+      <button type="button" data-testid="download-stl" onClick={onDownloadStl} disabled={!finalReady}>
         Download STL
       </button>
-      <button type="button" data-testid="download-step" onClick={onDownloadStep} disabled={stepBusy}>
+      <button type="button" data-testid="download-step" onClick={onDownloadStep} disabled={!finalReady || stepBusy}>
         {stepBusy ? "Preparing STEP…" : "Download STEP"}
       </button>
     </section>
