@@ -102,8 +102,15 @@ export interface Solution {
   flangeSize: number;
   capsAuto: boolean;
   minOuterSizeForBend: number;
-  /** The other objective's candidate, shown side by side, when freeCount === 2. */
-  alternate?: Solution;
+  /**
+   * Sibling candidates shown side by side (2-3 total including this one),
+   * when freeCount is 2 or 3 -- e.g. the other objective's pick (freeCount
+   * 2), or fixed-layer-count picks such as layers=1/layers=2 (freeCount 3).
+   * Empty when freeCount is 0 or 1 (the solution is deterministic). Every
+   * entry here already satisfies the same capacity-covers-target invariant
+   * as the primary solution; entries never carry their own `alternates`.
+   */
+  alternates: Solution[];
 }
 
 /** A triangle mesh as flat typed arrays (three.js / manifold-3d friendly). */

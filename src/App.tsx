@@ -81,7 +81,7 @@ export default function App() {
       )}
       <div className="layout">
         <div className="sidebar">
-          <ControlsForm spec={currentSpec} onChange={setCurrentSpec} />
+          <ControlsForm spec={currentSpec} solution={result?.solution} onChange={setCurrentSpec} />
           {error && (
             <p className="error" data-testid="design-error">
               {error}

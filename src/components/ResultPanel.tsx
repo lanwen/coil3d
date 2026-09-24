@@ -88,10 +88,17 @@ export function ResultPanel({
           ))}
         </ul>
       )}
-      {solution.alternate && (
+      {solution.alternates.length > 0 && (
         <div className="alternate-candidate" data-testid="alternate-candidate">
-          <h3>Alternate candidate ({solution.alternate.objectiveUsed})</h3>
-          <SolutionSummary solution={solution.alternate} prefix="alt-" />
+          {solution.alternates.map((alt, i) => (
+            <div key={i} className="alternate-candidate-item" data-testid={`alternate-candidate-${i}`}>
+              <h3>
+                Alternate candidate {i + 1} (layers={alt.layers}
+                {alt.objectiveUsed ? `, ${alt.objectiveUsed}` : ""})
+              </h3>
+              <SolutionSummary solution={alt} prefix={`alt${i}-`} />
+            </div>
+          ))}
         </div>
       )}
       <button type="button" data-testid="download-stl" onClick={onDownloadStl}>

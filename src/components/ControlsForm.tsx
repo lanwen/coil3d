@@ -1,5 +1,5 @@
 import type { ChangeEvent } from "react";
-import type { CoilSpec, CoreSizeLock, Lock, Objective, WireTypeId } from "../core";
+import type { CoilSpec, CoreSizeLock, Lock, Objective, Solution, WireTypeId } from "../core";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER, WIRE_TYPE_PRESETS } from "../core";
 
 const WIRE_TYPE_OPTIONS: Array<{ id: WireTypeId; label: string }> = [
@@ -45,7 +45,13 @@ function NumberField({
   );
 }
 
-/** A "lock this dimension" checkbox paired with its value input, disabled while free. */
+/**
+ * A "lock this dimension" checkbox paired with its value input, disabled
+ * while free. While free, the input shows `freeValue` -- the solver's own
+ * solved number for this dimension, not a hardcoded placeholder -- so the
+ * user can see what the app actually chose. Locking seeds the input from
+ * that same solved value, so turning a lock on doesn't jump the number.
+ */
 function LockField({
   testId,
   label,
@@ -54,7 +60,7 @@ function LockField({
   min,
   max,
   step,
-  defaultValue,
+  freeValue,
   onChange,
 }: {
   testId: string;
@@ -64,11 +70,11 @@ function LockField({
   min: number;
   max: number;
   step: number;
-  defaultValue: number;
+  freeValue: number;
   onChange: (lock: Lock<number>) => void;
 }) {
   const toggle = (event: ChangeEvent<HTMLInputElement>) => {
-    onChange(event.target.checked ? { locked: true, value: lock.locked ? lock.value : defaultValue } : { locked: false });
+    onChange(event.target.checked ? { locked: true, value: lock.locked ? lock.value : freeValue } : { locked: false });
   };
   const setValue = (value: number) => {
     if (lock.locked) onChange({ locked: true, value });
@@ -83,7 +89,7 @@ function LockField({
         testId={`input-${testId}`}
         label={label}
         unit={unit}
-        value={lock.locked ? lock.value : defaultValue}
+        value={lock.locked ? lock.value : freeValue}
         min={min}
         max={max}
         step={step}
@@ -94,7 +100,16 @@ function LockField({
   );
 }
 
-export function ControlsForm({ spec, onChange }: { spec: CoilSpec; onChange: (next: CoilSpec) => void }) {
+export function ControlsForm({
+  spec,
+  solution,
+  onChange,
+}: {
+  spec: CoilSpec;
+  /** The current design's solved numbers, so free fields can show them instead of a placeholder. Undefined before the first design() resolves. */
+  solution?: Solution;
+  onChange: (next: CoilSpec) => void;
+}) {
   const setWire = (patch: Partial<CoilSpec["wire"]>) => onChange({ ...spec, wire: { ...spec.wire, ...patch } });
 
   const setCoreSizeLock = (lock: Lock<number>) => {
@@ -169,15 +184,45 @@ export function ControlsForm({ spec, onChange }: { spec: CoilSpec; onChange: (ne
             <option value="inner">Inner (bore)</option>
           </select>
         </label>
-        <LockField testId="outer" label="core size" unit="mm" lock={spec.coreSize} min={5} max={500} step={1} defaultValue={30} onChange={setCoreSizeLock} />
+        <LockField
+          testId="outer"
+          label="core size"
+          unit="mm"
+          lock={spec.coreSize}
+          min={5}
+          max={500}
+          step={1}
+          freeValue={solution?.outerSize ?? 30}
+          onChange={setCoreSizeLock}
+        />
       </fieldset>
 
-      <LockField testId="height" label="height" unit="mm" lock={spec.height} min={1} max={400} step={1} defaultValue={40} onChange={(lock) => onChange({ ...spec, height: lock })} />
-      <LockField testId="layers" label="layers" unit="" lock={spec.layers} min={1} max={40} step={1} defaultValue={1} onChange={(lock) => onChange({ ...spec, layers: lock })} />
+      <LockField
+        testId="height"
+        label="height"
+        unit="mm"
+        lock={spec.height}
+        min={1}
+        max={400}
+        step={1}
+        freeValue={solution?.height ?? 40}
+        onChange={(lock) => onChange({ ...spec, height: lock })}
+      />
+      <LockField
+        testId="layers"
+        label="layers"
+        unit=""
+        lock={spec.layers}
+        min={1}
+        max={40}
+        step={1}
+        freeValue={solution?.layers ?? 1}
+        onChange={(lock) => onChange({ ...spec, layers: lock })}
+      />
 
-      {freeCount === 2 && (
+      {freeCount >= 2 && (
         <label className="controls-field">
-          <span>Objective (two free dimensions)</span>
+          <span>Objective ({freeCount} free dimensions)</span>
           <select data-testid="select-objective" value={spec.objective} onChange={(e) => onChange({ ...spec, objective: e.target.value as Objective })}>
             <option value="minVolume">Minimum volume</option>
             <option value="aspectRatio">Cube-like proportions</option>

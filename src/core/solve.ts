@@ -5,15 +5,33 @@
 // "Out of Scope"); the flexible-cord bend multiplier is fixed to 4x (the
 // spike used 6x, which contradicts docs/research.md §1's decision); the
 // bound-hit check only looks at the actual free variable, not all three;
-// and the freeCount===2 "alternate" candidate is picked from the already-
-// computed candidate pool instead of a second `solve()` call, which in the
-// spike recursed into itself forever (freeCount stays 2 for the recursive
-// call, which then computes its own alternate, forever).
+// and the freeCount===2/3 alternate candidates are picked from an
+// already-computed candidate pool instead of a second `solve()` call,
+// which in the spike recursed into itself forever (freeCount stays 2 for
+// the recursive call, which then computes its own alternate, forever).
+//
+// Capacity invariant: whenever a dimension is free (freeCount 1-3) and the
+// solver reports "ok" or "under-constrained" (not "infeasible"), the
+// resolved geometry's capacity covers the target cable length (tail >= 0),
+// with the smallest overshoot achievable for that candidate. `bisect`
+// below is the mechanism this leans on: it returns the upper bracket `b`,
+// which the loop invariant keeps at f(b) >= target throughout, not the
+// naive midpoint (which can round down across an integer-turns step and
+// silently undershoot -- this bit a height/layers search in practice,
+// since turns-per-layer is a step function of height, unlike a
+// continuous "size" search).
 
 import { computeCapacity, envelopeDiameter } from "./capacity";
 import { MARGIN, CLEARANCE, FLANGE_MARGIN, GROOVE_DEPTH_FACTOR, HEIGHT_HI, LAYERS_HI, MAX_WIRE_LENGTH, SIZE_HI, SIZE_LO_FLOOR, WALL_THICKNESS } from "./constants";
 import { bendMultiplierOf } from "./types";
 import type { CoilSpec, Diagnosis, Objective, Solution } from "./types";
+
+/** Relative tolerance on "capacity >= target", to absorb floating-point noise only. */
+const CAPACITY_EPS = 1e-6;
+/** Overshoot (%) above which an at-the-bound "meets capacity" result is still reported as infeasible, not ok. */
+const OVERSHOOT_INFEASIBLE_PCT = 3;
+/** Practical layer-count bound for the (size, height) grid search (freeCount 2's third branch, and freeCount 3). */
+const PRACTICAL_LAYERS_HI = 6;
 
 function bisect(f: (x: number) => number, lo: number, hi: number, target: number, iters = 60): number {
   let a = lo;
@@ -25,7 +43,10 @@ function bisect(f: (x: number) => number, lo: number, hi: number, target: number
     if (f(m) < target) a = m;
     else b = m;
   }
-  return (a + b) / 2;
+  // Return the upper bracket, not the midpoint: the loop invariant guarantees
+  // f(b) >= target, so this is the smallest-overshoot point that still
+  // covers the target. The midpoint has no such guarantee (see file header).
+  return b;
 }
 
 function solveIntegerUpTo(f: (n: number) => number, lo: number, hi: number, target: number): number {
@@ -35,6 +56,10 @@ function solveIntegerUpTo(f: (n: number) => number, lo: number, hi: number, targ
     if (f(n) >= target) return n;
   }
   return best;
+}
+
+function coversTarget(length: number, target: number): boolean {
+  return length >= target * (1 - CAPACITY_EPS);
 }
 
 interface Resolved {
@@ -76,6 +101,10 @@ function aspectScoreFor(spec: CoilSpec, g: Resolved): number {
   const cap = capacityOf(spec.wire, spec.windingQuality, g);
   const env = envelopeDiameter(g.outerSize, cap.outermostOffset, spec.wire.diameter);
   return Math.abs(g.height - env);
+}
+
+function scoreOf(objective: Objective): (spec: CoilSpec, g: Resolved) => number {
+  return objective === "minVolume" ? envelopeVolumeFor : aspectScoreFor;
 }
 
 /** Build the full Solution + extra warnings from a resolved geometry (no further solving). */
@@ -129,8 +158,45 @@ function finishSolution(
     flangeSize,
     capsAuto,
     minOuterSizeForBend,
+    alternates: [],
   };
   return { solution, warnings };
+}
+
+interface SizeHeightSearchResult {
+  /** The lowest-score candidate whose capacity covers the target, if any. */
+  feasible?: { g: Resolved; length: number; score: number };
+  /** The candidate that comes closest to the target (by length), even if it falls short -- used only to report a shortfall when nothing is feasible. */
+  closest: { g: Resolved; length: number };
+}
+
+/** Grid-search height, bisect size at each sample, for a FIXED layer count. Shared by freeCount 2's third branch and freeCount 3's per-layer-count search. */
+function searchSizeAndHeight(
+  spec: CoilSpec,
+  layers: number,
+  sizeLo: number,
+  sizeHi: number,
+  heightLo: number,
+  heightHi: number,
+  target: number,
+  objective: Objective,
+  samples: number,
+): SizeHeightSearchResult {
+  const score = scoreOf(objective);
+  let feasible: { g: Resolved; length: number; score: number } | undefined;
+  let closest: { g: Resolved; length: number } | undefined;
+  for (let i = 0; i <= samples; i++) {
+    const height = heightLo + ((heightHi - heightLo) * i) / samples;
+    const size = bisect((s) => lengthFor(spec, { outerSize: s, height, layers }), sizeLo, sizeHi, target);
+    const g: Resolved = { outerSize: size, height, layers };
+    const length = lengthFor(spec, g);
+    if (!closest || length > closest.length) closest = { g, length };
+    if (coversTarget(length, target)) {
+      const s = score(spec, g);
+      if (!feasible || s < feasible.score) feasible = { g, length, score: s };
+    }
+  }
+  return { feasible, closest: closest! };
 }
 
 export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string[] } {
@@ -182,7 +248,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
   let resolved: Resolved;
   let diagnosis: Diagnosis;
   let objectiveUsed: Objective | undefined;
-  let alternate: Solution | undefined;
+  let alternates: Solution[] = [];
 
   if (freeCount === 0) {
     resolved = { outerSize: lockedOuterSize!, height: lockedHeight!, layers: lockedLayers! };
@@ -214,32 +280,39 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
     }
     const computed = lengthFor(spec, resolved);
     const deltaPct = ((computed - target) / target) * 100;
+    const meetsCapacity = coversTarget(computed, target);
     // Only the actually-free variable can have hit a search bound.
     const atLowBound = sizeFree ? resolved.outerSize <= sizeLo + 1e-6 : heightFree ? resolved.height <= heightLo + 1e-6 : resolved.layers <= layersLo;
-    const atHighBound = sizeFree ? resolved.outerSize >= sizeHi - 1e-6 : heightFree ? resolved.height >= heightHi - 1e-6 : resolved.layers >= layersHi;
-    if (Math.abs(deltaPct) > 3 && atHighBound) {
+
+    if (!meetsCapacity) {
+      // bisect/solveIntegerUpTo only ever returns an undershoot when even the
+      // high bound can't reach the target (see their early-return paths).
       diagnosis = {
         freeCount,
         freeVariables: freeVars,
         status: "infeasible",
-        message: "The target cable length is unreachable within practical bounds even with this dimension maxed out. Lock a shorter target or free another dimension.",
+        message: `The target cable length is unreachable within practical bounds even with this dimension maxed out (falls short by ${Math.abs(deltaPct).toFixed(1)}%). Lock a shorter target or free another dimension.`,
       };
-    } else if (Math.abs(deltaPct) > 3 && atLowBound) {
+    } else if (atLowBound && deltaPct > OVERSHOOT_INFEASIBLE_PCT) {
       diagnosis = {
         freeCount,
         freeVariables: freeVars,
         status: "infeasible",
         message: sizeFree
-          ? `The minimum feasible outer size (${sizeLo.toFixed(1)} mm, set by the bend limit) already overshoots the target length. The core cannot be made smaller.`
-          : "The minimum feasible value already overshoots the target length. The core cannot be made smaller.",
+          ? `The minimum feasible outer size (${sizeLo.toFixed(1)} mm, set by the bend limit) already overshoots the target length by ${deltaPct.toFixed(1)}%. The core cannot be made smaller.`
+          : `The minimum feasible value already overshoots the target length by ${deltaPct.toFixed(1)}%. The core cannot be made smaller.`,
       };
     } else {
-      diagnosis = { freeCount, freeVariables: freeVars, status: "ok", message: "Solved directly for the single free dimension." };
+      diagnosis = {
+        freeCount,
+        freeVariables: freeVars,
+        status: "ok",
+        message: "Solved directly for the single free dimension; capacity covers the target with the smallest overshoot.",
+      };
     }
   } else if (freeCount === 2) {
     const objective = spec.objective;
     objectiveUsed = objective;
-    const scoreFor = (o: Objective) => (o === "minVolume" ? envelopeVolumeFor : aspectScoreFor);
 
     type Candidate = { g: Resolved; length: number };
     const candidates: Candidate[] = [];
@@ -267,82 +340,127 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
       }
     }
 
-    const feasible = candidates.filter((c) => Math.abs((c.length - target) / target) < 0.05);
-    const pool = feasible.length > 0 ? feasible : candidates;
+    // Only candidates that actually cover the target are eligible: capacity
+    // must be >= target (tail >= 0), never just "close" to it either way.
+    const feasible = candidates.filter((c) => coversTarget(c.length, target));
 
-    const pickBest = (o: Objective) => {
-      const score = scoreFor(o);
-      let best = pool[0];
-      let bestScore = score(spec, best.g);
-      for (const c of pool.slice(1)) {
-        const s = score(spec, c.g);
-        if (s < bestScore) {
-          best = c;
-          bestScore = s;
+    if (feasible.length === 0) {
+      const closest = candidates.reduce((a, b) => (b.length > a.length ? b : a));
+      const shortfallPct = ((target - closest.length) / target) * 100;
+      resolved = closest.g;
+      diagnosis = {
+        freeCount,
+        freeVariables: freeVars,
+        status: "infeasible",
+        message: `Two free dimensions: no sampled combination reaches the target length within practical bounds (the best falls short by ${shortfallPct.toFixed(1)}%). Free the third dimension or shorten the target.`,
+      };
+    } else {
+      const pickBest = (o: Objective) => {
+        const score = scoreOf(o);
+        let best = feasible[0];
+        let bestScore = score(spec, best.g);
+        for (const c of feasible.slice(1)) {
+          const s = score(spec, c.g);
+          if (s < bestScore) {
+            best = c;
+            bestScore = s;
+          }
         }
-      }
-      return best;
-    };
+        return best;
+      };
 
-    resolved = pickBest(objective).g;
+      const primary = pickBest(objective);
+      resolved = primary.g;
+      diagnosis = {
+        freeCount,
+        freeVariables: freeVars,
+        status: "ok",
+        message: `Two free dimensions: picked the "${objective}" candidate among solutions that cover the target length with the smallest overshoot. See the alternate candidate for comparison.`,
+      };
 
-    diagnosis = {
-      freeCount,
-      freeVariables: freeVars,
-      status: feasible.length > 0 ? "ok" : "infeasible",
-      message:
-        feasible.length > 0
-          ? `Two free dimensions: picked the "${objective}" candidate among solutions that hit the target length. See the alternate candidate for comparison.`
-          : `Two free dimensions: no sampled combination reached the target length within 5%; showing the closest by "${objective}".`,
-    };
-
-    // The alternate candidate is picked from the same pool under the other
-    // objective -- no recursive solve() call (see the file header).
-    const otherObjective: Objective = objective === "minVolume" ? "aspectRatio" : "minVolume";
-    const altResolved = pickBest(otherObjective).g;
-    const altDiagnosis: Diagnosis = { ...diagnosis, message: diagnosis.message.replace(objective, otherObjective) };
-    alternate = finishSolution(spec, altResolved, altDiagnosis, otherObjective, minOuterSizeForBend).solution;
-  } else {
-    // freeCount === 3: fully under-constrained. Default heuristic: try
-    // layers 1..6, solving (size, height) with the chosen objective at each,
-    // and take the first whose envelope stays within a practical bed size.
-    const objective = spec.objective;
-    objectiveUsed = objective;
-    const score = objective === "minVolume" ? envelopeVolumeFor : aspectScoreFor;
-    let chosen: Resolved | undefined;
-    let triedLayers = 1;
-    for (let n = 1; n <= 6; n++) {
-      triedLayers = n;
-      const SAMPLES = 32;
-      let best: { g: Resolved; score: number; length: number } | undefined;
-      for (let i = 0; i <= SAMPLES; i++) {
-        const height = heightLo + ((heightHi - heightLo) * i) / SAMPLES;
-        const size = bisect((s) => lengthFor(spec, { outerSize: s, height, layers: n }), sizeLo, sizeHi, target);
-        const g = { outerSize: size, height, layers: n };
-        const length = lengthFor(spec, g);
-        if (Math.abs((length - target) / target) > 0.05) continue;
-        const s = score(spec, g);
-        if (!best || s < best.score) best = { g, score: s, length };
-      }
-      if (best) {
-        const cap = capacityOf(spec.wire, spec.windingQuality, best.g);
-        const env = envelopeDiameter(best.g.outerSize, cap.outermostOffset, spec.wire.diameter);
-        if (env <= 400 || n === 6) {
-          chosen = best.g;
-          break;
-        }
+      // The alternate candidate is picked from the same feasible pool under
+      // the other objective -- no recursive solve() call (see the file header).
+      const otherObjective: Objective = objective === "minVolume" ? "aspectRatio" : "minVolume";
+      const altBest = pickBest(otherObjective);
+      if (altBest !== primary) {
+        const altDiagnosis: Diagnosis = {
+          ...diagnosis,
+          message: `Two free dimensions: the "${otherObjective}" objective's pick among the same target-covering candidates.`,
+        };
+        alternates = [finishSolution(spec, altBest.g, altDiagnosis, otherObjective, minOuterSizeForBend).solution];
       }
     }
-    resolved = chosen ?? { outerSize: sizeLo, height: heightHi, layers: 6 };
-    diagnosis = {
-      freeCount,
-      freeVariables: freeVars,
-      status: "under-constrained",
-      message: `All three dimensions are free: solver defaulted to layers=${triedLayers} and the "${objective}" objective for outer size/height. Lock at least one dimension for a deterministic result.`,
-    };
+  } else {
+    // freeCount === 3: fully under-constrained. Search a small set of
+    // representative layer counts (1..6) and return 2-3 candidates side by
+    // side: the overall objective-best pick as the primary, plus fixed
+    // layers=1 / layers=2 picks as alternates (when distinct and feasible),
+    // per the ticket's "e.g. 1 layer / 2 layers / min-volume" example.
+    const objective = spec.objective;
+    objectiveUsed = objective;
+    const SAMPLES = 32;
+
+    const perLayer: Array<{ n: number; result: SizeHeightSearchResult }> = [];
+    for (let n = 1; n <= PRACTICAL_LAYERS_HI; n++) {
+      perLayer.push({ n, result: searchSizeAndHeight(spec, n, sizeLo, sizeHi, heightLo, heightHi, target, objective, SAMPLES) });
+    }
+
+    const feasiblePerLayer = perLayer
+      .filter((p) => p.result.feasible)
+      .map((p) => ({ n: p.n, g: p.result.feasible!.g, length: p.result.feasible!.length, score: p.result.feasible!.score }));
+
+    if (feasiblePerLayer.length === 0) {
+      const closestOverall = perLayer.reduce((a, b) => (b.result.closest.length > a.result.closest.length ? b : a));
+      const shortfallPct = ((target - closestOverall.result.closest.length) / target) * 100;
+      resolved = closestOverall.result.closest.g;
+      diagnosis = {
+        freeCount,
+        freeVariables: freeVars,
+        status: "infeasible",
+        message: `All three dimensions are free, but even the best sampled combination (up to ${PRACTICAL_LAYERS_HI} layers) falls short of the target length by ${shortfallPct.toFixed(1)}%. Increase the practical bounds or shorten the target.`,
+      };
+    } else {
+      feasiblePerLayer.sort((a, b) => a.score - b.score);
+      const primary = feasiblePerLayer[0];
+      resolved = primary.g;
+      diagnosis = {
+        freeCount,
+        freeVariables: freeVars,
+        status: "under-constrained",
+        message: `All three dimensions are free: picked layers=${primary.n} by the "${objective}" objective among combinations that cover the target length. Lock at least one dimension for a deterministic result.`,
+      };
+
+      // Alternates: prefer named layers=1 / layers=2 candidates (distinct
+      // from the primary), falling back to the next-best-scoring layer
+      // counts if those specific ones aren't feasible or coincide with it.
+      const chosenNs = new Set([primary.n]);
+      const altPicks: typeof feasiblePerLayer = [];
+      for (const wantN of [1, 2]) {
+        const found = feasiblePerLayer.find((p) => p.n === wantN && !chosenNs.has(p.n));
+        if (found) {
+          altPicks.push(found);
+          chosenNs.add(found.n);
+        }
+      }
+      for (const p of feasiblePerLayer) {
+        if (altPicks.length >= 2) break;
+        if (chosenNs.has(p.n)) continue;
+        altPicks.push(p);
+        chosenNs.add(p.n);
+      }
+      alternates = altPicks.map((p) => {
+        const altDiagnosis: Diagnosis = {
+          freeCount,
+          freeVariables: freeVars,
+          status: "under-constrained",
+          message: `All three dimensions are free: layers=${p.n} fixed, best outer size/height for the "${objective}" objective among combinations that cover the target length.`,
+        };
+        return finishSolution(spec, p.g, altDiagnosis, objective, minOuterSizeForBend).solution;
+      });
+    }
   }
 
   const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend);
-  finished.solution.alternate = alternate;
+  finished.solution.alternates = alternates;
   return { solution: finished.solution, warnings: [...warnings, ...finished.warnings] };
 }

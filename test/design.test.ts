@@ -107,27 +107,49 @@ describe("design() solver (round core)", () => {
     expect(long.solution.outerSize).toBeGreaterThan(short.solution.outerSize);
   });
 
-  it("reports under-constrained with a clear notice when all three dimensions are free", async () => {
+  it("reports under-constrained with a clear notice and 2-3 candidates (e.g. layers=1/2/min-volume) when all three dimensions are free", async () => {
     const spec = baseSpec({ coreSize: { locked: false }, height: { locked: false }, layers: { locked: false } });
     const d = await design(spec);
     expect(d.solution.diagnosis.freeCount).toBe(3);
     expect(d.solution.diagnosis.status).toBe("under-constrained");
     expect(d.solution.diagnosis.message).toMatch(/lock at least one dimension/i);
+
+    // 2-3 candidates total (primary + 1-2 alternates), e.g. layers=1, layers=2
+    // and the overall objective-best pick, per the ticket's example.
+    const candidates = [d.solution, ...d.solution.alternates];
+    expect(candidates.length).toBeGreaterThanOrEqual(2);
+    expect(candidates.length).toBeLessThanOrEqual(3);
+    const layerCounts = new Set(candidates.map((c) => c.layers));
+    expect(layerCounts.size).toBe(candidates.length); // each candidate is a genuinely different layer count
+
+    // Every returned candidate -- primary and alternates -- must cover the
+    // target cable length; "under-constrained" is not an excuse to undershoot.
+    for (const candidate of candidates) {
+      expect(candidate.totalWireLength).toBeGreaterThanOrEqual(candidate.targetWireLength * (1 - 1e-6));
+    }
   });
 
-  it("returns an alternate candidate side by side when exactly two dimensions are free", async () => {
+  it("returns 2-3 candidates side by side when exactly two dimensions are free, and every one covers the target", async () => {
     const spec = baseSpec({
       wire: { length: 3000, diameter: 3.8, type: "usb" },
-      coreSize: { locked: false },
+      coreSize: { locked: true, dimension: "outer", value: 60 },
       height: { locked: false },
-      layers: { locked: true, value: 2 },
+      layers: { locked: false },
       objective: "minVolume",
     });
     const d = await design(spec);
     expect(d.solution.diagnosis.freeCount).toBe(2);
+    expect(d.solution.diagnosis.status).toBe("ok");
     expect(d.solution.objectiveUsed).toBe("minVolume");
-    expect(d.solution.alternate).toBeDefined();
-    expect(d.solution.alternate?.objectiveUsed).toBe("aspectRatio");
+    expect(d.solution.alternates.length).toBeGreaterThanOrEqual(1);
+    expect(d.solution.alternates[0].objectiveUsed).toBe("aspectRatio");
+
+    // The regression this guards: a 3000 mm / d=3.8 / outer=60 coil used to
+    // resolve to ~2869 mm (-4.4%), reported as "ok" -- capacity must cover
+    // the whole cable (tail >= 0) whenever the status is "ok".
+    for (const candidate of [d.solution, ...d.solution.alternates]) {
+      expect(candidate.totalWireLength).toBeGreaterThanOrEqual(candidate.targetWireLength * (1 - 1e-6));
+    }
   });
 
   it("applies the bend-limit preset: usb and flex both clamp to 4x, stiff to 10x (docs/research.md §1)", async () => {
@@ -170,6 +192,46 @@ describe("design() solver (round core)", () => {
     const d = await design(spec);
     expect(d.solution.targetWireLength).toBe(15000);
     expect(d.warnings.some((w) => /15\s*m|15000/i.test(w))).toBe(true);
+  });
+
+  it("always covers the target capacity when reporting ok, across each single free dimension", async () => {
+    const specs: CoilSpec[] = [
+      // size free (bisect over a continuous variable)
+      baseSpec({
+        wire: { length: 1234, diameter: 3.8, type: "usb" },
+        coreSize: { locked: false },
+        height: { locked: true, value: 55 },
+        layers: { locked: true, value: 1 },
+      }),
+      // height free (bisect over a step-discontinuous turns-per-layer function --
+      // the exact case that used to round down across the step and undershoot)
+      baseSpec({
+        wire: { length: 3000, diameter: 4, type: "usb" },
+        coreSize: { locked: true, dimension: "outer", value: 60 },
+        height: { locked: false },
+        layers: { locked: true, value: 1 },
+      }),
+      baseSpec({
+        wire: { length: 3000, diameter: 4, type: "usb" },
+        coreSize: { locked: true, dimension: "outer", value: 60 },
+        height: { locked: false },
+        layers: { locked: true, value: 2 },
+      }),
+      // layers free (integer search)
+      baseSpec({
+        wire: { length: 5000, diameter: 3.8, type: "usb" },
+        coreSize: { locked: true, dimension: "outer", value: 50 },
+        height: { locked: true, value: 50 },
+        layers: { locked: false },
+      }),
+    ];
+
+    for (const spec of specs) {
+      const d = await design(spec);
+      expect(d.solution.diagnosis.freeCount).toBe(1);
+      expect(d.solution.diagnosis.status).toBe("ok");
+      expect(d.solution.totalWireLength).toBeGreaterThanOrEqual(d.solution.targetWireLength * (1 - 1e-6));
+    }
   });
 
   it("warns and reduces the bore when the locked core is too small for the fixed wall thickness", async () => {
