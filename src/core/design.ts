@@ -107,7 +107,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const wall = buildWall(wallSpec);
   const mesh = await fuseFlange(wall, flangeSpec);
-  const wirePaths = buildWirePaths(solution.layerResults, wallSpec, spec.windingQuality);
+  const wirePaths = buildWirePaths(solution.layerResults, wallSpec, spec.windingQuality, resolution);
 
   return { spec, solution, warnings, mesh, resolution, wirePaths, wallSpec, flangeSpec };
 }

@@ -12,6 +12,11 @@ const ONE_LAYER = "#v=1&L=1000&d=4&size=40";
 // A single layer with ~300 turns: well past the full-tube-to-envelope
 // switchover, so this exercises the "doesn't read as a black mass" path.
 const MANY_TURN = "#v=1&L=15000&d=0.5&size=15";
+// A large outer size and a corner radius comfortably clear of the bend-limit
+// floor (see test/wire.test.ts), so the shape is genuinely rounded-square /
+// rounded-triangle, not clamped back toward round.
+const SQUARE_TWO_LAYER = "#v=1&L=4000&d=4&size=60&shape=sq&sq.rc=20&lock=outer,ly&ly=2";
+const TRIANGLE = "#v=1&L=2000&d=4&size=60&shape=tri&tri.rc=20";
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -92,5 +97,18 @@ test.describe("wound-cable schematic (issue #4)", () => {
   test("many-turn coil screenshot baseline (envelope + hint-turn legibility mode)", async ({ page }) => {
     await gotoDesign(page, MANY_TURN);
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("wire-many-turn.png");
+  });
+
+  test("a 2-layer rounded-square core's wire follows the square outline, not a circle", async ({ page }) => {
+    await gotoDesign(page, SQUARE_TWO_LAYER);
+    await expect(page.getByTestId("hash-notice")).toHaveCount(0);
+    await expect(page.getByTestId("layers")).toHaveText("2");
+    await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("wire-square-two-layer.png");
+  });
+
+  test("a rounded-triangle core's wire follows the triangle outline", async ({ page }) => {
+    await gotoDesign(page, TRIANGLE);
+    await expect(page.getByTestId("hash-notice")).toHaveCount(0);
+    await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("wire-triangle.png");
   });
 });

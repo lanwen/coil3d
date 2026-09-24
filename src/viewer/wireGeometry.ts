@@ -32,13 +32,28 @@ const TURNS_FOR_ENVELOPE = 60;
 // shading artifact toCreasedNormals would fix, since the edge shader's
 // silhouette test reads real geometry, not normals. Round enough that the
 // facets read as a smooth pen line, matching the IKEA reference.
-const TUBE_RADIAL_SEGMENTS = 20;
+const TUBE_RADIAL_SEGMENTS = 24;
 /** Segments around the envelope's circumference. */
 const ENVELOPE_RADIAL_SEGMENTS = 64;
-/** How many short "hint" turns to sample across the layer's full run. */
-const HINT_COUNT = 6;
-/** Each hint tube spans this many turns of real path, centered on its sample point. */
-const HINT_TURN_SPAN = 1.25;
+// Hint turns (docs/research.md §10b "a few helical hint lines"): each hint
+// is a real, multi-turn slice of the actual centerline -- not a flat ring --
+// so it visibly spirals (the review's "reads like bamboo" complaint was a
+// single-turn hint, which for a fat pitch relative to diameter is nearly
+// indistinguishable from a flat ring at a glance). Two turns is enough that
+// the wire visibly crosses over itself in projection from most angles.
+const HINT_SPAN_TURNS = 2;
+/**
+ * Roughly one hint center every this many real turns of winding. Kept short
+ * on purpose: hints are widely separated clusters of at most HINT_SPAN_TURNS
+ * adjacent turns each, so raising their overall count doesn't reintroduce
+ * the black-mass risk (that came from EVERY turn touching its neighbour;
+ * these are isolated islands with plenty of smooth envelope between them) --
+ * but too few of them reads as a smooth pole with a handful of decorative
+ * rings ("bamboo joints") rather than a continuously wound cable.
+ */
+const HINT_SPACING_TURNS = 6;
+const MIN_HINTS = 3;
+const MAX_HINTS = 40;
 /**
  * A hint must protrude past the envelope by enough world-space distance to
  * clear the line-art edge pass's depth-step threshold (a few pixels' worth
@@ -92,20 +107,35 @@ function envelopeShell(path: WireLayerPath): THREE.BufferGeometry {
   return cyl;
 }
 
-/** A handful of short, full-fidelity helical tube segments sampled across the run. */
+/**
+ * How many hint turns to place, and where (in real turn-count units, `phi`)
+ * their centers sit. The first and last hints are pinned so their span
+ * reaches exactly `phi=0` and `phi=turns` -- the cable's start and end, per
+ * the ticket review -- and the rest are evenly spaced between them (which,
+ * since z is linear in phi, is also evenly spaced along the height).
+ */
+function hintCenters(turns: number): number[] {
+  const span = Math.min(HINT_SPAN_TURNS, turns);
+  if (turns <= span) return [turns / 2];
+
+  const usableRun = turns - span; // distance between the first and last hint's centers
+  const count = Math.min(MAX_HINTS, Math.max(MIN_HINTS, Math.round(usableRun / HINT_SPACING_TURNS) + 1));
+  if (count === 1) return [turns / 2];
+
+  return Array.from({ length: count }, (_, i) => span / 2 + (i * usableRun) / (count - 1));
+}
+
+/** A handful of short, full-fidelity helical tube segments sampled across the run, each a real multi-turn spiral (see HINT_SPAN_TURNS). */
 function hintTubes(path: WireLayerPath, hintRadius: number): THREE.BufferGeometry[] {
   const sampleCount = path.points.length / 3;
   if (sampleCount < 2 || path.turns <= 0) return [];
 
   const samplesPerTurn = (sampleCount - 1) / path.turns;
-  const halfSpanSamples = Math.max(1, Math.round((HINT_TURN_SPAN / 2) * samplesPerTurn));
-  const count = Math.min(HINT_COUNT, path.turns);
+  const halfSpanSamples = Math.max(1, Math.round((Math.min(HINT_SPAN_TURNS, path.turns) / 2) * samplesPerTurn));
 
   const tubes: THREE.BufferGeometry[] = [];
-  for (let h = 0; h < count; h++) {
-    // Evenly spaced centers, inset from both ends so a hint never runs off the path.
-    const t = count === 1 ? 0.5 : h / (count - 1);
-    const center = Math.round(t * (sampleCount - 1));
+  for (const centerPhi of hintCenters(path.turns)) {
+    const center = Math.round((centerPhi / path.turns) * (sampleCount - 1));
     const from = Math.max(0, center - halfSpanSamples);
     const to = Math.min(sampleCount - 1, center + halfSpanSamples);
     if (to <= from) continue;

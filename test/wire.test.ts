@@ -52,6 +52,57 @@ describe("design().wirePaths (issue #4)", () => {
     }
   });
 
+  it("a rounded-square core's wire follows the true offset outline, not a circle (issue #6 follow-up)", async () => {
+    // A big outer size and a corner radius comfortably clear of the
+    // bend-limit floor (see solve.ts's "became round" clamp): otherwise the
+    // solver rounds the corner radius up toward the apothem and the outline
+    // is indistinguishable from a circle, defeating the point of this test.
+    const d = await design(
+      baseSpec({
+        shape: { kind: "sq", cornerRadius: 20 },
+        coreSize: { locked: true, dimension: "outer", value: 80 },
+      }),
+    );
+    expect(d.warnings.some((w) => /clamped/i.test(w))).toBe(false);
+    const [layer1] = d.wirePaths;
+    const sampleCount = layer1.points.length / 3;
+    const radii = Array.from({ length: sampleCount }, (_, i) => radiusAt(layer1.points, i));
+
+    // A circle has a constant radius at every sample; a rounded square's
+    // offset outline does not (flat sides sit closer to the axis than the
+    // rounded corners) -- this is the regression this test guards.
+    const minRadius = Math.min(...radii);
+    const maxRadius = Math.max(...radii);
+    expect(maxRadius - minRadius).toBeGreaterThan(1);
+
+    // The inscribed radius (mid-flat-side) and the true circumscribed radius
+    // (corner-arc midpoint) are exact, independent of the outline math
+    // (docs/research.md §2 "inscribedRadius"/"circumscribedRadius", n=4 for
+    // a square): apothem = outerSize/2, Rc = (apothem - cornerRadius)/cos(pi/4).
+    const offset = d.solution.layerResults[0].offset;
+    const apothem = d.solution.outerSize / 2;
+    const cornerRadius = d.solution.cornerRadius;
+    const expectedMin = apothem + offset;
+    const Rc = (apothem - cornerRadius) / Math.cos(Math.PI / 4);
+    const expectedMax = Rc + cornerRadius + offset;
+    expect(minRadius).toBeCloseTo(expectedMin, 1);
+    expect(maxRadius).toBeCloseTo(expectedMax, 1);
+  });
+
+  it("a rounded-triangle core's wire also follows the true offset outline", async () => {
+    const d = await design(
+      baseSpec({
+        shape: { kind: "tri", cornerRadius: 20 },
+        coreSize: { locked: true, dimension: "outer", value: 80 },
+      }),
+    );
+    expect(d.warnings.some((w) => /clamped/i.test(w))).toBe(false);
+    const [layer1] = d.wirePaths;
+    const sampleCount = layer1.points.length / 3;
+    const radii = Array.from({ length: sampleCount }, (_, i) => radiusAt(layer1.points, i));
+    expect(Math.max(...radii) - Math.min(...radii)).toBeGreaterThan(1);
+  });
+
   it("climbs monotonically in z across the run, spanning roughly turns * pitch", async () => {
     const wireDiameter = 3.8;
     const clearance = 0.3;
@@ -132,7 +183,25 @@ describe("design().wirePaths (issue #4)", () => {
     const [layer1] = d.wirePaths;
     expect(layer1.turns).toBeGreaterThan(100);
     const sampleCount = layer1.points.length / 3;
-    expect(sampleCount).toBeGreaterThan(layer1.turns); // at least one sample per turn
-    expect(sampleCount).toBeLessThan(layer1.turns * 25); // but capped, not unbounded
+    // At least the documented final-resolution floor (issue #4 review:
+    // >= 96 samples/turn so the tube reads smooth, not faceted) ...
+    expect(sampleCount).toBeGreaterThanOrEqual(layer1.turns * 90);
+    // ... but bounded, not unbounded (the arc-length target can push this
+    // higher for a big perimeter, so this just guards against a runaway).
+    expect(sampleCount).toBeLessThan(layer1.turns * 200);
+  });
+
+  it("final resolution samples far more densely per turn than draft (issue #7 budget)", async () => {
+    const spec = baseSpec({
+      wire: { length: 2000, diameter: 3.8, type: "usb" },
+      coreSize: { locked: true, dimension: "outer", value: 30 },
+      height: { locked: true, value: 40 },
+      layers: { locked: true, value: 1 },
+    });
+    const draft = await design(spec, "draft");
+    const final = await design(spec, "final");
+    const samplesPerTurn = (d: typeof draft) => d.wirePaths[0].points.length / 3 / d.wirePaths[0].turns;
+    expect(samplesPerTurn(final)).toBeGreaterThan(samplesPerTurn(draft) * 2);
+    expect(samplesPerTurn(final)).toBeGreaterThanOrEqual(90);
   });
 });

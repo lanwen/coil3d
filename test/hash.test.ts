@@ -110,12 +110,12 @@ describe("parseHash / toHash", () => {
     expect(hash).toContain("shape=sq");
     expect(hash).toContain("sq.rc=18");
     expect(hash).not.toContain("tri.rc");
-    expect(parseHash(hash)).toEqual({ spec });
+    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
 
   it("round-trips a rounded-triangle shape, with the corner radius namespaced as tri.rc (issue #6)", () => {
     const spec: CoilSpec = { ...DEFAULT_SPEC, shape: { kind: "tri", cornerRadius: 12.5 } };
-    expect(parseHash(toHash(spec))).toEqual({ spec });
+    expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
 
   it("omits the shape param for round (the default) and a default-valued corner radius", () => {

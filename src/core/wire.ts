@@ -5,31 +5,46 @@
 // line-art renderer.
 //
 // Reuses the exact numbers the solver and the wall already computed --
-// `LayerResult.offset`/`.turns` (capacity.ts) and the wall's own groove
-// `pitch`/`zStart` (wall.ts's `createWallProfile`, shared so layer 1's wire
-// sits centered in the printed groove) -- so this can never drift from the
-// solved geometry it is meant to illustrate.
+// `LayerResult.offset`/`.turns`/`.perimeter` (capacity.ts) and the wall's own
+// groove `pitch`/`zStart` (wall.ts's `createWallProfile`, shared so layer 1's
+// wire sits centered in the printed groove) -- so this can never drift from
+// the solved geometry it is meant to illustrate. The (x, y) position at each
+// sample comes from `shapes.ts`'s `pointAt(outline, t, offset)`, the same
+// arc-length-parameterised outline function the wall's own helix and the
+// STEP B-spline fit both sample, so a rounded-square or rounded-triangle
+// core's wire follows the real offset outline, not a circle.
 
+import {
+  DRAFT_WIRE_MAX_ARC_LENGTH,
+  DRAFT_WIRE_MIN_SAMPLES_PER_TURN,
+  FINAL_WIRE_MAX_ARC_LENGTH,
+  FINAL_WIRE_MIN_SAMPLES_PER_TURN,
+} from "./constants";
 import { clamp01 } from "./capacity";
+import { pointAt } from "./shapes";
 import { createWallProfile, type WallSpec } from "./wall";
-import type { LayerResult } from "./types";
+import type { LayerResult, Resolution } from "./types";
 import type { WireLayerPath } from "./types";
 
-// Sample density: dense enough that a Catmull-Rom tube built from the points
-// looks smooth, but capped so a many-hundred-turn layer doesn't produce an
-// unbounded number of samples. A low turn count needs the HIGH end of this
-// range, not the low end: with few turns every one of them is individually
-// visible (the viewer only drops to a simplified envelope past ~60 turns --
-// see src/viewer/wireGeometry.ts), so a coarse per-turn sample count shows up
-// directly as a faceted, polygonal turn instead of a smooth ring.
-const MIN_SAMPLES_PER_TURN = 3;
-const MAX_SAMPLES_PER_TURN = 24;
-const MAX_TOTAL_SAMPLES = 6000;
+// A hard safety backstop on total samples per layer, so a pathological input
+// (well outside the solver's practical bounds) can't allocate unbounded
+// memory: if the arc-length target would exceed it, density is scaled back
+// (never below MIN_SAMPLES_PER_TURN_FLOOR) rather than sampling that densely.
+// Realistic designs never get close to this (a few hundred turns at 96+
+// samples/turn is a few tens of thousands of samples).
+const MAX_TOTAL_SAMPLES_PER_LAYER = 300_000;
+const MIN_SAMPLES_PER_TURN_FLOOR = 8;
 
-function samplesPerTurn(turns: number): number {
-  if (turns <= 0) return MIN_SAMPLES_PER_TURN;
-  const perTurn = Math.floor(MAX_TOTAL_SAMPLES / turns);
-  return Math.max(MIN_SAMPLES_PER_TURN, Math.min(MAX_SAMPLES_PER_TURN, perTurn));
+/**
+ * Samples per turn for the given per-turn helix length (arc length of one
+ * full wound turn, `sqrt(perimeter^2 + pitch^2)`): at least `minPerTurn`
+ * (so even a tiny turn is smooth), and enough to keep consecutive samples
+ * at most `maxArcLength` mm apart along the curve (so a big, slow-curving
+ * turn -- a large square or triangle core -- still gets a dense sample
+ * along its straight sides, not just its corners).
+ */
+function samplesPerTurn(helixLength: number, minPerTurn: number, maxArcLength: number): number {
+  return Math.max(minPerTurn, Math.ceil(helixLength / maxArcLength));
 }
 
 /**
@@ -45,26 +60,41 @@ function phaseShiftTurns(layer: number, quality: number): number {
   return ((layer - 1) % 2) * clamp01(quality) * 0.5;
 }
 
-/** Build the schematic wire centerline for every wound layer. */
-export function buildWirePaths(layerResults: LayerResult[], wallSpec: WallSpec, windingQuality: number): WireLayerPath[] {
+/**
+ * Build the schematic wire centerline for every wound layer.
+ *
+ * `resolution` (issue #7) gates sample density exactly like the mesh's own
+ * draft/final column counts: "draft" is cheap enough to stay responsive
+ * while the user is still dragging a slider, "final" is dense enough for a
+ * smooth on-screen tube (the wire path is never exported, so there is no
+ * third, even-denser "for export" tier the way the mesh has one for STL/STEP).
+ */
+export function buildWirePaths(layerResults: LayerResult[], wallSpec: WallSpec, windingQuality: number, resolution: Resolution): WireLayerPath[] {
   const profile = createWallProfile(wallSpec);
   const { pitch, zStart } = profile;
+  const { outline } = wallSpec;
+  const [minPerTurn, maxArcLength] =
+    resolution === "draft" ? [DRAFT_WIRE_MIN_SAMPLES_PER_TURN, DRAFT_WIRE_MAX_ARC_LENGTH] : [FINAL_WIRE_MIN_SAMPLES_PER_TURN, FINAL_WIRE_MAX_ARC_LENGTH];
   const paths: WireLayerPath[] = [];
 
-  for (const { layer, turns, offset } of layerResults) {
+  for (const { layer, turns, offset, perimeter } of layerResults) {
     if (turns <= 0) continue;
 
-    const radius = wallSpec.outerRadius + offset;
+    const helixLength = Math.hypot(perimeter, pitch);
+    let perTurn = samplesPerTurn(helixLength, minPerTurn, maxArcLength);
+    if (turns * perTurn > MAX_TOTAL_SAMPLES_PER_LAYER) {
+      perTurn = Math.max(MIN_SAMPLES_PER_TURN_FLOOR, Math.floor(MAX_TOTAL_SAMPLES_PER_LAYER / turns));
+    }
+
     const shift = phaseShiftTurns(layer, windingQuality);
-    const perTurn = samplesPerTurn(turns);
     const sampleCount = Math.max(2, Math.round(turns * perTurn) + 1);
 
     const points = new Float32Array(sampleCount * 3);
     for (let i = 0; i < sampleCount; i++) {
       const phi = (turns * i) / (sampleCount - 1) + shift;
-      const theta = 2 * Math.PI * phi;
-      points[i * 3] = radius * Math.cos(theta);
-      points[i * 3 + 1] = radius * Math.sin(theta);
+      const p = pointAt(outline, phi, offset);
+      points[i * 3] = p.x;
+      points[i * 3 + 1] = p.y;
       points[i * 3 + 2] = zStart + pitch * phi;
     }
 
