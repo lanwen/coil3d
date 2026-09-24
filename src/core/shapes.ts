@@ -142,6 +142,41 @@ export function circumscribedRadius(o: ShapeOutline, offset: number): number {
   return Rc + o.cornerRadius + offset;
 }
 
+/**
+ * EXACT distance from the outline's centre to its own boundary at a given
+ * STANDARD angle (radians, measured counter-clockwise from +X -- the same
+ * convention `evalOutline` places corner i at, `2*pi*i/n`). Unlike
+ * `circumscribedRadius`/`inscribedRadius` (the worst/best case across ANY
+ * angle -- deliberately angle-agnostic, for callers that don't know or care
+ * which way a shape is rotated), this is the true value at ONE specific
+ * angle: exactly `apothem` at a flat side's own midpoint, growing smoothly
+ * to `circumscribedRadius` at a corner's own midpoint (a ray-circle
+ * intersection against that corner's own arc), and `apothem / cos(delta)`
+ * on the straight side in between (a ray-line intersection against a line
+ * whose own perpendicular distance from the centre is exactly `apothem`).
+ * Used by mount.ts to size the screw-keyhole mount tightly around whichever
+ * exact angle(s) it actually places a slot at, instead of assuming the
+ * worst case (a sharp corner) everywhere regardless of where the slot
+ * really sits (issue #13 PR review).
+ */
+export function radiusAtAngle(o: ShapeOutline, phi: number): number {
+  if (o.cornerRadius === o.apothem) return o.apothem; // round: no bulge anywhere
+  const half = Math.PI / o.n;
+  const Rc = (o.apothem - o.cornerRadius) / Math.cos(half);
+  const cornerHalfAngle = Math.asin(Math.min(1, o.cornerRadius / Rc));
+  const step = (2 * Math.PI) / o.n;
+  const nearestI = Math.round(phi / step);
+  const delta = phi - nearestI * step;
+  if (Math.abs(delta) <= cornerHalfAngle) {
+    // On corner `nearestI`'s own rounded arc (centre at distance Rc, radius cornerRadius): a ray-circle intersection, the far root (the ray starts inside the arc's own circle whenever this corner's arc actually reaches the centre-ward side, and Rc<=circumscribedRadius always keeps this real by construction).
+    return Rc * Math.cos(delta) + Math.sqrt(Math.max(0, o.cornerRadius * o.cornerRadius - (Rc * Math.sin(delta)) ** 2));
+  }
+  // On the flat side adjacent to corner `nearestI`, on whichever side `phi` leans: a ray-line intersection against a line at perpendicular distance `apothem` from the centre, foot at the side's own midpoint angle.
+  const sideIndex = delta > 0 ? nearestI : nearestI - 1;
+  const thetaMid = (sideIndex + 0.5) * step;
+  return o.apothem / Math.cos(phi - thetaMid);
+}
+
 /** A Minkowski offset outward by `amount` (negative = inward). Both
  * `apothem` and `cornerRadius` shift by the same amount (Steiner); the
  * caller is responsible for flooring an inward offset that would invert the

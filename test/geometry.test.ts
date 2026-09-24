@@ -7,6 +7,23 @@ import type { CoilSpec } from "../src/core";
 // exportDesign). manifold-3d and a hand-rolled STL parser are used here as
 // independent verification tools, not as access to core internals.
 
+/** Volume of a closed, consistently-oriented triangle mesh, by the divergence theorem -- an independent check, not core/meshVolume.ts (or manifold-3d's own .volume(), for a mesh this file never wraps in a wasm.Manifold). */
+function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): number {
+  const { positions: v, indices: t } = mesh;
+  let volume = 0;
+  for (let i = 0; i < t.length; i += 3) {
+    const a = t[i] * 3;
+    const b = t[i + 1] * 3;
+    const c = t[i + 2] * 3;
+    volume +=
+      (v[a] * (v[b + 1] * v[c + 2] - v[b + 2] * v[c + 1]) -
+        v[a + 1] * (v[b] * v[c + 2] - v[b + 2] * v[c]) +
+        v[a + 2] * (v[b] * v[c + 1] - v[b + 1] * v[c])) /
+      6;
+  }
+  return Math.abs(volume);
+}
+
 const baseSpec: CoilSpec = {
   wire: { length: 2000, diameter: 3.8, type: "usb" },
   shape: { kind: "round" },
@@ -19,6 +36,7 @@ const baseSpec: CoilSpec = {
   joint: "press",
   tolerance: 0.2,
   print: { bedX: 256, bedY: 256, bedZ: 256 },
+  mount: "none",
 };
 
 describe("design().mesh is a valid, expected manifold", () => {
@@ -257,6 +275,7 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    mount: "none",
   };
 
   it("is a valid watertight manifold with the analytically-expected volume", async () => {
@@ -337,6 +356,76 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
   });
 });
 
-// Issue #32: the STEP re-import round-trip for this shape moved to
+// Issue #32: the STEP re-import round-trip for the rounded-square shape,
+// and for this file's own screw-keyhole mount below, both moved to
 // test/step.test.ts, grouped with the other STEP/OCCT tests so they don't
 // run concurrently with each other and get a generous explicit timeout.
+describe("design().mesh with the screw-keyhole wall mount (issue #13)", () => {
+  const MOUNT_SPECS: Array<{ label: string; shape: CoilSpec["shape"] }> = [
+    { label: "round", shape: { kind: "round" } },
+    { label: "sq", shape: { kind: "sq", cornerRadius: 15 } },
+    { label: "tri", shape: { kind: "tri", cornerRadius: 15 } },
+  ];
+
+  describe.each(MOUNT_SPECS)("$label core", ({ shape }) => {
+    const specFor = (mount: CoilSpec["mount"]): CoilSpec => ({
+      wire: { length: 2000, diameter: 3.8, type: "usb" },
+      shape,
+      windingQuality: 0.7,
+      coreSize: { locked: true, dimension: "outer", value: 100 },
+      height: { locked: true, value: 60 },
+      layers: { locked: true, value: 1 },
+      objective: "minVolume",
+      topCap: "auto",
+      joint: "press",
+      tolerance: 0.2,
+      print: { bedX: 256, bedY: 256, bedZ: 256 },
+      mount,
+    });
+
+    it("stays a valid, watertight, genus-1 manifold with the recess cut, and removes a real, non-trivial volume", async () => {
+      const none = await design(specFor("none"));
+      const keyhole = await design(specFor("keyhole"));
+
+      const wasm = await Module();
+      wasm.setup();
+      const manifold = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: keyhole.mesh.positions, triVerts: keyhole.mesh.indices }));
+      try {
+        // A blind pocket is not a tunnel: it must not change the topology
+        // (still one hole through the whole part -- the bore).
+        expect(manifold.status()).toBe("NoError");
+        expect(manifold.genus()).toBe(1);
+      } finally {
+        manifold.delete();
+      }
+
+      // The mount bumps the flange's margin/thickness to fit the recess
+      // (design.ts, issue #13) -- both are part of the public `Design`
+      // return value, not internals. Swap the "none" mesh's own (measured)
+      // flange for the bigger "keyhole" flange analytically, using the
+      // outline math this file already reimplements for the sq/tri tests
+      // above, to isolate exactly how much volume the flange bump alone
+      // would ADD with no pocket cut at all.
+      const outline = keyhole.flangeSpec.outline;
+      const bore = keyhole.flangeSpec.boreOutline;
+      const boreArea = areaAt(bore.n, bore.apothem, bore.cornerRadius, 0);
+      const noneFlangeArea = areaAt(outline.n, outline.apothem, outline.cornerRadius, none.flangeSpec.margin) - boreArea;
+      const keyholeFlangeAreaNoPocket = areaAt(outline.n, outline.apothem, outline.cornerRadius, keyhole.flangeSpec.margin) - boreArea;
+      const noneFlangeVolume = noneFlangeArea * none.flangeSpec.thickness;
+      const keyholeFlangeVolumeNoPocket = keyholeFlangeAreaNoPocket * keyhole.flangeSpec.thickness;
+      // Tube + groove are identical between the two designs (same wall
+      // spec; mount never touches wall.ts), so this is the volume the
+      // "keyhole" mesh would have if its bigger flange had NO recess cut.
+      const expectedVolumeWithNoPocketCut = meshVolume(none.mesh) - noneFlangeVolume + keyholeFlangeVolumeNoPocket;
+
+      // Even the shank-end circle alone (the smallest single feature of the
+      // slot) is pi*2^2*3 ~= 38 mm^3 at the fixed SCREW_MOUNT_SHANK_RADIUS=2mm/
+      // SCREW_MOUNT_RECESS_DEPTH=3mm constants -- 20 mm^3 is a safe, meaningful
+      // lower bound on "a real pocket was actually cut", not a coincidence
+      // of floating-point noise.
+      const MIN_MEANINGFUL_POCKET_VOLUME = 20;
+      expect(meshVolume(keyhole.mesh)).toBeLessThan(expectedVolumeWithNoPocketCut - MIN_MEANINGFUL_POCKET_VOLUME);
+    });
+  });
+
+});

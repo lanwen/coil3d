@@ -38,6 +38,8 @@ import {
   JOINT_TRANSITION_HEIGHT,
   KEYHOLE_SLIT_FRACTION,
   LABEL_DEPTH,
+  SCREW_MOUNT_HEAD_RADIUS,
+  SCREW_MOUNT_SHANK_RADIUS,
   SNAP_BARB,
   SNAP_BARB_HEIGHT,
   SNAP_GAP,
@@ -50,9 +52,11 @@ import { jointGeometry } from "./joints";
 import { getLabelFont, labelLoops } from "./label";
 import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
+import { layoutKeyholeMount } from "./mount";
+import type { KeyholeSlot } from "./mount";
 import { circumscribedRadius, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
-import type { CoilMesh, JointKind } from "./types";
+import type { CoilMesh, JointKind, MountKind } from "./types";
 
 let wasmPromise: Promise<ManifoldToplevel> | undefined;
 
@@ -76,6 +80,8 @@ export interface FlangeSpec {
   thickness: number;
   /** Columns around the circumference (mirrors WallSpec.columns). */
   columns: number;
+  /** Screw-keyhole wall mount (issue #13): cut into the flange's outer (wall-facing, z=-thickness) face when `"keyhole"`. See mount.ts. */
+  mount: MountKind;
 }
 
 /** What `fuseFlange` needs to cut a bayonet/snap joint's mating feature into the core's own top rim. Press needs no core-side cut, so it's omitted entirely by the caller. */
@@ -194,7 +200,40 @@ function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete():
   return track(track(core.subtract(wide)).add(ridgeRing));
 }
 
-/** Fuse a bottom flange (shaped like `flange.outline`, offset out by `flange.margin`) onto the wall, optionally cutting a bayonet/snap joint feature into the top rim. */
+/**
+ * The manifold-3d cut for one keyhole slot (mount.ts's layout math): a wide
+ * (head) cylinder and a narrow (shank-end) cylinder, joined by a straight
+ * channel of the shank's own width -- all cut to `depth` starting at `zBase`
+ * (the flange's outer face). Built from primitives + a single extruded
+ * rectangle (not `Manifold.hull`, which would smoothly taper the channel to
+ * the head's full width instead of stepping down to the narrower rail a
+ * real keyhole slot has -- see mount.ts's file header).
+ */
+function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, depth: number, zBase: number) {
+  const { Manifold } = wasm;
+  const head = Manifold.cylinder(depth, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_HEAD_RADIUS, 32).translate(slot.head.x, slot.head.y, zBase);
+  const shankEnd = Manifold.cylinder(depth, SCREW_MOUNT_SHANK_RADIUS, SCREW_MOUNT_SHANK_RADIUS, 32).translate(slot.shankEnd.x, slot.shankEnd.y, zBase);
+  const dx = slot.shankEnd.x - slot.head.x;
+  const dy = slot.shankEnd.y - slot.head.y;
+  const len = Math.hypot(dx, dy);
+  const parts = [head, shankEnd];
+  if (len > 1e-6) {
+    const ux = dx / len;
+    const uy = dy / len;
+    const px = -uy * SCREW_MOUNT_SHANK_RADIUS;
+    const py = ux * SCREW_MOUNT_SHANK_RADIUS;
+    const channelPolygon: [number, number][] = [
+      [slot.head.x + px, slot.head.y + py],
+      [slot.head.x - px, slot.head.y - py],
+      [slot.shankEnd.x - px, slot.shankEnd.y - py],
+      [slot.shankEnd.x + px, slot.shankEnd.y + py],
+    ];
+    parts.push(Manifold.extrude([channelPolygon], depth).translate(0, 0, zBase));
+  }
+  return Manifold.union(parts);
+}
+
+/** Fuse a bottom flange (shaped like `flange.outline`, offset out by `flange.margin`) onto the wall, optionally cutting a bayonet/snap joint feature into the top rim, then cutting the screw-keyhole mount (issue #13) into the bottom flange if requested. */
 export async function fuseFlange(wall: CoilMesh, flange: FlangeSpec, coreJoint?: CoreJointCut): Promise<CoilMesh> {
   const wasm = await getWasm();
   const { Manifold, Mesh } = wasm;
@@ -220,9 +259,21 @@ export async function fuseFlange(wall: CoilMesh, flange: FlangeSpec, coreJoint?:
     // `applyCoreJointCut` already tracks its own returned manifold (like every other value it constructs) -- don't track it again here.
     if (coreJoint) fused = applyCoreJointCut(wasm, track, fused, coreJoint);
 
-    const status = fused.status();
+    let status = fused.status();
     if (status !== "NoError") {
       throw new Error(`Fused mesh is not a valid manifold: ${status}`);
+    }
+
+    if (flange.mount === "keyhole") {
+      const layout = layoutKeyholeMount(flange.outline, flange.boreOutline, flange.margin);
+      for (const slot of layout.slots) {
+        const cutter = track(screwMountCutter(wasm, slot, layout.recessDepth, -flange.thickness));
+        fused = track(fused.subtract(cutter));
+        status = fused.status();
+        if (status !== "NoError") {
+          throw new Error(`Keyhole mount cut is not a valid manifold: ${status}`);
+        }
+      }
     }
 
     const outMesh = fused.getMesh();

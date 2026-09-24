@@ -135,6 +135,7 @@ export default function App() {
                 wireDiameter={result.spec.wire.diameter}
                 showWire={showWire}
                 exploded={exploded}
+                mountAxisDeg={result.mountAxisDeg}
               />
             </>
           )}

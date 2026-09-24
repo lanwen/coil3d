@@ -131,3 +131,46 @@ export const LABEL_DEPTH = 0.6; // mm
 export const LABEL_CURVE_SEGMENTS = 6;
 /** Longest label text accepted from the UI/hash -- generous for a one-line cap label, small enough to keep the hash short. */
 export const LABEL_MAX_LENGTH = 40;
+
+// Screw-keyhole wall mount (issue #13, docs/research.md "Mounting"): a
+// recessed pocket cut into the bottom flange's OUTER (wall-facing) face --
+// see src/core/mount.ts for the shared layout math and the PR description
+// for why this is a plain (bridging) pocket rather than a teardrop/coned
+// ceiling. Sized for a common wood screw: head ~8 mm, shank ~4 mm.
+export const SCREW_MOUNT_HEAD_DIAMETER = 8; // mm: screw-head clearance
+export const SCREW_MOUNT_SHANK_DIAMETER = 4; // mm: screw-shank clearance
+export const SCREW_MOUNT_HEAD_RADIUS = SCREW_MOUNT_HEAD_DIAMETER / 2;
+export const SCREW_MOUNT_SHANK_RADIUS = SCREW_MOUNT_SHANK_DIAMETER / 2;
+/** Centre-to-centre distance from the head opening to the shank's resting point. */
+export const SCREW_MOUNT_SLOT_TRAVEL = 4; // mm
+/** Minimum flange material left around the cut, to the bore and to the flange's own outer edge. */
+export const SCREW_MOUNT_EDGE_MARGIN = 1; // mm
+/** Depth of the pocket, cut inward from the flange's outer (wall-facing) face. */
+export const SCREW_MOUNT_RECESS_DEPTH = 3; // mm
+/** Minimum flange material left ABOVE the recess: the load-bearing "roof" the screw head presses against once hung. */
+export const SCREW_MOUNT_MIN_SHELF = 2; // mm
+/** design.ts bumps FLANGE_THICKNESS up to this (and warns) whenever mount === "keyhole". */
+export const MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT = SCREW_MOUNT_RECESS_DEPTH + SCREW_MOUNT_MIN_SHELF; // 5 mm
+/**
+ * The pure radial-annulus width (wall thickness + margin) the slot itself
+ * needs, at whichever exact angle it ends up placed at (mount.ts's
+ * `radiusAtAngle`-based, per-shape placement -- issue #13 PR review: an
+ * earlier, angle-agnostic version of this budget used `circumscribedRadius`
+ * unconditionally, sizing the flange for a corner even when the slot doesn't
+ * actually sit at one, which for a non-round shape can be so pessimistic the
+ * mount never fits at all). This is shape-independent -- design.ts combines
+ * it with the shape's own exact bulge at the chosen angle to get the actual
+ * margin bump, via mount.ts's `requiredFlangeMargin`.
+ */
+export const SCREW_MOUNT_ANNULUS_WIDTH = SCREW_MOUNT_SLOT_TRAVEL + SCREW_MOUNT_HEAD_RADIUS + SCREW_MOUNT_SHANK_RADIUS + 2 * SCREW_MOUNT_EDGE_MARGIN;
+/** Above this flange diameter, 2 slots are used (side by side) instead of 1, for a more stable, non-twisting hang. */
+export const SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD = 90; // mm
+/** Half-angle (from the chosen axis) between the 2 slots on a large flange. */
+export const SCREW_MOUNT_TWO_SLOT_ANGLE = 25; // degrees
+/**
+ * How far from true vertical (WALL_UP, mount.ts) the mount will tilt its
+ * placement axis to land on a cheaper (less-bulging) direction -- e.g. a
+ * flat side's own midpoint instead of a sharp corner. The PR review's own
+ * suggested range for the 2-slot case ("+-30-45 degrees from vertical").
+ */
+export const SCREW_MOUNT_AXIS_SEARCH_MAX_DEG = 60;

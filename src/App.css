@@ -133,8 +133,65 @@ header p {
 }
 
 .coil-viewer-frame {
+  position: relative;
   width: 100%;
   height: 100%;
+}
+
+.wall-view-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.wall-view-caption {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 1;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  color: #333;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 4px;
+}
+
+/* Screenshot-only debug overlay (issue #13 PR review round 2), gated behind
+   ?debugAxis=1 -- never shown in the shipped UI. Pure CSS, screen-centred:
+   LineArtRenderer's reframe effect already centres the model's own
+   projected bounds on the canvas, so a plain centred line + dot lines up
+   with the coil axis without any extra 3D math. */
+.debug-axis-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.debug-axis-overlay-line {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 0, 0, 0.6);
+  transform: translateX(-50%);
+}
+
+.debug-axis-overlay-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 0, 0, 0.85);
+  transform: translate(-50%, -50%);
 }
 
 /* Draft -> final swap (issue #7, docs/research.md §10b): a short fade so the

@@ -26,6 +26,7 @@ export type {
   JointKind,
   LayerResult,
   Lock,
+  MountKind,
   Objective,
   Part,
   PartRole,

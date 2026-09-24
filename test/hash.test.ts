@@ -56,6 +56,7 @@ describe("parseHash / toHash", () => {
       joint: "press",
       tolerance: 0.2,
       print: { bedX: 256, bedY: 256, bedZ: 256 },
+      mount: "none",
     };
     expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
@@ -205,5 +206,23 @@ describe("parseHash / toHash", () => {
   it("falls back to defaults with a notice when the label exceeds the max length", () => {
     const tooLong = "x".repeat(41);
     expect(parseHash(`#v=1&label=${tooLong}`).notice).toBeDefined();
+  });
+
+  it("defaults to mount=none, omitted from the hash (issue #13)", () => {
+    expect(DEFAULT_SPEC.mount).toBe("none");
+    expect(parseHash("#v=1")).toEqual({ spec: DEFAULT_SPEC, showWire: DEFAULT_SHOW_WIRE });
+  });
+
+  it("round-trips the screw-keyhole mount", () => {
+    const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "keyhole" };
+    const hash = toHash(spec);
+    expect(hash).toContain("mount=keyhole");
+    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+  });
+
+  it("falls back to defaults with a notice on an unknown mount value", () => {
+    const { spec, notice } = parseHash("#v=1&mount=skadis");
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
   });
 });

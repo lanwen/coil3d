@@ -28,6 +28,8 @@ import {
   JOINT_TRANSITION_HEIGHT,
   KEYHOLE_SLIT_FRACTION,
   LABEL_DEPTH,
+  SCREW_MOUNT_HEAD_RADIUS,
+  SCREW_MOUNT_SHANK_RADIUS,
   SNAP_BARB,
   SNAP_BARB_HEIGHT,
   SNAP_GAP,
@@ -40,6 +42,8 @@ import { jointGeometry } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
 import { meshVolume } from "../meshVolume";
+import { layoutKeyholeMount } from "../mount";
+import type { KeyholeSlot } from "../mount";
 import { circumscribedRadius, offsetOutline, pointAt, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
@@ -68,6 +72,38 @@ function outlineSolid(o: ShapeOutline, height: number, zBase: number): R.Shape3D
   // `Sketch` in practice, not the compound `Sketches` its return type also allows.
   const sketch = drawing.sketchOnPlane("XY", zBase) as R.Sketch;
   return sketch.extrude(height);
+}
+
+/**
+ * The replicad solid for one keyhole slot (mount.ts's layout math): a wide
+ * (head) circle and a narrow (shank-end) circle, joined by a straight
+ * channel of the shank's own width, all drawn in 2D then extruded once --
+ * the same shape manifold.ts's `screwMountCutter` builds for the mesh backend,
+ * from the identical `KeyholeSlot`, so the two never drift apart.
+ */
+function screwMountCutterSolid(slot: KeyholeSlot, depth: number, zBase: number): R.Shape3D {
+  let drawing = R.drawCircle(SCREW_MOUNT_HEAD_RADIUS)
+    .translate(slot.head.x, slot.head.y)
+    .fuse(R.drawCircle(SCREW_MOUNT_SHANK_RADIUS).translate(slot.shankEnd.x, slot.shankEnd.y));
+
+  const dx = slot.shankEnd.x - slot.head.x;
+  const dy = slot.shankEnd.y - slot.head.y;
+  const len = Math.hypot(dx, dy);
+  if (len > 1e-6) {
+    const ux = dx / len;
+    const uy = dy / len;
+    const px = -uy * SCREW_MOUNT_SHANK_RADIUS;
+    const py = ux * SCREW_MOUNT_SHANK_RADIUS;
+    const channel = R.draw([slot.head.x + px, slot.head.y + py] as [number, number])
+      .lineTo([slot.head.x - px, slot.head.y - py] as [number, number])
+      .lineTo([slot.shankEnd.x - px, slot.shankEnd.y - py] as [number, number])
+      .lineTo([slot.shankEnd.x + px, slot.shankEnd.y + py] as [number, number])
+      .close();
+    drawing = drawing.fuse(channel);
+  }
+
+  const sketch = drawing.sketchOnPlane("XY", zBase) as R.Sketch;
+  return sketch.extrude(depth);
 }
 
 // S2 RESULT.md: ~20 V-samples per helical pitch keeps the max fitting
@@ -178,6 +214,17 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
       joint: design.spec.joint,
       tolerance: design.spec.tolerance,
     });
+  }
+
+  // Issue #13: cut the same screw-keyhole mount the mesh backend cuts into
+  // the CORE part's own bottom flange (manifold.ts's fuseFlange), from the
+  // identical layout (mount.ts), so STEP and STL/preview never drift apart.
+  if (design.flangeSpec.mount === "keyhole") {
+    const layout = layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin);
+    for (const slot of layout.slots) {
+      const cutter = screwMountCutterSolid(slot, layout.recessDepth, -flangeSpec.thickness);
+      coreSolid = coreSolid.cut(cutter);
+    }
   }
 
   const corePart = design.parts.find((p) => p.role === "core")!;

@@ -84,6 +84,14 @@ export interface PrintSpec {
   bedZ: number;
 }
 
+/**
+ * Wall mount (issue #13, docs/research.md "Mounting"): `"keyhole"` recesses
+ * a screw-keyhole slot into the bottom flange's outer (wall-facing) face.
+ * `"none"` is the default. SKÅDIS/openGrid clip mounts are a separate mount
+ * plate (docs/research.md §1) and out of scope here.
+ */
+export type MountKind = "none" | "keyhole";
+
 /** What the user controls. */
 export interface CoilSpec {
   wire: WireSpec;
@@ -111,6 +119,8 @@ export interface CoilSpec {
    * at a legible height.
    */
   label?: string;
+  /** Wall mount (issue #13): recesses a screw-keyhole slot into the core's bottom flange. */
+  mount: MountKind;
 }
 
 export interface LayerResult {
@@ -256,6 +266,16 @@ export interface Design {
    * `step/build.ts` and `wall.ts`'s `createWallProfile`). Not for UI use. */
   wallSpec: WallSpec;
   flangeSpec: FlangeSpec;
+  /**
+   * The `bestAxisDeg` theta the screw-keyhole mount's slot(s) are actually
+   * centred/mirrored on (undefined when `spec.mount !== "keyhole"`, or the
+   * mount didn't fit at all). Not always 0 -- see mount.ts's `MountLayout`
+   * doc comment: a shape without a genuine mirror axis at literal vertical
+   * (a triangle) still hangs level, just with THIS axis vertical instead of
+   * local +Y. The viewer's wall presets rotate by this to actually show
+   * that real hung orientation, rather than the design's own local frame.
+   */
+  mountAxisDeg?: number;
 }
 
 export type ExportFormat = "stl" | "step" | "3mf";
