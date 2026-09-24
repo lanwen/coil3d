@@ -1,6 +1,6 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design, exportDesign } from "../src/core";
+import { design } from "../src/core";
 import type { CoilSpec, ShapeSpec } from "../src/core";
 
 // Issue #12 acceptance criteria: "Label text in the UI and hash; embossed
@@ -10,7 +10,10 @@ import type { CoilSpec, ShapeSpec } from "../src/core";
 // the label is included in STEP too", "The part stays manifold; Playwright
 // screenshot with a label". These tests exercise ONLY the public
 // `design()`/`exportDesign()` interface, per the testing decisions in
-// docs/research.md.
+// docs/research.md. The STEP-export case lives in test/step.test.ts instead
+// (issue #32: every OCCT/STEP test is grouped there, sequential, with a
+// generous timeout) -- see "roomySpec" there, which mirrors this file's
+// own ROOMY_CAP.
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {
@@ -99,29 +102,5 @@ describe("top cap label (issue #12)", () => {
     for (const part of d.parts) {
       await assertManifold(part.mesh, `${shape.kind}/${part.name}`);
     }
-  });
-
-  it("STEP export includes the same engraved label: one solid per part, volume matching the mesh", async () => {
-    const d = await design({ ...ROOMY_CAP, label: "USB-C 2m" });
-    const stepBytes = await exportDesign(d, "step");
-    expect(stepBytes.byteLength).toBeGreaterThan(0);
-
-    const { default: initOC } = await import("replicad-opencascadejs");
-    const oc = await initOC();
-    const path = "/reimport-label.step";
-    oc.FS.writeFile(path, stepBytes);
-    const reader = new oc.STEPControl_Reader();
-    reader.ReadFile(path);
-    reader.TransferRoots();
-    const shape = reader.OneShape();
-    oc.FS.unlink(path);
-
-    const analyzer = new oc.BRepCheck_Analyzer(shape, true, false, false);
-    expect(analyzer.IsValid()).toBe(true);
-
-    let solidCount = 0;
-    const explorer = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
-    for (; explorer.More(); explorer.Next()) solidCount++;
-    expect(solidCount).toBe(2); // core + top-cap, same as issue #9's own STEP test
   });
 });

@@ -191,4 +191,70 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
       STEP_TIMEOUT_MS,
     );
   });
+
+  describe("top cap label (issue #12)", () => {
+    // Mirrors test/label.test.ts's own ROOMY_CAP: 6 layers of wound wire on
+    // a small 30mm core pushes the flange -- and so the top cap's own
+    // annulus between bore and rim -- well past the core's own outline,
+    // leaving plenty of room for a short label at a legible height.
+    const roomySpec: CoilSpec = {
+      wire: { length: 6000, diameter: 3.8, type: "usb" },
+      shape: { kind: "round" },
+      windingQuality: 0.7,
+      coreSize: { locked: true, dimension: "outer", value: 30 },
+      height: { locked: true, value: 60 },
+      layers: { locked: true, value: 6 },
+      objective: "minVolume",
+      topCap: "on",
+      joint: "press",
+      tolerance: 0.2,
+      print: { bedX: 256, bedY: 256, bedZ: 256 },
+      label: "USB-C 2m",
+    };
+
+    it(
+      "STEP export includes the same engraved label: one solid per part, volume matching the mesh",
+      async () => {
+        const d = await design(roomySpec);
+        const stepBytes = await exportDesign(d, "step");
+        expect(stepBytes.byteLength).toBeGreaterThan(0);
+
+        const { default: initOC } = await import("replicad-opencascadejs");
+        const oc = await initOC();
+        const path = "/reimport-label.step";
+        oc.FS.writeFile(path, stepBytes);
+        const reader = new oc.STEPControl_Reader();
+        reader.ReadFile(path);
+        reader.TransferRoots();
+        const shape = reader.OneShape();
+        oc.FS.unlink(path);
+
+        const analyzer = new oc.BRepCheck_Analyzer(shape, true, false, false);
+        expect(analyzer.IsValid()).toBe(true);
+
+        let solidCount = 0;
+        let totalVolume = 0;
+        const explorer = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+        for (; explorer.More(); explorer.Next()) {
+          solidCount++;
+          const gprops = new oc.GProp_GProps();
+          oc.BRepGProp.VolumeProperties(explorer.Current(), gprops, 1e-5, false, false);
+          totalVolume += gprops.Mass();
+        }
+        expect(solidCount).toBe(2); // core + top-cap, same as issue #9's own STEP test
+
+        // The engraved label is a real, non-trivial volume difference
+        // (test/label.test.ts already proves the mesh backend removes
+        // material) -- checking it here too would just re-run that same
+        // fit; the interesting NEW claim for STEP is that its own
+        // independently-built label cutter (step/build.ts's
+        // `buildLabelCutterSolid`) agrees with the mesh backend's volume
+        // within the same tolerance every other part/joint combination here
+        // is held to.
+        const expectedVolume = d.parts.reduce((sum, p) => sum + meshVolume(p.mesh), 0);
+        expect(Math.abs(totalVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
+      },
+      STEP_TIMEOUT_MS,
+    );
+  });
 });
