@@ -1,4 +1,5 @@
 import type { Design, Solution } from "../core";
+import { Section } from "./fields";
 
 const FREE_VARIABLE_LABELS: Record<"coreSize" | "height" | "layers", string> = {
   coreSize: "core size",
@@ -79,50 +80,53 @@ export function ResultPanel({
   const { diagnosis } = solution;
 
   return (
-    <section className="result-panel">
-      <h2>Result</h2>
-      <p className={`diagnosis diagnosis-${diagnosis.status}`} data-testid="diagnosis-message">
-        <strong data-testid="diagnosis-status">{diagnosis.status}</strong> ({diagnosis.freeCount} free:{" "}
-        {diagnosis.freeVariables.map((v) => FREE_VARIABLE_LABELS[v]).join(", ") || "none"}) --{" "}
-        {diagnosis.message}
-      </p>
-      <Row
-        testId="mesh-detail"
-        label="Mesh detail"
-        value={`${resolution} (${(mesh.indices.length / 3).toLocaleString()} triangles)`}
-      />
-      <SolutionSummary solution={solution} prefix="" shapeKind={design.spec.shape.kind} />
-      {warnings.length > 0 && (
-        <ul className="warnings" data-testid="warnings">
-          {warnings.map((warning) => (
-            <li key={warning}>{warning}</li>
-          ))}
-        </ul>
-      )}
-      {solution.alternates.length > 0 && (
-        <div className="alternate-candidate" data-testid="alternate-candidate">
-          {solution.alternates.map((alt, i) => (
-            <div key={i} className="alternate-candidate-item" data-testid={`alternate-candidate-${i}`}>
-              <h3>
-                Alternate candidate {i + 1} (layers={alt.layers}
-                {alt.objectiveUsed ? `, ${alt.objectiveUsed}` : ""})
-              </h3>
-              <SolutionSummary solution={alt} prefix={`alt${i}-`} shapeKind={design.spec.shape.kind} />
-            </div>
-          ))}
-        </div>
-      )}
-      {!finalReady && (
-        <p className="settling" data-testid="resolution-settling">
-          Rendering the full-resolution model for export…
+    <>
+      <Section title="Result">
+        <p className={`diagnosis diagnosis-${diagnosis.status}`} data-testid="diagnosis-message">
+          <strong data-testid="diagnosis-status">{diagnosis.status}</strong> ({diagnosis.freeCount} free:{" "}
+          {diagnosis.freeVariables.map((v) => FREE_VARIABLE_LABELS[v]).join(", ") || "none"}) --{" "}
+          {diagnosis.message}
         </p>
-      )}
-      <button type="button" data-testid="download-stl" onClick={onDownloadStl} disabled={!finalReady}>
-        Download STL
-      </button>
-      <button type="button" data-testid="download-step" onClick={onDownloadStep} disabled={!finalReady || stepBusy}>
-        {stepBusy ? "Preparing STEP…" : "Download STEP"}
-      </button>
-    </section>
+        <Row
+          testId="mesh-detail"
+          label="Mesh detail"
+          value={`${resolution} (${(mesh.indices.length / 3).toLocaleString()} triangles)`}
+        />
+        <SolutionSummary solution={solution} prefix="" shapeKind={design.spec.shape.kind} />
+        {warnings.length > 0 && (
+          <ul className="warnings" data-testid="warnings">
+            {warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        )}
+        {solution.alternates.length > 0 && (
+          <div className="alternate-candidate" data-testid="alternate-candidate">
+            {solution.alternates.map((alt, i) => (
+              <div key={i} className="alternate-candidate-item" data-testid={`alternate-candidate-${i}`}>
+                <h3>
+                  Alternate candidate {i + 1} (layers={alt.layers}
+                  {alt.objectiveUsed ? `, ${alt.objectiveUsed}` : ""})
+                </h3>
+                <SolutionSummary solution={alt} prefix={`alt${i}-`} shapeKind={design.spec.shape.kind} />
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+      <Section title="Export">
+        {!finalReady && (
+          <p className="settling" data-testid="resolution-settling">
+            Rendering the full-resolution model for export…
+          </p>
+        )}
+        <button type="button" className="btn-primary" data-testid="download-stl" onClick={onDownloadStl} disabled={!finalReady}>
+          Download STL
+        </button>
+        <button type="button" className="btn-primary" data-testid="download-step" onClick={onDownloadStep} disabled={!finalReady || stepBusy}>
+          {stepBusy ? "Preparing STEP…" : "Download STEP"}
+        </button>
+      </Section>
+    </>
   );
 }
