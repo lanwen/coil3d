@@ -28,6 +28,7 @@ import {
   MARGIN,
   MIN_BORE_CORNER_RADIUS,
   MIN_BORE_RADIUS,
+  MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
   FINAL_ROWS_PER_PITCH,
   FINAL_COLUMNS,
   DRAFT_ROWS_PER_PITCH,
@@ -39,6 +40,7 @@ import {
 import { buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut } from "./manifold";
 import { printBBox } from "./plate";
+import { layoutKeyholeMount, requiredFlangeMargin } from "./mount";
 import { circumscribedRadius, makeOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { resolveLabel } from "./label";
@@ -93,20 +95,44 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     columns,
     rowsPerPitch,
   };
+  const wantsKeyhole = spec.mount === "keyhole";
+
+  // The flange must clear the outermost wound layer, not just the core's
+  // own wall (docs/research.md §1 "Flange size = final outer envelope +
+  // margin"): solution.flangeSize already accounts for every layer, so the
+  // effective margin beyond the core's own outline grows with layer count.
+  // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
+  // (the offset term is additive, see shapes.ts), so this margin is exactly
+  // what's needed for the flange's own circumscribed radius to reach
+  // solution.flangeSize / 2.
+  const baseMargin = Math.max(FLANGE_MARGIN, solution.flangeSize / 2 - circumscribedRadius(outline, 0));
+  // Issue #13: the screw-keyhole mount needs a flange annulus (wall
+  // thickness + margin) wide enough to hold the whole slot, and a flange
+  // thick enough for the recess + a load-bearing shelf above it. Bump both
+  // up to the required minimum and warn, rather than silently skipping the
+  // mount ("The flange must be thick enough for the recess; enforce a
+  // minimum and warn" -- the ticket's own wording, applied to both the
+  // radial and axial minimums a real screw mount needs).
+  const margin = wantsKeyhole ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline)) : baseMargin;
+  const thickness = wantsKeyhole ? Math.max(FLANGE_THICKNESS, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT) : FLANGE_THICKNESS;
+  if (wantsKeyhole && margin > baseMargin) {
+    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
+  }
+  if (wantsKeyhole && thickness > FLANGE_THICKNESS) {
+    warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
+  }
+  if (wantsKeyhole) {
+    const layout = layoutKeyholeMount(outline, boreOutline, margin);
+    if (layout.warning) warnings.push(layout.warning);
+  }
+
   const flangeSpec = {
     outline,
     boreOutline,
-    // The flange must clear the outermost wound layer, not just the core's
-    // own wall (docs/research.md §1 "Flange size = final outer envelope +
-    // margin"): solution.flangeSize already accounts for every layer, so the
-    // effective margin beyond the core's own outline grows with layer count.
-    // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
-    // (the offset term is additive, see shapes.ts), so this margin is exactly
-    // what's needed for the flange's own circumscribed radius to reach
-    // solution.flangeSize / 2.
-    margin: Math.max(FLANGE_MARGIN, solution.flangeSize / 2 - circumscribedRadius(outline, 0)),
-    thickness: FLANGE_THICKNESS,
+    margin,
+    thickness,
     columns,
+    mount: spec.mount,
   };
 
   // Top cap (issue #9): `solution.topCapEnabled` (solve.ts) already resolved

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, JointKind, Lock, Objective, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
+import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, Objective, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
 import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, LABEL_MAX_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
 import { LockRangeField, LockStepperField, RangeField, Section, TextField } from "./fields";
 
@@ -26,6 +26,11 @@ const SHAPE_OPTIONS: Array<{ id: ShapeKind; label: string }> = [
   { id: "round", label: "Round" },
   { id: "sq", label: "Rounded square" },
   { id: "tri", label: "Rounded triangle" },
+];
+
+const MOUNT_OPTIONS: Array<{ id: MountKind; label: string }> = [
+  { id: "none", label: "None" },
+  { id: "keyhole", label: "Screw keyhole (wall mount)" },
 ];
 
 export function ControlsForm({
@@ -166,6 +171,19 @@ export function ControlsForm({
           freeValue={solution?.layers ?? 1}
           onChange={(lock) => onChange({ ...spec, layers: lock })}
         />
+      </Section>
+
+      <Section title="Mount">
+        <label className="field">
+          <span className="field-label">Wall mount</span>
+          <select className="field-select" data-testid="select-mount" value={spec.mount} onChange={(e) => onChange({ ...spec, mount: e.target.value as MountKind })}>
+            {MOUNT_OPTIONS.map((opt) => (
+              <option key={opt.id} value={opt.id}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </Section>
 
       <details className="advanced" ref={advancedRef}>

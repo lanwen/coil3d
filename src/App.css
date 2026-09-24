@@ -133,8 +133,32 @@ header p {
 }
 
 .coil-viewer-frame {
+  position: relative;
   width: 100%;
   height: 100%;
+}
+
+.wall-view-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.wall-view-caption {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 1;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  color: #333;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 4px;
 }
 
 /* Draft -> final swap (issue #7, docs/research.md §10b): a short fade so the

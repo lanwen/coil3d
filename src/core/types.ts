@@ -84,6 +84,14 @@ export interface PrintSpec {
   bedZ: number;
 }
 
+/**
+ * Wall mount (issue #13, docs/research.md "Mounting"): `"keyhole"` recesses
+ * a screw-keyhole slot into the bottom flange's outer (wall-facing) face.
+ * `"none"` is the default. SKÅDIS/openGrid clip mounts are a separate mount
+ * plate (docs/research.md §1) and out of scope here.
+ */
+export type MountKind = "none" | "keyhole";
+
 /** What the user controls. */
 export interface CoilSpec {
   wire: WireSpec;
@@ -111,6 +119,8 @@ export interface CoilSpec {
    * at a legible height.
    */
   label?: string;
+  /** Wall mount (issue #13): recesses a screw-keyhole slot into the core's bottom flange. */
+  mount: MountKind;
 }
 
 export interface LayerResult {

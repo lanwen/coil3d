@@ -43,6 +43,7 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    mount: "none",
   };
 
   describe("exportDesign(design, 'step')", () => {
@@ -103,6 +104,7 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
           joint: "press",
           tolerance: 0.2,
           print: { bedX: 256, bedY: 256, bedZ: 256 },
+          mount: "none",
         };
         const d = await design(spec);
         const stepBytes = await exportDesign(d, "step");
@@ -138,6 +140,60 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
     );
   });
 
+  describe("design().mesh with the screw-keyhole wall mount (issue #13)", () => {
+    it(
+      "re-imports the STEP export as one valid solid with volume matching the mesh, with the mount cut",
+      async () => {
+        const spec: CoilSpec = {
+          wire: { length: 1500, diameter: 3.8, type: "usb" },
+          shape: { kind: "round" },
+          windingQuality: 0.7,
+          coreSize: { locked: true, dimension: "outer", value: 100 },
+          height: { locked: true, value: 60 },
+          layers: { locked: true, value: 1 },
+          objective: "minVolume",
+          topCap: "auto",
+          joint: "press",
+          tolerance: 0.2,
+          print: { bedX: 256, bedY: 256, bedZ: 256 },
+          mount: "keyhole",
+        };
+        const d = await design(spec);
+        expect(d.flangeSpec.mount).toBe("keyhole");
+
+        const stepBytes = await exportDesign(d, "step");
+        expect(stepBytes.byteLength).toBeGreaterThan(0);
+
+        const { default: initOC } = await import("replicad-opencascadejs");
+        const oc = await initOC();
+        const path = "/reimport-keyhole.step";
+        oc.FS.writeFile(path, stepBytes);
+        const reader = new oc.STEPControl_Reader();
+        reader.ReadFile(path);
+        reader.TransferRoots();
+        const shape = reader.OneShape();
+        oc.FS.unlink(path);
+
+        const analyzer = new oc.BRepCheck_Analyzer(shape, true, false, false);
+        expect(analyzer.IsValid()).toBe(true);
+
+        let solidCount = 0;
+        const explorer = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+        for (; explorer.More(); explorer.Next()) solidCount++;
+        expect(solidCount).toBe(1); // the recess is a blind pocket -- still one solid, not a separate part
+
+        const gprops = new oc.GProp_GProps();
+        oc.BRepGProp.VolumeProperties(shape, gprops, 1e-5, false, false);
+        const reimportedVolume = gprops.Mass();
+
+        const expectedVolume = meshVolume(d.mesh);
+        expect(reimportedVolume).toBeGreaterThan(0);
+        expect(Math.abs(reimportedVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
+      },
+      STEP_TIMEOUT_MS,
+    );
+  });
+
   describe("exportDesign for a two-part design (issue #9)", () => {
     const JOINTS: JointKind[] = ["press", "bayonet", "snap"];
     const twoPartSpec: CoilSpec = {
@@ -152,6 +208,7 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
       joint: "press",
       tolerance: 0.2,
       print: { bedX: 256, bedY: 256, bedZ: 256 },
+      mount: "none",
     };
 
     it.each(JOINTS)(

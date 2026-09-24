@@ -73,15 +73,31 @@ function buildCreasedGeometry(mesh: CoilMesh): THREE.BufferGeometry {
 }
 
 /**
- * A non-core part, lifted along Z by `offset` mm when `exploded`. Eases
- * toward its target with `THREE.MathUtils.damp` (frame-rate independent) and
- * re-invalidates the demand-mode canvas every frame until it settles;
- * `prefers-reduced-motion` skips the easing and jumps straight there.
+ * A non-core part, lifted along `axis` by `offset` mm when `exploded` (the
+ * coil's own axis, wherever it currently renders -- world Z when standing,
+ * or wherever WALL_VIEW_ROTATION remaps it to once the wall-view preset is
+ * on, see that matrix's own comment). Eases toward its target with
+ * `THREE.MathUtils.damp` (frame-rate independent) and re-invalidates the
+ * demand-mode canvas every frame until it settles; `prefers-reduced-motion`
+ * skips the easing and jumps straight there.
  */
-function ExplodedPart({ geometry, offset, exploded, reducedMotion }: { geometry: THREE.BufferGeometry; offset: number; exploded: boolean; reducedMotion: boolean }) {
+function ExplodedPart({
+  geometry,
+  offset,
+  axis,
+  exploded,
+  reducedMotion,
+}: {
+  geometry: THREE.BufferGeometry;
+  offset: number;
+  axis: THREE.Vector3;
+  exploded: boolean;
+  reducedMotion: boolean;
+}) {
   const groupRef = useRef<THREE.Group>(null);
   const invalidate = useThree((s) => s.invalidate);
   const target = exploded ? offset : 0;
+  const current = useRef(0);
 
   useEffect(() => {
     invalidate(); // kick the demand-mode loop whenever the target changes
@@ -91,11 +107,13 @@ function ExplodedPart({ geometry, offset, exploded, reducedMotion }: { geometry:
     const group = groupRef.current;
     if (!group) return;
     if (reducedMotion) {
-      group.position.z = target;
+      current.current = target;
+      group.position.copy(axis).multiplyScalar(target);
       return;
     }
-    const next = THREE.MathUtils.damp(group.position.z, target, EXPLODE_EASE_RATE, delta);
-    group.position.z = next;
+    const next = THREE.MathUtils.damp(current.current, target, EXPLODE_EASE_RATE, delta);
+    current.current = next;
+    group.position.copy(axis).multiplyScalar(next);
     if (Math.abs(next - target) > EXPLODE_SETTLE_EPS) invalidate();
   });
 
@@ -105,6 +123,58 @@ function ExplodedPart({ geometry, offset, exploded, reducedMotion }: { geometry:
     </group>
   );
 }
+
+// Wall-mount preset (issue #13 AC: "the viewer can show the wall
+// orientation, bottom flange against the wall, top cap facing the room").
+// The core's own axis is Z (wall.ts: the bottom flange sits at z=-thickness,
+// the open/top-cap end at z=height); this remaps it onto world X, laying the
+// coil on its side the way it hangs in real life -- axis horizontal,
+// pointing out of the wall (docs/research.md "Wall orientation") -- rather
+// than the default standing-on-its-flange preview.
+//
+// The remaining two axes are NOT an arbitrary choice: mount.ts's WALL_UP
+// (local +Y in the flange plane -- where the keyhole slots' own "up" is
+// defined, see that file's header) must land on the axis the LineArtRenderer
+// camera actually renders as vertical on screen. That renderer's camera uses
+// a FIXED, oblique view direction (LineArtRenderer.tsx's VIEW_DIR) with
+// `up = world +Z` (its UP constant) -- with an oblique view direction, only
+// a difference along the camera's OWN up vector (which `lookAt`/Gram-Schmidt
+// derives FROM world +Z) is guaranteed to render with zero horizontal
+// component; a difference along any other world axis leaks into the
+// screen's horizontal axis too (exactly the bug this rotation fixes: an
+// earlier version sent local Y to world Y, which -- combined with this
+// camera's tilt -- rendered two slots meant to sit side by side as stacked
+// on top of each other instead). So: local Y (mount.ts's WALL_UP) -> world Z
+// (this renderer's vertical), and local X (left/right between 2 slots) ->
+// world Y, which is what's left over.
+//
+// This must rotate the GEOMETRY itself, not a wrapping group:
+// LineArtRenderer frames the camera from `geometry`'s own LOCAL vertex
+// positions (see LineArtRenderer.tsx's reframe effect), with no knowledge
+// of a parent transform, so a group-level rotation would frame the
+// UNrotated shape while rendering the rotated one. The schematic wire
+// geometries (issue #4) are rotated the identical way, so the wire never
+// visually separates from its coil when the preset is toggled.
+const WALL_REMAP = new THREE.Matrix4().makeBasis(
+  new THREE.Vector3(0, 1, 0), // local +X (left/right between 2 slots) -> world +Y
+  new THREE.Vector3(0, 0, 1), // local +Y (mount.ts's WALL_UP) -> world +Z (this renderer's vertical)
+  new THREE.Vector3(1, 0, 0), // local +Z (the coil's own axis) -> world +X (sticking out of the wall)
+);
+// A world-X-only difference (see WALL_REMAP above) has zero horizontal
+// screen component, but its OWN vertical screen component isn't maximised
+// at world Z's own extreme: this renderer's oblique VIEW_DIR/UP tilt the
+// projected "up" a further ~24.2 degrees around that depth axis (derived
+// from VIEW_DIR=(1,-1,0.9)/UP=(0,0,1): the camera's own up vector,
+// (right x forward), points partway into world Y too, not purely Z). Left
+// uncorrected, mount.ts's WALL_UP (theta=0, "top centre") lands about a
+// quarter-turn off the ellipse's own visual apex once the flange is
+// rotated face-on-ish, so two slots meant to sit level and side by side
+// instead read as one clear (near the apex) and one barely-visible, deep
+// in the foreshortened silhouette (issue #13 PR review). This extra spin
+// about the SAME depth axis (world X) cancels that, independent of the
+// model: it only depends on this renderer's own fixed camera, not on any
+// particular design.
+const WALL_VIEW_ROTATION = new THREE.Matrix4().makeRotationX(-0.42285392613294076).multiply(WALL_REMAP);
 
 /**
  * The IKEA line-art look (issue #3, docs/research.md §5 & §10b): the mesh is
@@ -124,6 +194,7 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   const frameRef = useRef<HTMLDivElement | null>(null);
   const prevResolution = useRef<Resolution>(resolution);
   const reducedMotion = usePrefersReducedMotion();
+  const [wallView, setWallView] = useState(false);
 
   const partGeometries = useMemo(() => parts.map((part) => ({ part, geometry: buildCreasedGeometry(part.mesh) })), [parts]);
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
@@ -132,20 +203,69 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   // fixed gap, so it clears itself regardless of design scale.
   const explodeOffsets = useMemo(() => new Map(parts.filter((p) => p.role !== "core").map((p) => [p.name, zExtent(p.mesh) + EXPLODE_GAP])), [parts]);
 
+  // Deliberately NOT creased (unlike the coil geometry above): a tube's own
+  // radial facets would otherwise draw a spurious line at every facet ridge,
+  // hatching the whole coil (see src/viewer/wireGeometry.ts / S3 spike RESULT.md).
+  const wireGeometries = useMemo(() => {
+    if (!showWire || !wirePaths?.length || !wireDiameter) return [];
+    return buildWireGeometries(wirePaths, wireDiameter / 2);
+  }, [showWire, wirePaths, wireDiameter]);
+  useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
+
+  // Wall-view preset: physically rotated COPIES of every part's geometry (not
+  // the base `partGeometries`/`wireGeometries`, which the draft/final swap
+  // and the crease pass above both key off of), so toggling the preset never
+  // disturbs those.
+  const viewPartGeometries = useMemo(() => {
+    if (!wallView) return partGeometries;
+    return partGeometries.map(({ part, geometry }) => {
+      const rotated = geometry.clone();
+      rotated.applyMatrix4(WALL_VIEW_ROTATION);
+      return { part, geometry: rotated };
+    });
+  }, [partGeometries, wallView]);
+  useEffect(() => {
+    if (viewPartGeometries === partGeometries) return;
+    return () => viewPartGeometries.forEach(({ geometry }) => geometry.dispose());
+  }, [viewPartGeometries, partGeometries]);
+
+  const viewWireGeometries = useMemo(() => {
+    if (!wallView) return wireGeometries;
+    return wireGeometries.map((g) => {
+      const rotated = g.clone();
+      rotated.applyMatrix4(WALL_VIEW_ROTATION);
+      return rotated;
+    });
+  }, [wireGeometries, wallView]);
+  useEffect(() => {
+    if (viewWireGeometries === wireGeometries) return;
+    return () => viewWireGeometries.forEach((g) => g.dispose());
+  }, [viewWireGeometries, wireGeometries]);
+
+  // The exploded-view lift direction: the coil's own axis, wherever it
+  // currently renders -- world Z when standing, or world X once
+  // WALL_VIEW_ROTATION remaps it (see that matrix's own comment: "local +Z
+  // (the coil's own axis) -> world +X").
+  const explodeAxis = useMemo(() => new THREE.Vector3(wallView ? 1 : 0, 0, wallView ? 0 : 1), [wallView]);
+
   // A stable framing geometry (issue #9): every non-core part contributes
   // its FULLY exploded position, not its live animated one, so the camera
   // never reframes mid-explode -- only the parts themselves move (see
-  // ExplodedPart above). Position-only (no index/normals needed):
-  // LineArtRenderer only reads bounding-sphere/vertex bounds from it.
+  // ExplodedPart above). Built from the (possibly wall-view-rotated) part
+  // geometries, so framing always matches what's actually on screen.
+  // Position-only (no index/normals needed): LineArtRenderer only reads
+  // bounding-sphere/vertex bounds from it.
   const framingGeometry = useMemo(() => {
-    const chunks = parts.map((part) => {
+    const chunks = viewPartGeometries.map(({ part, geometry }) => {
       const offset = explodeOffsets.get(part.name) ?? 0;
-      if (offset === 0) return part.mesh.positions;
-      const shifted = new Float32Array(part.mesh.positions.length);
+      const positions = (geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+      if (offset === 0) return positions;
+      const shift = explodeAxis.clone().multiplyScalar(offset);
+      const shifted = new Float32Array(positions.length);
       for (let i = 0; i < shifted.length; i += 3) {
-        shifted[i] = part.mesh.positions[i];
-        shifted[i + 1] = part.mesh.positions[i + 1];
-        shifted[i + 2] = part.mesh.positions[i + 2] + offset;
+        shifted[i] = positions[i] + shift.x;
+        shifted[i + 1] = positions[i + 1] + shift.y;
+        shifted[i + 2] = positions[i + 2] + shift.z;
       }
       return shifted;
     });
@@ -158,17 +278,8 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [parts, explodeOffsets]);
+  }, [viewPartGeometries, explodeOffsets, explodeAxis]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
-
-  // Deliberately NOT creased (unlike the coil geometry above): a tube's own
-  // radial facets would otherwise draw a spurious line at every facet ridge,
-  // hatching the whole coil (see src/viewer/wireGeometry.ts / S3 spike RESULT.md).
-  const wireGeometries = useMemo(() => {
-    if (!showWire || !wirePaths?.length || !wireDiameter) return [];
-    return buildWireGeometries(wirePaths, wireDiameter / 2);
-  }, [showWire, wirePaths, wireDiameter]);
-  useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
 
   // Draft -> final swap gets a short edge fade (issue #7 AC), matching the
   // gridfinity-layout-tool review's approach (docs/research.md §10b: "the
@@ -190,6 +301,14 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
 
   return (
     <div ref={frameRef} data-testid="coil-viewer" className="coil-viewer-frame">
+      <button type="button" data-testid="toggle-wall-view" className="wall-view-toggle" onClick={() => setWallView((v) => !v)}>
+        {wallView ? "Standing view" : "Wall-mount view"}
+      </button>
+      {wallView && (
+        <p className="wall-view-caption" data-testid="wall-view-caption">
+          Bottom flange against the wall -- top cap faces the room
+        </p>
+      )}
       <Canvas
         orthographic
         flat
@@ -198,14 +317,14 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
         gl={{ alpha: true, antialias: false }}
         style={{ width: "100%", height: "100%", background: "transparent" }}
       >
-        {partGeometries.map(({ part, geometry }) =>
+        {viewPartGeometries.map(({ part, geometry }) =>
           part.role === "core" ? (
             <mesh key={part.name} geometry={geometry} />
           ) : (
-            <ExplodedPart key={part.name} geometry={geometry} offset={explodeOffsets.get(part.name) ?? 0} exploded={exploded} reducedMotion={reducedMotion} />
+            <ExplodedPart key={part.name} geometry={geometry} offset={explodeOffsets.get(part.name) ?? 0} axis={explodeAxis} exploded={exploded} reducedMotion={reducedMotion} />
           ),
         )}
-        {wireGeometries.map((g, i) => (
+        {viewWireGeometries.map((g, i) => (
           <mesh key={i} geometry={g} />
         ))}
         <LineArtRenderer geometry={framingGeometry} controlsRef={controlsRef} />
