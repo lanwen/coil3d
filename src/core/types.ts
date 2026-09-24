@@ -138,6 +138,20 @@ export interface CoilMesh {
   indices: Uint32Array;
 }
 
+/**
+ * The schematic wound-cable centerline for one layer (issue #4): a dense
+ * sample of the same helix the solver sized (orthocyclic offset, pitch and
+ * a half-pitch phase shift per layer), for the viewer to loft into a tube.
+ * This is schematic, not a printable part -- it is never exported.
+ */
+export interface WireLayerPath {
+  /** 1-indexed, matches `LayerResult.layer` / `Solution.layerResults`. */
+  layer: number;
+  turns: number;
+  /** Wire centerline points (x, y, z, mm), 3 floats per sample, dense enough for a smooth tube. */
+  points: Float32Array;
+}
+
 /** The solved coil, ready to render or export. */
 export interface Design {
   spec: CoilSpec;
@@ -149,6 +163,9 @@ export interface Design {
    * gates exports on `resolution === "final"` -- exports must always use the
    * final resolution, never a still-in-progress draft. */
   resolution: Resolution;
+  /** The schematic wound-cable path per layer (issue #4), one entry per
+   * layer with turns > 0. Empty layers (turns === 0) are omitted. */
+  wirePaths: WireLayerPath[];
   /** The exact wall and flange parameters used to build `mesh`, kept so the
    * STEP exporter can fit its B-spline from the same grid (see
    * `step/build.ts` and `wall.ts`'s `createWallProfile`). Not for UI use. */

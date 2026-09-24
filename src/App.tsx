@@ -12,12 +12,18 @@ function readInitialState() {
 }
 
 export default function App() {
-  const [{ spec, notice }] = useState<{ spec: CoilSpec; notice?: string }>(readInitialState);
+  const [{ spec, notice, showWire: initialShowWire }] = useState(readInitialState);
   const [currentSpec, setCurrentSpec] = useState<CoilSpec>(spec);
+  // Wire visibility (issue #4) is a view-only setting, not a CoilSpec field
+  // (design() always computes wirePaths regardless), so it's tracked
+  // alongside the spec here rather than inside it.
+  const [showWire, setShowWire] = useState(initialShowWire);
 
+  // The hash reflects both the spec and the wire toggle, but toggling the
+  // wire never needs a re-solve, so it's independent of useDesignPreview below.
   useEffect(() => {
-    window.history.replaceState(null, "", toHash(currentSpec));
-  }, [currentSpec]);
+    window.history.replaceState(null, "", toHash(currentSpec, showWire));
+  }, [currentSpec, showWire]);
 
   // Issue #7: design() runs off the main thread in a worker, debounced, with
   // a fast draft while editing and the final (FDM-tuned) mesh once input
@@ -95,7 +101,28 @@ export default function App() {
             </p>
           )}
         </div>
-        <div className="viewer">{result && <CoilViewer mesh={result.mesh} resolution={result.resolution} />}</div>
+        <div className="viewer">
+          {result && (
+            <>
+              <label className="wire-toggle">
+                <input
+                  type="checkbox"
+                  data-testid="toggle-wire"
+                  checked={showWire}
+                  onChange={(e) => setShowWire(e.target.checked)}
+                />
+                <span>Show wound cable</span>
+              </label>
+              <CoilViewer
+                mesh={result.mesh}
+                resolution={result.resolution}
+                wirePaths={result.wirePaths}
+                wireDiameter={result.spec.wire.diameter}
+                showWire={showWire}
+              />
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -8,6 +8,12 @@
 // value -- the solver recomputes them. When `lock` itself is omitted, the
 // default lock (outer size + layers, height free) applies, so old links
 // from before this ticket (`v=1&L=..&d=..&size=..`) keep working.
+//
+// `wire` (issue #4) toggles the schematic wound-cable render on/off. It is
+// a view setting, not a `CoilSpec` field -- `design()` always computes
+// `wirePaths` regardless -- so it round-trips alongside the spec here
+// instead of living on `CoilSpec`. Default is shown (`1`); only an explicit
+// `wire=0` is written to the hash.
 
 import { z } from "zod";
 import { DEFAULT_CORNER_RADIUS, MAX_WIRE_LENGTH } from "./constants";
@@ -30,6 +36,8 @@ export const DEFAULT_SPEC: CoilSpec = {
   objective: "minVolume",
 };
 
+export const DEFAULT_SHOW_WIRE = true;
+
 const DEFAULT_LOCK_TOKENS = ["outer", "ly"] as const;
 const LOCK_TOKENS = ["outer", "inner", "h", "ly"] as const;
 type LockToken = (typeof LOCK_TOKENS)[number];
@@ -49,16 +57,19 @@ const QuerySchema = z.object({
   size: z.coerce.number().finite().min(1).max(1000).optional(),
   h: z.coerce.number().finite().min(1).max(1000).optional(),
   ly: z.coerce.number().int().min(1).max(100).optional(),
+  wire: z.enum(["0", "1"]).optional(),
 });
 
 export interface ParsedHash {
   spec: CoilSpec;
+  /** Whether the schematic wound-cable render should be shown (issue #4). */
+  showWire: boolean;
   /** Set when the hash was unreadable and defaults were substituted. */
   notice?: string;
 }
 
 function fallback(notice: string): ParsedHash {
-  return { spec: cloneSpec(DEFAULT_SPEC), notice };
+  return { spec: cloneSpec(DEFAULT_SPEC), showWire: DEFAULT_SHOW_WIRE, notice };
 }
 
 function cloneSpec(spec: CoilSpec): CoilSpec {
@@ -76,7 +87,7 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
 /** Parse a `location.hash`-style string (with or without the leading `#`). */
 export function parseHash(hash: string): ParsedHash {
   const qs = hash.replace(/^#/, "");
-  if (!qs) return { spec: cloneSpec(DEFAULT_SPEC) };
+  if (!qs) return { spec: cloneSpec(DEFAULT_SPEC), showWire: DEFAULT_SHOW_WIRE };
 
   const raw = Object.fromEntries(new URLSearchParams(qs).entries());
   if (raw.v !== undefined && raw.v !== HASH_VERSION) {
@@ -140,11 +151,12 @@ export function parseHash(hash: string): ParsedHash {
     layers,
     objective: p.obj === "ar" ? "aspectRatio" : "minVolume",
   };
-  return { spec };
+  const showWire = p.wire !== undefined ? p.wire !== "0" : DEFAULT_SHOW_WIRE;
+  return { spec, showWire };
 }
 
 /** Encode a spec into a hash string (with leading `#`), omitting defaults. */
-export function toHash(spec: CoilSpec): string {
+export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE): string {
   const params = new URLSearchParams();
   params.set("v", HASH_VERSION);
 
@@ -178,6 +190,7 @@ export function toHash(spec: CoilSpec): string {
     if (spec.layers.value !== DEFAULT_LAYERS) params.set("ly", String(spec.layers.value));
   }
   if (lockTokens.join(",") !== DEFAULT_LOCK_TOKENS.join(",")) params.set("lock", lockTokens.join(","));
+  if (showWire !== DEFAULT_SHOW_WIRE) params.set("wire", showWire ? "1" : "0");
 
   return `#${params.toString()}`;
 }

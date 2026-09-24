@@ -14,6 +14,11 @@
 // `resolution` (issue #7) only ever changes the mesh's column/row density
 // (see constants.ts); the solved numbers, warnings and wall/flange specs are
 // identical between draft and final for the same spec.
+//
+// `wirePaths` (issue #4) is the schematic wound-cable centerline per layer,
+// built from the exact same wallSpec/layerResults used above so it can never
+// drift from the printed groove or the solved turns/offsets (see wire.ts).
+// It doesn't depend on `resolution` beyond the wallSpec fields it reads.
 
 import {
   FLANGE_MARGIN,
@@ -36,6 +41,7 @@ import type { ShapeOutline } from "./shapes";
 import { solve } from "./solve";
 import type { CoilSpec, Design, Resolution } from "./types";
 import { buildWall } from "./wall";
+import { buildWirePaths } from "./wire";
 
 export async function design(spec: CoilSpec, resolution: Resolution = "final"): Promise<Design> {
   const { solution, warnings } = solve(spec);
@@ -101,6 +107,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const wall = buildWall(wallSpec);
   const mesh = await fuseFlange(wall, flangeSpec);
+  const wirePaths = buildWirePaths(solution.layerResults, wallSpec, spec.windingQuality);
 
-  return { spec, solution, warnings, mesh, resolution, wallSpec, flangeSpec };
+  return { spec, solution, warnings, mesh, resolution, wirePaths, wallSpec, flangeSpec };
 }

@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SPEC, parseHash, toHash } from "../src/core";
+import { DEFAULT_SHOW_WIRE, DEFAULT_SPEC, parseHash, toHash } from "../src/core";
 import type { CoilSpec } from "../src/core";
 
 describe("parseHash / toHash", () => {
   it("parses an empty hash as the defaults, with no notice", () => {
-    expect(parseHash("")).toEqual({ spec: DEFAULT_SPEC });
-    expect(parseHash("#")).toEqual({ spec: DEFAULT_SPEC });
+    expect(parseHash("")).toEqual({ spec: DEFAULT_SPEC, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash("#")).toEqual({ spec: DEFAULT_SPEC, showWire: DEFAULT_SHOW_WIRE });
   });
 
   it("always stamps the version, and omits fields equal to the default", () => {
@@ -16,6 +16,7 @@ describe("parseHash / toHash", () => {
     const hash = "#v=1&d=6";
     expect(parseHash(hash)).toEqual({
       spec: { ...DEFAULT_SPEC, wire: { ...DEFAULT_SPEC.wire, diameter: 6 } },
+      showWire: DEFAULT_SHOW_WIRE,
     });
   });
 
@@ -25,7 +26,7 @@ describe("parseHash / toHash", () => {
       wire: { length: 5000, diameter: 8, type: "usb" },
       coreSize: { locked: true, dimension: "outer", value: 60 },
     };
-    expect(parseHash(toHash(spec))).toEqual({ spec });
+    expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
 
   it("round-trips locking height and outer size (issue #5 example: lock=h,outer)", () => {
@@ -39,7 +40,7 @@ describe("parseHash / toHash", () => {
     expect(hash).toContain("lock=");
     const params = new URLSearchParams(hash.replace(/^#/, ""));
     expect(new Set(params.get("lock")!.split(","))).toEqual(new Set(["h", "outer"]));
-    expect(parseHash(hash)).toEqual({ spec });
+    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
 
   it("round-trips a locked inner bore, a custom wire type, quality and objective", () => {
@@ -52,15 +53,15 @@ describe("parseHash / toHash", () => {
       layers: { locked: false },
       objective: "aspectRatio",
     };
-    expect(parseHash(toHash(spec))).toEqual({ spec });
+    expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
 
   it("round-trips a fully free (0-locked) and a fully locked (3-locked) spec", () => {
     const free: CoilSpec = { ...DEFAULT_SPEC, coreSize: { locked: false }, layers: { locked: false } };
-    expect(parseHash(toHash(free))).toEqual({ spec: free });
+    expect(parseHash(toHash(free))).toEqual({ spec: free, showWire: DEFAULT_SHOW_WIRE });
 
     const fullyLocked: CoilSpec = { ...DEFAULT_SPEC, height: { locked: true, value: 45 } };
-    expect(parseHash(toHash(fullyLocked))).toEqual({ spec: fullyLocked });
+    expect(parseHash(toHash(fullyLocked))).toEqual({ spec: fullyLocked, showWire: DEFAULT_SHOW_WIRE });
   });
 
   it("old links without a lock param keep working (default lock: outer size + layers)", () => {
@@ -128,5 +129,17 @@ describe("parseHash / toHash", () => {
     const { spec, notice } = parseHash("#v=1&sq.rc=20");
     expect(spec).toEqual(DEFAULT_SPEC);
     expect(notice).toBeDefined();
+  });
+
+  it("the wire toggle (issue #4) defaults to shown and round-trips through the hash", () => {
+    expect(parseHash("").showWire).toBe(true);
+    expect(toHash(DEFAULT_SPEC, true)).toBe("#v=1"); // shown is the default: omitted from the hash
+
+    const hidden = toHash(DEFAULT_SPEC, false);
+    expect(hidden).toContain("wire=0");
+    expect(parseHash(hidden)).toEqual({ spec: DEFAULT_SPEC, showWire: false });
+
+    // An explicit wire=1 is accepted too, even though it's never written.
+    expect(parseHash("#v=1&wire=1").showWire).toBe(true);
   });
 });
