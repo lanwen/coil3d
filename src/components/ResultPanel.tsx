@@ -68,6 +68,7 @@ export function ResultPanel({
   design,
   finalReady,
   onDownloadStl,
+  onDownloadThreeMf,
   onDownloadStep,
   stepBusy,
 }: {
@@ -77,6 +78,7 @@ export function ResultPanel({
    * final resolution. */
   finalReady: boolean;
   onDownloadStl: () => void;
+  onDownloadThreeMf: () => void;
   onDownloadStep: () => void;
   stepBusy: boolean;
 }) {
@@ -127,6 +129,9 @@ export function ResultPanel({
         )}
         <button type="button" className="btn-primary" data-testid="download-stl" onClick={onDownloadStl} disabled={!finalReady}>
           Download STL
+        </button>
+        <button type="button" className="btn-primary" data-testid="download-3mf" onClick={onDownloadThreeMf} disabled={!finalReady}>
+          Download 3MF
         </button>
         <button type="button" className="btn-primary" data-testid="download-step" onClick={onDownloadStep} disabled={!finalReady || stepBusy}>
           {stepBusy ? "Preparing STEP…" : "Download STEP"}

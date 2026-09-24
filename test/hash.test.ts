@@ -55,6 +55,7 @@ describe("parseHash / toHash", () => {
       topCap: "auto",
       joint: "press",
       tolerance: 0.2,
+      print: { bedX: 256, bedY: 256, bedZ: 256 },
     };
     expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
   });
@@ -164,6 +165,23 @@ describe("parseHash / toHash", () => {
     const { spec, notice } = parseHash("#v=1&tol=5");
     expect(spec).toEqual(DEFAULT_SPEC);
     expect(notice).toBeDefined();
+  });
+
+  it("print bed size (issue #10) round-trips and omits the default 256x256x256 mm bed", () => {
+    expect(toHash({ ...DEFAULT_SPEC, print: { bedX: 256, bedY: 256, bedZ: 256 } })).toBe("#v=1");
+
+    const spec: CoilSpec = { ...DEFAULT_SPEC, print: { bedX: 220, bedY: 220, bedZ: 250 } };
+    const hash = toHash(spec);
+    expect(hash).toContain("bx=220");
+    expect(hash).toContain("by=220");
+    expect(hash).toContain("bz=250");
+    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+
+    // A single non-default axis omits the other two.
+    const singleAxis: CoilSpec = { ...DEFAULT_SPEC, print: { bedX: 300, bedY: 256, bedZ: 256 } };
+    const singleHash = toHash(singleAxis);
+    expect(singleHash).toBe("#v=1&bx=300");
+    expect(parseHash(singleHash)).toEqual({ spec: singleAxis, showWire: DEFAULT_SHOW_WIRE });
   });
 
   it("falls back to defaults with a notice on an unknown cap/joint value", () => {

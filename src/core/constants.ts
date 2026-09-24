@@ -105,3 +105,13 @@ export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot bet
 
 /** Rim keyhole (top cap, outer cable end): the retaining slit is narrower than the hole so the cable grips after insertion. */
 export const KEYHOLE_SLIT_FRACTION = 0.6;
+
+// Print bed (issue #10, docs/research.md §1 "Print"/"bed size"). A generic
+// 256x256x256 mm build volume (e.g. Bambu X1C/P1S, Prusa MK4) is a sensible
+// default for "warn me if a part doesn't fit" -- most FDM printers this
+// project targets are at or below this size.
+export const DEFAULT_BED_SIZE = 256; // mm, each axis
+export const BED_SIZE_MIN = 50; // mm
+export const BED_SIZE_MAX = 1000; // mm
+/** Gap left between adjacent parts' footprints when laying out the 3MF build plate (export/threeMf.ts, core/plate.ts). */
+export const PLATE_GAP = 5; // mm

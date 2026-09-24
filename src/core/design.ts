@@ -38,6 +38,7 @@ import {
 } from "./constants";
 import { buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut } from "./manifold";
+import { printBBox } from "./plate";
 import { circumscribedRadius, makeOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { solve } from "./solve";
@@ -147,6 +148,32 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const mesh = parts[0].mesh;
   const wirePaths = buildWirePaths(solution.layerResults, wallSpec, spec.windingQuality, resolution);
+
+  // Per-part bed-fit warnings (issue #10 AC): each part in ITS OWN print
+  // orientation (printBBox reads printTransform, same as the STL/3MF
+  // exporters) against the user's bed size. No auto-rotation-to-fit is
+  // attempted -- docs/research.md "Out of scope": the bed size only ever
+  // triggers a warning, never an automatic layout/orientation change.
+  //
+  // `partHeight` is a max-min span, so it's unaffected by the 3MF plate
+  // layout's per-part Z snap (plate.ts's `layoutParts`: `dz = -minZ`) --
+  // that snap only moves WHERE min Z lands (0), not how tall the part
+  // is -- so this is already the same height that ends up printed between
+  // z=0 and z=bedZ on the actual plate.
+  for (const part of parts) {
+    const box = printBBox(part);
+    const footprintX = box.maxX - box.minX;
+    const footprintY = box.maxY - box.minY;
+    const partHeight = box.maxZ - box.minZ;
+    if (footprintX > spec.print.bedX || footprintY > spec.print.bedY) {
+      warnings.push(
+        `Part "${part.name}" footprint (${footprintX.toFixed(1)} x ${footprintY.toFixed(1)} mm) doesn't fit the ${spec.print.bedX} x ${spec.print.bedY} mm bed.`,
+      );
+    }
+    if (partHeight > spec.print.bedZ) {
+      warnings.push(`Part "${part.name}" height (${partHeight.toFixed(1)} mm) is taller than the ${spec.print.bedZ} mm bed.`);
+    }
+  }
 
   return { spec, solution, warnings, parts, mesh, resolution, wirePaths, wallSpec, flangeSpec };
 }

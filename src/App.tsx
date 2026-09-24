@@ -62,6 +62,12 @@ export default function App() {
     downloadBytes(bytes, multiPart ? "coil-parts.zip" : "coil.stl", multiPart ? "application/zip" : "model/stl");
   };
 
+  const handleDownloadThreeMf = async () => {
+    if (!result || !finalReady) return;
+    const bytes = await exportDesign(result, "3mf");
+    downloadBytes(bytes, "coil.3mf", "model/3mf");
+  };
+
   const handleDownloadStep = async () => {
     if (!result || !finalReady) return;
     setStepError(null);
@@ -100,6 +106,7 @@ export default function App() {
               design={result}
               finalReady={finalReady}
               onDownloadStl={handleDownloadStl}
+              onDownloadThreeMf={handleDownloadThreeMf}
               onDownloadStep={handleDownloadStep}
               stepBusy={stepBusy}
             />

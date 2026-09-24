@@ -16,7 +16,7 @@
 // `wire=0` is written to the hash.
 
 import { z } from "zod";
-import { DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, MAX_WIRE_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
+import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_BED_SIZE, DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, MAX_WIRE_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
 import type { CoilSpec, CoreSizeLock, JointKind, Lock, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
 
@@ -37,6 +37,7 @@ export const DEFAULT_SPEC: CoilSpec = {
   topCap: "auto",
   joint: "press",
   tolerance: DEFAULT_TOLERANCE,
+  print: { bedX: DEFAULT_BED_SIZE, bedY: DEFAULT_BED_SIZE, bedZ: DEFAULT_BED_SIZE },
 };
 
 export const DEFAULT_SHOW_WIRE = true;
@@ -64,6 +65,9 @@ const QuerySchema = z.object({
   cap: z.enum(["auto", "on", "off"]).optional(),
   joint: z.enum(["press", "bayonet", "snap"]).optional(),
   tol: z.coerce.number().finite().min(TOLERANCE_MIN).max(TOLERANCE_MAX).optional(),
+  bx: z.coerce.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
+  by: z.coerce.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
+  bz: z.coerce.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
 });
 
 export interface ParsedHash {
@@ -90,6 +94,7 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
     topCap: spec.topCap,
     joint: spec.joint,
     tolerance: spec.tolerance,
+    print: { ...spec.print },
   };
 }
 
@@ -149,6 +154,11 @@ export function parseHash(hash: string): ParsedHash {
   const topCap: TopCapMode = p.cap ?? DEFAULT_SPEC.topCap;
   const joint: JointKind = p.joint ?? DEFAULT_SPEC.joint;
   const tolerance = p.tol ?? DEFAULT_SPEC.tolerance;
+  const print = {
+    bedX: p.bx ?? DEFAULT_SPEC.print.bedX,
+    bedY: p.by ?? DEFAULT_SPEC.print.bedY,
+    bedZ: p.bz ?? DEFAULT_SPEC.print.bedZ,
+  };
 
   const spec: CoilSpec = {
     wire: {
@@ -166,6 +176,7 @@ export function parseHash(hash: string): ParsedHash {
     topCap,
     joint,
     tolerance,
+    print,
   };
   const showWire = p.wire !== undefined ? p.wire !== "0" : DEFAULT_SHOW_WIRE;
   return { spec, showWire };
@@ -211,6 +222,10 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE): s
   if (spec.topCap !== DEFAULT_SPEC.topCap) params.set("cap", spec.topCap);
   if (spec.joint !== DEFAULT_SPEC.joint) params.set("joint", spec.joint);
   if (spec.tolerance !== DEFAULT_SPEC.tolerance) params.set("tol", String(spec.tolerance));
+
+  if (spec.print.bedX !== DEFAULT_SPEC.print.bedX) params.set("bx", String(spec.print.bedX));
+  if (spec.print.bedY !== DEFAULT_SPEC.print.bedY) params.set("by", String(spec.print.bedY));
+  if (spec.print.bedZ !== DEFAULT_SPEC.print.bedZ) params.set("bz", String(spec.print.bedZ));
 
   return `#${params.toString()}`;
 }

@@ -18,6 +18,7 @@ const baseSpec: CoilSpec = {
   topCap: "auto",
   joint: "press",
   tolerance: 0.2,
+  print: { bedX: 256, bedY: 256, bedZ: 256 },
 };
 
 describe("design().mesh is a valid, expected manifold", () => {
@@ -150,7 +151,7 @@ describe("design(spec, resolution)", () => {
 // regression guard for this bug is the e2e screenshot suite.
 
 describe("exportDesign(design, 'stl')", () => {
-  it("produces a binary STL that parses back to the same triangles", async () => {
+  it("produces a binary STL that parses back to the same triangles, resting exactly on the bed (min Z = 0)", async () => {
     const d = await design({ ...baseSpec, wire: { length: 800, diameter: 3.8, type: "usb" } });
     const stl = await exportDesign(d, "stl");
 
@@ -160,10 +161,22 @@ describe("exportDesign(design, 'stl')", () => {
     expect(triCount).toBe(expectedTriCount);
     expect(stl.byteLength).toBe(84 + triCount * 50);
 
+    // The single "core" part's own printTransform is the identity, but its
+    // mesh isn't authored with min Z at 0 (the bottom flange sits a few mm
+    // below the wall's own z=0 origin -- see plate.ts's
+    // `bedRestingTransform` doc comment) -- so the exported STL is shifted
+    // by exactly this much to actually rest on the bed (issue #10 review).
+    let meshMinZ = Infinity;
+    for (let i = 2; i < d.mesh.positions.length; i += 3) {
+      if (d.mesh.positions[i] < meshMinZ) meshMinZ = d.mesh.positions[i];
+    }
+    const zShift = -meshMinZ;
+
     // Spot-check a handful of triangles: the STL's per-triangle vertices
     // must match the source mesh's indexed vertices (within float32
-    // precision).
+    // precision), shifted in Z by `zShift`.
     const samples = [0, Math.floor(triCount / 2), triCount - 1];
+    let stlMinZ = Infinity;
     for (const i of samples) {
       const off = 84 + i * 50 + 12; // skip the normal
       const a = d.mesh.indices[3 * i] * 3;
@@ -172,18 +185,30 @@ describe("exportDesign(design, 'stl')", () => {
       const expected = [
         d.mesh.positions[a],
         d.mesh.positions[a + 1],
-        d.mesh.positions[a + 2],
+        d.mesh.positions[a + 2] + zShift,
         d.mesh.positions[b],
         d.mesh.positions[b + 1],
-        d.mesh.positions[b + 2],
+        d.mesh.positions[b + 2] + zShift,
         d.mesh.positions[c],
         d.mesh.positions[c + 1],
-        d.mesh.positions[c + 2],
+        d.mesh.positions[c + 2] + zShift,
       ];
       for (let k = 0; k < 9; k++) {
         expect(dv.getFloat32(off + k * 4, true)).toBeCloseTo(expected[k], 4);
       }
     }
+
+    // Every vertex in the file, not just the sampled triangles: min Z is
+    // exactly 0 (issue #10 review -- the same invariant the 3MF exporter's
+    // read-back test asserts, see test/threeMf.test.ts).
+    for (let i = 0; i < triCount; i++) {
+      const off = 84 + i * 50 + 12;
+      for (let v = 0; v < 3; v++) {
+        const z = dv.getFloat32(off + v * 12 + 8, true);
+        if (z < stlMinZ) stlMinZ = z;
+      }
+    }
+    expect(stlMinZ).toBeCloseTo(0, 4);
   });
 });
 
@@ -284,6 +309,7 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
     topCap: "auto",
     joint: "press",
     tolerance: 0.2,
+    print: { bedX: 256, bedY: 256, bedZ: 256 },
   };
 
   it("is a valid watertight manifold with the analytically-expected volume", async () => {
@@ -377,6 +403,7 @@ describe("exportDesign(design, 'step') for a non-round shape (issue #6)", () => 
       topCap: "auto",
       joint: "press",
       tolerance: 0.2,
+      print: { bedX: 256, bedY: 256, bedZ: 256 },
     };
     const d = await design(spec);
     const stepBytes = await exportDesign(d, "step");
