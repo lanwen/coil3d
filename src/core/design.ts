@@ -154,6 +154,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // exporters) against the user's bed size. No auto-rotation-to-fit is
   // attempted -- docs/research.md "Out of scope": the bed size only ever
   // triggers a warning, never an automatic layout/orientation change.
+  //
+  // `partHeight` is a max-min span, so it's unaffected by the 3MF plate
+  // layout's per-part Z snap (plate.ts's `layoutParts`: `dz = -minZ`) --
+  // that snap only moves WHERE min Z lands (0), not how tall the part
+  // is -- so this is already the same height that ends up printed between
+  // z=0 and z=bedZ on the actual plate.
   for (const part of parts) {
     const box = printBBox(part);
     const footprintX = box.maxX - box.minX;

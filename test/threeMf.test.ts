@@ -1,6 +1,6 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design, exportDesign } from "../src/core";
+import { design, exportDesign, parseHash } from "../src/core";
 import type { CoilSpec } from "../src/core";
 
 // Issue #10 acceptance criteria: "A hand-written 3MF (zip) with one object
@@ -238,6 +238,13 @@ describe("exportDesign(design, '3mf')", () => {
       expect(box.maxX, `${name} maxX within bed`).toBeLessThanOrEqual(bed.bedX + 1e-6);
       expect(box.minY, `${name} minY within bed`).toBeGreaterThanOrEqual(-1e-6);
       expect(box.maxY, `${name} maxY within bed`).toBeLessThanOrEqual(bed.bedY + 1e-6);
+      // Every placed part rests EXACTLY on the plate (min Z === 0), not just
+      // "wherever its own printTransform happens to land it" -- a PR #31
+      // review caught the core sitting 3mm below the plate here (its own
+      // mesh's flange bottom is a few mm below the wall's local z=0, and
+      // `printTransform` for the core is the identity, see plate.ts's
+      // `layoutParts` doc comment).
+      expect(box.minZ, `${name} min Z is exactly 0`).toBeCloseTo(0, 6);
     }
 
     // Non-overlapping, side by side along X (docs/research.md "Out of
@@ -274,6 +281,30 @@ describe("exportDesign(design, '3mf')", () => {
     const centerY = (box.minY + box.maxY) / 2;
     expect(centerX).toBeCloseTo(bed.bedX / 2, 3);
     expect(centerY).toBeCloseTo(bed.bedY / 2, 3);
+  });
+
+  // PR #31 review: an independent bounds check on `#v=1&L=3000&d=4&size=40&ly=2&cap=on`
+  // found the core placed at z ∈ [-3.0, 54.8] -- 3mm below the plate --
+  // while the top cap was fine. Pin exactly that hash (explicit `cap=on`,
+  // not just the auto top-cap decision already covered above) so this
+  // never regresses.
+  it("cap=on (issue #10 review): every placed part's min Z is exactly 0, not just non-overlapping in X/Y", async () => {
+    const { spec, notice } = parseHash("#v=1&L=3000&d=4&size=40&ly=2&cap=on");
+    expect(notice).toBeUndefined();
+    const d = await design(spec);
+    expect(d.parts.map((p) => p.role)).toEqual(["core", "topCap"]);
+
+    const bytes = await exportDesign(d, "3mf");
+    const files = readZipStore(bytes);
+    const modelXml = new TextDecoder().decode(files.find((f) => f.name === "3D/3dmodel.model")!.data);
+    const model = parseModel(modelXml);
+    const byId = new Map(model.objects.map((o) => [o.id, o]));
+
+    for (const item of model.items) {
+      const obj = byId.get(item.objectId)!;
+      const box = bboxOf(applyMatrix(obj.positions, item.matrix));
+      expect(box.minZ, `${obj.name} min Z is exactly 0`).toBeCloseTo(0, 6);
+    }
   });
 });
 

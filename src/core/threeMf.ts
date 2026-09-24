@@ -22,6 +22,11 @@
 // <item>'s transform matrix instead (see `transformAttr`). This keeps every
 // export backend reading the identical vertex data, so they can never
 // drift apart from one another.
+//
+// `layoutParts` (plate.ts) supplies a per-part [dx, dy, dz]; dz snaps that
+// part's own min Z to exactly 0 (issue #10 review) -- it is NOT redundant
+// with `printTransform` (a part's own rotate+translate can still land its
+// mesh a few mm off the plate; see plate.ts's `layoutParts` doc comment).
 
 import { layoutParts } from "./plate";
 import { writeZip } from "./zip";
@@ -84,10 +89,10 @@ export function write3mf(design: Design): Uint8Array<ArrayBuffer> {
 
   const items = parts
     .map((part, i) => {
-      const [ox, oy] = offsets[i];
+      const [ox, oy, oz] = offsets[i];
       const t: RigidTransform = {
         rotateX: part.printTransform.rotateX,
-        translate: [part.printTransform.translate[0] + ox, part.printTransform.translate[1] + oy, part.printTransform.translate[2]],
+        translate: [part.printTransform.translate[0] + ox, part.printTransform.translate[1] + oy, part.printTransform.translate[2] + oz],
       };
       return `<item objectid="${i + 1}" transform="${transformAttr(t)}"/>`;
     })

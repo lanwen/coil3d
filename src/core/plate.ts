@@ -50,13 +50,24 @@ export function printBBox(part: Part): BBox {
 }
 
 /**
- * Per-part [dx, dy] offsets (mm) to ADD to each part's own
+ * Per-part [dx, dy, dz] offsets (mm) to ADD to each part's own
  * `printTransform.translate`: places every part's already-print-oriented
- * footprint side by side along X with a fixed gap, and centers the whole
- * row on the bed. Z is never touched here -- resting on the bed (z=0) is
- * entirely `printTransform`'s concern (types.ts).
+ * footprint side by side along X with a fixed gap, centers the whole row on
+ * the bed, AND snaps each part's own min Z to exactly 0.
+ *
+ * `dz` is NOT a "printTransform already handles this" no-op: `printTransform`
+ * only orients each part (rotate + a fixed translate baked in at design()
+ * time, types.ts); it does not promise the result's min Z is 0. It happens
+ * to be for the top cap (its print-orientation flip is derived from
+ * `solution.height`, which cancels out), but NOT for the core -- the core's
+ * own mesh has its bottom flange a few mm below the wall's own z=0 origin
+ * (FLANGE_THICKNESS, constants.ts), and `printTransform` for the core is the
+ * identity, so without this `dz` the core would sit a few mm below the
+ * plate. Computing `dz = -minZ` per part, independent of the mesh's own
+ * local-frame convention, is what actually guarantees "every part rests on
+ * the bed" (issue #10 review) rather than relying on that convention.
  */
-export function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, number]> {
+export function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, number, number]> {
   const boxes = parts.map(printBBox);
   const widths = boxes.map((b) => b.maxX - b.minX);
   const totalWidth = widths.reduce((sum, w) => sum + w, 0) + PLATE_GAP * Math.max(0, parts.length - 1);
@@ -65,7 +76,8 @@ export function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, numbe
   return boxes.map((b, i) => {
     const dx = cursor - b.minX + bed.bedX / 2;
     const dy = -(b.minY + b.maxY) / 2 + bed.bedY / 2;
+    const dz = -b.minZ;
     cursor += widths[i] + PLATE_GAP;
-    return [dx, dy];
+    return [dx, dy, dz];
   });
 }
