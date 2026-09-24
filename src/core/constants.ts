@@ -115,3 +115,19 @@ export const BED_SIZE_MIN = 50; // mm
 export const BED_SIZE_MAX = 1000; // mm
 /** Gap left between adjacent parts' footprints when laying out the 3MF build plate (export/threeMf.ts, core/plate.ts). */
 export const PLATE_GAP = 5; // mm
+
+// Top cap label (issue #12, docs/research.md §1 "Extras": embossed label
+// text on the top cap face, only when it fits). Engraved, not raised -- see
+// label.ts's file header for why the print orientation forces that choice.
+/** Minimum legible ink height for the label text (ticket: "e.g. >= 5mm"); below this the label is hidden and a warning is emitted instead. */
+export const LABEL_MIN_HEIGHT = 5; // mm
+/** Cosmetic ceiling so a big cap doesn't get an oversized label; the fit search (label.ts's `fitLabel`) still shrinks below this when the annulus is tight. */
+export const LABEL_MAX_HEIGHT = 14; // mm
+/** Clearance kept between the label's text band and both the bore hole and the plate's outer rim. */
+export const LABEL_MARGIN = 2; // mm
+/** Engraved recess depth, comfortably less than CAP_THICKNESS so the pocket never breaks through to the collar side. */
+export const LABEL_DEPTH = 0.6; // mm
+/** Straight-line segments per glyph Bezier curve when flattening opentype paths (label.ts's `pathToLoops`) -- plenty of fidelity at FDM/engraving scale. */
+export const LABEL_CURVE_SEGMENTS = 6;
+/** Longest label text accepted from the UI/hash -- generous for a one-line cap label, small enough to keep the hash short. */
+export const LABEL_MAX_LENGTH = 40;

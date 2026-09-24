@@ -14,9 +14,15 @@
 // `wirePaths` regardless -- so it round-trips alongside the spec here
 // instead of living on `CoilSpec`. Default is shown (`1`); only an explicit
 // `wire=0` is written to the hash.
+//
+// `label` (issue #12) is the top cap's engraved text, IS a `CoilSpec` field
+// (unlike `wire`: it changes the geometry, not just the view), URL-encoded
+// by `URLSearchParams` like every other value here. Omitted entirely when
+// empty; an empty-string `label=` in a raw hash decodes back to `undefined`,
+// not `""` (see `p.label || undefined` below), so the two states can't drift.
 
 import { z } from "zod";
-import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_BED_SIZE, DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, MAX_WIRE_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
+import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_BED_SIZE, DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, LABEL_MAX_LENGTH, MAX_WIRE_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
 import type { CoilSpec, CoreSizeLock, JointKind, Lock, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
 
@@ -68,6 +74,7 @@ const QuerySchema = z.object({
   bx: z.coerce.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
   by: z.coerce.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
   bz: z.coerce.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
+  label: z.string().max(LABEL_MAX_LENGTH).optional(),
 });
 
 export interface ParsedHash {
@@ -95,6 +102,7 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
     joint: spec.joint,
     tolerance: spec.tolerance,
     print: { ...spec.print },
+    label: spec.label,
   };
 }
 
@@ -177,6 +185,7 @@ export function parseHash(hash: string): ParsedHash {
     joint,
     tolerance,
     print,
+    label: p.label || undefined,
   };
   const showWire = p.wire !== undefined ? p.wire !== "0" : DEFAULT_SHOW_WIRE;
   return { spec, showWire };
@@ -222,6 +231,7 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE): s
   if (spec.topCap !== DEFAULT_SPEC.topCap) params.set("cap", spec.topCap);
   if (spec.joint !== DEFAULT_SPEC.joint) params.set("joint", spec.joint);
   if (spec.tolerance !== DEFAULT_SPEC.tolerance) params.set("tol", String(spec.tolerance));
+  if (spec.label) params.set("label", spec.label);
 
   if (spec.print.bedX !== DEFAULT_SPEC.print.bedX) params.set("bx", String(spec.print.bedX));
   if (spec.print.bedY !== DEFAULT_SPEC.print.bedY) params.set("by", String(spec.print.bedY));

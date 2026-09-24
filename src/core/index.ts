@@ -42,7 +42,7 @@ export type {
   WireTypePreset,
 } from "./types";
 export { DEFAULT_CUSTOM_BEND_MULTIPLIER, WIRE_TYPE_PRESETS } from "./types";
-export { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_BED_SIZE, DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
+export { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_BED_SIZE, DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, LABEL_MAX_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
 export { SHAPES } from "./shapes";
 export type { ShapePlugin } from "./shapes";
 export { parseHash, toHash, DEFAULT_SPEC, DEFAULT_SHOW_WIRE } from "./hash";

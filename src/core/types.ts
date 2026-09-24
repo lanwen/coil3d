@@ -103,6 +103,14 @@ export interface CoilSpec {
   tolerance: number;
   /** The printer's bed size (issue #10); drives per-part fit warnings and the 3MF plate layout. */
   print: PrintSpec;
+  /**
+   * Engraved label text on the top cap's room-facing face (issue #12,
+   * docs/research.md §1 "Extras"). Undefined/empty means no label. Ignored
+   * (with a warning, see label.ts's `resolveLabel`) when there is no top
+   * cap; hidden (with a different warning) when it doesn't fit the annulus
+   * at a legible height.
+   */
+  label?: string;
 }
 
 export interface LayerResult {

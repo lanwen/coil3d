@@ -188,4 +188,22 @@ describe("parseHash / toHash", () => {
     expect(parseHash("#v=1&cap=maybe").notice).toBeDefined();
     expect(parseHash("#v=1&joint=glue").notice).toBeDefined();
   });
+
+  it("the top cap label (issue #12) round-trips, URL-encoded, and is omitted when unset", () => {
+    expect(toHash(DEFAULT_SPEC)).toBe("#v=1"); // undefined label: omitted
+
+    const spec: CoilSpec = { ...DEFAULT_SPEC, label: "USB-C 2m" };
+    const hash = toHash(spec);
+    expect(hash).toContain("label=USB-C+2m"); // URLSearchParams' own space encoding
+    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+  });
+
+  it("an empty-string label in a raw hash decodes back to undefined, not ''", () => {
+    expect(parseHash("#v=1&label=").spec.label).toBeUndefined();
+  });
+
+  it("falls back to defaults with a notice when the label exceeds the max length", () => {
+    const tooLong = "x".repeat(41);
+    expect(parseHash(`#v=1&label=${tooLong}`).notice).toBeDefined();
+  });
 });

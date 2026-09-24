@@ -37,6 +37,7 @@ import {
   JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
   KEYHOLE_SLIT_FRACTION,
+  LABEL_DEPTH,
   SNAP_BARB,
   SNAP_BARB_HEIGHT,
   SNAP_GAP,
@@ -46,6 +47,8 @@ import {
   WELD_OVERLAP,
 } from "./constants";
 import { jointGeometry } from "./joints";
+import { getLabelFont, labelLoops } from "./label";
+import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
 import { circumscribedRadius, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -238,6 +241,8 @@ export interface TopCapSpec {
   joint: JointKind;
   tolerance: number;
   wireDiameter: number;
+  /** Engraved label text (issue #12), already fit-checked by `label.ts`'s `resolveLabel` -- undefined means no label to cut. */
+  label?: ResolvedLabel;
 }
 
 /**
@@ -258,7 +263,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, tolerance, wireDiameter } = spec;
+    const { flange, joint, tolerance, wireDiameter, label } = spec;
     const plateMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, 0, CAP_THICKNESS, flange.columns);
     const plate = track(new Manifold(new Mesh({ numProp: 3, vertProperties: plateMesh.positions, triVerts: plateMesh.indices })));
     if (plate.status() !== "NoError") {
@@ -297,7 +302,12 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     }
 
     const keyholeCutter = track(buildKeyholeCutter(wasm, flange.outline, flange.margin, wireDiameter, tolerance));
-    const assembled = track(track(plate.add(collar)).subtract(keyholeCutter));
+    let assembled = track(track(plate.add(collar)).subtract(keyholeCutter));
+
+    if (label) {
+      const labelCutter = track(await buildLabelCutter(wasm, label));
+      assembled = track(assembled.subtract(labelCutter));
+    }
 
     if (assembled.status() !== "NoError") {
       throw new Error(`Top cap mesh is not a valid manifold: ${assembled.status()}`);
@@ -311,6 +321,26 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   } finally {
     for (const m of trash) m.delete();
   }
+}
+
+/**
+ * The engraved label cutter (issue #12): the fitted text's glyph loops
+ * (label.ts's `labelLoops`, already positioned in the plate's own local XY
+ * frame), unioned into ONE CrossSection with the "NonZero" fill rule -- this
+ * is what turns a solid-contour + hole-contour pair (e.g. "O") into a real
+ * ring instead of two overlapping disks, with no separate hole-vs-solid
+ * bookkeeping needed on this backend (see label.ts's `classifyLabelLoops`
+ * doc comment for why replicad, lacking this primitive, needs that
+ * bookkeeping instead). Extruded from just above the plate's own top face
+ * (LOCAL z=CAP_THICKNESS -- the room-facing face, see the file header)
+ * down by LABEL_DEPTH, poking 1mm past the real top for a clean boolean cut.
+ */
+async function buildLabelCutter(wasm: ManifoldToplevel, label: ResolvedLabel): Promise<Manifold> {
+  const font = await getLabelFont();
+  const loops = labelLoops(font, label);
+  const cutterHeight = LABEL_DEPTH + 1;
+  const cutter = new wasm.CrossSection(loops, "NonZero").extrude(cutterHeight);
+  return cutter.translate([0, 0, CAP_THICKNESS - LABEL_DEPTH]);
 }
 
 /**

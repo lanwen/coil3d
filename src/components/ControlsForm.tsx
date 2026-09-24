@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { CoilSpec, CoreSizeLock, JointKind, Lock, Objective, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
-import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
-import { LockRangeField, LockStepperField, RangeField, Section } from "./fields";
+import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, LABEL_MAX_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
+import { LockRangeField, LockStepperField, RangeField, Section, TextField } from "./fields";
 
 const TOP_CAP_OPTIONS: Array<{ id: TopCapMode; label: string }> = [
   { id: "auto", label: "Auto (on when layers > 1)" },
@@ -235,6 +235,14 @@ export function ControlsForm({
           step={0.05}
           value={spec.tolerance}
           onChange={(v) => onChange({ ...spec, tolerance: v })}
+        />
+        <TextField
+          testId="label"
+          label="Label (engraved on the top cap)"
+          placeholder="e.g. USB-C 2m"
+          maxLength={LABEL_MAX_LENGTH}
+          value={spec.label ?? ""}
+          onChange={(v) => onChange({ ...spec, label: v })}
         />
       </Section>
 
