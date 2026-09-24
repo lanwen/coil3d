@@ -140,7 +140,11 @@ header p {
 
 .wall-view-toggle {
   position: absolute;
-  top: 8px;
+  /* Below the view-controls bar (issue #15), which also sits top-right --
+     this button's own state (`viewMode`) is also reachable from that bar's
+     wall-mount preset buttons now; it stays for anyone who prefers a single
+     cycling control (and for issue #13's own e2e coverage). */
+  top: 92px;
   right: 8px;
   z-index: 1;
   padding: 6px 10px;
@@ -610,6 +614,198 @@ header p {
   pointer-events: none;
 }
 
+/* ---------- Camera view controls (issue #15) ---------- */
+
+.view-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.preset-group {
+  display: flex;
+  gap: 2px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  padding: 2px;
+}
+
+.preset-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 1px;
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.preset-btn:hover {
+  background: var(--hairline-soft);
+}
+
+.preset-btn.active {
+  background: var(--ink);
+}
+
+/* Every preset pictogram is a plain outlined shape suggesting the view it
+   switches to -- front/side are flat rectangles seen face-on/edge-on, top
+   is a circle (looking down the coil axis), iso is a rotated square (a 3/4
+   look), all drawn with the same 2px ink stroke as the eye/lock icons. */
+.preset-icon {
+  box-sizing: border-box;
+  border: 2px solid var(--ink);
+  background: transparent;
+}
+
+.preset-btn.active .preset-icon {
+  border-color: var(--paper);
+}
+
+.preset-icon-front {
+  width: 14px;
+  height: 14px;
+}
+
+.preset-icon-side {
+  width: 9px;
+  height: 14px;
+}
+
+.preset-icon-top {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.preset-icon-iso {
+  width: 11px;
+  height: 11px;
+  transform: rotate(45deg);
+}
+
+/* Wall-mount presets (issue #13, folded into this bar for #15): a square
+   standing for the flange face, with a bar/dot suggesting what each side
+   shows -- a bottom bar (resting against the wall) for the room-side view,
+   a centred dot (the keyhole) for the mount-side, screw's-eye view. */
+.preset-icon-wallRoom {
+  position: relative;
+  width: 14px;
+  height: 14px;
+}
+
+.preset-icon-wallRoom::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: -4px;
+  height: 2px;
+  background: var(--ink);
+}
+
+.preset-btn.active .preset-icon-wallRoom::after {
+  background: var(--paper);
+}
+
+.preset-icon-wallMount {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+}
+
+.preset-icon-wallMount::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--ink);
+  transform: translate(-50%, -50%);
+}
+
+.preset-btn.active .preset-icon-wallMount::after {
+  background: var(--paper);
+}
+
+/* Perspective/orthographic toggle: same real-checkbox-behind-a-pictogram
+   technique as the eye/lock toggles -- ortho is two same-width bars
+   (parallel projection lines never converge); perspective is two
+   different-width bars joined by slanted sides (a converging frustum). */
+.projection-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  cursor: pointer;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+}
+
+.projection-toggle-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.projection-icon {
+  position: relative;
+  width: 16px;
+  height: 14px;
+  flex: none;
+  pointer-events: none;
+}
+
+.projection-icon-ortho,
+.projection-icon-persp {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: var(--ink);
+}
+
+.projection-icon-ortho {
+  width: 16px;
+  height: 10px;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+  transform: translate(-50%, -50%);
+}
+
+.projection-icon-persp {
+  display: none;
+  width: 16px;
+  height: 10px;
+  clip-path: polygon(20% 0, 80% 0, 100% 100%, 0 100%);
+  transform: translate(-50%, -50%);
+}
+
+.projection-toggle-input:checked ~ .projection-icon .projection-icon-ortho {
+  display: none;
+}
+
+.projection-toggle-input:checked ~ .projection-icon .projection-icon-persp {
+  display: block;
+}
+
 /* ---------- Advanced disclosure ---------- */
 
 .advanced {
@@ -869,6 +1065,12 @@ header p {
 
   .wire-toggle {
     padding: 10px 12px;
+  }
+
+  .preset-btn,
+  .projection-toggle {
+    width: 38px;
+    height: 38px;
   }
 
   .field-slider {

@@ -4,8 +4,11 @@ import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import { CAP_THICKNESS, JOINT_ENGAGE_DEPTH, JOINT_TRANSITION_HEIGHT } from "../core";
 import type { CoilMesh, Part, Resolution, WireLayerPath } from "../core";
-import { LineArtRenderer } from "./lineArt/LineArtRenderer";
+import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
+import type { PresetId } from "./lineArt/presets";
+import { ViewControls } from "./ViewControls";
 import { buildWireGeometries } from "./wireGeometry";
 
 // Normals are split where faces meet at more than this angle, so the edge
@@ -17,13 +20,24 @@ const CREASE_ANGLE = (30 * Math.PI) / 180;
 // Exploded view (issue #9): extra clearance beyond a lifted part's own
 // bounding-box height, so it visibly separates from the core regardless of
 // design scale (a tiny cap on a tiny coil still needs to clear the core's
-// own top rim, not just a few sub-millimeter joint features).
-const EXPLODE_GAP = 20; // mm
+// own top rim, not just a few sub-millimeter joint features). Issue #15's
+// #9-review comment: the collar (the part that actually dips into the
+// core's bore -- press/bayonet/snap all share it, docs/research.md §1 "Cap
+// joint") must clear the core's rim by a wide, unambiguous margin once
+// exploded, not just enough to not-overlap -- floored at the collar's own
+// engagement depth (plus its weld-transition flare) plus 1.5x the cap's
+// thickness, then padded further for comfortable visibility.
+const EXPLODE_VISIBILITY_MARGIN = 15; // mm
+const EXPLODE_GAP = JOINT_ENGAGE_DEPTH + JOINT_TRANSITION_HEIGHT + 1.5 * CAP_THICKNESS + EXPLODE_VISIBILITY_MARGIN;
 // How quickly the explode offset eases toward its target (an exponential
 // decay rate for THREE.MathUtils.damp, frame-rate independent). Reaches
 // ~95% of the way there in about a third of a second.
 const EXPLODE_EASE_RATE = 9;
 const EXPLODE_SETTLE_EPS = 0.01; // mm
+// A tighter fit while exploded (issue #15, issue #9 review: "consider a
+// slight camera reframe while exploded"): the separated joint reads clearer
+// when the frame isn't also reserving its usual slack margin around it.
+const EXPLODED_FILL = 0.85;
 
 export interface CoilViewerProps {
   /** Every printable part (issue #9): the core is drawn in place; every other part (currently only the top cap) can be lifted along the coil axis in the exploded view. */
@@ -323,6 +337,35 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   const partGeometries = useMemo(() => parts.map((part) => ({ part, geometry: buildCreasedGeometry(part.mesh) })), [parts]);
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
 
+  // Camera view controls (issue #15): both are purely viewer-internal (no
+  // bearing on the design itself), so they're owned here rather than lifted
+  // to App -- they reset on reload, same as the exploded-view toggle. `preset`
+  // only ever holds a STANDING-camera value (front/side/top/iso): the two
+  // wall presets are represented by `viewMode` instead (issue #13, see
+  // `effectivePreset` below), since they're really a geometry rotation this
+  // component already owned, not a new camera direction of their own.
+  const [projection, setProjection] = useState<Projection>("ortho");
+  const [preset, setPreset] = useState<PresetId>("iso");
+
+  // The preset this render actually asks LineArtRenderer for, and what
+  // ViewControls highlights as active: `viewMode`'s own wall preset once a
+  // wall view is on (both wall rotations assume the camera sits at "iso" --
+  // see VIEW_PRESETS' own comment in presets.ts), else whatever standing
+  // camera preset was last chosen.
+  const effectivePreset: PresetId = viewMode === "standing" ? preset : viewMode;
+
+  /** Clicking a standing-camera preset exits any wall view; clicking a wall
+   * preset here is just another way to reach the same `viewMode` the
+   * toggle-wall-view button below cycles through. */
+  const handlePresetChange = (id: PresetId) => {
+    if (id === "wallRoom" || id === "wallMount") {
+      setViewMode(id);
+    } else {
+      setViewMode("standing");
+      setPreset(id);
+    }
+  };
+
   // How far each non-core part lifts when exploded: its own Z-extent plus a
   // fixed gap, so it clears itself regardless of design scale.
   const explodeOffsets = useMemo(() => new Map(parts.filter((p) => p.role !== "core").map((p) => [p.name, zExtent(p.mesh) + EXPLODE_GAP])), [parts]);
@@ -372,16 +415,19 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
   // current preset renders it (see EXPLODE_AXES above).
   const explodeAxis = useMemo(() => EXPLODE_AXES[viewMode], [viewMode]);
 
-  // A stable framing geometry (issue #9): every non-core part contributes
-  // its FULLY exploded position, not its live animated one, so the camera
-  // never reframes mid-explode -- only the parts themselves move (see
-  // ExplodedPart above). Built from the (possibly wall-view-rotated) part
-  // geometries, so framing always matches what's actually on screen.
-  // Position-only (no index/normals needed): LineArtRenderer only reads
-  // bounding-sphere/vertex bounds from it.
+  // A stable framing geometry (issue #9, reworked for #15): every non-core
+  // part contributes its FULLY exploded position whenever `exploded` is on,
+  // and its assembled (unshifted) position otherwise -- so toggling explode
+  // now genuinely reframes (issue #9 review: "consider a slight camera
+  // reframe while exploded"), via LineArtRenderer's own tweened-fit
+  // transition (issue #15), rather than always framing the union of both so
+  // toggling never has to move the camera at all. Built from the (possibly
+  // wall-view-rotated) part geometries, so framing always matches what's
+  // actually on screen. Position-only (no index/normals needed):
+  // LineArtRenderer only reads bounding-sphere/vertex bounds from it.
   const framingGeometry = useMemo(() => {
     const chunks = viewPartGeometries.map(({ part, geometry }) => {
-      const offset = explodeOffsets.get(part.name) ?? 0;
+      const offset = exploded ? (explodeOffsets.get(part.name) ?? 0) : 0;
       const positions = (geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
       if (offset === 0) return positions;
       const shift = explodeAxis.clone().multiplyScalar(offset);
@@ -402,7 +448,7 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [viewPartGeometries, explodeOffsets, explodeAxis]);
+  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
   // Draft -> final swap gets a short edge fade (issue #7 AC), matching the
@@ -445,11 +491,9 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
         </div>
       )}
       <Canvas
-        orthographic
         flat
         frameloop="demand"
-        camera={{ up: [0, 0, 1] }}
-        gl={{ alpha: true, antialias: false }}
+        gl={{ alpha: true, antialias: false, preserveDrawingBuffer: true }}
         style={{ width: "100%", height: "100%", background: "transparent" }}
       >
         {viewPartGeometries.map(({ part, geometry }) =>
@@ -462,9 +506,17 @@ export function CoilViewer({ parts, resolution, wirePaths, wireDiameter, showWir
         {viewWireGeometries.map((g, i) => (
           <mesh key={i} geometry={g} />
         ))}
-        <LineArtRenderer geometry={framingGeometry} controlsRef={controlsRef} />
+        <LineArtRenderer
+          geometry={framingGeometry}
+          controlsRef={controlsRef}
+          projection={projection}
+          preset={effectivePreset}
+          fill={exploded ? EXPLODED_FILL : undefined}
+          reducedMotion={reducedMotion}
+        />
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
       </Canvas>
+      <ViewControls preset={effectivePreset} onPresetChange={handlePresetChange} projection={projection} onProjectionChange={setProjection} />
     </div>
   );
 }

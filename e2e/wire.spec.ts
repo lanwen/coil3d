@@ -46,7 +46,16 @@ test.describe("wound-cable schematic (issue #4)", () => {
     const turnsText = await page.getByTestId("layer-table").locator("tbody tr td").nth(1).textContent();
     expect(Number(turnsText)).toBeGreaterThan(100);
 
-    const png = await page.getByTestId("coil-viewer").locator("canvas").screenshot();
+    // Mask the viewer's own overlay chrome (the wire/exploded eye toggles,
+    // and issue #15's preset/projection buttons): they sit visually on top
+    // of the canvas element, so a raw element screenshot would otherwise
+    // count their own black pixels (e.g. the active preset button's solid
+    // fill) as if they were part of the wound-cable render this test is
+    // actually about.
+    const png = await page
+      .getByTestId("coil-viewer")
+      .locator("canvas")
+      .screenshot({ mask: [page.locator(".wire-toggle, .explode-toggle, .view-controls")], maskColor: "#ffffff" });
     const { data } = await readPixels(page, png);
     const bg = data[0];
     const differsFromBg = (p: Rgb) => p.some((v, i) => Math.abs(v - bg[i]) > 8);
