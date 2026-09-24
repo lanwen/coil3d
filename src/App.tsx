@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { design, exportDesign, parseHash, toHash } from "./core";
-import type { CoilSpec, Design } from "./core";
+import { useEffect, useState } from "react";
+import { exportDesign, parseHash, toHash } from "./core";
+import type { CoilSpec } from "./core";
+import { useDesignPreview } from "./geometry/useDesignPreview";
 import { ControlsForm } from "./components/ControlsForm";
 import { ResultPanel } from "./components/ResultPanel";
 import { CoilViewer } from "./viewer/CoilViewer";
@@ -13,25 +14,15 @@ function readInitialState() {
 export default function App() {
   const [{ spec, notice }] = useState<{ spec: CoilSpec; notice?: string }>(readInitialState);
   const [currentSpec, setCurrentSpec] = useState<CoilSpec>(spec);
-  const [result, setResult] = useState<Design | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const generation = useRef(0);
 
   useEffect(() => {
     window.history.replaceState(null, "", toHash(currentSpec));
-
-    const myGeneration = ++generation.current;
-    setError(null);
-    design(currentSpec)
-      .then((d) => {
-        if (generation.current === myGeneration) setResult(d);
-      })
-      .catch((err: unknown) => {
-        if (generation.current === myGeneration) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      });
   }, [currentSpec]);
+
+  // Issue #7: design() runs off the main thread in a worker, debounced, with
+  // a fast draft while editing and the final (FDM-tuned) mesh once input
+  // settles. See src/geometry/useDesignPreview.ts.
+  const { result, error, finalReady } = useDesignPreview(currentSpec);
 
   const [stepError, setStepError] = useState<string | null>(null);
   const [stepBusy, setStepBusy] = useState(false);
@@ -49,13 +40,15 @@ export default function App() {
   };
 
   const handleDownloadStl = async () => {
-    if (!result) return;
+    // finalReady already gates the button, but never trust disabled-ness
+    // alone: exports must always use the final resolution (issue #7).
+    if (!result || !finalReady) return;
     const bytes = await exportDesign(result, "stl");
     downloadBytes(bytes, "coil.stl", "model/stl");
   };
 
   const handleDownloadStep = async () => {
-    if (!result) return;
+    if (!result || !finalReady) return;
     setStepError(null);
     setStepBusy(true);
     try {
@@ -90,6 +83,7 @@ export default function App() {
           {result && (
             <ResultPanel
               design={result}
+              finalReady={finalReady}
               onDownloadStl={handleDownloadStl}
               onDownloadStep={handleDownloadStep}
               stepBusy={stepBusy}
@@ -101,7 +95,7 @@ export default function App() {
             </p>
           )}
         </div>
-        <div className="viewer">{result && <CoilViewer mesh={result.mesh} />}</div>
+        <div className="viewer">{result && <CoilViewer mesh={result.mesh} resolution={result.resolution} />}</div>
       </div>
     </div>
   );

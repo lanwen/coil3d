@@ -89,6 +89,38 @@ describe("design().mesh is a valid, expected manifold", () => {
   });
 });
 
+describe("design(spec, resolution)", () => {
+  it("draft is coarser than final, and both are valid, watertight manifolds (issue #7)", async () => {
+    const draft = await design(baseSpec, "draft");
+    const final = await design(baseSpec, "final");
+
+    expect(draft.resolution).toBe("draft");
+    expect(final.resolution).toBe("final");
+    // Draft is a fast, coarse preview; final is tuned for FDM (docs/research.md
+    // "Two resolution levels: draft (~16k triangles) ... final (~170k)").
+    expect(draft.mesh.indices.length).toBeLessThan(final.mesh.indices.length);
+
+    const wasm = await Module();
+    wasm.setup();
+    for (const d of [draft, final]) {
+      const manifold = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: d.mesh.positions, triVerts: d.mesh.indices }));
+      try {
+        expect(manifold.status()).toBe("NoError");
+        expect(manifold.genus()).toBe(1);
+      } finally {
+        manifold.delete();
+      }
+    }
+  });
+
+  it("defaults to final resolution when the argument is omitted (existing callers, exports)", async () => {
+    const implicit = await design(baseSpec);
+    const explicit = await design(baseSpec, "final");
+    expect(implicit.resolution).toBe("final");
+    expect(implicit.mesh.indices.length).toBe(explicit.mesh.indices.length);
+  });
+});
+
 describe("exportDesign(design, 'stl')", () => {
   it("produces a binary STL that parses back to the same triangles", async () => {
     const d = await design({ ...baseSpec, wire: { length: 800, diameter: 3.8, type: "usb" } });

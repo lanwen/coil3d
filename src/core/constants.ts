@@ -15,8 +15,17 @@ export const TAPER_TURNS = 0.5;
 export const FLANGE_MARGIN = 4; // mm
 export const FLANGE_THICKNESS = 3; // mm
 export const MIN_BORE_RADIUS = 1; // mm, guards against a wall thicker than the core
-export const COLUMNS = 96; // mesh columns around the circumference
-export const ROWS_PER_PITCH = 8; // mesh rows per helical pitch
+
+// Two mesh resolutions (issue #7, docs/research.md §10a/§10b): a coarse
+// "draft" while the user is still editing, tuned to roughly the S1 spike's
+// ~16k-triangle preview (25-33 ms), and a "final" for the settled view, STL,
+// 3MF and STEP, tuned to the spike's ~170k-triangle final (~240 ms). Both use
+// the same `buildRoundWall`/`fuseFlange` code path -- only these counts
+// differ -- so draft and final can never geometrically drift apart.
+export const FINAL_COLUMNS = 96; // mesh columns around the circumference
+export const FINAL_ROWS_PER_PITCH = 8; // mesh rows per helical pitch
+export const DRAFT_COLUMNS = 24;
+export const DRAFT_ROWS_PER_PITCH = 3;
 
 /** Cords longer than this are not supported (docs/research.md §1). */
 export const MAX_WIRE_LENGTH = 15000; // mm
