@@ -22,18 +22,9 @@
 
 import {
   CAP_THICKNESS,
-  FLANGE_MARGIN,
-  FLANGE_THICKNESS,
   GROOVE_DEPTH_FACTOR,
-  INNER_CHANNEL_MIN_SHELF,
   MARGIN,
-  MIN_BORE_CORNER_RADIUS,
-  MIN_BORE_RADIUS,
-  MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE,
-  MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
-  MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE,
   OPENGRID_PITCH,
-  SCREW_MOUNT_RECESS_DEPTH,
   SKADIS_PITCH,
   SKADIS_ROW_STAGGER,
   FINAL_ROWS_PER_PITCH,
@@ -48,11 +39,11 @@ import { buildMountPlate, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
 import { printBBox } from "./plate";
-import { layoutKeyholeMount, requiredFlangeMargin } from "./mount";
+import { layoutKeyholeMount } from "./mount";
 import type { MountLayout } from "./mount";
 import { layoutMountPlate, openGridClipHalfExtents, skadisClipHalfExtents } from "./mountPlate";
-import { circumscribedRadius, makeOutline, offsetOutline } from "./shapes";
-import type { ShapeOutline } from "./shapes";
+import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
+import { makeOutline, offsetOutline } from "./shapes";
 import { resolveLabel } from "./label";
 import { solve } from "./solve";
 import { bendMultiplierOf } from "./types";
@@ -69,24 +60,14 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   // The bore is a TRUE inward offset of the wall's own outline by the wall
   // thickness (issue #6 AC: "the triangle wall is computed from the true
-  // inward offset", not `outer - 2*wall`): both apothem and corner radius
-  // shrink by the same amount (Steiner), floored so the outline never
-  // inverts (spikes/s1-grooved-wall/geom.ts's `boreMinCornerR`).
-  let boreApothem = outline.apothem - WALL_THICKNESS;
-  if (boreApothem < MIN_BORE_RADIUS) {
+  // inward offset", not `outer - 2*wall`) -- see flange.ts's
+  // `resolveBoreOutline` for the floor/invariant rationale; factored out
+  // there so solve.ts's search can share the exact same derivation (issue
+  // #63).
+  const { boreOutline, reduced: boreReduced } = resolveBoreOutline(outline);
+  if (boreReduced) {
     warnings.push(`Core size ${solution.outerSize.toFixed(1)} mm is too small for a ${WALL_THICKNESS} mm wall; the bore has been reduced.`);
-    boreApothem = MIN_BORE_RADIUS;
   }
-  // Round's defining invariant is apothem === cornerRadius (see shapes.ts);
-  // apothem and corner radius are floored independently above/below (they
-  // guard different things -- MIN_BORE_RADIUS keeps a printable bore at
-  // all, MIN_BORE_CORNER_RADIUS keeps a non-round bore's corner from
-  // folding), so at the small end they can hit different floors and break
-  // that invariant. Preserve it explicitly for round, or a tiny locked core
-  // would get a very-slightly-square bore instead of a circle.
-  const isRound = outline.cornerRadius === outline.apothem;
-  const boreCornerRadius = isRound ? boreApothem : Math.min(Math.max(outline.cornerRadius - WALL_THICKNESS, MIN_BORE_CORNER_RADIUS), boreApothem);
-  const boreOutline: ShapeOutline = { n: outline.n, apothem: boreApothem, cornerRadius: boreCornerRadius };
 
   const wireDiameter = spec.wire.diameter;
   const grooveDepth = GROOVE_DEPTH_FACTOR * wireDiameter;
@@ -116,46 +97,19 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   // The flange must clear the outermost wound layer, not just the core's
   // own wall (docs/research.md §1 "Flange size = final outer envelope +
-  // margin"): solution.flangeSize already accounts for every layer, so the
-  // effective margin beyond the core's own outline grows with layer count.
-  // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
-  // (the offset term is additive, see shapes.ts), so this margin is exactly
-  // what's needed for the flange's own circumscribed radius to reach
-  // solution.flangeSize / 2.
-  const baseMargin = Math.max(FLANGE_MARGIN, solution.flangeSize / 2 - circumscribedRadius(outline, 0));
-  // Issue #13: the screw-keyhole mount needs a flange annulus (wall
-  // thickness + margin) wide enough to hold the whole slot, and a flange
-  // thick enough for the recess + a load-bearing shelf above it. Bump both
-  // up to the required minimum and warn, rather than silently skipping the
-  // mount ("The flange must be thick enough for the recess; enforce a
-  // minimum and warn" -- the ticket's own wording, applied to both the
-  // radial and axial minimums a real screw mount needs).
-  const margin = wantsKeyhole ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline)) : baseMargin;
-  const minPlateThickness = mountKindForPlate ? (spec.plateJoint === "snap" ? MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE : MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE) : 0;
-  // Issue #43: the bottom flange is thick enough for a FULL-DEPTH inner-end
-  // channel (idealChannelDepth, ~= the cable's own diameter) plus its own
-  // load-bearing shelf -- the baseline every design now gets, mount or not
-  // (`channelOnlyThickness`), so the wound cable's first turn actually lies
-  // flush instead of riding over a bump (the flange used to stay at a fixed
-  // FLANGE_THICKNESS/MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT regardless of the
-  // cable, and `resolveChannelDepth` below silently capped the channel to
-  // whatever that left -- see #41, which this was blocked on: growing the
-  // flange for this used to trip a manifold-3d boolean-robustness bug in
-  // the mount's own recess cut at several thickness values, now fixed).
-  // The screw-keyhole mount and the clip mount plate can each still push
-  // thickness further for their OWN fit (the keyhole needs its own recess
-  // depth reserved on the OTHER face too, on top of the channel; the plate
-  // needs its anchor cut's own minimum) -- only THAT extra growth beyond
-  // the channel's own baseline is worth a "thickness increased" warning
-  // (unchanged from before #43): the channel-driven baseline itself is the
-  // new normal, not a surprise.
-  const idealDepth = idealChannelDepth(wireDiameter);
-  const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealDepth + INNER_CHANNEL_MIN_SHELF);
-  const thickness = wantsKeyhole
-    ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT, idealDepth + INNER_CHANNEL_MIN_SHELF + SCREW_MOUNT_RECESS_DEPTH)
-    : mountKindForPlate
-      ? Math.max(channelOnlyThickness, minPlateThickness)
-      : channelOnlyThickness;
+  // margin"), thick enough for the inner-end channel plus whatever the
+  // requested mount/plate needs -- see flange.ts's `resolveFlangeSizing`
+  // for the full derivation, factored out (issue #63) so solve.ts's search
+  // can score candidates against these SAME real numbers instead of a
+  // cruder envelope-only proxy.
+  const { margin, thickness, baseMargin, channelOnlyThickness } = resolveFlangeSizing(
+    outline,
+    boreOutline,
+    solution.flangeSize,
+    wireDiameter,
+    spec.mount,
+    spec.plateJoint,
+  );
   if (wantsKeyhole && margin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
   }
@@ -172,6 +126,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // ALWAYS provisioned for the full ideal depth (see above), this never
   // actually caps it in the ordinary case; the warning below is now only
   // reachable for a genuinely exotic input this sizing doesn't anticipate.
+  const idealDepth = idealChannelDepth(wireDiameter);
   const channelDepth = resolveChannelDepth(wireDiameter, thickness, wantsKeyhole);
   if (channelDepth < idealDepth - 1e-6) {
     warnings.push(
@@ -244,6 +199,14 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       : undefined;
 
   const innerEndCut: InnerEndCut = { wireDiameter, tolerance: spec.tolerance, bendRadius, channelDepth, flangeThickness: thickness };
+
+  // Real flange/overall-height extents (issue #63 -- PR #59 review: the
+  // result panel's numbers must match the built parts, not the solver's own
+  // envelope-based estimates). Both are analytic, off the SAME resolved
+  // outline/margin/thickness the flange mesh itself is built from just
+  // below (never a re-measurement of that mesh) -- see flange.ts.
+  const flangeExtent = flangeExtentOf(outline, margin);
+  const overallHeight = overallHeightOf(thickness, solution.height, topCapEnabled);
 
   const wall = buildWall(wallSpec);
   const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint, innerEndCut, mountPlateCut);
@@ -337,7 +300,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   return {
     spec,
-    solution,
+    solution: { ...solution, overallHeight, flangeExtent },
     warnings,
     parts,
     mesh,

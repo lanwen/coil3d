@@ -153,6 +153,19 @@ export interface Diagnosis {
   message: string;
 }
 
+/**
+ * A flange's real outer extent (issue #63), mm: see `Solution.flangeExtent`.
+ * Round has no corners (`acrossFlats === acrossCorners`, a true diameter);
+ * square/triangle differ, so the wider of the two is the one that actually
+ * has to clear a bed/enclosure.
+ */
+export interface FlangeExtent {
+  /** Distance across two opposite flat sides (the narrower extent for a non-round shape). */
+  acrossFlats: number;
+  /** Distance across two opposite rounded corners (the wider extent for a non-round shape). */
+  acrossCorners: number;
+}
+
 /** The solver's output: resolved geometry, capacity numbers and diagnosis. */
 export interface Solution {
   diagnosis: Diagnosis;
@@ -178,7 +191,51 @@ export interface Solution {
   /** Capacity range across winding-quality bounds, at the resolved geometry. */
   capacityRange: [number, number];
   envelopeDiameter: number;
+  /**
+   * The solver's own target flange size (issue #50 heritage): the wound
+   * envelope plus a flat `FLANGE_MARGIN`, used only as the FLOOR the real
+   * flange margin is solved up to (design.ts's `baseMargin`) -- never the
+   * real flange's own outer extent (issue #63: for a non-round shape this
+   * consistently under-reported the true across-corners size, since the
+   * flange margin design.ts actually resolves also has to satisfy the
+   * mount's own requirements, and this envelope-derived number never saw
+   * that). See `flangeExtent` for the real, built extent.
+   */
   flangeSize: number;
+  /**
+   * The core's REAL overall assembled height (issue #63): from the bottom
+   * flange's own underside up to the top cap's own top face (or the wall's
+   * own top rim, when there's no cap) -- matching `Design.parts`' meshes
+   * within floating-point noise, unlike `height` (the core WALL's own
+   * winding height only: it starts at the flange's top face and excludes
+   * both the flange's thickness below it and any top cap above it, see
+   * that field's own doc comment via design.ts's z=[-thickness,height]
+   * convention). Set once `design()` has resolved the real flange
+   * thickness and whether a cap is attached (both mount- and
+   * layer-count-dependent, so `solve()` alone can't compute this --
+   * see design.ts); left undefined on `alternates`, whose geometry
+   * `design()` never actually builds.
+   */
+  overallHeight?: number;
+  /**
+   * The core's REAL flange outer extent (issue #63), matching the flange
+   * mesh's own outline (the resolved shape outline offset OUTWARD by the
+   * real flange margin `design()` resolves -- including whatever a mount
+   * bumps it up to -- see design.ts's `margin`), computed from that exact
+   * same analytic offset outline (shapes.ts's `inscribedRadius`/
+   * `circumscribedRadius`), never from re-meshing: cheap enough to always
+   * compute, and exact by construction (the flange mesh is built from this
+   * very outline, see wall.ts's `buildOutlineRing`). For a round flange
+   * both fields are equal (a true diameter in every direction, see
+   * shapes.ts's `circumscribedRadius`, which reduces to `inscribedRadius`
+   * when `cornerRadius === apothem`); for square/triangle, `acrossFlats` is
+   * the narrower, flat-side-midpoint extent and `acrossCorners` the wider,
+   * corner-arc extent -- together they bound whatever direction the
+   * viewer's own on-screen width measurement (`dimensionOverlay.tsx`,
+   * camera-direction-dependent) happens to read off the SAME flange.
+   * Undefined on `alternates` (see `overallHeight`).
+   */
+  flangeExtent?: FlangeExtent;
   /** True iff layers > 1 -- the AUTOMATIC recommendation, independent of `CoilSpec.topCap`'s override. */
   capsAuto: boolean;
   /** The RESOLVED decision (issue #9): `capsAuto` unless `CoilSpec.topCap` overrides it to "on"/"off". This is what actually controls whether `Design.parts` includes a topCap part. */

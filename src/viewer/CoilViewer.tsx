@@ -62,7 +62,7 @@ export interface CoilViewerProps {
   exploded?: boolean;
   /** `Design.mountAxisDeg` (issue #13): the screw-keyhole mount's own true "hangs level" axis, when it differs from the design's local +Y (WALL_UP) -- see `buildViewRotations`'s comment. Omit (or leave undefined) when there's no mount, or it fits exactly on local +Y already. */
   mountAxisDeg?: number;
-  /** Issue #50: `Solution.flangeSize` -- a round flange's true outer diameter, shown as the "Ø" width dimension (sq/tri widths, and the overall height, are measured off the rendered part meshes instead -- see dimensionOverlay.tsx). Omitted (no solved design yet) hides the whole dimension overlay. */
+  /** Issue #50 (numbers fixed in #63): `Solution.flangeExtent.acrossFlats` -- a round flange's true outer diameter, shown as the "Ø" width dimension (sq/tri widths, and the overall height, are measured off the rendered part meshes instead -- see dimensionOverlay.tsx). Omitted (no solved design yet) hides the whole dimension overlay. */
   envelopeWidth?: number;
   /** Issue #50: `CoilSpec.shape.kind` -- whether the width dimension reads as a true diameter ("Ø", round, from `envelopeWidth`) or a plain width measured along the drawn direction (sq/tri). */
   shapeKind?: ShapeKind;
