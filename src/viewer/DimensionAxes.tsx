@@ -115,8 +115,19 @@ const SPIN_MIN_GAIN = 0.01;
  * result panel's flange width) on both axes, and a triangle its flat base
  * and base-to-apex height, instead of the corner-to-corner extents an
  * unspun box would give.
+ *
+ * `forcedSpinRad`, when given, skips that area search and uses this exact
+ * angle instead (issue #79): a heavily-rounded triangle can have its true
+ * minimal-area angle sit at a "corner-through-the-axis" orientation instead
+ * of a flat-flush one (the two are only EXACTLY tied for a shape with a
+ * rotational symmetry matching the box's own -- true for round/square, not
+ * for a triangle's odd corner count) -- close enough in area that the
+ * search's plain `<` picks whichever it meets first, not necessarily the
+ * flat-flush one. CoilViewer passes the SAME angle `frontFacingRotation`
+ * rotates the mesh by (negated), so the box stays flush with the identical
+ * flat the standing view now faces, rather than an independently-found one.
  */
-export function measureDimensionFrame(parts: Part[]): { box: THREE.Box3; groundZ: number; spin: THREE.Matrix4 } {
+export function measureDimensionFrame(parts: Part[], forcedSpinRad?: number): { box: THREE.Box3; groundZ: number; spin: THREE.Matrix4 } {
   let groundZ = Infinity;
   let minZ = Infinity;
   let maxZ = -Infinity;
@@ -149,9 +160,13 @@ export function measureDimensionFrame(parts: Part[]): { box: THREE.Box3; groundZ
   };
   const unspun = boundsAt(0);
   let best = unspun;
-  for (let i = 1; i < SPIN_STEPS; i++) {
-    const b = boundsAt((i / SPIN_STEPS) * Math.PI);
-    if (b.area < best.area && b.area < unspun.area * (1 - SPIN_MIN_GAIN)) best = b;
+  if (forcedSpinRad !== undefined) {
+    best = boundsAt(forcedSpinRad);
+  } else {
+    for (let i = 1; i < SPIN_STEPS; i++) {
+      const b = boundsAt((i / SPIN_STEPS) * Math.PI);
+      if (b.area < best.area && b.area < unspun.area * (1 - SPIN_MIN_GAIN)) best = b;
+    }
   }
   return {
     box: new THREE.Box3(new THREE.Vector3(best.x0, best.y0, minZ), new THREE.Vector3(best.x1, best.y1, maxZ)),

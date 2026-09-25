@@ -65,6 +65,13 @@ export {
 } from "./constants";
 export { SHAPES } from "./shapes";
 export type { ShapePlugin } from "./shapes";
+// Issue #78: the print-layout view needs the EXACT per-part bed transform
+// the 3MF writer places, so the two can never independently drift (see
+// plate.ts's own doc comment) -- exported here rather than reimplemented in
+// the viewer, unlike the trivial rotate+translate application of one such
+// transform (src/guide/printOrientation.ts, src/viewer/printLayoutScene.ts).
+export { printPlacements } from "./plate";
+export type { PartPlacement } from "./plate";
 export { parseHash, toHash, DEFAULT_SPEC, DEFAULT_SHOW_WIRE } from "./hash";
 export type { ParsedHash, ViewMode } from "./hash";
 export { design } from "./design";

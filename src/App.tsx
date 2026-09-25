@@ -180,6 +180,7 @@ export default function App() {
                 overallHeight={result.solution.overallHeight}
                 showDimensions={showDimensions}
                 shapeKind={result.spec.shape.kind}
+                bed={result.spec.print}
               />
             </>
           )}
