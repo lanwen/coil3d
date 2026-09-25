@@ -17,10 +17,16 @@ export default defineConfig({
   // Real GitHub-hosted runners (2 shared vCPUs, no GPU) are far slower at
   // software-rendered WebGL than this sandbox (see .github/workflows/ci.yml
   // and issue #18's PR): tests that touch the canvas took several times
-  // longer than locally. Headroom above a typical test's local runtime,
-  // not a tight bound -- see `reducedMotion` below for what actually closed
-  // most of that gap.
-  timeout: process.env.CI ? 90_000 : 30_000,
+  // longer than locally. `reducedMotion` below closes most of that gap for
+  // the majority of tests, but NOT for: (a) the few files that
+  // deliberately keep real motion (view-controls.spec.ts, top-cap.spec.ts's
+  // exploded-view describes -- see `use.contextOptions` below), which
+  // still exercise the expensive tween/damp code path on purpose, and (b)
+  // heavy renders that were never about motion at all (e.g. label.spec.ts's
+  // zoomed-in engraved-label screenshots -- a real CPU cost from render
+  // complexity, not an animation). A real CI run confirmed both still need
+  // this same generous headroom, so it stays global rather than tightened.
+  timeout: process.env.CI ? 180_000 : 30_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -51,14 +57,17 @@ export default defineConfig({
   // reproduction of the official Docker image (issue #18's PR): total
   // Chromium RSS stayed flat across repeats (not a leak), `frameloop` is
   // already "demand" everywhere (not continuously rendering), but the
-  // damped camera/explode tweens were the real cost -- each cheap-looking
+  // damped camera/explode tweens were a real cost -- each cheap-looking
   // "wait for a stable frame" was genuinely waiting out however many
   // expensive SwiftShader frames a real (non-instant) transition needs.
-  // `reducedMotion` below removes that cost almost everywhere (measured
-  // ~2x faster per screenshot in the same throttled repro), so 30s/90s is
-  // real headroom again, not a mask.
+  // `reducedMotion` below removes that cost for most of the suite (measured
+  // ~2x faster per screenshot in the same throttled repro) -- but a real CI
+  // run tightened to 30s still failed, on both the few files that
+  // deliberately keep real motion AND on a heavy render unrelated to motion
+  // (see `timeout`'s comment above), so this stays at the proven-green 60s
+  // rather than a number the data doesn't actually support yet.
   expect: {
-    timeout: process.env.CI ? 30_000 : 5_000,
+    timeout: process.env.CI ? 60_000 : 5_000,
     toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
   },
   webServer: {
