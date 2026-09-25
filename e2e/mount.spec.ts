@@ -118,3 +118,120 @@ test("the wall-mount preset changes the render and shows its own caption", async
   await page.getByTestId("preset-iso").click();
   await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);
 });
+
+// Issue #71 acceptance criteria: a `keyholeRotation` 0/45 option in the
+// UI/hash, with a hint, that follows through to the geometry (and the
+// guide's own mount-side inset, see guide.spec.ts) -- vitest (test/mount.
+// test.ts) covers the actual placement math; these check the UI wiring.
+test.describe("keyhole mount rotation (issue #71)", () => {
+  test("the rotation field only shows for the keyhole mount, defaults to 0 (omitted from the hash), and updates on change", async ({ page }) => {
+    await page.goto("/#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60");
+    await expect(page.getByTestId("select-keyholeRotation")).toHaveCount(0);
+
+    await page.getByTestId("select-mount").selectOption("keyhole");
+    await expect(page.getByTestId("select-keyholeRotation")).toHaveValue("0");
+    expect(decodeHashDoc(page.url()).kr).toBeUndefined();
+
+    await page.getByTestId("select-keyholeRotation").selectOption("45");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).kr).toBe(45);
+    }).toPass();
+
+    await page.getByTestId("select-mount").selectOption("through");
+    await expect(page.getByTestId("select-keyholeRotation")).toHaveCount(0);
+  });
+
+  test("a rotated keyhole mount reproduces on reload and stays manifold, with no console errors", async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") consoleErrors.push(msg.text());
+    });
+
+    await page.goto("/#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60&mount=keyhole&shape=sq");
+    await page.getByTestId("select-keyholeRotation").selectOption("45");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).kr).toBe(45);
+    }).toPass();
+    await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+
+    await page.reload();
+    await expect(page.getByTestId("select-keyholeRotation")).toHaveValue("45");
+
+    expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
+  });
+});
+
+// Issue #70 acceptance criteria: a `mount=through` option in the UI/hash
+// with a hole-diameter parameter and a hint, cutting plain, counterbored
+// through-holes (near the corners for sq/tri, evenly spaced for round) --
+// vitest (test/mount.test.ts) covers the placement/manifold math; these
+// check the UI wiring end to end. "through" is a NEW mount kind, added long
+// after issue #56's `#v=1&...` legacy format was frozen (mirrors "opengrid",
+// which never reached that format either -- see hash.ts's own comment), so
+// these navigate via a base legacy link + the UI's own mount selector,
+// never a hand-written `&mount=through` legacy hash the codec can't read.
+const BASE_HASH = "#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60";
+
+test.describe("through-hole mount (issue #70)", () => {
+  test("switching to the through-hole mount updates the hash + result panel, shows the hole-diameter field, and reproduces on reload", async ({ page }) => {
+    await page.goto(`/${BASE_HASH}`);
+    await expect(page.getByTestId("input-throughHoleDiameter")).toHaveCount(0);
+
+    await page.getByTestId("select-mount").selectOption("through");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).mount).toBe("through");
+    }).toPass();
+    await expect(page.getByTestId("mount")).toHaveText("Through-holes");
+    await expect(page.getByTestId("input-throughHoleDiameter")).toBeVisible();
+    await expect(page.getByTestId("warnings")).toContainText(/thickness increased/i);
+
+    await page.getByTestId("input-throughHoleDiameter").fill("6");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).thd).toBe(6);
+    }).toPass();
+
+    await page.reload();
+    await expect(page.getByTestId("select-mount")).toHaveValue("through");
+    await expect(page.getByTestId("input-throughHoleDiameter")).toHaveValue("6");
+  });
+
+  test("the through-hole mount core renders, stays manifold end to end, and both STL and STEP download", async ({ page }) => {
+    const consoleErrors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") consoleErrors.push(msg.text());
+    });
+
+    await page.goto(`/${BASE_HASH}`);
+    await page.getByTestId("select-mount").selectOption("through");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).mount).toBe("through");
+    }).toPass();
+    await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+
+    const stlDownload = page.waitForEvent("download");
+    await page.getByTestId("download-stl").click();
+    const stl = await stlDownload;
+    expect(await stl.path()).toBeTruthy();
+
+    const stepDownload = page.waitForEvent("download");
+    await page.getByTestId("download-step").click();
+    const step = await stepDownload;
+    expect(await step.path()).toBeTruthy();
+
+    expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
+  });
+
+  test("also works for square and triangle cores (one hole per corner)", async ({ page }) => {
+    for (const shape of ["sq", "tri"]) {
+      await page.goto(`/${BASE_HASH}&shape=${shape}`);
+      await page.getByTestId("select-mount").selectOption("through");
+      await expect(async () => {
+        expect(decodeHashDoc(page.url()).mount).toBe("through");
+      }).toPass();
+      await expect(page.getByTestId("warnings")).not.toContainText(/too narrow/i);
+      await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
+    }
+  });
+});

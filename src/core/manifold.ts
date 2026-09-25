@@ -33,6 +33,7 @@ import {
   BAYONET_LUG_HEIGHT,
   BAYONET_LUG_WIDTH,
   CAP_THICKNESS,
+  DEFAULT_THROUGH_HOLE_DIAMETER,
   JOINT_ENGAGE_DEPTH,
   JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
@@ -54,7 +55,10 @@ import {
   OPENGRID_PLACEHOLDER_PEG_REACH,
   OPENGRID_PLACEHOLDER_PEG_SIZE,
   SCREW_MOUNT_HEAD_RADIUS,
-  SCREW_MOUNT_SHANK_RADIUS,
+  SCREW_MOUNT_LEVEL_OVERLAP,
+  SCREW_MOUNT_SLOT_DEPTH,
+  SCREW_MOUNT_SLOT_RADIUS,
+  SCREW_MOUNT_UNDERCUT_DEPTH,
   SKADIS_CLIP_HEIGHT,
   SKADIS_CLIP_PROFILE,
   SKADIS_CLIP_PROFILE_CHAMFERED,
@@ -72,8 +76,8 @@ import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd } from "./innerEnd";
 import type { InnerEndLayout, XY } from "./innerEnd";
-import { layoutKeyholeMount } from "./mount";
-import type { KeyholeSlot } from "./mount";
+import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
+import type { KeyholeSlot, ThroughHole } from "./mount";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
 import { circumscribedRadius, offsetOutline, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -103,6 +107,12 @@ export interface FlangeSpec {
   columns: number;
   /** Screw-keyhole wall mount (issue #13): cut into the flange's outer (wall-facing, z=-thickness) face when `"keyhole"`. See mount.ts. */
   mount: MountKind;
+  /** Issue #71: prefers a different one of the shape's own natural axes for the keyhole mount's own `bestAxisDeg` search, 0 or 45 degrees off literal vertical (`KEYHOLE_ROTATION_OPTIONS`; 90 is not offered -- see that constant's own doc comment). Ignored (and may be omitted) when `mount !== "keyhole"`. */
+  keyholeRotation?: number;
+  /** Issue #70: through-hole (screw-shank clearance) diameter, mm; defaults to `DEFAULT_THROUGH_HOLE_DIAMETER` when omitted. Ignored when `mount !== "through"`. */
+  throughHoleDiameter?: number;
+  /** Issue #70 PR review: the wound cable's own outer radius (mirrors flange.ts's own `flangeSizeEnvelope / 2` reasoning) -- every through-hole is kept clear of it too, not just the wall's own surface, so it stays reachable with a screwdriver. 0/omitted when not relevant (no mount, or not yet known). */
+  envelopeRadius?: number;
 }
 
 /** What `fuseFlange` needs to cut a bayonet/snap joint's mating feature into the core's own top rim. Press needs no core-side cut, so it's omitted entirely by the caller. */
@@ -250,36 +260,19 @@ function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete():
 }
 
 /**
- * The manifold-3d cut for one keyhole slot (mount.ts's layout math): a wide
- * (head) cylinder and a narrow (shank-end) cylinder, joined by a straight
- * channel of the shank's own width -- all cut to `depth` starting at `zBase`
- * (the flange's outer face). Built from primitives + a single extruded
- * rectangle (not `Manifold.hull`, which would smoothly taper the channel to
- * the head's full width instead of stepping down to the narrower rail a
- * real keyhole slot has -- see mount.ts's file header).
+ * One depth LEVEL of the keyhole slot cutter (issue #71): a `headRadius`
+ * cylinder at the head, an `otherRadius` cylinder at the shank-end, joined by
+ * a straight channel of `otherRadius`'s own width -- built from primitives +
+ * a single extruded rectangle (not `Manifold.hull`, which would smoothly
+ * taper the channel to the head's full width instead of stepping down to the
+ * narrower rail a real keyhole slot has -- see mount.ts's file header).
+ * `screwMountCutter` below calls this twice (a narrow, shallow "slot" level
+ * and a head-width, deeper "undercut" level behind it) and unions the result.
  */
-function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, depth: number, zBase: number) {
+function slotLevelSolid(wasm: ManifoldToplevel, slot: KeyholeSlot, headRadius: number, otherRadius: number, height: number, zLo: number): Manifold {
   const { Manifold } = wasm;
-  // Poke WELD_OVERLAP past the flange's true outer face (zBase) at the
-  // cutter's mouth, instead of starting exactly flush with it: this
-  // recess is a BLIND pocket (unlike the inner-end keyhole's through-cut,
-  // which already pokes past both faces -- see buildInnerEndCutter), so
-  // its bottom cap would otherwise sit exactly coincident with the ring's
-  // own bottom annulus face. That razor-thin, exactly-coincident seam is
-  // the same hazard `mountPlateAnchorCutter`'s own MOUNT_PLATE_EMBED
-  // fixes ("an un-embedded cutter... left the flange's material
-  // completely uncut, as a separate, disconnected 'ghost' copy of the
-  // cutter itself") -- issue #41 traced the stray-sliver genus failure to
-  // exactly this: `fused.subtract(cutter)` occasionally leaving a whole,
-  // inverted copy of the cutter behind as a disconnected negative-volume
-  // piece instead of actually cutting the recess, once manifold-3d's own
-  // floating-point tolerance made the exact coincidence resolve badly.
-  // Only the mouth end moves; the recess's own depth (zBase+depth, the
-  // pocket's floor) is unchanged.
-  const zLo = zBase - WELD_OVERLAP;
-  const h = depth + WELD_OVERLAP;
-  const head = Manifold.cylinder(h, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_HEAD_RADIUS, 32).translate(slot.head.x, slot.head.y, zLo);
-  const shankEnd = Manifold.cylinder(h, SCREW_MOUNT_SHANK_RADIUS, SCREW_MOUNT_SHANK_RADIUS, 32).translate(slot.shankEnd.x, slot.shankEnd.y, zLo);
+  const head = Manifold.cylinder(height, headRadius, headRadius, 32).translate(slot.head.x, slot.head.y, zLo);
+  const shankEnd = Manifold.cylinder(height, otherRadius, otherRadius, 32).translate(slot.shankEnd.x, slot.shankEnd.y, zLo);
   const dx = slot.shankEnd.x - slot.head.x;
   const dy = slot.shankEnd.y - slot.head.y;
   const len = Math.hypot(dx, dy);
@@ -287,17 +280,89 @@ function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, depth: numb
   if (len > 1e-6) {
     const ux = dx / len;
     const uy = dy / len;
-    const px = -uy * SCREW_MOUNT_SHANK_RADIUS;
-    const py = ux * SCREW_MOUNT_SHANK_RADIUS;
+    const px = -uy * otherRadius;
+    const py = ux * otherRadius;
     const channelPolygon: [number, number][] = [
       [slot.head.x + px, slot.head.y + py],
       [slot.head.x - px, slot.head.y - py],
       [slot.shankEnd.x - px, slot.shankEnd.y - py],
       [slot.shankEnd.x + px, slot.shankEnd.y + py],
     ];
-    parts.push(Manifold.extrude([channelPolygon], h).translate(0, 0, zLo));
+    parts.push(Manifold.extrude([channelPolygon], height).translate(0, 0, zLo));
   }
   return Manifold.union(parts);
+}
+
+/**
+ * The manifold-3d cut for one keyhole slot (mount.ts's layout math), cut
+ * from `zBase` (the flange's outer face) inward. Issue #71 ("verify the
+ * keyhole actually catches the screw"): TWO depth levels, unioned --
+ *
+ * - A shallow, narrow "slot" level (`SCREW_MOUNT_SLOT_DEPTH` deep,
+ *   `SCREW_MOUNT_SLOT_RADIUS`-wide channel/shank-end, but still
+ *   `SCREW_MOUNT_HEAD_RADIUS`-wide at the head itself -- that's the
+ *   head-entry hole, which must stay full width all the way down).
+ * - A deeper, head-width "undercut" level directly behind it
+ *   (`SCREW_MOUNT_UNDERCUT_DEPTH` deep, `SCREW_MOUNT_HEAD_RADIUS` everywhere)
+ *   -- what actually lets the screw HEAD travel from the head-entry hole to
+ *   the shank's resting point and stay captured there, hidden behind the
+ *   narrower slot above it.
+ *
+ * Only the MOUTH (the slot level's own outer face, at `zBase`) pokes
+ * WELD_OVERLAP past the flange's true outer face, instead of starting
+ * exactly flush with it: this recess is a BLIND pocket (unlike the
+ * inner-end keyhole's through-cut, which already pokes past both faces --
+ * see buildInnerEndCutter), so its mouth would otherwise sit exactly
+ * coincident with the ring's own bottom annulus face. That razor-thin,
+ * exactly-coincident seam is the same hazard `mountPlateAnchorCutter`'s own
+ * MOUNT_PLATE_EMBED fixes ("an un-embedded cutter... left the flange's
+ * material completely uncut, as a separate, disconnected 'ghost' copy of the
+ * cutter itself") -- issue #41 traced the stray-sliver genus failure to
+ * exactly this: `fused.subtract(cutter)` occasionally leaving a whole,
+ * inverted copy of the cutter behind as a disconnected negative-volume piece
+ * instead of actually cutting the recess, once manifold-3d's own
+ * floating-point tolerance made the exact coincidence resolve badly. The
+ * SEAM between the two levels (at `zBase + SCREW_MOUNT_SLOT_DEPTH`) never
+ * touches any PRE-EXISTING target face -- it's an internal step between two
+ * solids of different radii on the same axis, an ordinary counterbore-style
+ * union, not the mouth's own "cutter vs. target" coincidence. Empirically,
+ * though, manifold-3d's own union of the two LEVELS (both part of this same
+ * cutter, before it's ever subtracted from anything) hit the identical class
+ * of floating-point fragility at an exact, coincident abutment between them:
+ * a fine flange-thickness sweep (test/geometry.test.ts's issue #41 coverage)
+ * turned up one specific thickness where an exact abutment there produced a
+ * stray-sliver genus failure. `SCREW_MOUNT_LEVEL_OVERLAP` grows the slot
+ * level's own height by a hairline past the nominal seam for exactly the
+ * same reason WELD_OVERLAP/MOUNT_PLATE_EMBED exist -- imperceptible at print
+ * scale, and the recess's own total depth/floor (`zBase +
+ * SCREW_MOUNT_RECESS_DEPTH`, where the load-bearing shelf begins) is
+ * unchanged from the original single-level cut.
+ */
+function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, zBase: number): Manifold {
+  const mouthZLo = zBase - WELD_OVERLAP;
+  const slotLevel = slotLevelSolid(wasm, slot, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_SLOT_RADIUS, SCREW_MOUNT_SLOT_DEPTH + WELD_OVERLAP + SCREW_MOUNT_LEVEL_OVERLAP, mouthZLo);
+  const undercutLevel = slotLevelSolid(wasm, slot, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_UNDERCUT_DEPTH, zBase + SCREW_MOUNT_SLOT_DEPTH);
+  return wasm.Manifold.union([slotLevel, undercutLevel]);
+}
+
+/**
+ * The manifold-3d cut for one through-hole mount hole (issue #70, mount.ts's
+ * `layoutThroughHoleMount`): a plain cylinder (the screw-shank clearance)
+ * spanning the flange's FULL thickness -- poking 1mm past BOTH faces, the
+ * same through-cut convention `buildInnerEndCutter` already uses for the
+ * inner-end keyhole -- unioned with a wider, shallower cylinder (the
+ * counterbore, screw-head clearance) blind from the flange's outer face
+ * inward by `counterboreDepth`, poking WELD_OVERLAP past that face at its
+ * own mouth (mirrors `screwMountCutter`'s identical mouth reasoning). The
+ * seam between the two (where the counterbore ends, inside solid material)
+ * needs no such treatment: it's an ordinary counterbore-style union of two
+ * coaxial cylinders of different radii, never a coincident TARGET face.
+ */
+function throughHoleCutter(wasm: ManifoldToplevel, hole: ThroughHole, holeRadius: number, counterboreRadius: number, counterboreDepth: number, flangeThickness: number): Manifold {
+  const { Manifold } = wasm;
+  const shank = Manifold.cylinder(flangeThickness + 2 * WELD_OVERLAP, holeRadius, holeRadius, 32).translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP);
+  const counterbore = Manifold.cylinder(counterboreDepth + WELD_OVERLAP, counterboreRadius, counterboreRadius, 32).translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP);
+  return Manifold.union([shank, counterbore]);
 }
 
 /** What `fuseFlange` needs to cut the clip mount plate's own alignment pegs/holes or snap pockets into the flange's outer (wall-facing) face (issue #14) -- mirrors `CoreJointCut`'s "one shared description, cut by whichever backend needs it" role. Omitted entirely when the plate has no anchors to cut for (see mountPlate.ts's `MountPlateLayout.anchors`). */
@@ -450,11 +515,17 @@ export async function fuseFlange(
       throw new Error(`Fused mesh is not a valid manifold: ${status}`);
     }
 
+    // Kept (not just consumed for its own cutter): issue #70's through-hole
+    // mount checks the SAME real, computed channel footprint the inner-end
+    // cutter actually cut, not a re-derivation, so the two can never
+    // silently disagree about where the channel is.
+    let innerEndLayout: InnerEndLayout | undefined;
     if (innerEnd) {
       // `cutter` is already tracked (buildInnerEndCutter tracks every
       // intermediate it builds internally) -- don't track it again here.
-      const { cutter } = buildInnerEndCutter(wasm, track, flange.outline, flange.margin, innerEnd);
-      fused = track(fused.subtract(cutter));
+      const built = buildInnerEndCutter(wasm, track, flange.outline, flange.margin, innerEnd);
+      innerEndLayout = built.layout;
+      fused = track(fused.subtract(built.cutter));
       status = fused.status();
       if (status !== "NoError") {
         throw new Error(`Inner-end keyhole/channel cut is not a valid manifold: ${status}`);
@@ -462,13 +533,29 @@ export async function fuseFlange(
     }
 
     if (flange.mount === "keyhole") {
-      const layout = layoutKeyholeMount(flange.outline, flange.boreOutline, flange.margin);
+      const layout = layoutKeyholeMount(flange.outline, flange.boreOutline, flange.margin, flange.keyholeRotation);
       for (const slot of layout.slots) {
-        const cutter = track(screwMountCutter(wasm, slot, layout.recessDepth, -flange.thickness));
+        const cutter = track(screwMountCutter(wasm, slot, -flange.thickness));
         fused = track(fused.subtract(cutter));
         status = fused.status();
         if (status !== "NoError") {
           throw new Error(`Keyhole mount cut is not a valid manifold: ${status}`);
+        }
+      }
+    }
+
+    if (flange.mount === "through") {
+      // No inner-end cut was passed (only some direct/test callers ever omit
+      // it -- design.ts always provides one): fall back to a channel guard
+      // far from the flange, which never collides, rather than crashing.
+      const channelGuard = innerEndLayout ?? { hole: { x: 1e9, y: 1e9 }, holeRadius: 0, channelRibbon: [] };
+      const layout = layoutThroughHoleMount(flange.outline, flange.boreOutline, flange.margin, flange.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER, channelGuard, flange.envelopeRadius ?? 0);
+      for (const hole of layout.holes) {
+        const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, layout.counterboreRadius, layout.counterboreDepth, flange.thickness));
+        fused = track(fused.subtract(cutter));
+        status = fused.status();
+        if (status !== "NoError") {
+          throw new Error(`Through-hole mount cut is not a valid manifold: ${status}`);
         }
       }
     }

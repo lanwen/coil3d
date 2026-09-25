@@ -6,13 +6,30 @@
 // backends, one feature description" principle as wall.ts's WallProfile:
 // the two must never place or size the slot(s) differently.
 //
-// Shape: a wide circle (screw-HEAD clearance) joined by a straight,
-// shank-width channel to a second, narrower circle (where the shank rests
-// once hung) -- the classic hardware-store "keyhole slot", not a smoothly
-// tapered capsule: real keyhole hangers step down abruptly from the head
-// opening to a narrower rail, which is also simpler to build identically in
-// manifold-3d (2 cylinders + an extruded rectangle) and replicad (2 circles
-// + a drawn rectangle, unioned in 2D then extruded once).
+// Shape (in-plane, XY): a wide circle (screw-HEAD clearance) joined by a
+// straight channel to a second, narrower circle (where the shank rests once
+// hung) -- the classic hardware-store "keyhole slot", not a smoothly tapered
+// capsule: real keyhole hangers step down abruptly from the head opening to
+// a narrower rail, which is also simpler to build identically in manifold-3d
+// (2 cylinders + an extruded rectangle) and replicad (2 circles + a drawn
+// rectangle, unioned in 2D then extruded once).
+//
+// Depth (issue #71, "verify the keyhole actually catches the screw"): the
+// SAME two-circles-plus-channel shape above is cut TWICE, at two different
+// depths from the flange's outer face (see constants.ts's
+// SCREW_MOUNT_SLOT_DEPTH/SCREW_MOUNT_UNDERCUT_DEPTH and manifold.ts's/
+// step/build.ts's `screwMountCutter`/`screwMountCutterSolid`): a shallow
+// level right at the surface, where the channel and shank-rest circle are
+// NARROW (SCREW_MOUNT_SLOT_RADIUS -- wider than the shank, narrower than the
+// head), and a deeper "undercut" level directly behind it, where they widen
+// to the full head radius. The shallow level is what a real keyhole hanger's
+// user actually SEES (a narrow slot); the deeper, wider level behind it is
+// what actually lets the HEAD travel from the head-entry hole to the
+// shank's resting point and then stay captured there once seated -- an
+// earlier, single-depth version of this cut looked right but was
+// mechanically impossible to assemble (its channel was only shank-width at
+// every depth, so an 8mm head could never actually reach the 4mm-wide
+// resting position at all).
 //
 // Mounting mechanics: the user inserts the screw through the wide (head)
 // circle, then lowers the part -- so, in the PART's own local frame, the
@@ -24,6 +41,18 @@
 // part is rigid, so for a 2-slot layout to hang level, both channels must
 // already point the same way in-frame -- a radial fan can't both be
 // vertical at once after installing.
+//
+// Rotation (issue #71, `keyholeRotation`/`KEYHOLE_ROTATION_OPTIONS`): the
+// user can ask `bestAxisDeg` to prefer a DIFFERENT one of the shape's own
+// natural mirror axes (see `candidateAxisDegs`) than whichever needs the
+// least flange margin -- 0 (the default) or 45 degrees off literal
+// vertical. The search window itself (`SCREW_MOUNT_AXIS_SEARCH_MAX_DEG`,
+// 60 degrees) is NEVER shifted by this request, only used as the SET the
+// request picks from -- so the result always hangs level AND always
+// retains the coil (see `KEYHOLE_ROTATION_OPTIONS`'s own doc comment for
+// why a literal 90-degree option is unsafe and not offered: a channel that
+// far off vertical, once actually hung level, would be horizontal, with
+// zero gravity component along its own length).
 //
 // "Up", explicitly (this is the one axis every other piece of this feature
 // is defined against -- see WALL_UP below): local +Y at angle 0 in the
@@ -64,17 +93,23 @@
 // candidate's own FANNED position, not just its unfanned cost.
 
 import {
+  DEFAULT_THROUGH_HOLE_DIAMETER,
   SCREW_MOUNT_ANNULUS_WIDTH,
   SCREW_MOUNT_AXIS_SEARCH_MAX_DEG,
   SCREW_MOUNT_EDGE_MARGIN,
   SCREW_MOUNT_HEAD_RADIUS,
   SCREW_MOUNT_RECESS_DEPTH,
-  SCREW_MOUNT_SHANK_RADIUS,
   SCREW_MOUNT_SLOT_TRAVEL,
   SCREW_MOUNT_TWO_SLOT_ANGLE,
   SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD,
+  THROUGH_MOUNT_COUNTERBORE_DEPTH,
+  THROUGH_MOUNT_COUNTERBORE_MARGIN,
+  THROUGH_MOUNT_EDGE_MARGIN,
+  THROUGH_MOUNT_ENVELOPE_MARGIN,
+  THROUGH_MOUNT_ROUND_HOLE_COUNTS,
 } from "./constants";
-import { inscribedRadius, offsetOutline, radiusAtAngle } from "./shapes";
+import type { XY } from "./innerEnd";
+import { circumscribedRadius, inscribedRadius, offsetOutline, radiusAtAngle } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 
 /**
@@ -99,11 +134,19 @@ export function standardAngleRad(thetaDeg: number): number {
 
 /**
  * Every corner's and every side-midpoint's own standard angle, converted to
- * `makeSlotAt` theta and normalised to (-180, 180], keeping only those
- * within `SCREW_MOUNT_AXIS_SEARCH_MAX_DEG` of vertical (theta=0) -- see the file
- * header. Each one is (one end of) a genuine mirror axis of the whole
- * outline, so placing a slot on it, or two slots symmetric about it, always
- * hangs level.
+ * `makeSlotAt` theta and normalised to (-180, 180], keeping only those within
+ * `SCREW_MOUNT_AXIS_SEARCH_MAX_DEG` of TRUE vertical (theta=0, `WALL_UP`) --
+ * see the file header. This window is FIXED -- issue #71 PR review: an
+ * earlier version re-centred it on the rotation request instead, which let
+ * the chosen axis drift arbitrarily far from true vertical (e.g. all the way
+ * to 105 degrees off it for a 45-degree request) -- defeating the ENTIRE
+ * point of this bound (this project's own accepted "how far off vertical can
+ * the mount tilt and still reliably hang" limit, cos(60 deg)=0.5 of gravity's
+ * pull retained at the very edge of it). `keyholeRotation` (see
+ * `bestAxisDeg`) only ever chooses AMONG these same safe candidates, never
+ * moves the window itself. Each candidate is (one end of) a genuine mirror
+ * axis of the whole outline, so placing a slot on it, or two slots symmetric
+ * about it, always hangs level.
  */
 function candidateAxisDegs(n: number): number[] {
   const stepDeg = 360 / n;
@@ -118,24 +161,57 @@ function candidateAxisDegs(n: number): number[] {
 }
 
 /**
- * Among the reachable axes, the one whose FANNED position (`axis +
- * fanDeg`, matching whatever a 2-slot layout will actually place a slot
- * at -- pass `fanDeg=0` for the single-slot case) sits closest to the
- * outline's own flat sides (the smallest `radiusAtAngle`), i.e. needs the
- * least flange margin to fit -- see the file header.
+ * Among the reachable axes (`candidateAxisDegs`, ALWAYS within
+ * `SCREW_MOUNT_AXIS_SEARCH_MAX_DEG` of true vertical -- never shifted, see
+ * that function's own doc comment), which one to use:
+ *
+ * - `keyholeRotation === 0` (the default, issue #13's original behaviour,
+ *   unchanged): whichever axis needs the LEAST flange margin (the smallest
+ *   `radiusAtAngle` at its own FANNED position, `axis + fanDeg` -- pass
+ *   `fanDeg=0` for the single-slot case), tie-broken by closeness to true
+ *   vertical. A side's own midpoint has NO bulge at all (`radiusAtAngle`
+ *   there is just `apothem`, the same as round); a corner's own midpoint has
+ *   the FULL bulge (`circumscribedRadius`) -- always the more expensive
+ *   choice, so this never picks a corner when a side is reachable.
+ * - `keyholeRotation !== 0` (issue #71, `KEYHOLE_ROTATION_OPTIONS`): the
+ *   user has explicitly asked for a DIFFERENT axis than the automatic
+ *   (cheapest) one -- so this instead picks whichever SAFE candidate sits
+ *   CLOSEST to that request, cost only as a final tie-break (design.ts's
+ *   `requiredFlangeMargin` already grows the flange margin to fit whichever
+ *   axis is actually chosen, exactly as it already does for the automatic
+ *   case, so a more expensive explicit choice is never silently rejected,
+ *   only costed).
  */
-export function bestAxisDeg(boreOutline: ShapeOutline, fanDeg: number): number {
-  let best = 0;
+export function bestAxisDeg(boreOutline: ShapeOutline, fanDeg: number, keyholeRotation = 0): number {
+  const candidates = candidateAxisDegs(boreOutline.n);
+  if (keyholeRotation === 0) {
+    let best = 0;
+    let bestRadius = Infinity;
+    for (const theta of candidates) {
+      const r = radiusAtAngle(boreOutline, standardAngleRad(theta + fanDeg));
+      // Prefer a strictly cheaper candidate, but break a (near-)tie -- e.g.
+      // round, or any shape with no bulge to speak of, ties on EVERY
+      // candidate -- by whichever sits closest to true vertical, so a
+      // fully-agnostic shape still gets the visually obvious "top centre"
+      // placement instead of an arbitrary, equally-valid-but-surprising tilt.
+      const tied = Math.abs(r - bestRadius) < 1e-6;
+      if (r < bestRadius - 1e-6 || (tied && Math.abs(theta) < Math.abs(best))) {
+        bestRadius = r;
+        best = theta;
+      }
+    }
+    return best;
+  }
+
+  let best = candidates[0] ?? 0;
+  let bestDist = Infinity;
   let bestRadius = Infinity;
-  for (const theta of candidateAxisDegs(boreOutline.n)) {
+  for (const theta of candidates) {
+    const dist = Math.abs(theta - keyholeRotation);
     const r = radiusAtAngle(boreOutline, standardAngleRad(theta + fanDeg));
-    // Prefer a strictly cheaper candidate, but break a (near-)tie -- e.g.
-    // round, or any shape with no bulge to speak of, ties on EVERY
-    // candidate -- by whichever sits closest to true vertical, so a
-    // fully-agnostic shape still gets the visually obvious "top centre"
-    // placement instead of an arbitrary, equally-valid-but-surprising tilt.
-    const tied = Math.abs(r - bestRadius) < 1e-6;
-    if (r < bestRadius - 1e-6 || (tied && Math.abs(theta) < Math.abs(best))) {
+    const tiedDist = Math.abs(dist - bestDist) < 1e-6;
+    if (dist < bestDist - 1e-6 || (tiedDist && r < bestRadius - 1e-6)) {
+      bestDist = dist;
       bestRadius = r;
       best = theta;
     }
@@ -151,13 +227,31 @@ export function bestAxisDeg(boreOutline: ShapeOutline, fanDeg: number): number {
  * number that works for either). Found by a binary search over margin
  * (`radiusAtAngle` isn't simply additive in margin off a corner or side's
  * own exact centre -- see the file header), not a closed form.
+ *
+ * `keyholeRotation` (issue #71) must match whatever `layoutKeyholeMount` is
+ * about to be called with: a rotated axis can need a different margin to
+ * fit (design.ts calls this BEFORE the flange margin -- and so the layout
+ * itself -- is resolved, exactly like the unrotated case already did).
  */
-export function requiredFlangeMargin(outline: ShapeOutline, boreOutline: ShapeOutline): number {
+export function requiredFlangeMargin(outline: ShapeOutline, boreOutline: ShapeOutline, keyholeRotation = 0): number {
   const requiredAnnulusAt = (fanDeg: number): number => {
-    const axis = bestAxisDeg(boreOutline, fanDeg);
+    const axis = bestAxisDeg(boreOutline, fanDeg, keyholeRotation);
     const phi = standardAngleRad(axis + fanDeg);
-    const boreR = radiusAtAngle(boreOutline, phi);
-    const target = boreR + SCREW_MOUNT_ANNULUS_WIDTH;
+    // The wall's own outer (winding) surface, NOT the bore -- must match
+    // `slotAt`'s own `innerLimit` reference exactly, or this could solve for
+    // a margin that "fits" by the wrong measure (see that function's own
+    // doc comment on why the bore alone isn't the right inner bound).
+    const wallR = radiusAtAngle(outline, phi);
+    // A hairline (1e-6 mm) safety margin past the bare-minimum target: this
+    // margin is found by bisection, not a closed form (see this function's
+    // own doc comment), so its own `hi` can land close enough to the true
+    // boundary that `layoutKeyholeMount`'s later, independent recomputation
+    // of the SAME "does it fit" check (`slotAt`'s `outerLimit - innerLimit`)
+    // occasionally reads a few ULPs short of the target it was solved
+    // against -- imperceptible at print scale, but enough to flip a `>=`
+    // into a `<` and report "doesn't fit" for a margin that, by construction,
+    // was meant to.
+    const target = wallR + SCREW_MOUNT_ANNULUS_WIDTH + 1e-6;
 
     const flangeRadiusAt = (margin: number) => radiusAtAngle(offsetOutline(outline, margin), phi);
     let lo = 0;
@@ -206,16 +300,44 @@ export interface MountLayout {
  * (the wall's own outline, its bore, and the flange's margin beyond that
  * outline), so the mesh and STEP backends compute the identical layout from
  * identical inputs.
+ *
+ * `keyholeRotation` (issue #71, one of `KEYHOLE_ROTATION_OPTIONS`) asks
+ * `bestAxisDeg` to prefer a different one of the shape's own natural axes --
+ * see that function's own doc comment. Default 0 reproduces the original,
+ * pre-#71 placement exactly.
  */
-export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutline, margin: number): MountLayout {
+export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutline, margin: number, keyholeRotation = 0): MountLayout {
   const halfTravel = SCREW_MOUNT_SLOT_TRAVEL / 2;
   const flangeOutline = offsetOutline(outline, margin);
 
-  /** A slot centred on `axisDeg` (a `makeSlotAt` theta), or null if it doesn't fit there. Both channels stay PARALLEL to WALL_UP (see the file header): only the ANCHOR point rotates by `axisDeg`. */
+  /**
+   * A slot centred on `axisDeg` (a `makeSlotAt` theta), or null if it
+   * doesn't fit there. Both channels stay PARALLEL to WALL_UP (see the file
+   * header): only the ANCHOR point rotates by `axisDeg`.
+   *
+   * `innerLimit` clears the WALL'S OWN outer (winding) surface (`outline`
+   * at offset 0), NOT the hollow bore (issue #71 PR review, a confirmed
+   * bug): the flange's own inner annulus, from the bore out to `outline`,
+   * sits DIRECTLY BELOW the solid wall tube (same footprint, welded
+   * together at z=0) -- it is NOT empty/hollow space the way the bore
+   * itself is. A cut placed there would undermine the wall's own printed
+   * support (the wall exists at z>=0 with nothing but this same flange
+   * material underneath it at z<0) even though it never touches the bore.
+   * The safe region for any mount cut is only the OUTER annulus, `outline`
+   * to the flange's own true edge.
+   *
+   * `outerLimit` budgets `SCREW_MOUNT_HEAD_RADIUS` at the shank-rest end too
+   * (issue #71), not just at the head end: that end's own SURFACE opening is
+   * narrower (`SCREW_MOUNT_SLOT_RADIUS`), but the undercut chamber directly
+   * behind it (same XY position, see `SCREW_MOUNT_UNDERCUT_DEPTH`) is
+   * head-width, so the cut's true widest reach at EITHER end, across its
+   * full depth, is the head radius -- the flange must clear THAT, not just
+   * the narrower surface opening, or the undercut breaks through the edge.
+   */
   const slotAt = (axisDeg: number): KeyholeSlot | null => {
     const phi = standardAngleRad(axisDeg);
-    const innerLimit = radiusAtAngle(boreOutline, phi) + SCREW_MOUNT_EDGE_MARGIN + SCREW_MOUNT_HEAD_RADIUS;
-    const outerLimit = radiusAtAngle(flangeOutline, phi) - SCREW_MOUNT_EDGE_MARGIN - SCREW_MOUNT_SHANK_RADIUS;
+    const innerLimit = radiusAtAngle(outline, phi) + SCREW_MOUNT_EDGE_MARGIN + SCREW_MOUNT_HEAD_RADIUS;
+    const outerLimit = radiusAtAngle(flangeOutline, phi) - SCREW_MOUNT_EDGE_MARGIN - SCREW_MOUNT_HEAD_RADIUS;
     const bandLo = innerLimit + halfTravel;
     const bandHi = outerLimit - halfTravel;
     if (bandHi < bandLo) return null;
@@ -230,7 +352,7 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
   const wantsTwoSlots = flangeDiameter >= SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD;
 
   if (wantsTwoSlots) {
-    const axis = bestAxisDeg(boreOutline, SCREW_MOUNT_TWO_SLOT_ANGLE);
+    const axis = bestAxisDeg(boreOutline, SCREW_MOUNT_TWO_SLOT_ANGLE, keyholeRotation);
     const left = slotAt(axis - SCREW_MOUNT_TWO_SLOT_ANGLE);
     const right = slotAt(axis + SCREW_MOUNT_TWO_SLOT_ANGLE);
     if (left && right) return { slots: [left, right], recessDepth: SCREW_MOUNT_RECESS_DEPTH, axisDeg: axis };
@@ -238,7 +360,7 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
     // invalid (or asymmetric, one-sided) geometry.
   }
 
-  const singleAxis = bestAxisDeg(boreOutline, 0);
+  const singleAxis = bestAxisDeg(boreOutline, 0, keyholeRotation);
   const single = slotAt(singleAxis);
   if (single) return { slots: [single], recessDepth: SCREW_MOUNT_RECESS_DEPTH, axisDeg: singleAxis };
 
@@ -247,4 +369,178 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
     recessDepth: SCREW_MOUNT_RECESS_DEPTH,
     warning: "The flange is too narrow to fit the screw-keyhole mount (increase the core size, or the mount was skipped).",
   };
+}
+
+// --- Through-hole wall mount (issue #70, docs/research.md "Mounting") -----
+//
+// Plain, counterbored screw-shank holes cut straight through the bottom
+// flange -- a permanent, non-sliding alternative to the screw-keyhole mount
+// above. Unlike the keyhole mount, there's no "hang it, then slide to seat"
+// mechanics and so no gravity-driven "up" direction to search for: every
+// hole sits at a FIXED angle -- a corner's own centre for sq/tri (the
+// widest part of the margin annulus, shapes.ts's own corner-bulge
+// construction), or evenly spaced for round -- never searched or rotated.
+//
+// Because every candidate angle here is exactly where `radiusAtAngle` is
+// additive in offset (round: `radiusAtAngle` is constant, any angle; sq/tri:
+// a corner's own centre, where shapes.ts's `radiusAtAngle` reduces to
+// `circumscribedRadius` -- see that function's own doc comment), the
+// required-margin calculation below is a closed form, unlike the keyhole
+// mount's own bisection-based `requiredFlangeMargin`.
+
+export interface ThroughHole {
+  /** Hole centre, in the flange's local XY (mm). */
+  x: number;
+  y: number;
+}
+
+export interface ThroughMountLayout {
+  holes: ThroughHole[];
+  /** Depth of the counterbore, cut inward from the flange's outer (wall-facing) face, mm. */
+  counterboreDepth: number;
+  /** Counterbore (screw-head clearance) radius, mm. */
+  counterboreRadius: number;
+  /** Through-hole (screw-shank clearance) radius, mm -- half of the user's own `throughHoleDiameter`. */
+  holeRadius: number;
+  /** Set when one or more corners (sq/tri) were skipped, or the mount didn't fit at all (empty `holes`). */
+  warning?: string;
+}
+
+/**
+ * The minimum flange margin that lets `layoutThroughHoleMount` place every
+ * hole (mirrors mount.ts's own `requiredFlangeMargin`, but as a closed form
+ * -- see the file header above). `envelopeRadius` (issue #70 AC: holes must
+ * be reachable with a screwdriver, "outside the winding envelope") is the
+ * wound cable's own outer radius (`Solution.envelopeDiameter / 2`, 0 if not
+ * yet known/relevant) -- when it reaches further out than the wall's own
+ * surface does, it becomes the REAL inner bound instead.
+ */
+export function requiredThroughMountMargin(
+  outline: ShapeOutline,
+  _boreOutline: ShapeOutline,
+  holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
+  envelopeRadius = 0,
+): number {
+  const counterboreRadius = holeDiameter / 2 + THROUGH_MOUNT_COUNTERBORE_MARGIN;
+  const isRound = outline.cornerRadius === outline.apothem;
+  const outlineR0 = isRound ? outline.apothem : circumscribedRadius(outline, 0);
+  // The wall's own outer (winding) surface -- NOT the bore (issue #71 PR
+  // review's same fix, mirrored here: see `layoutKeyholeMount`'s `slotAt`
+  // doc comment for why the bore alone isn't the right inner bound) -- or
+  // the wound envelope, whichever reaches further out.
+  const innerBound0 = Math.max(outlineR0 + THROUGH_MOUNT_EDGE_MARGIN, envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN);
+  // A hairline (1e-6 mm) safety margin past the bare-minimum requirement --
+  // mirrors `requiredFlangeMargin`'s own epsilon: without it, floating-point
+  // rounding can occasionally leave `layoutThroughHoleMount`'s later,
+  // independent recomputation of this SAME "does it fit" check a few ULPs
+  // short of the target it was solved against.
+  const target = innerBound0 + 2 * counterboreRadius + THROUGH_MOUNT_EDGE_MARGIN + 1e-6;
+  const required = target - outlineR0;
+  return Math.max(0, required);
+}
+
+/** Point-to-closed-polygon minimum distance (mm) -- used to keep a through-hole clear of the inner-end cable channel's own cut footprint (issue #70 AC: "clear of ... the inner-end channel"). */
+function distanceToClosedPolygon(px: number, py: number, points: XY[]): number {
+  let best = Infinity;
+  const n = points.length;
+  for (let i = 0; i < n; i++) {
+    const a = points[i];
+    const b = points[(i + 1) % n];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 1e-12 ? Math.max(0, Math.min(1, ((px - a.x) * dx + (py - a.y) * dy) / len2)) : 0;
+    const d = Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+/**
+ * Lay out through-holes in the flange's bore-to-edge annulus (issue #70):
+ * one per corner for sq/tri (in the flange's own corner areas -- AC), or
+ * evenly spaced (issue #70 AC: "3 or 4") for round, widest count first. Every
+ * candidate is also checked against the inner-end cable channel's own real,
+ * computed footprint (`innerEndChannel`, innerEnd.ts's `layoutInnerEnd` --
+ * AC: "clear of ... the inner-end channel") -- never just assumed clear:
+ * round retries a half-step-rotated ring if the plain one collides (round
+ * has full rotational freedom, unlike sq/tri's fixed corners), and sq/tri
+ * simply skips (and warns about) whichever corner doesn't clear, keeping
+ * every other corner's hole rather than giving up the whole mount over one
+ * conflict.
+ *
+ * `envelopeRadius` (issue #70 AC, PR review: holes must be reachable with a
+ * screwdriver, "outside the winding envelope") is the wound cable's own
+ * outer radius (`Solution.envelopeDiameter / 2`) -- every hole is also kept
+ * at least `THROUGH_MOUNT_ENVELOPE_MARGIN` beyond it, not just beyond the
+ * wall's own surface (`_boreOutline` is unused here for the SAME reason
+ * `layoutKeyholeMount`'s `slotAt` no longer uses it: the flange's own inner
+ * annulus, bore to `outline`, sits directly below the solid wall and is
+ * NOT a safe place to cut, regardless of the hollow bore).
+ */
+export function layoutThroughHoleMount(
+  outline: ShapeOutline,
+  _boreOutline: ShapeOutline,
+  margin: number,
+  holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
+  innerEndChannel: { hole: XY; holeRadius: number; channelRibbon: XY[] },
+  envelopeRadius = 0,
+): ThroughMountLayout {
+  const holeRadius = holeDiameter / 2;
+  const counterboreRadius = holeRadius + THROUGH_MOUNT_COUNTERBORE_MARGIN;
+  const flangeOutline = offsetOutline(outline, margin);
+  const isRound = outline.cornerRadius === outline.apothem;
+  const base = { counterboreDepth: THROUGH_MOUNT_COUNTERBORE_DEPTH, counterboreRadius, holeRadius };
+  const tooNarrowWarning = "The flange is too narrow (or too close to the inner-end cable channel) to fit the through-hole mount (increase the core size, or the mount was skipped).";
+
+  const clearOfChannel = (x: number, y: number): boolean => {
+    const requiredClearance = counterboreRadius + THROUGH_MOUNT_EDGE_MARGIN;
+    if (Math.hypot(x - innerEndChannel.hole.x, y - innerEndChannel.hole.y) < requiredClearance + innerEndChannel.holeRadius) return false;
+    return innerEndChannel.channelRibbon.length < 3 || distanceToClosedPolygon(x, y, innerEndChannel.channelRibbon) >= requiredClearance;
+  };
+
+  /** A hole centred on standard angle `phi` (shapes.ts convention), or null if it doesn't fit there. */
+  const holeAt = (phi: number): ThroughHole | null => {
+    const wallBound = radiusAtAngle(outline, phi) + THROUGH_MOUNT_EDGE_MARGIN;
+    const envelopeBound = envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN;
+    const innerLimit = Math.max(wallBound, envelopeBound) + counterboreRadius;
+    const outerLimit = radiusAtAngle(flangeOutline, phi) - THROUGH_MOUNT_EDGE_MARGIN - counterboreRadius;
+    if (outerLimit < innerLimit) return null;
+    const R = (innerLimit + outerLimit) / 2;
+    return { x: R * Math.cos(phi), y: R * Math.sin(phi) };
+  };
+
+  if (isRound) {
+    for (const count of THROUGH_MOUNT_ROUND_HOLE_COUNTS) {
+      for (const offsetDeg of [0, 180 / count]) {
+        const holes: ThroughHole[] = [];
+        let ok = true;
+        for (let i = 0; i < count && ok; i++) {
+          const phi = (2 * Math.PI * i) / count + (offsetDeg * Math.PI) / 180;
+          const h = holeAt(phi);
+          if (!h || !clearOfChannel(h.x, h.y)) {
+            ok = false;
+            break;
+          }
+          holes.push(h);
+        }
+        if (ok) return { ...base, holes };
+      }
+    }
+    return { ...base, holes: [], warning: tooNarrowWarning };
+  }
+
+  // sq/tri: one hole per corner (shapes.ts's own corner i at standard angle
+  // 2*pi*i/n), skipping -- with a warning, never nudged elsewhere -- any
+  // corner too close to the inner-end channel.
+  const holes: ThroughHole[] = [];
+  let skipped = 0;
+  for (let i = 0; i < outline.n; i++) {
+    const phi = (2 * Math.PI * i) / outline.n;
+    const h = holeAt(phi);
+    if (h && clearOfChannel(h.x, h.y)) holes.push(h);
+    else skipped++;
+  }
+  if (holes.length === 0) return { ...base, holes: [], warning: tooNarrowWarning };
+  return { ...base, holes, warning: skipped > 0 ? `${skipped} through-hole(s) skipped near a corner too close to the inner-end cable channel.` : undefined };
 }

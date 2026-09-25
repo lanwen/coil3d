@@ -213,7 +213,7 @@ function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap:
   const { boreOutline } = resolveBoreOutline(outline);
   const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSizeEnvelope = env + 2 * FLANGE_MARGIN;
-  const { margin, thickness } = resolveFlangeSizing(outline, boreOutline, flangeSizeEnvelope, spec.wire.diameter, spec.mount, spec.plateJoint);
+  const { margin, thickness } = resolveFlangeSizing(outline, boreOutline, flangeSizeEnvelope, spec.wire.diameter, spec.mount, spec.plateJoint, spec.keyholeRotation, spec.throughHoleDiameter);
   const topCapEnabled = spec.topCap === "on" ? true : spec.topCap === "off" ? false : g.layers > 1;
   return { margin, overallHeight: overallHeightOf(thickness, g.height, topCapEnabled) };
 }

@@ -45,9 +45,22 @@
 // #56 AC) need no special-casing here at all.
 
 import { z } from "zod";
-import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_BED_SIZE, DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, LABEL_MAX_LENGTH, MAX_WIRE_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
+import {
+  BED_SIZE_MAX,
+  BED_SIZE_MIN,
+  DEFAULT_BED_SIZE,
+  DEFAULT_CORNER_RADIUS,
+  DEFAULT_THROUGH_HOLE_DIAMETER,
+  DEFAULT_TOLERANCE,
+  LABEL_MAX_LENGTH,
+  MAX_WIRE_LENGTH,
+  THROUGH_HOLE_DIAMETER_MAX,
+  THROUGH_HOLE_DIAMETER_MIN,
+  TOLERANCE_MAX,
+  TOLERANCE_MIN,
+} from "./constants";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
-import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, PlateJoint, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
+import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, PlateJoint, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
 
 /** The current (`#s=`) document version. Bump this and add a migration branch if the shape ever changes incompatibly. */
 const DOC_VERSION = 2;
@@ -72,6 +85,8 @@ export const DEFAULT_SPEC: CoilSpec = {
   print: { bedX: DEFAULT_BED_SIZE, bedY: DEFAULT_BED_SIZE, bedZ: DEFAULT_BED_SIZE },
   mount: "none",
   plateJoint: "glue",
+  keyholeRotation: 0,
+  throughHoleDiameter: DEFAULT_THROUGH_HOLE_DIAMETER,
 };
 
 export const DEFAULT_SHOW_WIRE = true;
@@ -114,6 +129,8 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
     label: spec.label,
     mount: spec.mount,
     plateJoint: spec.plateJoint,
+    keyholeRotation: spec.keyholeRotation,
+    throughHoleDiameter: spec.throughHoleDiameter,
   };
 }
 
@@ -178,10 +195,16 @@ const DocSchema = z
     // "opengrid" is deliberately NOT in this list (issue #14 PR review, issue
     // #38): the underlying mount kind is implemented, but its connector
     // geometry is a placeholder, so a shared link can't be allowed to
-    // silently produce it -- any value other than "keyhole"/"skadis" fails
-    // this schema, the same as any other garbage input (defaults + notice).
-    mount: z.enum(["keyhole", "skadis"]).optional(),
+    // silently produce it -- any value other than "keyhole"/"through"/
+    // "skadis" fails this schema, the same as any other garbage input
+    // (defaults + notice).
+    mount: z.enum(["keyhole", "through", "skadis"]).optional(),
     pj: z.literal("snap").optional(),
+    // Issue #71: only ever one of KEYHOLE_ROTATION_OPTIONS (90 is not
+    // offered -- see that constant's own doc comment).
+    kr: z.union([z.literal(0), z.literal(45)]).optional(),
+    // Issue #70: through-hole (screw-shank clearance) diameter, mm.
+    thd: z.number().finite().min(THROUGH_HOLE_DIAMETER_MIN).max(THROUGH_HOLE_DIAMETER_MAX).optional(),
     lock: z.array(z.enum(LOCK_TOKENS)).max(LOCK_TOKENS.length).optional(),
     size: z.number().finite().min(1).max(1000).optional(),
     h: z.number().finite().min(1).max(1000).optional(),
@@ -242,6 +265,8 @@ function buildParsed(p: {
   rc?: number;
   mount?: MountKind;
   pj?: PlateJoint;
+  kr?: KeyholeRotation;
+  thd?: number;
   lockTokens: Set<string>;
   size?: number;
   h?: number;
@@ -291,6 +316,8 @@ function buildParsed(p: {
     label: p.label || undefined,
     mount: p.mount ?? "none",
     plateJoint: p.pj ?? DEFAULT_SPEC.plateJoint,
+    keyholeRotation: p.kr ?? DEFAULT_SPEC.keyholeRotation,
+    throughHoleDiameter: p.thd ?? DEFAULT_SPEC.throughHoleDiameter,
   };
   return { spec, showWire: p.showWire, view: p.view };
 }
@@ -323,6 +350,12 @@ function parseDocHash(encoded: string): ParsedHash {
   if (p.shape !== "sq" && p.shape !== "tri" && p.rc !== undefined) {
     return fallback('The link sets a corner radius ("rc") without selecting a shape that uses one -- showing default values instead.');
   }
+  if (p.mount !== "keyhole" && p.kr !== undefined) {
+    return fallback('The link sets a keyhole rotation ("kr") without mount=keyhole -- showing default values instead.');
+  }
+  if (p.mount !== "through" && p.thd !== undefined) {
+    return fallback('The link sets a through-hole diameter ("thd") without mount=through -- showing default values instead.');
+  }
 
   return buildParsed({
     L: p.L,
@@ -335,6 +368,8 @@ function parseDocHash(encoded: string): ParsedHash {
     rc: p.rc,
     mount: p.mount,
     pj: p.pj,
+    kr: p.kr,
+    thd: p.thd,
     lockTokens,
     size: p.size,
     h: p.h,
@@ -532,8 +567,10 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, vi
   // rejected on parse (see DocSchema's `mount` comment); if it ever got
   // here anyway, omitting it (falls back to "none" on reload) is safer
   // than writing a value this same codec can't read back.
-  if (spec.mount === "keyhole" || spec.mount === "skadis") doc.mount = spec.mount;
+  if (spec.mount === "keyhole" || spec.mount === "through" || spec.mount === "skadis") doc.mount = spec.mount;
   if ((spec.mount === "skadis" || spec.mount === "opengrid") && spec.plateJoint === "snap") doc.pj = "snap";
+  if (spec.mount === "keyhole" && spec.keyholeRotation !== DEFAULT_SPEC.keyholeRotation) doc.kr = spec.keyholeRotation;
+  if (spec.mount === "through" && spec.throughHoleDiameter !== DEFAULT_SPEC.throughHoleDiameter) doc.thd = spec.throughHoleDiameter;
 
   if (spec.print.bedX !== DEFAULT_SPEC.print.bedX) doc.bx = spec.print.bedX;
   if (spec.print.bedY !== DEFAULT_SPEC.print.bedY) doc.by = spec.print.bedY;

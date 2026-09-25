@@ -15,9 +15,24 @@
 // evaluations across a solve()) can call these on every candidate for
 // negligible cost.
 
-import { CAP_THICKNESS, FLANGE_MARGIN, FLANGE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_BORE_CORNER_RADIUS, MIN_BORE_RADIUS, MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT, MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE, SCREW_MOUNT_RECESS_DEPTH, WALL_THICKNESS } from "./constants";
+import {
+  CAP_THICKNESS,
+  DEFAULT_THROUGH_HOLE_DIAMETER,
+  FLANGE_MARGIN,
+  FLANGE_THICKNESS,
+  INNER_CHANNEL_MIN_SHELF,
+  MIN_BORE_CORNER_RADIUS,
+  MIN_BORE_RADIUS,
+  MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE,
+  MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
+  MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE,
+  MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT,
+  SCREW_MOUNT_RECESS_DEPTH,
+  THROUGH_MOUNT_COUNTERBORE_DEPTH,
+  WALL_THICKNESS,
+} from "./constants";
 import { idealChannelDepth } from "./innerEnd";
-import { requiredFlangeMargin } from "./mount";
+import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { FlangeExtent, MountKind, PlateJoint } from "./types";
@@ -67,8 +82,13 @@ export function resolveFlangeSizing(
   wireDiameter: number,
   mount: MountKind,
   plateJoint: PlateJoint,
+  /** Issue #71: ignored unless `mount === "keyhole"`. */
+  keyholeRotation = 0,
+  /** Issue #70: ignored unless `mount === "through"`. */
+  throughHoleDiameter = DEFAULT_THROUGH_HOLE_DIAMETER,
 ): FlangeSizing {
   const wantsKeyhole = mount === "keyhole";
+  const wantsThrough = mount === "through";
   const mountKindForPlate = mount === "skadis" || mount === "opengrid" ? mount : undefined;
 
   // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
@@ -76,16 +96,29 @@ export function resolveFlangeSizing(
   // what's needed for the flange's own circumscribed radius to reach
   // flangeSizeEnvelope / 2.
   const baseMargin = Math.max(FLANGE_MARGIN, flangeSizeEnvelope / 2 - circumscribedRadius(outline, 0));
-  const margin = wantsKeyhole ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline)) : baseMargin;
+  // Issue #70 AC ("outside the winding envelope, so a screwdriver can reach
+  // them"): `flangeSizeEnvelope` is already the wound envelope's own
+  // diameter (plus a flat FLANGE_MARGIN pad, docs/research.md "Flange size =
+  // final outer envelope + margin") -- reusing it directly as the through
+  // mount's own envelope-clearance radius is a few mm more conservative than
+  // the bare minimum (that pad), never less, so it's a safe stand-in with no
+  // extra plumbing.
+  const margin = wantsKeyhole
+    ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline, keyholeRotation))
+    : wantsThrough
+      ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, flangeSizeEnvelope / 2))
+      : baseMargin;
 
   const minPlateThickness = mountKindForPlate ? (plateJoint === "snap" ? MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE : MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE) : 0;
   const idealDepth = idealChannelDepth(wireDiameter);
   const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealDepth + INNER_CHANNEL_MIN_SHELF);
   const thickness = wantsKeyhole
     ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT, idealDepth + INNER_CHANNEL_MIN_SHELF + SCREW_MOUNT_RECESS_DEPTH)
-    : mountKindForPlate
-      ? Math.max(channelOnlyThickness, minPlateThickness)
-      : channelOnlyThickness;
+    : wantsThrough
+      ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT, idealDepth + INNER_CHANNEL_MIN_SHELF + THROUGH_MOUNT_COUNTERBORE_DEPTH)
+      : mountKindForPlate
+        ? Math.max(channelOnlyThickness, minPlateThickness)
+        : channelOnlyThickness;
 
   return { margin, thickness, baseMargin, channelOnlyThickness };
 }

@@ -26,7 +26,7 @@ import { partInPrintPose } from "./printOrientation";
 import { approxRimPoint, computeGuideFit, explodedParts, meshBounds, partsBounds, projectToFigure } from "./projection";
 import { CircleMark, ClickMark, CornerInset, Figure, InsetMark, PolylineArrow, StraightArrow, TwistMark, WallPlane, WallQuad, type Pt } from "./overlays";
 import { rotateParts, rotatePoint, wallMountRotation, wallRoomRotation } from "./wallView";
-import { ClickIcon, GlueDropIcon, KeyholeIcon, NoPullIcon, NoSupportsIcon, PressIcon, RotateIcon, TwistIcon, WallMountIcon, WindIcon } from "./pictograms";
+import { ClickIcon, GlueDropIcon, KeyholeIcon, NoPullIcon, NoSupportsIcon, PressIcon, RotateIcon, ScrewdriverIcon, TwistIcon, WallMountIcon, WindIcon } from "./pictograms";
 import "./guide.css";
 
 const PART_LABELS: Record<string, string> = { core: "Core", "top-cap": "Top cap" };
@@ -225,19 +225,21 @@ function StepSecureOuterEnd({ design, n }: { design: Design; n: number }) {
  * Data-driven off `spec.mount` (issue #13 landed the "keyhole" case while
  * this ticket was in flight -- `CoilSpec.mount: MountKind` is a real,
  * public core field now, not a guess; issue #14 landed "skadis" the same
- * way, after this ticket shipped). `"none"` falls through to a generic,
- * still-useful instruction rather than an empty step -- exactly the
- * ticket's "render it generically when there's no mount". `"opengrid"` is
- * not reachable from the UI or a shared link (issue #14 PR review round 2:
- * its connector geometry is a placeholder, so the mount is hidden until a
- * real one exists -- see hash.ts/ControlsForm.tsx), so it shares the same
- * generic fallback as "none" rather than getting its own, possibly
- * misleading, line.
+ * way, after this ticket shipped; issue #70 landed "through" the same way
+ * too). `"none"` falls through to a generic, still-useful instruction
+ * rather than an empty step -- exactly the ticket's "render it generically
+ * when there's no mount". `"opengrid"` is not reachable from the UI or a
+ * shared link (issue #14 PR review round 2: its connector geometry is a
+ * placeholder, so the mount is hidden until a real one exists -- see
+ * hash.ts/ControlsForm.tsx), so it shares the same generic fallback as
+ * "none" rather than getting its own, possibly misleading, line.
  */
 function mountLine(mount: MountKind): string {
   switch (mount) {
     case "keyhole":
       return "Hang the keyhole slot on a screw, then slide down to seat.";
+    case "through":
+      return "Drive a screw straight through each hole, into the wall -- reachable through the open bore or around the winding, no sliding needed.";
     case "skadis":
       return "Glue or snap the mount plate onto the flange, then press its clips onto your SKÅDIS board.";
     // "none" (and "opengrid", not reachable -- see this function's own doc comment).
@@ -246,10 +248,29 @@ function mountLine(mount: MountKind): string {
   }
 }
 
-/** No illustrated hung orientation (no mount, or issue #14's SKÅDIS clip-plate mount, which -- unlike the keyhole mount below -- attaches via a separate mount plate rather than rotating the core itself onto the wall) -- the coil stays in its standing pose next to a plain, decorative wall strip (issue #17 review: "for SKÅDIS/none, render generically as before"). `mountLine` still gives SKÅDIS its own accurate instruction text. */
+/** The pictogram beside `mountLine`'s own instruction (issue #70: the through-hole mount gets its own screwdriver-through-a-hole icon; every other case keeps the generic hatched-wall-and-screw icon). */
+function mountIcon(mount: MountKind) {
+  return mount === "through" ? <ScrewdriverIcon label="Drive a screw through each hole" /> : <WallMountIcon label="Mount on the wall" />;
+}
+
+/** No illustrated hung orientation (no mount, issue #70's through-hole mount, or issue #14's SKÅDIS clip-plate mount -- unlike the keyhole mount below, none of these rotate the core itself onto the wall: the through-hole mount has no gravity-seated "hung orientation" to show since it isn't sliding onto anything, and the clip plate is a separate part) -- the coil stays in its standing pose next to a plain, decorative wall strip (issue #17 review: "for SKÅDIS/none, render generically as before"). `mountLine`/`mountIcon` still give each mount its own accurate instruction text/icon.
+ *
+ * Issue #70 AC ("Screenshots: mount-side face-on view for round/sq/tri"): the
+ * through-hole mount has no gravity-seated hung ORIENTATION to show (unlike
+ * the keyhole mount below), but its own hole placement is still worth seeing
+ * face-on -- unlike the keyhole's single schematic screw mark (mount.ts's
+ * exact slot count/radius are core internals, "not for UI use"), the
+ * through-holes are REAL cut geometry, already in `core.mesh`, so this inset
+ * needs no schematic overlay at all: just the same mount-side rotation
+ * (`wallMountRotation`) StepMountKeyhole's own inset uses, with
+ * `mountAxisDeg` undefined (design.ts never sets one for "through" -- there's
+ * no hung axis to correct for), which is exactly the identity/base rotation.
+ */
 function StepMountGeneric({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
   const wallAnchor = approxRimPoint(core.mesh, 0.05, -1);
+  const showThroughInset = design.spec.mount === "through";
+  const mountCoreParts = showThroughInset ? rotateParts([core], wallMountRotation(design.mountAxisDeg)) : undefined;
   return (
     <StepCard n={n} title="Mount on the wall">
       <div className="guide-figure-row guide-figure-row--solo">
@@ -266,8 +287,13 @@ function StepMountGeneric({ design, n }: { design: Design; n: number }) {
             );
           }}
         />
+        {mountCoreParts && (
+          <CornerInset>
+            <GuideFigure parts={mountCoreParts} preset="iso" fill={0.7} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
+          </CornerInset>
+        )}
       </div>
-      <Callout icons={<WallMountIcon label="Mount on the wall" />}>{mountLine(design.spec.mount)}</Callout>
+      <Callout icons={mountIcon(design.spec.mount)}>{mountLine(design.spec.mount)}</Callout>
     </StepCard>
   );
 }
@@ -330,7 +356,7 @@ function StepMountKeyhole({ design, n }: { design: Design; n: number }) {
   const mountCoreParts = rotateParts([core], mountRotation);
   const screwLocal = new THREE.Vector3(0, Math.max(1, design.solution.flangeSize / 2) * 0.8, meshBounds(core.mesh).min.z + 1);
   const screwRotated = rotatePoint(screwLocal, mountRotation);
-  const insetFit = computeGuideFit(mountCoreParts, "iso", 0.92, 1);
+  const insetFit = computeGuideFit(mountCoreParts, "iso", 0.7, 1);
   const screwFrac = insetFit ? projectToFigure(insetFit, screwRotated) : { x: 0.5, y: 0.32 };
 
   return (
@@ -349,7 +375,7 @@ function StepMountKeyhole({ design, n }: { design: Design; n: number }) {
           )}
         />
         <CornerInset>
-          <GuideFigure parts={mountCoreParts} preset="iso" fill={0.92} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
+          <GuideFigure parts={mountCoreParts} preset="iso" fill={0.7} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
           <InsetMark at={screwFrac} />
         </CornerInset>
       </div>

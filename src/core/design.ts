@@ -39,7 +39,7 @@ import { buildMountPlate, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
 import { printBBox } from "./plate";
-import { layoutKeyholeMount } from "./mount";
+import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import type { MountLayout } from "./mount";
 import { layoutMountPlate, openGridClipHalfExtents, skadisClipHalfExtents } from "./mountPlate";
 import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
@@ -88,6 +88,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     rowsPerPitch,
   };
   const wantsKeyhole = spec.mount === "keyhole";
+  const wantsThrough = spec.mount === "through";
   // Issue #14: skadis/opengrid don't cut anything into the flange's own
   // OUTLINE (unlike keyhole) -- the separate mount plate's footprint
   // shrinks to fit whatever margin the flange already has (mountPlate.ts's
@@ -109,6 +110,8 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     wireDiameter,
     spec.mount,
     spec.plateJoint,
+    spec.keyholeRotation,
+    spec.throughHoleDiameter,
   );
   if (wantsKeyhole && margin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
@@ -116,43 +119,65 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (wantsKeyhole && thickness > channelOnlyThickness + 1e-9) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
   }
+  if (wantsThrough && margin > baseMargin) {
+    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the through-hole mount.`);
+  }
+  if (wantsThrough && thickness > channelOnlyThickness + 1e-9) {
+    warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the counterbored through-hole mount.`);
+  }
   if (mountKindForPlate && thickness > channelOnlyThickness + 1e-9) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the mount plate's alignment features.`);
   }
 
   // `resolveChannelDepth` caps the channel to whatever `thickness` leaves
-  // below a small shelf (and below the screw-keyhole mount's own recess on
+  // below a small shelf (and below the mount's own recess/counterbore on
   // the OTHER face too, when one is present) -- with `thickness` now
   // ALWAYS provisioned for the full ideal depth (see above), this never
   // actually caps it in the ordinary case; the warning below is now only
   // reachable for a genuinely exotic input this sizing doesn't anticipate.
   const idealDepth = idealChannelDepth(wireDiameter);
-  const channelDepth = resolveChannelDepth(wireDiameter, thickness, wantsKeyhole);
+  const channelDepth = resolveChannelDepth(wireDiameter, thickness, spec.mount);
   if (channelDepth < idealDepth - 1e-6) {
     warnings.push(
       `The inner-end channel is only ${channelDepth.toFixed(1)} mm deep, limited by the flange's own thickness; the first turn may sit slightly proud of the surrounding flange face.`,
     );
   }
+
+  // Inner-end fixing (issue #8): the bottom flange's own rim keyhole for the
+  // inner cable end, plus the recessed channel leading it to the groove
+  // start -- always present, unlike the (optional) mount. Computed BEFORE
+  // the mount layouts below (issue #70's through-hole mount needs this
+  // SAME real channel footprint to keep its own holes clear of it).
+  // `layoutInnerEnd` is called again, identically, inside `fuseFlange`/
+  // `buildStep` (the same "one shared pure function, called once per
+  // backend" convention as `layoutKeyholeMount`/`layoutThroughHoleMount`
+  // below), so it's computed here only to surface its warning, to keep the
+  // through-hole mount clear of it, and to build the wound-cable
+  // schematic's lead-in (wire.ts).
+  const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
+  const innerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, spec.tolerance, bendRadius);
+  if (innerEndLayout.warning) warnings.push(innerEndLayout.warning);
+
   // Kept (not just its warning) so it can be surfaced on the returned
   // Design below: a consumer that wants to actually SHOW the mount's real
   // hung orientation -- not just cut it -- needs `axisDeg` too (see
   // mount.ts's own MountLayout doc comment).
   let mountLayout: MountLayout | undefined;
   if (wantsKeyhole) {
-    mountLayout = layoutKeyholeMount(outline, boreOutline, margin);
+    mountLayout = layoutKeyholeMount(outline, boreOutline, margin, spec.keyholeRotation);
     if (mountLayout.warning) warnings.push(mountLayout.warning);
   }
-
-  // Inner-end fixing (issue #8): the bottom flange's own rim keyhole for the
-  // inner cable end, plus the recessed channel leading it to the groove
-  // start -- always present, unlike the (optional) mount. `layoutInnerEnd`
-  // is called again, identically, inside `fuseFlange`/`buildStep` (the same
-  // "one shared pure function, called once per backend" convention as
-  // `layoutKeyholeMount` above), so it's computed here only to surface its
-  // warning and to build the wound-cable schematic's lead-in (wire.ts).
-  const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
-  const innerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, spec.tolerance, bendRadius);
-  if (innerEndLayout.warning) warnings.push(innerEndLayout.warning);
+  // Issue #70 PR review: reuses `solution.flangeSize / 2` as the wound
+  // envelope's own radius -- mirrors flange.ts's `resolveFlangeSizing`
+  // identically (that function's own doc comment explains why this
+  // already-padded number is a safe, conservative stand-in), so the margin
+  // that got GROWN to fit and the layout that actually CUTS the holes can
+  // never disagree about where "outside the envelope" starts.
+  const envelopeRadius = solution.flangeSize / 2;
+  if (wantsThrough) {
+    const throughLayout = layoutThroughHoleMount(outline, boreOutline, margin, spec.throughHoleDiameter, innerEndLayout, envelopeRadius);
+    if (throughLayout.warning) warnings.push(throughLayout.warning);
+  }
 
   const flangeSpec = {
     outline,
@@ -161,6 +186,9 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     thickness,
     columns,
     mount: spec.mount,
+    keyholeRotation: spec.keyholeRotation,
+    throughHoleDiameter: spec.throughHoleDiameter,
+    envelopeRadius,
   };
 
   // Issue #14: lay out the clip mount plate (SKÅDIS/openGrid) against the

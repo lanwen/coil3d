@@ -34,9 +34,17 @@
 // below (the keyhole-to-groove distance) be computed directly, with no
 // separate case for round vs. rounded-square/-triangle.
 
-import { INNER_CHANNEL_ARC_SEGMENTS, INNER_CHANNEL_DEPTH_FACTOR, INNER_CHANNEL_MIN_SHELF, KEYHOLE_SLIT_FRACTION, SCREW_MOUNT_RECESS_DEPTH } from "./constants";
+import { INNER_CHANNEL_ARC_SEGMENTS, INNER_CHANNEL_DEPTH_FACTOR, INNER_CHANNEL_MIN_SHELF, KEYHOLE_SLIT_FRACTION, SCREW_MOUNT_RECESS_DEPTH, THROUGH_MOUNT_COUNTERBORE_DEPTH } from "./constants";
 import { pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
+import type { MountKind } from "./types";
+
+/** How much depth a mount's own pocket/counterbore -- cut from the flange's OTHER (outer, wall-facing) face -- reserves against the inner-end channel below (see `resolveChannelDepth`). 0 for "none" and the clip-plate mounts (skadis/opengrid), which don't cut anything into that face at this depth. */
+function reservedMountDepth(mount: MountKind): number {
+  if (mount === "keyhole") return SCREW_MOUNT_RECESS_DEPTH;
+  if (mount === "through") return THROUGH_MOUNT_COUNTERBORE_DEPTH;
+  return 0;
+}
 
 /** Ideal channel recess depth for the given wire diameter (issue #8): roughly a full cable diameter, so the wound cable's first turn lies flush -- see INNER_CHANNEL_DEPTH_FACTOR's own doc comment. */
 export function idealChannelDepth(wireDiameter: number): number {
@@ -46,27 +54,29 @@ export function idealChannelDepth(wireDiameter: number): number {
 /**
  * The channel's ACTUAL recess depth, given the flange's own (already
  * resolved) thickness: the ideal depth, capped to whatever the flange's
- * thickness leaves below a small shelf -- and, when there's also a
- * screw-keyhole mount pocket cut into the OTHER face (issue #13, a fixed
- * SCREW_MOUNT_RECESS_DEPTH reserved from the flange's outer/z=-thickness
- * side), below THAT recess too, so the two never meet in the middle.
+ * thickness leaves below a small shelf -- and, when there's also a mount's
+ * own pocket/counterbore cut into the OTHER face (issue #13's screw-keyhole
+ * mount, or issue #70's through-hole mount -- `reservedMountDepth`, a fixed
+ * depth reserved from the flange's outer/z=-thickness side), below THAT cut
+ * too, so the two never meet in the middle.
  *
  * This deliberately never asks design.ts to grow the flange's own thickness
  * to fit the full ideal depth (an earlier version did): `design()`'s
  * flange thickness is capped at a small, already-well-tested set of values
- * (FLANGE_THICKNESS or, with a mount, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT),
- * and pushing it materially higher was found to trip a latent manifold-3d
- * boolean-robustness bug in the mount's OWN (unrelated, pre-existing)
- * recess cut at several thickness values -- nothing to do with this
- * feature's own geometry (confirmed by reproducing the same stray-sliver
- * genus failure with the inner-end cutter fully disabled). Capping the
- * channel instead of growing the flange sidesteps that landmine entirely,
- * and is itself a perfectly reasonable reading of the ticket's own "bump
- * it OR warn" -- design.ts warns when the mount forces a shallower channel.
+ * (FLANGE_THICKNESS or, with a mount, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT/
+ * MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT), and pushing it materially higher
+ * was found to trip a latent manifold-3d boolean-robustness bug in the
+ * mount's OWN (unrelated, pre-existing) recess cut at several thickness
+ * values -- nothing to do with this feature's own geometry (confirmed by
+ * reproducing the same stray-sliver genus failure with the inner-end cutter
+ * fully disabled). Capping the channel instead of growing the flange
+ * sidesteps that landmine entirely, and is itself a perfectly reasonable
+ * reading of the ticket's own "bump it OR warn" -- design.ts warns when the
+ * mount forces a shallower channel.
  */
-export function resolveChannelDepth(wireDiameter: number, flangeThickness: number, hasMount: boolean): number {
+export function resolveChannelDepth(wireDiameter: number, flangeThickness: number, mount: MountKind): number {
   const ideal = idealChannelDepth(wireDiameter);
-  const reserved = INNER_CHANNEL_MIN_SHELF + (hasMount ? SCREW_MOUNT_RECESS_DEPTH : 0);
+  const reserved = INNER_CHANNEL_MIN_SHELF + reservedMountDepth(mount);
   return Math.min(ideal, Math.max(0, flangeThickness - reserved));
 }
 
