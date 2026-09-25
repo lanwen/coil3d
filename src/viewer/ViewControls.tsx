@@ -9,12 +9,16 @@ export interface ViewControlsProps {
 }
 
 /**
- * Camera-view overlay controls (issue #15): four preset-view buttons (front/
- * side/top/iso) and a perspective/orthographic toggle, styled the same way
- * as the existing eye/lock toggles (fields.tsx) -- real, keyboard-usable
- * controls behind black/white pictograms, never a raw checkbox or a plain
- * text button. Purely a view concern: LineArtRenderer owns the actual
- * camera math this drives (see its `preset`/`projection` props).
+ * Camera-view overlay controls: three preset-view buttons -- Front, Iso and
+ * Wall mount (issue #49 trimmed the original issue #15 bar of front/side/
+ * top/iso down to just these, folding in the wall-mount preset that used to
+ * live behind a separate toggle button) -- and a perspective/orthographic
+ * toggle, styled the same way as the existing eye/lock toggles (fields.tsx)
+ * -- real, keyboard-usable controls behind black/white pictograms, never a
+ * raw checkbox or a plain text button. Purely a view concern:
+ * LineArtRenderer owns the actual camera math this drives (see its
+ * `preset`/`projection` props); CoilViewer owns the wall-mount geometry
+ * rotation the "Wall mount" preset also triggers (see its `handlePresetChange`).
  */
 export function ViewControls({ preset, onPresetChange, projection, onProjectionChange }: ViewControlsProps) {
   return (

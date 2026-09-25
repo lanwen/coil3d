@@ -147,20 +147,6 @@ header p {
   height: 100%;
 }
 
-.wall-view-toggle {
-  position: absolute;
-  /* Below the view-controls bar (issue #15), which also sits top-right --
-     this button's own state (`viewMode`) is also reachable from that bar's
-     wall-mount preset buttons now; it stays for anyone who prefers a single
-     cycling control (and for issue #13's own e2e coverage). */
-  top: 92px;
-  right: 8px;
-  z-index: 1;
-  padding: 6px 10px;
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
 .wall-view-caption {
   position: absolute;
   bottom: 8px;
@@ -174,37 +160,45 @@ header p {
   border-radius: 4px;
 }
 
-/* Screenshot-only debug overlay (issue #13 PR review round 2), gated behind
-   ?debugAxis=1 -- never shown in the shipped UI. Pure CSS, screen-centred:
-   LineArtRenderer's reframe effect already centres the model's own
-   projected bounds on the canvas, so a plain centred line + dot lines up
-   with the coil axis without any extra 3D math. */
-.debug-axis-overlay {
+/* Overall-dimension lines (issue #50): a full-frame SVG overlay, matching
+   the guide's own SVG-overlay technique (src/guide/overlays.tsx) -- thin
+   black line-art dimension arrows attached to the model's own projected
+   bounds, never intercepting pointer events (orbit/zoom must reach the
+   canvas underneath unchanged). */
+.dimension-overlay {
   position: absolute;
   inset: 0;
   z-index: 1;
   pointer-events: none;
 }
 
-.debug-axis-overlay-line {
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: rgba(255, 0, 0, 0.6);
-  transform: translateX(-50%);
+.dimension-overlay-svg {
+  width: 100%;
+  height: 100%;
+  color: var(--ink);
 }
 
-.debug-axis-overlay-dot {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: rgba(255, 0, 0, 0.85);
-  transform: translate(-50%, -50%);
+.dimension-line {
+  stroke: var(--ink);
+  stroke-width: 1.25;
+}
+
+.dimension-extension {
+  stroke: var(--ink);
+  stroke-width: 0.75;
+}
+
+/* White knockout behind the label, so the dimension line reads as broken
+   around its value. */
+.dimension-label-bg {
+  fill: var(--paper);
+}
+
+.dimension-label {
+  fill: var(--ink);
+  font-size: 12px;
+  font-family: inherit;
+  dominant-baseline: middle;
 }
 
 /* Draft -> final swap (issue #7, docs/research.md §10b): a short fade so the
@@ -827,9 +821,9 @@ header p {
 }
 
 /* Every preset pictogram is a plain outlined shape suggesting the view it
-   switches to -- front/side are flat rectangles seen face-on/edge-on, top
-   is a circle (looking down the coil axis), iso is a rotated square (a 3/4
-   look), all drawn with the same 2px ink stroke as the eye/lock icons. */
+   switches to -- front is a flat rectangle seen face-on, iso is a rotated
+   square (a 3/4 look), both drawn with the same 2px ink stroke as the
+   eye/lock icons. */
 .preset-icon {
   box-sizing: border-box;
   border: 2px solid var(--ink);
@@ -845,27 +839,15 @@ header p {
   height: 14px;
 }
 
-.preset-icon-side {
-  width: 9px;
-  height: 14px;
-}
-
-.preset-icon-top {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-}
-
 .preset-icon-iso {
   width: 11px;
   height: 11px;
   transform: rotate(45deg);
 }
 
-/* Wall-mount presets (issue #13, folded into this bar for #15): a square
-   standing for the flange face, with a bar/dot suggesting what each side
-   shows -- a bottom bar (resting against the wall) for the room-side view,
-   a centred dot (the keyhole) for the mount-side, screw's-eye view. */
+/* Wall mount (issue #13, folded into this bar by #15 and trimmed to just
+   this one room-side view by #49): a square standing for the flange face,
+   with a bottom bar suggesting it resting against the wall. */
 .preset-icon-wallRoom {
   position: relative;
   width: 14px;
@@ -883,29 +865,6 @@ header p {
 }
 
 .preset-btn.active .preset-icon-wallRoom::after {
-  background: var(--paper);
-}
-
-.preset-icon-wallMount {
-  position: relative;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-}
-
-.preset-icon-wallMount::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--ink);
-  transform: translate(-50%, -50%);
-}
-
-.preset-btn.active .preset-icon-wallMount::after {
   background: var(--paper);
 }
 

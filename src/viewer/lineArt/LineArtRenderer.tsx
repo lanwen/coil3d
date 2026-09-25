@@ -16,7 +16,10 @@ export type Projection = "ortho" | "perspective";
 // CoilViewer biases this up a little while exploded (issue #15, issue #9
 // review: "consider a slight camera reframe while exploded" -- the joint
 // features read clearer when the frame doesn't also reserve room around them).
-const DEFAULT_FILL = 0.75;
+// Exported so `dimensionOverlay.tsx` (issue #50) can match its own
+// independent fit computation to this default without hardcoding a second
+// copy of the number.
+export const DEFAULT_FILL = 0.75;
 // Line weight (thicken radius, CSS px) scales gently with the model's
 // on-screen diagonal (docs/research.md §10b), clamped so it stays a thin pen
 // line on small canvases and never fuses the groove rings on large ones.
@@ -30,6 +33,26 @@ const DEPTH_STEP_PX = 4;
 // applyFraming) to make the given half-height fill the frame at the fit's
 // own distance -- this is just the seed used before the first real fit.
 const DEFAULT_PERSPECTIVE_FOV = 35;
+
+// User zoom clamp (issue #48): wheel/pinch zoom is bounded to this multiple
+// of the CURRENT fitted framing, on both projections, so it's never
+// possible to zoom the model away to an unreadable speck or blow it up past
+// where nothing on screen still reads. Ortho's own `camera.zoom` is already
+// exactly 1 at "fitted" (applyFraming always resets it there), so these
+// bounds apply to `OrbitControls.min/maxZoom` directly and never need
+// recomputing as the design's own scale changes. Perspective has no such
+// camera-native "zoom" -- OrbitControls instead dollies a PERSPECTIVE
+// camera by moving it along the view direction, clamped by `min/
+// maxDistance` -- so those are set in WORLD units, relative to the fit's own
+// `2 * fit.r` distance (applyFraming's own camera-distance convention): a
+// SMALLER distance shows the model BIGGER, so ZOOM_LIMIT_MAX (zoomed in)
+// maps to the CLOSEST distance and vice versa. Applied every settled frame
+// (see the self-healing block in the render loop below), not just once,
+// because `OrbitControls` swaps in a fresh instance -- losing anything set
+// on the old one -- whenever the resolved default camera changes (the same
+// reason that block already re-asserts `controls.target` every frame).
+const ZOOM_LIMIT_MIN = 0.3;
+const ZOOM_LIMIT_MAX = 4;
 
 // Camera transition durations (issue #15), `prefers-reduced-motion` skips
 // both entirely (see LineArtRendererProps.reducedMotion): presets slerp the
@@ -531,15 +554,24 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
   }, [gl, controlsRef, targets]);
 
   useFrame(() => {
-    // Self-healing orbit target: drei's OrbitControls swaps in a fresh
-    // THREE.OrbitControls instance (its own target reset to the origin)
-    // whenever the resolved default camera changes (see the projection
-    // effect's own comment), which can lag a frame behind our `set({
-    // camera })` call below. Re-asserting it here, every frame, is cheap
-    // and guarantees whichever instance is ACTUALLY active never drifts
-    // from this component's own `settledFit` bookkeeping.
+    // Self-healing orbit target + zoom limits (issue #48): drei's
+    // OrbitControls swaps in a fresh THREE.OrbitControls instance (its own
+    // target/zoom bounds reset to the defaults) whenever the resolved
+    // default camera changes (see the projection effect's own comment),
+    // which can lag a frame behind our `set({ camera })` call below.
+    // Re-asserting all of this here, every frame, is cheap and guarantees
+    // whichever instance is ACTUALLY active never drifts from this
+    // component's own `settledFit` bookkeeping -- including the zoom clamp,
+    // which (for perspective) is expressed in world units relative to the
+    // CURRENT fit's own distance, so it has to be re-derived here too, not
+    // just set once.
     if (controlsRef.current && settledFit.current) {
       controlsRef.current.target.copy(settledFit.current.center);
+      controlsRef.current.minZoom = ZOOM_LIMIT_MIN;
+      controlsRef.current.maxZoom = ZOOM_LIMIT_MAX;
+      const fittedDistance = 2 * settledFit.current.r;
+      controlsRef.current.minDistance = fittedDistance / ZOOM_LIMIT_MAX;
+      controlsRef.current.maxDistance = fittedDistance / ZOOM_LIMIT_MIN;
     }
 
     // Progress a preset's orientation slerp, if one is running.

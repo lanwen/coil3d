@@ -1,13 +1,21 @@
-// Preset camera views (issue #15): front/side/top match a standard assembly
-// manual's orthogonal views; iso is the existing 3/4 "assembly manual" look
-// LineArtRenderer always used before this ticket. Each preset is just a unit
-// "direction" (from the orbit target toward the camera) plus an "up hint"
-// used to resolve roll -- pure data, no THREE.Camera involved, so it can be
-// slerped (see presetQuaternion) without touching any live camera object.
+// Preset camera views: issue #15 originally shipped front/side/top/iso plus
+// two wall-mount presets; issue #49 trimmed the interactive viewer's own
+// preset bar down to just Front, Iso and Wall mount (the room-side hung
+// view -- see `ViewControls`), dropping side/top and the mount-side
+// ("what the wall sees") wall preset entirely from that surface. The
+// assembly guide never used side/top/wallMount either (it only ever reads
+// "iso" here, see `Guide.tsx`/`GuideFigure`), and its OWN mount-side inset
+// (`guide/wallView.ts`) builds its rotation directly from
+// `wallRotations.ts`'s `WALL_MOUNT_VIEW_ROTATION`, entirely independent of
+// this module -- so removing the interactive viewer's mount-side preset
+// here doesn't touch it. Each remaining preset is just a unit "direction"
+// (from the orbit target toward the camera) plus an "up hint" used to
+// resolve roll -- pure data, no THREE.Camera involved, so it can be slerped
+// (see presetQuaternion) without touching any live camera object.
 
 import * as THREE from "three";
 
-export type PresetId = "front" | "side" | "top" | "iso" | "wallRoom" | "wallMount";
+export type PresetId = "front" | "iso" | "wallRoom";
 
 export interface ViewPreset {
   id: PresetId;
@@ -26,18 +34,16 @@ const ISO_DIR = new THREE.Vector3(1, -1, 0.9).normalize();
 
 export const VIEW_PRESETS: ViewPreset[] = [
   { id: "front", label: "Front", direction: new THREE.Vector3(0, -1, 0), upHint: new THREE.Vector3(0, 0, 1) },
-  { id: "side", label: "Side", direction: new THREE.Vector3(1, 0, 0), upHint: new THREE.Vector3(0, 0, 1) },
-  { id: "top", label: "Top", direction: new THREE.Vector3(0, 0, 1), upHint: new THREE.Vector3(0, 1, 0) },
   { id: "iso", label: "Iso", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
-  // Wall-mount views (issue #13): CoilViewer.tsx rotates the GEOMETRY itself
-  // into its as-mounted orientation for these two (not the camera -- see its
-  // own WALL_VIEW_ROTATION/WALL_MOUNT_VIEW_ROTATION comments), built assuming
-  // the camera is sitting exactly at this fixed iso direction/up -- so both
-  // wall presets reuse it verbatim rather than defining their own. Selecting
-  // one from this bar just slerps the camera back to iso (a no-op if it's
-  // already there) while CoilViewer swaps in the rotated geometry.
-  { id: "wallRoom", label: "Wall mount (room side)", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
-  { id: "wallMount", label: "Wall mount (mount side)", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
+  // Wall mount (issue #13, trimmed to just this one hung/room-side view by
+  // issue #49): CoilViewer.tsx rotates the GEOMETRY itself into its
+  // as-mounted orientation (not the camera -- see WALL_VIEW_ROTATION's own
+  // comment), built assuming the camera is sitting exactly at this fixed
+  // iso direction/up -- so this reuses it verbatim rather than defining its
+  // own. Selecting it from the bar just slerps the camera back to iso (a
+  // no-op if it's already there) while CoilViewer swaps in the rotated
+  // geometry.
+  { id: "wallRoom", label: "Wall mount", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
 ];
 
 const byId = new Map(VIEW_PRESETS.map((p) => [p.id, p]));

@@ -99,19 +99,28 @@ test.describe("mount plate render, exports and manifold end-to-end (issue #14)",
 });
 
 test.describe("mount plate screenshots (issue #14)", () => {
+  // Issue #49 trimmed the interactive viewer's view controls down to just
+  // Front, Iso and one "Wall mount" preset (the hung, room-side view) --
+  // the mount-side ("what the wall sees") camera view this suite used to
+  // reach via `toggle-wall-view` clicked twice no longer exists in the
+  // interactive viewer at all (it stays available in the assembly guide,
+  // which never used this viewer's preset bar). The mount-side-specific
+  // screenshot/caption assertions below were dropped along with it -- see
+  // the PR description's "Known issues" for the resulting coverage gap.
   for (const { label, hash } of [
     { label: "round", hash: SKADIS_ROUND },
     { label: "square", hash: SKADIS_SQUARE },
   ]) {
-    test(`${label} core: mount-side face-on view shows the plate in place`, async ({ page }) => {
+    test(`${label} core: the wall-mount (room-side) preset changes the render`, async ({ page }) => {
       await gotoDesign(page, hash);
       const canvas = page.getByTestId("coil-viewer").locator("canvas");
-      // Cycle standing -> wallRoom -> wallMount (mount.spec.ts's own convention).
-      await page.getByTestId("toggle-wall-view").click();
-      await page.getByTestId("toggle-wall-view").click();
-      await expect(page.getByTestId("wall-view-caption")).toHaveText(/mount plate glues or snaps on here/i);
-      await page.waitForTimeout(800);
-      await expect(canvas).toHaveScreenshot(`mount-plate-wallmount-${label}.png`);
+      const standing = await canvas.screenshot();
+      await page.getByTestId("preset-wallRoom").click();
+      await expect(page.getByTestId("wall-view-caption")).toHaveText(/top cap faces the room/i);
+      await page.waitForTimeout(900);
+      const wallRoom = await canvas.screenshot();
+      expect(wallRoom.equals(standing), "the wall-mount preset must change the render").toBe(false);
+      await expect(canvas).toHaveScreenshot(`mount-plate-wallroom-${label}.png`);
     });
   }
 
@@ -126,22 +135,6 @@ test.describe("mount plate screenshots (issue #14)", () => {
     const exploded = await canvas.screenshot();
     expect(exploded.equals(assembled), "exploding must change the render").toBe(false);
     await expect(canvas).toHaveScreenshot("mount-plate-exploded.png");
-  });
-
-  test("a side-profile view (camera along the wall) shows the hooks' own profile and orientation (issue #14 PR review round 2)", async ({ page }) => {
-    // Standing (not wall-mounted) + "side" preset + exploded: this looks
-    // along the flange's own plane edge-on, with WALL_UP as screen-vertical
-    // and the coil's own axis (== each clip's own reach direction) as
-    // screen-depth -- so the plate's clips render as small profile ticks
-    // below the flange, letting a reviewer confirm SKADIS_CLIP_HEIGHT (12mm)
-    // now runs vertically (along WALL_UP) rather than horizontally.
-    await gotoDesign(page, SKADIS_ROUND);
-    await page.getByTestId("toggle-exploded").check();
-    await page.waitForTimeout(600);
-    await page.getByTestId("preset-side").click();
-    await page.waitForTimeout(800);
-    const canvas = page.getByTestId("coil-viewer").locator("canvas");
-    await expect(canvas).toHaveScreenshot("mount-plate-side-profile.png");
   });
 
   test("a close-up on the exploded, separated plate shows its own clip/peg geometry clearly", async ({ page }) => {
