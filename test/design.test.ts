@@ -8,6 +8,10 @@ import type { CoilSpec } from "../src/core";
 // design()" of the slot geometry.
 import { bestAxisDeg, layoutKeyholeMount } from "../src/core/mount";
 import { SCREW_MOUNT_TWO_SLOT_ANGLE } from "../src/core/constants";
+// Issue #54: independently verifies the ACTUAL resolved outline design()
+// produced (`wallSpec.outline`), not a reimplemented formula -- same
+// pattern as the mount.ts import above.
+import { offsetPerimeter, sideLength } from "../src/core/shapes";
 
 // Fixed print parameters mirrored from src/core/constants.ts (docs/research.md
 // §2/§3), reimplemented independently here so these tests exercise ONLY the
@@ -363,7 +367,13 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
     expect(d.warnings.some((w) => /effectively round/i.test(w))).toBe(false);
   });
 
-  it("warns that the shape became effectively round when the bend limit needs a bigger corner radius than the core allows", async () => {
+  // Issue #54: a locked size this small used to just silently clamp the
+  // corner radius up to the apothem (warning "effectively round" below) --
+  // the shape choice did nothing visible. The solver now raises the
+  // EFFECTIVE size instead, so a locked-too-small tri/sq still comes back
+  // genuinely non-round (see the "keeps square/triangle distinct" describe
+  // block below for the full sweep).
+  it("raises a too-small locked size instead of letting the shape silently become round, and warns why", async () => {
     const spec = baseSpec({
       wire: { length: 2000, diameter: 3.8, type: "usb" },
       shape: { kind: "tri", cornerRadius: 5 },
@@ -372,8 +382,12 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
       layers: { locked: true, value: 1 },
     });
     const d = await design(spec);
-    expect(d.warnings.some((w) => /effectively round/i.test(w))).toBe(true);
-    expect(d.solution.cornerRadius).toBeCloseTo(d.solution.outerSize / 2, 1);
+    expect(d.solution.outerSize).toBeGreaterThan(20);
+    expect(d.solution.outerSize).toBeCloseTo(d.solution.minOuterSizeForShape, 6);
+    expect(d.warnings.some((w) => /core size raised/i.test(w))).toBe(true);
+    // The whole point: it's no longer effectively round.
+    expect(d.warnings.some((w) => /effectively round/i.test(w))).toBe(false);
+    expect(d.solution.cornerRadius).toBeLessThan(d.solution.outerSize / 2);
   });
 
   it("computes the bore as a true inward offset, not outer - 2*wall, so the bore's own corner radius shrinks with it", async () => {
@@ -411,6 +425,78 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
     // bounding-circle-across-a-sharp-corner overestimate, checked in
     // test/geometry.test.ts.
     expect(square.solution.envelopeDiameter).toBeGreaterThan(round.solution.envelopeDiameter);
+  });
+});
+
+// Issue #54: "for a rounded square or triangle and a small core size (or a
+// stiff cable with a big bend radius), the corner radius gets clamped up to
+// the apothem and the core is just a circle, so choosing the shape does
+// nothing visible." The solver now enforces a per-shape minimum outer size
+// (`Solution.minOuterSizeForShape`, solve.ts's `minOuterSizeForShapeFlats`):
+// below it, a LOCKED size is silently raised (with a warning); a FREE size
+// never searches below it. This sweeps every wire-type preset x sq/tri,
+// each requested well under any reasonable floor, and checks the actual
+// resolved outline (design()'s own `wallSpec.outline`, not a reimplemented
+// formula) against the ticket's own threshold.
+describe("design() keeps square/triangle distinct at small sizes (issue #54)", () => {
+  const WIRE_PRESETS: Array<{ type: "usb" | "flex" | "stiff"; diameter: number }> = [
+    { type: "usb", diameter: 3.8 },
+    { type: "flex", diameter: 2.5 },
+    { type: "stiff", diameter: 3.8 },
+  ];
+  const SHAPES: Array<"sq" | "tri"> = ["sq", "tri"];
+
+  it.each(WIRE_PRESETS)("for wire type=$type (d=$diameter mm): sq/tri outlines keep straight flats >= max(2*d, 15% of perimeter), even when a tiny size is requested", async ({ type, diameter }) => {
+    for (const kind of SHAPES) {
+      const d = await design(
+        baseSpec({
+          wire: { length: 2000, diameter, type },
+          shape: { kind, cornerRadius: 1 }, // an intentionally tight request; the bend limit floors it regardless (solve.ts's `bendCornerRadiusFloor`)
+          coreSize: { locked: true, dimension: "outer", value: 5 }, // deliberately far below any reasonable floor
+          height: { locked: true, value: 40 },
+          layers: { locked: true, value: 1 },
+        }),
+      );
+      const outline = d.wallSpec.outline;
+      const flat = sideLength(outline);
+      const threshold = Math.max(2 * diameter, 0.15 * offsetPerimeter(outline, 0));
+      expect(flat, `${kind}/${type}: straight flat length`).toBeGreaterThanOrEqual(threshold - 1e-6);
+      // The AC's other half: "the effective core size is never below the
+      // shape's minimum" -- surfaced on Solution for the UI to clamp its
+      // size control against, not just satisfied incidentally here.
+      expect(d.solution.outerSize).toBeGreaterThanOrEqual(d.solution.minOuterSizeForShape - 1e-6);
+      expect(d.warnings.some((w) => /core size raised/i.test(w))).toBe(true);
+    }
+  });
+
+  it("never raises the size for round (round has no flats to keep, so minOuterSizeForShape falls back to the bend-limit floor)", async () => {
+    const d = await design(
+      baseSpec({
+        wire: { length: 2000, diameter: 3.8, type: "stiff" },
+        shape: { kind: "round" },
+        coreSize: { locked: true, dimension: "outer", value: 5 },
+        height: { locked: true, value: 40 },
+        layers: { locked: true, value: 1 },
+      }),
+    );
+    expect(d.solution.minOuterSizeForShape).toBeCloseTo(d.solution.minOuterSizeForBend, 6);
+    expect(d.warnings.some((w) => /core size raised/i.test(w))).toBe(false);
+  });
+
+  it("a FREE size never resolves below the shape's own minimum either (not just a locked one)", async () => {
+    const d = await design(
+      baseSpec({
+        wire: { length: 200, diameter: 3.8, type: "stiff" }, // a short target, so an unconstrained search would otherwise pick a tiny core
+        shape: { kind: "tri", cornerRadius: 1 },
+        coreSize: { locked: false },
+        height: { locked: true, value: 40 },
+        layers: { locked: true, value: 1 },
+      }),
+    );
+    expect(d.solution.outerSize).toBeGreaterThanOrEqual(d.solution.minOuterSizeForShape - 1e-6);
+    const flat = sideLength(d.wallSpec.outline);
+    const threshold = Math.max(2 * 3.8, 0.15 * offsetPerimeter(d.wallSpec.outline, 0));
+    expect(flat).toBeGreaterThanOrEqual(threshold - 1e-6);
   });
 });
 
@@ -558,6 +644,18 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
       const d = await design(
         baseSpec({
           shape,
+          // A thinner cable than this file's usual 3.8mm default (issue
+          // #54): sq/tri now enforce a minimum outer size that keeps their
+          // straight sides meaningfully long at the wire's bend limit
+          // (solve.ts's `minOuterSizeForShapeFlats`), and the DEFAULT 3.8mm
+          // cable's own floor for sq lands right at this test's
+          // `SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD` boundary -- an unrelated
+          // interaction this test isn't about. A thinner cable keeps the
+          // floor well under 40 mm for every shape, so this "modest flange"
+          // case stays modest and the single-slot path under test is
+          // actually exercised (issue #54's own coverage lives in
+          // design.test.ts's "keeps square/triangle distinct" describe block).
+          wire: { length: 2000, diameter: 2, type: "usb" },
           coreSize: { locked: true, dimension: "outer", value: 40 },
           height: { locked: true, value: 40 },
           layers: { locked: true, value: 1 },

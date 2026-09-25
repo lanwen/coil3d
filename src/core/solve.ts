@@ -71,6 +71,50 @@ function resolveOutline(shape: ShapeSpec, outerSize: number, rcMin: number): Sha
   return makeOutline(shape.kind, outerSize, rc);
 }
 
+/** Fraction of the outline's own perimeter a straight side must keep to stay meaningfully distinct from round (issue #54). */
+const MIN_FLAT_PERIMETER_FRACTION = 0.15;
+/** Minimum straight-side length in wire diameters (issue #54): "each flat >= max(2*d, 15% of perimeter)". */
+const MIN_FLAT_WIRE_DIAMETERS = 2;
+
+/**
+ * Minimum outer size for sq/tri to keep a MEANINGFULLY long straight flat at
+ * the bend-limited corner radius (issue #54): with a small core (or a stiff
+ * cable whose bend limit alone forces a big corner radius), the corner
+ * radius can get clamped up close to the apothem well before it technically
+ * hits the "effectively round" floor (`cornerRadiusRange`'s own `rcMin >=
+ * rcMax`) -- the shape choice becomes invisible even though the solver
+ * hasn't (yet) reported it as literally round.
+ *
+ * At a FIXED corner radius (`rcMin`, the bend limit -- independent of size),
+ * a straight side's length grows 1:1 with the apothem (`sideLength =
+ * (outerSize/2 - rcMin) * 2 * tan(pi/n)`, shapes.ts), and so does the
+ * outline's own perimeter (`straightLength + 2*pi*rcMin`) -- both linear in
+ * `outerSize`, so the crossover against each threshold ("2 wire diameters",
+ * "15% of perimeter") is a closed-form solve, not a search. The true minimum
+ * is whichever crossover is larger: below it, the OTHER threshold is already
+ * satisfied (both are monotonic in `outerSize` for n=3,4), so this is exact,
+ * not just a safe overestimate.
+ */
+function minOuterSizeForShapeFlats(kind: Extract<ShapeSpec["kind"], "sq" | "tri">, wire: CoilSpec["wire"]): number {
+  const n = shapePlugin(kind).corners;
+  const k = Math.tan(Math.PI / n);
+  const rcMin = bendCornerRadiusFloor(wire);
+  // sideLength(outerSize) >= MIN_FLAT_WIRE_DIAMETERS * d
+  //   => (outerSize/2 - rcMin) * 2 * k >= MIN_FLAT_WIRE_DIAMETERS * d
+  const sizeForDiameterFloor = 2 * rcMin + (MIN_FLAT_WIRE_DIAMETERS * wire.diameter) / k;
+  // sideLength(outerSize) >= MIN_FLAT_PERIMETER_FRACTION * (n*sideLength + 2*pi*rcMin)
+  //   => sideLength * (1 - MIN_FLAT_PERIMETER_FRACTION*n) >= MIN_FLAT_PERIMETER_FRACTION * 2*pi*rcMin
+  const perimeterMargin = 1 - MIN_FLAT_PERIMETER_FRACTION * n; // > 0 for n=3,4
+  const sideLengthForPerimeterFloor = (MIN_FLAT_PERIMETER_FRACTION * 2 * Math.PI * rcMin) / perimeterMargin;
+  const sizeForPerimeterFloor = 2 * rcMin + sideLengthForPerimeterFloor / k;
+  return Math.max(sizeForDiameterFloor, sizeForPerimeterFloor);
+}
+
+/** `minOuterSizeForShapeFlats` for round too (a no-op: round has no flats to keep, so its own bend-limit floor is the whole story) -- one call site for both, so callers never need their own round/non-round branch. */
+function minOuterSizeForShape(shape: ShapeSpec, wire: CoilSpec["wire"], minOuterSizeForBend: number): number {
+  return shape.kind === "round" ? minOuterSizeForBend : minOuterSizeForShapeFlats(shape.kind, wire);
+}
+
 /** Relative tolerance on "capacity >= target", to absorb floating-point noise only. */
 const CAPACITY_EPS = 1e-6;
 /** Overshoot (%) above which an at-the-bound "meets capacity" result is still reported as infeasible, not ok. */
@@ -184,6 +228,7 @@ function finishSolution(
   diagnosis: Diagnosis,
   objectiveUsed: Objective | undefined,
   minOuterSizeForBend: number,
+  minOuterSizeForShapeVal: number,
 ): { solution: Solution; warnings: string[] } {
   const warnings: string[] = [];
   const target = spec.wire.length;
@@ -265,6 +310,7 @@ function finishSolution(
     capsAuto,
     topCapEnabled,
     minOuterSizeForBend,
+    minOuterSizeForShape: minOuterSizeForShapeVal,
     alternates: [],
   };
   return { solution, warnings };
@@ -329,7 +375,14 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
   const o1 = spec.wire.diameter / 2 - grooveDepth;
   const rcMin = Math.max(0, mbr - o1);
   const minOuterSizeForBend = 2 * rcMin;
-  const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForBend);
+  // Issue #54: for sq/tri, the bend limit alone can erode the straight
+  // sides well before the core is technically "effectively round" (this
+  // floor is always >= `minOuterSizeForBend`; equal for round, which has no
+  // extra shape constraint). Both a free size search and a locked size (just
+  // below) enforce it, so the solver never silently hands back a shape
+  // that's indistinguishable from round.
+  const minOuterSizeForShapeVal = minOuterSizeForShape(spec.shape, spec.wire, minOuterSizeForBend);
+  const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal);
   const sizeHi = SIZE_HI;
   const pitch = spec.wire.diameter + CLEARANCE;
   const heightLo = 2 * MARGIN + pitch;
@@ -347,7 +400,19 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
   ];
   const freeCount = freeVars.length as 0 | 1 | 2 | 3;
 
-  const lockedOuterSize = spec.coreSize.locked ? toOuterSize(spec.coreSize) : undefined;
+  // Issue #54 AC: "Clamp the size slider's minimum, or auto-raise the size
+  // with a clear warning, instead of silently degenerating to round." A
+  // locked size is the user's own explicit request, so raise it (rather than
+  // rejecting the spec outright) and say so -- mirrors how a fully-locked
+  // spec still gets its capacity warnings instead of throwing.
+  let lockedOuterSize = spec.coreSize.locked ? toOuterSize(spec.coreSize) : undefined;
+  if (spec.shape.kind !== "round" && lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - 1e-9) {
+    const label = shapePlugin(spec.shape.kind).label.toLowerCase();
+    warnings.push(
+      `Core size raised from ${lockedOuterSize.toFixed(1)} mm to ${minOuterSizeForShapeVal.toFixed(1)} mm: this cable's bend limit needs at least that much to keep the ${label} core's straight sides meaningful, or the shape would be indistinguishable from round.`,
+    );
+    lockedOuterSize = minOuterSizeForShapeVal;
+  }
   const lockedHeight = spec.height.locked ? spec.height.value : undefined;
   const lockedLayers = spec.layers.locked ? spec.layers.value : undefined;
 
@@ -494,7 +559,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
           ...diagnosis,
           message: `Two free dimensions: the "${otherObjective}" objective's pick among the same target-covering candidates.`,
         };
-        alternates = [finishSolution(spec, altBest.g, altDiagnosis, otherObjective, minOuterSizeForBend).solution];
+        alternates = [finishSolution(spec, altBest.g, altDiagnosis, otherObjective, minOuterSizeForBend, minOuterSizeForShapeVal).solution];
       }
     }
   } else {
@@ -562,12 +627,12 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
           status: "under-constrained",
           message: `All three dimensions are free: layers=${p.n} fixed, best outer size/height for the "${objective}" objective among combinations that cover the target length.`,
         };
-        return finishSolution(spec, p.g, altDiagnosis, objective, minOuterSizeForBend).solution;
+        return finishSolution(spec, p.g, altDiagnosis, objective, minOuterSizeForBend, minOuterSizeForShapeVal).solution;
       });
     }
   }
 
-  const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend);
+  const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend, minOuterSizeForShapeVal);
   finished.solution.alternates = alternates;
   return { solution: finished.solution, warnings: [...warnings, ...finished.warnings] };
 }

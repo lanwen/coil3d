@@ -146,28 +146,37 @@ function unionAtAngles(track: <T extends { delete(): void }>(m: T) => T, build: 
 }
 
 /**
- * The collar's welded base, shared by all three joints: a straight cylinder
- * at `collarRadius` for most of `JOINT_ENGAGE_DEPTH`, flaring out to
- * `boreRadius` over the top `JOINT_TRANSITION_HEIGHT` -- flush with the
- * plate's own inner (bore) edge, so the boolean union has a coincident,
- * radius-matched face to weld onto (exactly how the wall/flange fuse
- * already relies on a shared edge, see `fuseFlange` above). Without this,
- * `collarRadius < boreRadius` (always true -- see joints.ts) leaves the
- * collar floating inside the plate's hole, touching nothing: two
- * disconnected solids that both individually pass `status() === "NoError"`
- * but are never actually one part.
+ * The collar's welded base, shared by all three joints: a straight prism at
+ * `collarOutline`'s own footprint for most of `JOINT_ENGAGE_DEPTH`, flaring
+ * out to `weldOutline`'s footprint over the top `JOINT_TRANSITION_HEIGHT` --
+ * flush with the plate's own inner (bore) edge (`weldOutline` IS the bore
+ * outline offset out by `WELD_OVERLAP`, joints.ts), so the boolean union has
+ * a genuinely overlapping face to weld onto at every angle, not just near
+ * each flat side's own midpoint (exactly how the wall/flange fuse already
+ * relies on a shared edge, see `fuseFlange` above).
+ *
+ * Issue #55: a plain circular transition (flaring to a circle at
+ * `boreRadius + WELD_OVERLAP`) only reached the plate's non-round bore edge
+ * near each flat side's midpoint -- the bore's corners sit farther out, so
+ * the "transition" never actually touched them, leaving the collar a
+ * second, disconnected solid there (`decompose().length === 2`, the
+ * repro's floating disc). Both `collarOutline` and `weldOutline` are the
+ * SAME bore outline, offset by a constant amount at every angle (shapes.ts's
+ * Steiner offset), so the flare now overlaps the plate's hole edge all the
+ * way around, for any shape -- round reduces to the old plain-circle collar
+ * for free (see joints.ts).
+ *
+ * The transition is a convex hull between the two footprints (not a swept
+ * `CrossSection`, which manifold-3d has no direct loft for): both outlines
+ * are convex and share the same corner arrangement, so their hull is exactly
+ * the ruled frustum between them, with no shortcut through the middle.
  */
-function collarBase(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, collarRadius: number, boreRadius: number, segments: number): Manifold {
+function collarBase(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, collarOutline: ShapeOutline, weldOutline: ShapeOutline, segments: number): Manifold {
   const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT;
-  const straight = track(wasm.Manifold.cylinder(straightHeight, collarRadius, collarRadius, segments, false).translate([0, 0, -JOINT_ENGAGE_DEPTH]));
-  // The transition's top radius genuinely OVERLAPS the plate's own bore
-  // edge by a small margin (WELD_OVERLAP), rather than exactly matching it:
-  // the plate's ring (buildOutlineRing, at `flange.columns` segments) and
-  // this cylinder (at a different segment count) trace the same nominal
-  // circle with differently-angled vertices, so an EXACT radius match is a
-  // razor-thin, non-coincident seam that boolean CSG handles poorly (stray
-  // slivers, inflated genus). A real volumetric overlap is robust.
-  const transition = track(wasm.Manifold.cylinder(JOINT_TRANSITION_HEIGHT, collarRadius, boreRadius + WELD_OVERLAP, segments, false).translate([0, 0, -JOINT_TRANSITION_HEIGHT]));
+  const straight = track(outlinePrismSolid(wasm, collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH, segments));
+  const bottomPts: [number, number, number][] = outlinePolygon(collarOutline, segments).map(([x, y]) => [x, y, -JOINT_TRANSITION_HEIGHT]);
+  const topPts: [number, number, number][] = outlinePolygon(weldOutline, segments).map(([x, y]) => [x, y, 0]);
+  const transition = track(wasm.Manifold.hull([...bottomPts, ...topPts]));
   return track(straight.add(transition));
 }
 
@@ -525,14 +534,14 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
     }
 
-    const { collarRadius, boreRadius } = jointGeometry(flange.boreOutline, joint, tolerance);
+    const { collarRadius, collarOutline, weldOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
     const segments = 48;
 
     let collar: Manifold;
     if (joint === "press") {
-      collar = collarBase(wasm, track, collarRadius, boreRadius, segments);
+      collar = collarBase(wasm, track, collarOutline, weldOutline, segments);
     } else if (joint === "bayonet") {
-      const base = collarBase(wasm, track, collarRadius, boreRadius, segments);
+      const base = collarBase(wasm, track, collarOutline, weldOutline, segments);
       const grooveZLo = -BAYONET_LEAD - BAYONET_GROOVE_HEIGHT;
       const grooveZHi = -BAYONET_LEAD;
       // Already tracked (unionAtAngles tracks its own final reduce step).
@@ -542,16 +551,16 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       // snap: a collar with a barb band at its tip (deepest point, LOCAL
       // z=[-JOINT_ENGAGE_DEPTH, -JOINT_ENGAGE_DEPTH+SNAP_BARB_HEIGHT]) and 3
       // axial relief slots cutting it into cantilever fingers.
-      const base = collarBase(wasm, track, collarRadius, boreRadius, segments);
+      const base = collarBase(wasm, track, collarOutline, weldOutline, segments);
       const barbR = collarRadius + SNAP_BARB;
       const barb = track(Manifold.cylinder(SNAP_BARB_HEIGHT, barbR, barbR, segments, false).translate([0, 0, -JOINT_ENGAGE_DEPTH]));
       const withBarb = track(base.add(barb));
       // Already tracked (unionAtAngles tracks its own final reduce step).
-      // The slot's radial reach clears the transition frustum's own widened
-      // top (collarBase flares out to boreRadius + WELD_OVERLAP), so every
-      // finger is fully separated all the way up to the plate, not just
-      // through the plain straight section below it.
-      const slotOuterR = Math.max(barbR + 0.5, boreRadius + WELD_OVERLAP + 0.5);
+      // The slot's radial reach clears the transition's own widened top
+      // (collarBase flares out to `weldOutline`, issue #55) at EVERY angle,
+      // not just the flat sides -- `circumscribedRadius` is the outline's
+      // own farthest point, so this stays correct for round/sq/tri alike.
+      const slotOuterR = Math.max(barbR + 0.5, circumscribedRadius(weldOutline, 0) + 0.5);
       const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, slotOuterR, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, angle), SNAP_HOOK_COUNT);
       collar = track(withBarb.subtract(slots));
     }

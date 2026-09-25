@@ -28,6 +28,11 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   };
 }
 
+// Issue #55: `status() === "NoError"` alone doesn't catch a part that is
+// really TWO disconnected solids unioned together (each individually valid,
+// combined volume/status both fine) -- the repro's floating joint collar.
+// `decompose()` is manifold-3d's own connected-component split; a real,
+// single printable part must always come back as exactly one piece.
 async function assertManifold(mesh: { positions: Float32Array; indices: Uint32Array }, label: string) {
   const wasm = await Module();
   wasm.setup();
@@ -35,6 +40,7 @@ async function assertManifold(mesh: { positions: Float32Array; indices: Uint32Ar
   try {
     expect(m.status(), `${label}: manifold status`).toBe("NoError");
     expect(m.volume(), `${label}: volume`).toBeGreaterThan(0);
+    expect(m.decompose().length, `${label}: connected components (one printable part)`).toBe(1);
     return m.volume();
   } finally {
     m.delete();
@@ -132,6 +138,61 @@ describe.each(JOINTS)("top cap joint = %s (issue #9)", (joint) => {
     for (const part of d.parts) {
       await assertManifold(part.mesh, `${joint}/tiny/${part.name}`);
     }
+  });
+});
+
+// Issue #55: the repro (`shape=tri&tri.rc=12&size=113&cap=on`) showed the top
+// cap's circular joint collar (shared by every shape, issue #9) degenerate
+// into a solid disc, disconnected from the cap's own outline ring, because
+// the collar's weld step was a plain circle that never reached a non-round
+// bore's corners. `collarBase`/`collarBaseSolid` now follow the bore's own
+// outline (joints.ts's `collarOutline`/`weldOutline`), so this sweeps
+// shapes x joints x sizes x cable types -- every combination must still
+// produce one connected, watertight, open-bore part per `assertManifold`'s
+// `decompose()` check above.
+describe("issue #55: the joint collar stays one connected, printable part for every shape", () => {
+  interface Scenario {
+    label: string;
+    shape: ShapeSpec;
+    size: number;
+    height: number;
+    wire: { length: number; diameter: number; type: "usb" | "flex" | "stiff" };
+  }
+
+  const SCENARIOS: Scenario[] = [
+    { label: "round/usb", shape: { kind: "round" }, size: 60, height: 60, wire: { length: 6000, diameter: 3.8, type: "usb" } },
+    { label: "sq/flex", shape: { kind: "sq", cornerRadius: 15 }, size: 60, height: 50, wire: { length: 4000, diameter: 2.5, type: "flex" } },
+    // The bug's own repro: a stiff cable's big bend radius (WIRE_TYPE_PRESETS)
+    // clamps the corner radius up close to the bore's own apothem.
+    { label: "tri/stiff (issue #55 repro shape)", shape: { kind: "tri", cornerRadius: 12 }, size: 113, height: 40, wire: { length: 2000, diameter: 3.8, type: "stiff" } },
+    // A small size forces the solver's bend-limit clamp hard, so the bore's
+    // own corner radius sits right up against its apothem ceiling -- the
+    // tightest case for a non-round `collarOutline` (joints.ts).
+    { label: "tri/usb, small + big corner request", shape: { kind: "tri", cornerRadius: 40 }, size: 30, height: 40, wire: { length: 6000, diameter: 3.8, type: "usb" } },
+    { label: "sq/stiff, small", shape: { kind: "sq", cornerRadius: 30 }, size: 20, height: 30, wire: { length: 1000, diameter: 2, type: "stiff" } },
+    // JOINT_MIN_BORE_RADIUS territory: bayonet/snap skip their core-side cut,
+    // but the cap's own collar must still weld for every shape.
+    { label: "sq/usb, tiny bore", shape: { kind: "sq", cornerRadius: 6 }, size: 8, height: 20, wire: { length: 500, diameter: 1.2, type: "usb" } },
+  ];
+
+  describe.each(JOINTS)("joint = %s", (joint) => {
+    it.each(SCENARIOS)("$label: every part is one connected, open-bore solid", async ({ shape, size, height, wire }) => {
+      const d = await design(
+        baseSpec({
+          shape,
+          wire,
+          coreSize: { locked: true, dimension: "outer", value: size },
+          height: { locked: true, value: height },
+          layers: { locked: true, value: 1 },
+          topCap: "on", // build the cap regardless of the auto layers>1 decision
+          joint,
+        }),
+      );
+      expect(d.parts.map((p) => p.role)).toEqual(["core", "topCap"]);
+      for (const part of d.parts) {
+        await assertManifold(part.mesh, `${joint}/${shape.kind}/${size}/${wire.type}/${part.name}`);
+      }
+    });
   });
 });
 

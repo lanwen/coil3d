@@ -112,6 +112,38 @@ function outlineSolid(o: ShapeOutline, height: number, zBase: number): R.Shape3D
 }
 
 /**
+ * A solid loft between `bottomOutline`'s own boundary (at `zBottom`) and
+ * `topOutline`'s own boundary (at `zTop`) -- replicad's `loftWith`, the exact
+ * (not convex-hull-approximated) equivalent of manifold.ts's `Manifold.hull`
+ * transition (issue #55): both outlines share the same corner count and
+ * arrangement (they're always two different Steiner offsets of the SAME
+ * bore outline, joints.ts), so the loft is a true ruled surface between
+ * corresponding flats/corners, not just "a convex shape that contains both".
+ *
+ * Deliberately its OWN sketch construction, not `outlineSolid`'s: `loftWith`
+ * needs two `Sketch`es (not `Shape3D` solids) to loft between, and always
+ * sketching a plain polygon (never `outlineSolid`'s own `makeCylinder`
+ * shortcut for an exactly-round outline) keeps this new code path from ever
+ * perturbing `outlineSolid`'s existing, widely-used solids (bore, flange,
+ * mount plate, ...) -- only the collar transition (`collarBaseSolid`) calls
+ * this.
+ */
+function outlineLoftSolid(bottomOutline: ShapeOutline, topOutline: ShapeOutline, zBottom: number, zTop: number): R.Shape3D {
+  const sketchAt = (o: ShapeOutline, z: number): R.Sketch => {
+    if (o.n === 4 && o.cornerRadius === o.apothem) {
+      return R.sketchCircle(o.apothem, { plane: "XY", origin: [0, 0, z] });
+    }
+    let pen = R.draw(polygonVertex(o, 0));
+    for (let i = 1; i < o.n; i++) {
+      pen = pen.lineTo(polygonVertex(o, i)).customCorner(o.cornerRadius);
+    }
+    const drawing = pen.closeWithCustomCorner(o.cornerRadius);
+    return drawing.sketchOnPlane("XY", z) as R.Sketch;
+  };
+  return sketchAt(bottomOutline, zBottom).loftWith(sketchAt(topOutline, zTop));
+}
+
+/**
  * The replicad solid for one keyhole slot (mount.ts's layout math): a wide
  * (head) circle and a narrow (shank-end) circle, joined by a straight
  * channel of the shank's own width, all drawn in 2D then extruded once --
@@ -345,26 +377,23 @@ function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Desi
   }
 }
 
-/** A solid frustum (or plain cylinder, if the two radii are equal) between two circular cross-sections, via a capped loft -- replicad's `makeCylinder` takes only one radius, unlike manifold-3d's. */
-function frustumSolid(rBottom: number, rTop: number, zBottom: number, zTop: number): R.Shape3D {
-  const bottom = R.sketchCircle(rBottom, { plane: "XY", origin: [0, 0, zBottom] });
-  const top = R.sketchCircle(rTop, { plane: "XY", origin: [0, 0, zTop] });
-  return bottom.loftWith(top);
-}
-
 /**
  * The collar's welded base, shared by all three joints (mirrors manifold.ts's
- * `collarBase`): a straight cylinder at `collarRadius`, flaring out to
- * `boreRadius + WELD_OVERLAP` over the top `JOINT_TRANSITION_HEIGHT` so it
- * genuinely overlaps the plate's own bore edge instead of merely touching it
- * (a `collarRadius < boreRadius` collar centered in the plate's hole would
- * otherwise be a second, disconnected solid -- `.fuse()` reports it as a
- * `Compound` of 2 solids, not a proper single-solid weld).
+ * `collarBase`): a straight prism at `collarOutline`'s own footprint, flaring
+ * out to `weldOutline`'s footprint over the top `JOINT_TRANSITION_HEIGHT` so
+ * it genuinely overlaps the plate's own bore edge AT EVERY ANGLE -- flats and
+ * corners alike -- instead of merely touching it near each flat side's own
+ * midpoint (issue #55: a `collarRadius < boreRadius` PLAIN CIRCLE collar
+ * centered in a non-round plate's hole left the corners of that hole
+ * untouched, so `.fuse()` reported a `Compound` of 2 solids there, not a
+ * proper single-solid weld -- `weldOutline` is `boreOutline` itself offset
+ * out by `WELD_OVERLAP`, joints.ts, so it coincides with -- and overlaps --
+ * the plate's hole edge everywhere, for any shape).
  */
-function collarBaseSolid(collarRadius: number, boreRadius: number): R.Shape3D {
+function collarBaseSolid(collarOutline: ShapeOutline, weldOutline: ShapeOutline): R.Shape3D {
   const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT;
-  const straight = R.makeCylinder(collarRadius, straightHeight, [0, 0, -JOINT_ENGAGE_DEPTH]);
-  const transition = frustumSolid(collarRadius, boreRadius + WELD_OVERLAP, -JOINT_TRANSITION_HEIGHT, 0);
+  const straight = outlineSolid(collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH);
+  const transition = outlineLoftSolid(collarOutline, weldOutline, -JOINT_TRANSITION_HEIGHT, 0);
   return straight.fuse(transition);
 }
 
@@ -574,24 +603,29 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const plateInner = outlineSolid(flangeSpec.boreOutline, CAP_THICKNESS + 2, -1);
   const plate = plateOuter.cut(plateInner);
 
-  const { boreRadius, collarRadius } = jointGeometry(flangeSpec.boreOutline, spec.joint, spec.tolerance);
+  const { boreRadius, collarRadius, collarOutline, weldOutline } = jointGeometry(flangeSpec.boreOutline, spec.joint, spec.tolerance);
   const canCutJoint = boreRadius >= JOINT_MIN_BORE_RADIUS && solution.height >= JOINT_ENGAGE_DEPTH + 2;
 
   let collar: R.Shape3D;
   if (spec.joint === "press" || !canCutJoint) {
-    collar = collarBaseSolid(collarRadius, boreRadius);
+    collar = collarBaseSolid(collarOutline, weldOutline);
   } else if (spec.joint === "bayonet") {
-    const base = collarBaseSolid(collarRadius, boreRadius);
+    const base = collarBaseSolid(collarOutline, weldOutline);
     const grooveZLo = -BAYONET_LEAD - BAYONET_GROOVE_HEIGHT;
     const grooveZHi = -BAYONET_LEAD;
     const lugs = unionAtAngles((a) => radialBoxSolid(collarRadius - 1, collarRadius + BAYONET_LUG_HEIGHT, BAYONET_LUG_WIDTH, grooveZLo, grooveZHi, a), BAYONET_LUG_COUNT);
     collar = base.fuse(lugs);
   } else {
-    const base = collarBaseSolid(collarRadius, boreRadius);
+    const base = collarBaseSolid(collarOutline, weldOutline);
     const barbR = collarRadius + SNAP_BARB;
     const barb = R.makeCylinder(barbR, SNAP_BARB_HEIGHT, [0, 0, -JOINT_ENGAGE_DEPTH]);
     const withBarb = base.fuse(barb);
-    const slots = unionAtAngles((a) => radialBoxSolid(0, barbR + 0.5, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, a), SNAP_HOOK_COUNT);
+    // The slot's radial reach clears the transition's own widened top
+    // (collarBaseSolid flares out to `weldOutline`, issue #55) at EVERY
+    // angle, not just the flat sides -- `circumscribedRadius` is the
+    // outline's own farthest point, so this stays correct for round/sq/tri.
+    const slotOuterR = Math.max(barbR + 0.5, circumscribedRadius(weldOutline, 0) + 0.5);
+    const slots = unionAtAngles((a) => radialBoxSolid(0, slotOuterR, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, a), SNAP_HOOK_COUNT);
     collar = withBarb.cut(slots);
   }
 
