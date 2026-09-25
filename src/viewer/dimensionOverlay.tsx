@@ -9,10 +9,13 @@
 // screen "height" was flatly wrong there).
 //
 // The height dimension runs along the coil's own local +Z axis (flange to
-// cap); the width/diameter runs across the flange along local +/-X (shapes.
-// ts's own t=0 reference direction -- the same convention CoilViewer's
-// `debugFocusInnerEnd` and wire.ts's inner-end azimuth already key off of).
-// Both anchor pairs are pure LOCAL-frame math (length = the exact physical
+// cap), anchored at the flange's own rim (local +X, the SAME radius the
+// width anchors sit at) rather than the coil's central axis -- a real
+// height dimension runs along the model's own silhouette edge, not through
+// its middle. The width/diameter runs across the flange along local +/-X
+// (shapes.ts's own t=0 reference direction -- the same convention
+// CoilViewer's `debugFocusInnerEnd` and wire.ts's inner-end azimuth already
+// key off of). Both anchor pairs are pure LOCAL-frame math (length = the exact physical
 // mm value; position is schematic, like the guide's own approxRimPoint --
 // not a mesh sample), rotated by the SAME `rotation` CoilViewer applies to
 // the rendered geometry for the current view, then projected through this
@@ -214,8 +217,12 @@ export function DimensionOverlay({ geometries, preset, fill, rotation, widthMm, 
       testId: "dimension-height",
       valueMm: heightMm,
       label: `${formatCm(heightMm)} cm`,
-      a: rotate(new THREE.Vector3(0, 0, 0)),
-      b: rotate(new THREE.Vector3(0, 0, heightMm)),
+      // Anchored at the flange's own rim (local +X, same radius as the
+      // width anchors below), not the coil's central axis -- a real
+      // height dimension runs along the model's own silhouette EDGE (PR
+      // #59 review), not straight through the middle of it.
+      a: rotate(new THREE.Vector3(widthMm / 2, 0, 0)),
+      b: rotate(new THREE.Vector3(widthMm / 2, 0, heightMm)),
     },
     {
       testId: "dimension-width",
