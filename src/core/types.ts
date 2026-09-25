@@ -231,8 +231,8 @@ export interface Solution {
    * when `cornerRadius === apothem`); for square/triangle, `acrossFlats` is
    * the narrower, flat-side-midpoint extent and `acrossCorners` the wider,
    * corner-arc extent -- together they bound whatever direction the
-   * viewer's own on-screen width measurement (`dimensionOverlay.tsx`,
-   * camera-direction-dependent) happens to read off the SAME flange.
+   * viewer's own width/depth dimension axes (`DimensionAxes.tsx`,
+   * measured along the model's own X/Y) read off the SAME flange.
    * Undefined on `alternates` (see `overallHeight`).
    */
   flangeExtent?: FlangeExtent;

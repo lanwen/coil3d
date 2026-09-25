@@ -58,11 +58,14 @@ test.describe("wound-cable schematic (issue #4)", () => {
     // of the canvas element, so a raw element screenshot would otherwise
     // count their own black pixels (e.g. the active preset button's solid
     // fill) as if they were part of the wound-cable render this test is
-    // actually about.
+    // actually about. The dimension axes (issue #69) are drawn in the canvas
+    // itself, so they are switched off (the camera stays put).
+    await page.getByTestId("toggle-dimensions").uncheck();
+    await page.waitForTimeout(300);
     const png = await page
       .getByTestId("coil-viewer")
       .locator("canvas")
-      .screenshot({ mask: [page.locator(".wire-toggle, .explode-toggle, .view-controls")], maskColor: "#ffffff" });
+      .screenshot({ mask: [page.locator(".wire-toggle, .dimensions-toggle, .explode-toggle, .view-controls")], maskColor: "#ffffff" });
     const { data } = await readPixels(page, png);
     const bg = data[0];
     const differsFromBg = (p: Rgb) => p.some((v, i) => Math.abs(v - bg[i]) > 8);

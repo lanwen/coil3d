@@ -25,6 +25,8 @@ export default function App() {
   // hash (only cap/joint/tol are, per the ticket) -- it resets on reload,
   // same as the wire toggle's initial value would if it weren't persisted.
   const [exploded, setExploded] = useState(false);
+  // Dimension axes (issue #69): view-only too, on by default.
+  const [showDimensions, setShowDimensions] = useState(true);
   // Design/guide view switch (issue #17): a plain UI-routing concern, not
   // part of `CoilSpec` -- it changes nothing about the solved design, only
   // which component App renders. It round-trips through the SAME `#s=`
@@ -155,6 +157,9 @@ export default function App() {
               <div className="wire-toggle">
                 <EyeToggle testId="wire" label="Show wound cable" checked={showWire} hint={HINTS.wire} onChange={setShowWire} />
               </div>
+              <div className="dimensions-toggle">
+                <EyeToggle testId="dimensions" label="Dimensions" checked={showDimensions} hint={HINTS.dimensions} onChange={setShowDimensions} />
+              </div>
               {result.parts.length > 1 && (
                 <div className="explode-toggle">
                   <EyeToggle testId="exploded" label="Exploded view" checked={exploded} hint={HINTS.exploded} onChange={setExploded} />
@@ -170,6 +175,8 @@ export default function App() {
                 exploded={exploded}
                 mountAxisDeg={result.mountAxisDeg}
                 envelopeWidth={result.solution.flangeExtent?.acrossFlats ?? result.solution.flangeSize}
+                overallHeight={result.solution.overallHeight}
+                showDimensions={showDimensions}
                 shapeKind={result.spec.shape.kind}
               />
             </>
