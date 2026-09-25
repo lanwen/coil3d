@@ -27,6 +27,12 @@ export default function App() {
   const [exploded, setExploded] = useState(false);
   // Dimension axes (issue #69): view-only too, on by default.
   const [showDimensions, setShowDimensions] = useState(true);
+  // Print layout (issue #78 PR review): while that view is active, the
+  // wire/dimensions toggles below have no effect (the view force-hides both
+  // itself -- there's nothing to show), so they're hidden rather than left
+  // sitting there, checked, doing nothing. `showWire`/`showDimensions`
+  // themselves are untouched, so leaving the view "restores" them for free.
+  const [isPrintLayout, setIsPrintLayout] = useState(false);
   // Design/guide view switch (issue #17): a plain UI-routing concern, not
   // part of `CoilSpec` -- it changes nothing about the solved design, only
   // which component App renders. It round-trips through the SAME `#s=`
@@ -154,13 +160,17 @@ export default function App() {
         <div className="viewer">
           {result && (
             <>
-              <div className="wire-toggle">
-                <EyeToggle testId="wire" label="Show wound cable" checked={showWire} hint={HINTS.wire} onChange={setShowWire} />
-              </div>
-              <div className="dimensions-toggle">
-                <EyeToggle testId="dimensions" label="Dimensions" checked={showDimensions} hint={HINTS.dimensions} onChange={setShowDimensions} />
-              </div>
-              {result.parts.length > 1 && (
+              {!isPrintLayout && (
+                <div className="wire-toggle">
+                  <EyeToggle testId="wire" label="Show wound cable" checked={showWire} hint={HINTS.wire} onChange={setShowWire} />
+                </div>
+              )}
+              {!isPrintLayout && (
+                <div className="dimensions-toggle">
+                  <EyeToggle testId="dimensions" label="Dimensions" checked={showDimensions} hint={HINTS.dimensions} onChange={setShowDimensions} />
+                </div>
+              )}
+              {!isPrintLayout && result.parts.length > 1 && (
                 <div className="explode-toggle">
                   <EyeToggle testId="exploded" label="Exploded view" checked={exploded} hint={HINTS.exploded} onChange={setExploded} />
                 </div>
@@ -181,6 +191,7 @@ export default function App() {
                 showDimensions={showDimensions}
                 shapeKind={result.spec.shape.kind}
                 bed={result.spec.print}
+                onPrintLayoutActiveChange={setIsPrintLayout}
               />
             </>
           )}

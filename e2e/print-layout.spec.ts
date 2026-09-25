@@ -96,6 +96,26 @@ test.describe("Print layout view (issue #78)", () => {
     await expect(page.getByTestId("dimensions")).toHaveCount(1);
   });
 
+  test("the wire/dimensions/exploded toggles (which have no effect here -- both are force-hidden) disappear, and reappear with the user's own settings restored", async ({ page }) => {
+    await gotoDesign(page, TWO_PART);
+    // Uncheck wire, so its restored state is provably NOT just the default.
+    await page.getByTestId("toggle-wire").uncheck();
+    await expect(page.getByTestId("toggle-wire")).not.toBeChecked();
+    await expect(page.getByTestId("toggle-dimensions")).toBeChecked();
+    await expect(page.getByTestId("toggle-exploded")).toBeVisible();
+
+    await showPrintLayout(page);
+    await expect(page.getByTestId("toggle-wire")).toHaveCount(0);
+    await expect(page.getByTestId("toggle-dimensions")).toHaveCount(0);
+    await expect(page.getByTestId("toggle-exploded")).toHaveCount(0);
+
+    await page.getByTestId("preset-iso").click();
+    await page.waitForTimeout(300);
+    await expect(page.getByTestId("toggle-wire")).not.toBeChecked(); // restored, not reset to the default (checked)
+    await expect(page.getByTestId("toggle-dimensions")).toBeChecked();
+    await expect(page.getByTestId("toggle-exploded")).toBeVisible();
+  });
+
   test("switching into it changes the render (bed + placed parts, not the assembled coil)", async ({ page }) => {
     await gotoDesign(page, TWO_PART);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");

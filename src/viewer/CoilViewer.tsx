@@ -10,7 +10,8 @@ import { DimensionAxes, dimensionFramePoints, measureDimensionFrame, type Dimens
 import { frontFacingDimensionSpin, frontFacingRotation } from "./frontFacing";
 import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
 import { getPreset, type PresetId } from "./lineArt/presets";
-import { buildBedGeometry, buildPartLabel, buildPrintLayout } from "./printLayoutScene";
+import { PrintLayoutLabels } from "./PrintLayoutLabels";
+import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
 import { ViewControls } from "./ViewControls";
 import { WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
 import { buildWireGeometries } from "./wireGeometry";
@@ -80,6 +81,15 @@ export interface CoilViewerProps {
    * "Print layout" view's drawn bed rectangle and part arrangement -- the
    * SAME `PrintSpec` the 3MF plate layout reads. */
   bed: PrintSpec;
+  /** Issue #78 PR review: the print-layout view force-hides the wound cable
+   * and the dimension axes itself (there's nothing to toggle -- the core
+   * prints without a cable, see CoilViewer's own render), but the "Show
+   * wound cable"/"Dimensions" TOGGLE CONTROLS live in App.tsx, outside this
+   * component -- fired whenever `viewMode` enters/leaves "printLayout" so
+   * the caller can hide those controls while they'd have no visible effect,
+   * without touching `showWire`/`showDimensions` themselves (so whatever
+   * the user had them set to is exactly what shows again once they leave). */
+  onPrintLayoutActiveChange?: (active: boolean) => void;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -270,6 +280,7 @@ export function CoilViewer({
   shapeKind,
   showDimensions = true,
   bed,
+  onPrintLayoutActiveChange,
 }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -277,6 +288,9 @@ export function CoilViewer({
   const reducedMotion = usePrefersReducedMotion();
   const [viewMode, setViewMode] = useState<ViewMode>("standing");
   const debugFocusInnerEnd = useDebugFocusInnerEnd();
+  useEffect(() => {
+    onPrintLayoutActiveChange?.(viewMode === "printLayout");
+  }, [viewMode, onPrintLayoutActiveChange]);
   const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg, shapeKind), [mountAxisDeg, shapeKind]);
 
   // Debug close-up on the inner-end keyhole + channel (issue #8 PR review):
@@ -429,36 +443,34 @@ export function CoilViewer({
   const printLayout = useMemo(() => (viewMode === "printLayout" ? buildPrintLayout(parts, bed) : null), [viewMode, parts, bed]);
   const printLayoutParts = useMemo(() => {
     if (!printLayout) return null;
-    return printLayout.parts.map(({ part, mesh, labelPosition, footprintSize, transform }) => {
-      const geometry = buildCreasedGeometry(mesh);
-      const label = buildPartLabel(part.name, footprintSize);
-      label.position.copy(labelPosition);
-      return { part, geometry, label, transform };
-    });
+    return printLayout.parts.map(({ part, mesh, box, transform }) => ({ part, geometry: buildCreasedGeometry(mesh), box, transform }));
   }, [printLayout]);
   useEffect(() => {
     if (!printLayoutParts) return;
-    return () => {
-      printLayoutParts.forEach(({ geometry, label }) => {
-        geometry.dispose();
-        label.material.map?.dispose();
-        label.material.dispose();
-      });
-    };
+    return () => printLayoutParts.forEach(({ geometry }) => geometry.dispose());
   }, [printLayoutParts]);
   const printLayoutBedGeometry = useMemo(() => (viewMode === "printLayout" ? buildBedGeometry(bed) : null), [viewMode, bed]);
   useEffect(() => () => printLayoutBedGeometry?.dispose(), [printLayoutBedGeometry]);
+  // A stable reference (memoized on `printLayoutParts` itself, not rebuilt
+  // every render): PrintLayoutLabels.tsx memoizes its own sprites on this
+  // array's identity, so a fresh array literal here every render would
+  // rebuild (and re-draw) every label's canvas texture every frame.
+  const printLayoutLabelParts = useMemo(() => printLayoutParts?.map(({ part, box }) => ({ name: part.name, box })) ?? null, [printLayoutParts]);
 
-  // Frames the WHOLE bed (not just the parts), so the drawn rectangle
-  // always stays inside the shot: the bed's own 8 corners (z=0, the parts'
-  // own resting plane, and the layout's tallest part, from `printLayout`'s
-  // own bounds) alongside every part's real vertices.
+  // Frames the WHOLE bed (not just the parts) AND the labels' own shared
+  // callout row (PrintLayoutLabels.tsx, issue #78 PR review: a fixed margin
+  // past the layout's own Y extent, on EITHER side -- the row can land on
+  // whichever side the camera currently looks from), so neither the drawn
+  // bed rectangle nor a label is ever cropped by the shot.
   const printLayoutFramingGeometry = useMemo(() => {
     if (!printLayout || !printLayoutParts) return null;
     const { bounds } = printLayout;
     const chunks = printLayoutParts.map(({ geometry }) => (geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array);
+    const labelRowMargin = Math.max(8, 0.1 * bounds.getSize(new THREE.Vector3()).y);
     const corners: number[] = [];
-    for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) corners.push(x, y, z);
+    for (const x of [bounds.min.x, bounds.max.x])
+      for (const y of [bounds.min.y - labelRowMargin, bounds.max.y + labelRowMargin])
+        for (const z of [bounds.min.z, bounds.max.z]) corners.push(x, y, z);
     chunks.push(new Float32Array(corners));
     const merged = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
     let at = 0;
@@ -604,15 +616,13 @@ export function CoilViewer({
         gl={{ alpha: true, antialias: false, preserveDrawingBuffer: true }}
         style={{ width: "100%", height: "100%", background: "transparent" }}
       >
-        {printLayoutParts && printLayoutBedGeometry ? (
+        {printLayoutParts && printLayoutBedGeometry && printLayout && printLayoutLabelParts ? (
           <>
             <mesh geometry={printLayoutBedGeometry} />
-            {printLayoutParts.map(({ part, geometry, label }) => (
-              <group key={part.name}>
-                <mesh geometry={geometry} />
-                <primitive object={label} />
-              </group>
+            {printLayoutParts.map(({ part, geometry }) => (
+              <mesh key={part.name} geometry={geometry} />
             ))}
+            <PrintLayoutLabels parts={printLayoutLabelParts} bounds={printLayout.bounds} />
           </>
         ) : (
           <>
