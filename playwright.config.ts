@@ -14,15 +14,13 @@ const swiftshaderArgs = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader
 
 export default defineConfig({
   testDir: "./e2e",
-  // Real GitHub-hosted runners (2 shared vCPUs, no GPU) turned out to be far
-  // slower at software-rendered WebGL than this sandbox or even a local run
-  // of the same official Playwright Docker image (see .github/workflows/
-  // ci.yml and issue #18's PR): tests that touch the canvas took 5-10x
-  // longer than locally, and the heaviest (several sequential screenshots
-  // in one test) needed close to `expect.timeout` below just for their
-  // LAST assertion, so this needs enough headroom above that, not just
-  // above a typical test's total local runtime.
-  timeout: process.env.CI ? 180_000 : 30_000,
+  // Real GitHub-hosted runners (2 shared vCPUs, no GPU) are far slower at
+  // software-rendered WebGL than this sandbox (see .github/workflows/ci.yml
+  // and issue #18's PR): tests that touch the canvas took several times
+  // longer than locally. Headroom above a typical test's local runtime,
+  // not a tight bound -- see `reducedMotion` below for what actually closed
+  // most of that gap.
+  timeout: process.env.CI ? 90_000 : 30_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -49,14 +47,18 @@ export default defineConfig({
   // screenshot matched pixel-for-pixel there, so `expect.timeout` (not the
   // pixel allowance) is what needed raising for CI -- the real bottleneck is
   // render speed on that shared, GPU-less hardware, not a rendering
-  // difference (font, DPR, GPU flags). 30s wasn't enough either: real runs
-  // showed tests that take several sequential screenshots (zooms, toggles,
-  // camera-preset switches) in one test regularly needing closer to a
-  // minute for the LAST screenshot's own "wait for a stable frame" check,
-  // apparently because the main thread is still working through earlier
-  // renders' backlog by the time that check starts sampling frames.
+  // difference (font, DPR, GPU flags). Root-caused with a throttled (2-cpu)
+  // reproduction of the official Docker image (issue #18's PR): total
+  // Chromium RSS stayed flat across repeats (not a leak), `frameloop` is
+  // already "demand" everywhere (not continuously rendering), but the
+  // damped camera/explode tweens were the real cost -- each cheap-looking
+  // "wait for a stable frame" was genuinely waiting out however many
+  // expensive SwiftShader frames a real (non-instant) transition needs.
+  // `reducedMotion` below removes that cost almost everywhere (measured
+  // ~2x faster per screenshot in the same throttled repro), so 30s/90s is
+  // real headroom again, not a mask.
   expect: {
-    timeout: process.env.CI ? 60_000 : 5_000,
+    timeout: process.env.CI ? 30_000 : 5_000,
     toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
   },
   webServer: {
@@ -68,6 +70,18 @@ export default defineConfig({
   use: {
     baseURL: `http://localhost:${PORT}`,
     trace: "on-first-retry",
+    // Almost every screenshot test only cares about the SETTLED state of a
+    // camera/explode transition, not that it's animated -- and the app
+    // already fully honors `prefers-reduced-motion` (matchMedia) to skip
+    // straight there (CoilViewer.tsx, LineArtRenderer.tsx), landing on the
+    // exact same target, so the settled pixels this suite's baselines
+    // capture are identical either way. Reducing motion everywhere by
+    // default (in CI *and* locally) cuts real render cost roughly in half
+    // (see `expect.timeout`'s comment) with no coverage loss; the files
+    // that are actually ABOUT the transition/explode system (view-controls.
+    // spec.ts, and top-cap.spec.ts's own exploded-view describe blocks)
+    // opt back into real motion with their own `test.use(...)`.
+    contextOptions: { reducedMotion: "reduce" },
     launchOptions: {
       ...(existsSync(PINNED_CHROMIUM) ? { executablePath: PINNED_CHROMIUM } : {}),
       args: swiftshaderArgs,

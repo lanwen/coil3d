@@ -61,6 +61,15 @@ test.describe("top cap controls and auto-decision (issue #9)", () => {
     await expect(page.getByTestId("select-joint")).toHaveValue("bayonet");
     await expect(page.getByTestId("input-tolerance")).toHaveValue("0.35");
   });
+});
+
+// This describe (and "assembled and exploded screenshots per joint" below)
+// is specifically ABOUT the exploded-view animation, so both opt back into
+// real motion over the suite-wide `reducedMotion: "reduce"` default
+// (playwright.config.ts), matching how these screenshots' baselines were
+// originally shot.
+test.describe("exploded-view animation (issue #9)", () => {
+  test.use({ contextOptions: { reducedMotion: "no-preference" } });
 
   test("the exploded-view toggle changes the render and can be turned back off", async ({ page }) => {
     await gotoDesign(page, TWO_LAYER);
@@ -92,6 +101,8 @@ const JOINTS: Array<{ id: "press" | "bayonet" | "snap"; label: string }> = [
 ];
 
 test.describe("assembled and exploded screenshots per joint (issue #9)", () => {
+  test.use({ contextOptions: { reducedMotion: "no-preference" } });
+
   for (const { id, label } of JOINTS) {
     test(`joint=${id}: assembled and exploded views`, async ({ page }) => {
       await gotoDesign(page, `${TWO_LAYER}&joint=${id}`);

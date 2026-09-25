@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// This whole file is ABOUT the transition system itself, so it opts back
+// into real motion over the suite-wide `reducedMotion: "reduce"` default
+// (playwright.config.ts): the two "prefers-reduced-motion" tests below
+// still need a real, non-instant baseline to prove reduced motion actually
+// changes anything, and the rest capture real (settled-after-slerp)
+// screenshots the same way the checked-in baselines were shot.
+test.use({ contextOptions: { reducedMotion: "no-preference" } });
+
 // End-to-end checks for the viewer's camera-view controls. Issue #15
 // originally shipped four standing presets (front/side/top/iso) plus a
 // perspective/orthographic toggle; issue #49 trimmed the bar down to just
