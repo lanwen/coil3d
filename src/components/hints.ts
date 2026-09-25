@@ -19,16 +19,18 @@ export const HINTS = {
   coreSizeDimension:
     "This chooses which core measurement you lock: the outer size (the winding surface) or the inner bore (the hollow center). The solver then works out the other one for you.",
   outer:
-    "This is the size of the core, in millimetres. Lock it to set an exact size, or leave it free and let the solver pick a size that fits your cable. For a square or triangle core, a stiffer cable needs bigger rounded corners, so the minimum size can be bigger than for a round core.",
+    "This is the size of the core, in millimetres. Lock it to set an exact size, or leave it free and let the solver pick a size that fits your cable. For a square or triangle core, a stiffer or thicker cable needs bigger rounded corners, so the minimum size can be bigger than for a round core.",
   height: "This is how tall the core stands, in millimetres. Lock it to set an exact height, or leave it free and let the solver pick one.",
-  layers: "This is how many times the cable wraps around the core, one layer stacked on the next. Lock it to set an exact count, or leave it free.",
+  layers:
+    "This is how many layers of cable the coil has. A layer is one full row of turns from the bottom of the core to the top; the next layer winds on top of it. Lock it to set an exact count, or leave it free.",
   mount: "This adds a way to hang the coil on a wall: a screw keyhole, or a clip plate for an IKEA SKÅDIS pegboard.",
-  plateJoint: "This sets how the clip plate attaches to the core: glued on with small alignment pegs, or snapped on with printable tabs.",
+  plateJoint:
+    "This sets how the clip plate attaches to the flange, the wide base at the bottom of the core: glued on with small alignment pegs, or snapped on with printable tabs.",
   windingQuality:
-    "This sets how tightly each layer nests into the layer below it. Stacked (0) lines each turn up directly above the last. Orthocyclic (1, the tightest packing) nests each turn into the valley between two turns below, so more cable fits in the same space.",
+    "This sets how tightly each layer's turns nest into the layer below it. Stacked (0) lines every turn up directly above the turn beneath it. Orthocyclic (1, the tightest packing) settles every turn into the valley between two turns below, so more cable fits in the same space.",
   objective:
     "When two or more dimensions are free, more than one design fits your cable. This picks which design the solver prefers: the smallest overall volume, or a shape close to a cube.",
-  topCap: "This controls whether the coil gets a flat lid on top. Auto adds one only when there is more than one layer, so the cable does not spill over the top.",
+  topCap: "This controls whether the coil gets a flat lid on top. Auto turns it on once there is more than one layer of cable; On and Off override that.",
   joint: "This is how the top cap attaches to the core: pressed on, twisted into a bayonet lock, or snapped on with printable clips. All three are meant to be permanent, once assembled.",
   tolerance: "This is the extra gap added to every joint so printed parts fit together. Raise it if your printer runs a bit oversized. Lower it for a tighter fit.",
   label: "This is text engraved into the top cap, for example the cable type or length. Leave it blank for no label.",
