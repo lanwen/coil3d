@@ -185,6 +185,22 @@ export interface Solution {
   topCapEnabled: boolean;
   minOuterSizeForBend: number;
   /**
+   * Minimum outer size at which the resolved shape stays visibly distinct
+   * from round (issue #54): equals `minOuterSizeForBend` for round (no
+   * further constraint beyond the bend limit). For sq/tri, the bend-limited
+   * corner radius alone (independent of the user's own `shape.cornerRadius`
+   * request) erodes the straight sides as size shrinks; below this value
+   * they'd fall under "each flat >= max(2 * wireDiameter, 15% of the
+   * outline's own perimeter)" -- meaningfully long enough to look like a
+   * square/triangle rather than a circle. The solver never resolves a
+   * smaller outer size than this for sq/tri: a locked size below it is
+   * silently raised (with a warning), and a free size never searches below
+   * it. Surfaced here (not just as a warning string) so the UI can clamp the
+   * size control's own minimum instead of letting the user pick a value the
+   * solver will just override.
+   */
+  minOuterSizeForShape: number;
+  /**
    * Sibling candidates shown side by side (2-3 total including this one),
    * when freeCount is 2 or 3 -- e.g. the other objective's pick (freeCount
    * 2), or fixed-layer-count picks such as layers=1/layers=2 (freeCount 3).

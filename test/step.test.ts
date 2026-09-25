@@ -305,6 +305,61 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
       },
       STEP_TIMEOUT_MS,
     );
+
+    // Issue #55: the mesh backend's repro (`shape=tri&tri.rc=12&size=113&cap=on`)
+    // was a disconnected joint collar that `status()`/volume checks never
+    // caught; this file's own `validateSolid` (build.ts) already asserts
+    // `solid.solids.length === 1` per part, but no existing STEP test ever
+    // combined a non-round shape with a two-part (topCap-enabled) design, so
+    // it never actually ran against the bug. Covers the repro's own shape
+    // (tri) across all three joints, re-importing to confirm the STEP file
+    // itself -- not just `exportDesign`'s own internal validation -- sees
+    // one solid per part. sq is deliberately NOT repeated here: the STEP
+    // collar (`collarBaseSolid`/`outlineLoftSolid`, step/build.ts) is
+    // shape-agnostic beyond `n`/`cornerRadius`, and sq's own STEP re-import
+    // + the full sq/tri x press/bayonet/snap sweep already run in
+    // test/topCap.test.ts's mesh backend (manifold-3d, no OCCT) -- this
+    // file's OCCT instances are heavy enough (one per test, never disposed)
+    // that piling on a second shape here risked exhausting this sandbox's
+    // WASM memory for the LATER tests in this same describe.sequential file.
+    const NON_ROUND_CASES: Array<{ shape: CoilSpec["shape"]; size: number }> = [{ shape: { kind: "tri", cornerRadius: 12 }, size: 113 }]; // the repro's own shape/corner radius
+
+    it.each(JOINTS.flatMap((joint) => NON_ROUND_CASES.map((c) => ({ joint, ...c }))))(
+      "STEP export re-imports a non-round two-part design as one solid per part (issue #55, joint=$joint, shape=$shape.kind)",
+      async ({ joint, shape, size }) => {
+        const d = await design({ ...twoPartSpec, shape, joint, coreSize: { locked: true, dimension: "outer", value: size } });
+        const stepBytes = await exportDesign(d, "step");
+        expect(stepBytes.byteLength).toBeGreaterThan(0);
+
+        const { default: initOC } = await import("replicad-opencascadejs");
+        const oc = await initOC();
+        const path = `/reimport-cap-${joint}-${shape.kind}.step`;
+        oc.FS.writeFile(path, stepBytes);
+        const reader = new oc.STEPControl_Reader();
+        reader.ReadFile(path);
+        reader.TransferRoots();
+        const reimported = reader.OneShape();
+        oc.FS.unlink(path);
+
+        const analyzer = new oc.BRepCheck_Analyzer(reimported, true, false, false);
+        expect(analyzer.IsValid()).toBe(true);
+
+        let solidCount = 0;
+        let totalVolume = 0;
+        const explorer = new oc.TopExp_Explorer(reimported, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+        for (; explorer.More(); explorer.Next()) {
+          solidCount++;
+          const gprops = new oc.GProp_GProps();
+          oc.BRepGProp.VolumeProperties(explorer.Current(), gprops, 1e-5, false, false);
+          totalVolume += gprops.Mass();
+        }
+        expect(solidCount).toBe(2); // core + top-cap; a disconnected collar would re-import as a 3rd solid
+
+        const expectedVolume = d.parts.reduce((sum, p) => sum + meshVolume(p.mesh), 0);
+        expect(Math.abs(totalVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
+      },
+      STEP_TIMEOUT_MS,
+    );
   });
 
   describe("top cap label (issue #12)", () => {
