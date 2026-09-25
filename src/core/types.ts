@@ -85,14 +85,20 @@ export interface PrintSpec {
 }
 
 /**
- * Wall mount (issue #13/#14, docs/research.md "Mounting"): `"keyhole"`
+ * Wall mount (issue #13/#14/#70, docs/research.md "Mounting"): `"keyhole"`
  * recesses a screw-keyhole slot into the bottom flange's outer (wall-facing)
- * face. `"skadis"`/`"opengrid"` (issue #14) instead produce a SEPARATE named
- * "mount plate" part with pegboard clips, which glues or snaps onto that same
- * flange face (see `PlateJoint`, mountPlate.ts) -- the core keeps printing
- * flat with no clip features of its own. `"none"` is the default.
+ * face. `"through"` (issue #70) instead cuts plain, counterbored
+ * screw-shank holes straight through the flange (near the corners for
+ * sq/tri, evenly spaced for round), for a permanent, non-sliding screw
+ * mount. `"skadis"`/`"opengrid"` (issue #14) instead produce a SEPARATE
+ * named "mount plate" part with pegboard clips, which glues or snaps onto
+ * that same flange face (see `PlateJoint`, mountPlate.ts) -- the core keeps
+ * printing flat with no clip features of its own. `"none"` is the default.
  */
-export type MountKind = "none" | "keyhole" | "skadis" | "opengrid";
+export type MountKind = "none" | "keyhole" | "through" | "skadis" | "opengrid";
+
+/** Issue #71: the screw-keyhole mount's own placement axis, shifted away from literal vertical in fixed steps (mount.ts's `bestAxisDeg`/`KEYHOLE_ROTATION_OPTIONS`). Ignored when `mount !== "keyhole"`. */
+export type KeyholeRotation = 0 | 45 | 90;
 
 /**
  * How the clip mount plate (issue #14, `mount: "skadis" | "opengrid"`)
@@ -131,10 +137,14 @@ export interface CoilSpec {
    * at a legible height.
    */
   label?: string;
-  /** Wall mount (issue #13/#14): recesses a screw-keyhole slot into the core's bottom flange, or (skadis/opengrid) adds a separate clip mount-plate part. */
+  /** Wall mount (issue #13/#14/#70): recesses a screw-keyhole slot into the core's bottom flange, cuts plain through-holes ("through", issue #70), or (skadis/opengrid) adds a separate clip mount-plate part. */
   mount: MountKind;
   /** How the clip mount plate attaches to the flange (issue #14); ignored when `mount` isn't "skadis"/"opengrid". */
   plateJoint: PlateJoint;
+  /** Issue #71: the keyhole mount's own placement rotation; ignored when `mount !== "keyhole"`. Defaults to 0 when omitted. */
+  keyholeRotation?: KeyholeRotation;
+  /** Issue #70: through-hole diameter (screw-shank clearance), mm; ignored when `mount !== "through"`. Defaults to `DEFAULT_THROUGH_HOLE_DIAMETER` when omitted. */
+  throughHoleDiameter?: number;
 }
 
 export interface LayerResult {

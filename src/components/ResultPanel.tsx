@@ -6,6 +6,7 @@ import { HINTS } from "./hints";
 const MOUNT_LABELS: Record<MountKind, string> = {
   none: "None",
   keyhole: "Screw keyhole",
+  through: "Through-holes",
   skadis: "SKÅDIS clip plate",
   opengrid: "openGrid clip plate",
 };

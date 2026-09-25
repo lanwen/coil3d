@@ -159,8 +159,66 @@ export const SCREW_MOUNT_SHANK_RADIUS = SCREW_MOUNT_SHANK_DIAMETER / 2;
 export const SCREW_MOUNT_SLOT_TRAVEL = 4; // mm
 /** Minimum flange material left around the cut, to the bore and to the flange's own outer edge. */
 export const SCREW_MOUNT_EDGE_MARGIN = 1; // mm
-/** Depth of the pocket, cut inward from the flange's outer (wall-facing) face. */
+/** Depth of the pocket, cut inward from the flange's outer (wall-facing) face -- the TOTAL of the two depth levels below (issue #71 re-shapes this SAME budget into "a shallow slot in front of a deeper undercut", it does not cut any deeper into the flange than the original single-level pocket did). */
 export const SCREW_MOUNT_RECESS_DEPTH = 3; // mm
+/**
+ * Issue #71 ("verify the keyhole actually catches the screw"): the ORIGINAL
+ * single-depth pocket cut the head-entry circle, the channel and the
+ * shank-rest circle all to the SAME depth and width -- cosmetically a
+ * keyhole shape, but the channel was only shank-width, so the screw's HEAD
+ * (which must travel from the head-entry hole to the shank's resting point)
+ * could never actually get there: an 8mm head cannot pass through a 4mm-wide
+ * channel at any single depth. A real keyhole hanger instead undercuts BEHIND
+ * a narrow surface opening: a shallow, narrow "slot" (this level) that the
+ * SHANK rides in, right at the wall-facing surface, in front of a deeper,
+ * wider "undercut" chamber (below) that the HEAD actually travels through,
+ * hidden behind that narrow opening. The slot sits nearer the flange's outer
+ * (wall-facing, bed-touching-when-printed) face -- printed bottom-up, the
+ * void only ever WIDENS as printing continues past the slot into the
+ * undercut, never narrows, so this needs no support/teardrop treatment
+ * beyond the existing "plain bridging pocket" the outer shelf already relies
+ * on (see SCREW_MOUNT_MIN_SHELF) -- a widening void just means less material
+ * to print, not an unsupported overhang.
+ *
+ * Narrower than the head, wider than the shank (AC: "slot width between the
+ * shank and head diameters") -- exactly midway between the two, still
+ * comfortably clear of either.
+ */
+export const SCREW_MOUNT_SLOT_DIAMETER = (SCREW_MOUNT_SHANK_DIAMETER + SCREW_MOUNT_HEAD_DIAMETER) / 2; // 6 mm
+export const SCREW_MOUNT_SLOT_RADIUS = SCREW_MOUNT_SLOT_DIAMETER / 2;
+/** Depth (from the flange's own outer face) of the shallow, narrow slot level above -- see its own doc comment. */
+export const SCREW_MOUNT_SLOT_DEPTH = 1; // mm
+/**
+ * Typical pan/truss wood-screw head height (issue #71 AC: the undercut
+ * pocket's own depth must be "≥ head height", so the head is genuinely
+ * captured there, not just wedged at the mouth of a too-shallow chamber).
+ */
+export const SCREW_MOUNT_HEAD_HEIGHT = 2; // mm
+/**
+ * Depth of the wider undercut chamber directly BEHIND the slot (from
+ * `SCREW_MOUNT_SLOT_DEPTH` to `SCREW_MOUNT_RECESS_DEPTH`) -- at least
+ * `SCREW_MOUNT_HEAD_HEIGHT`, wide enough (`SCREW_MOUNT_HEAD_RADIUS`, see
+ * `screwMountCutter`) that the screw head can actually slide all the way
+ * from the head-entry hole to the shank's resting point, fully captured
+ * there once seated (issue #71 AC: "an undercut pocket wider than the slot,
+ * behind it").
+ */
+export const SCREW_MOUNT_UNDERCUT_DEPTH = SCREW_MOUNT_RECESS_DEPTH - SCREW_MOUNT_SLOT_DEPTH; // 2 mm
+/**
+ * A hairline volumetric overlap between the two depth levels above, so
+ * manifold.ts's own manifold-3d union of them is a genuine 3D overlap
+ * rather than an exact, coincident abutment -- found empirically (a fine
+ * flange-thickness sweep, test/geometry.test.ts's issue #41 coverage, hit an
+ * occasional stray-sliver genus failure at one specific thickness where the
+ * two levels would otherwise meet EXACTLY on one shared plane): the SAME
+ * class of floating-point robustness issue WELD_OVERLAP/MOUNT_PLATE_EMBED
+ * already work around elsewhere in this file/codebase. Only manifold-3d
+ * needs this -- step/build.ts's replicad/OCCT equivalent uses an exact
+ * abutment (unchanged), since OCCT's exact-geometry kernel doesn't share
+ * this fragility (confirmed: the STEP backend's own thickness-sweep
+ * coverage, test/step.test.ts, never needed an equivalent workaround).
+ */
+export const SCREW_MOUNT_LEVEL_OVERLAP = 0.05; // mm
 /** Minimum flange material left ABOVE the recess: the load-bearing "roof" the screw head presses against once hung. */
 export const SCREW_MOUNT_MIN_SHELF = 2; // mm
 /** design.ts bumps FLANGE_THICKNESS up to this (and warns) whenever mount === "keyhole". */
@@ -175,8 +233,14 @@ export const MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT = SCREW_MOUNT_RECESS_DEPTH + S
  * mount never fits at all). This is shape-independent -- design.ts combines
  * it with the shape's own exact bulge at the chosen angle to get the actual
  * margin bump, via mount.ts's `requiredFlangeMargin`.
+ *
+ * Both ends use `SCREW_MOUNT_HEAD_RADIUS` (issue #71): the shank-rest end's
+ * own SURFACE slot is narrower (`SCREW_MOUNT_SLOT_RADIUS`), but its
+ * undercut chamber -- directly behind that same XY position, see
+ * `SCREW_MOUNT_UNDERCUT_DEPTH` -- is head-width, so the widest the cut
+ * actually reaches at EITHER end, across its full depth, is the head radius.
  */
-export const SCREW_MOUNT_ANNULUS_WIDTH = SCREW_MOUNT_SLOT_TRAVEL + SCREW_MOUNT_HEAD_RADIUS + SCREW_MOUNT_SHANK_RADIUS + 2 * SCREW_MOUNT_EDGE_MARGIN;
+export const SCREW_MOUNT_ANNULUS_WIDTH = SCREW_MOUNT_SLOT_TRAVEL + 2 * SCREW_MOUNT_HEAD_RADIUS + 2 * SCREW_MOUNT_EDGE_MARGIN;
 /** Above this flange diameter, 2 slots are used (side by side) instead of 1, for a more stable, non-twisting hang. */
 export const SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD = 90; // mm
 /** Half-angle (from the chosen axis) between the 2 slots on a large flange. */
@@ -188,6 +252,40 @@ export const SCREW_MOUNT_TWO_SLOT_ANGLE = 25; // degrees
  * suggested range for the 2-slot case ("+-30-45 degrees from vertical").
  */
 export const SCREW_MOUNT_AXIS_SEARCH_MAX_DEG = 60;
+/**
+ * Issue #71: "allow rotating the keyhole slot direction ... so users can
+ * hang it differently, the mount axis and the hanging stay level". Rather
+ * than always searching for whichever reachable axis needs the LEAST flange
+ * margin (mount.ts's `bestAxisDeg` default), this shifts the search's own
+ * reference direction away from literal vertical (`WALL_UP`) by one of these
+ * fixed steps -- still only ever landing on a genuine mirror axis of the
+ * shape (see mount.ts's file header), so the result always hangs level, just
+ * with a DIFFERENT corner/side of the core facing up. 0 is the original,
+ * unrotated behaviour.
+ */
+export const KEYHOLE_ROTATION_OPTIONS = [0, 45, 90] as const;
+
+// Through-hole wall mount (issue #70, docs/research.md "Mounting"): plain,
+// counterbored screw-shank holes cut straight through the bottom flange's
+// full thickness -- a permanent, non-sliding alternative to the
+// screw-keyhole mount (see src/core/mount.ts's `layoutThroughHoleMount`).
+// Unlike the keyhole mount's fixed screw size, the hole diameter is a real
+// user parameter (AC: "sized for common wood screws (a parameter)").
+export const THROUGH_HOLE_DIAMETER_MIN = 2.5; // mm
+export const THROUGH_HOLE_DIAMETER_MAX = 8; // mm
+export const DEFAULT_THROUGH_HOLE_DIAMETER = 4.5; // mm: shank clearance for a common wood screw (e.g. a #8)
+/** Added to the through-hole's own radius for the counterbore (screw-head clearance) radius. */
+export const THROUGH_MOUNT_COUNTERBORE_MARGIN = 1.5; // mm
+/** Depth of the counterbore, cut inward from the flange's outer (wall-facing) face -- the screw head seats here, flush with (or below) that face; the narrower hole continues straight through the rest of the flange. */
+export const THROUGH_MOUNT_COUNTERBORE_DEPTH = 3; // mm
+/** Minimum flange material left between the counterbore and the rest of the through-hole, so the counterbore is a real, distinct step rather than the full hole width running the flange's whole thickness. */
+export const THROUGH_MOUNT_MIN_SHELF = 1; // mm
+/** design.ts bumps FLANGE_THICKNESS up to this (and warns) whenever mount === "through". */
+export const MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT = THROUGH_MOUNT_COUNTERBORE_DEPTH + THROUGH_MOUNT_MIN_SHELF; // 4 mm
+/** Minimum flange material left around each hole, to the bore and to the flange's own outer edge (mirrors SCREW_MOUNT_EDGE_MARGIN). */
+export const THROUGH_MOUNT_EDGE_MARGIN = 1.5; // mm
+/** Evenly-spaced hole counts tried on a round flange, widest first (issue #70 AC: "evenly spaced (3 or 4) on round"). */
+export const THROUGH_MOUNT_ROUND_HOLE_COUNTS = [4, 3] as const;
 
 // Clip mount plate (issue #14, docs/research.md §10b "SKÅDIS clip" +
 // PR research): a SEPARATE part that glues or snaps onto the bottom

@@ -23,6 +23,7 @@ import {
   BAYONET_LUG_HEIGHT,
   BAYONET_LUG_WIDTH,
   CAP_THICKNESS,
+  DEFAULT_THROUGH_HOLE_DIAMETER,
   JOINT_ENGAGE_DEPTH,
   JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
@@ -45,7 +46,9 @@ import {
   OPENGRID_PLACEHOLDER_PEG_REACH,
   OPENGRID_PLACEHOLDER_PEG_SIZE,
   SCREW_MOUNT_HEAD_RADIUS,
-  SCREW_MOUNT_SHANK_RADIUS,
+  SCREW_MOUNT_SLOT_DEPTH,
+  SCREW_MOUNT_SLOT_RADIUS,
+  SCREW_MOUNT_UNDERCUT_DEPTH,
   SKADIS_CLIP_HEIGHT,
   SKADIS_CLIP_PROFILE,
   SKADIS_CLIP_PROFILE_CHAMFERED,
@@ -65,8 +68,8 @@ import type { LabelLoop, ResolvedLabel } from "../label";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
 import type { InnerEndLayout, XY } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
-import { layoutKeyholeMount } from "../mount";
-import type { KeyholeSlot } from "../mount";
+import { layoutKeyholeMount, layoutThroughHoleMount } from "../mount";
+import type { KeyholeSlot, ThroughHole } from "../mount";
 import { layoutMountPlate, openGridClipHalfExtents, skadisClipHalfExtents } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
 import { circumscribedRadius, offsetOutline, pointAt, polygonVertex } from "../shapes";
@@ -144,16 +147,17 @@ function outlineLoftSolid(bottomOutline: ShapeOutline, topOutline: ShapeOutline,
 }
 
 /**
- * The replicad solid for one keyhole slot (mount.ts's layout math): a wide
- * (head) circle and a narrow (shank-end) circle, joined by a straight
- * channel of the shank's own width, all drawn in 2D then extruded once --
- * the same shape manifold.ts's `screwMountCutter` builds for the mesh backend,
- * from the identical `KeyholeSlot`, so the two never drift apart.
+ * One depth LEVEL of the keyhole slot solid (issue #71, mirrors
+ * manifold.ts's `slotLevelSolid`): a `headRadius` circle at the head and an
+ * `otherRadius` circle at the shank-end, joined by a straight channel of
+ * `otherRadius`'s own width, all drawn in 2D then extruded once.
+ * `screwMountCutterSolid` below fuses two of these (a narrow, shallow "slot"
+ * level and a head-width, deeper "undercut" level behind it).
  */
-function screwMountCutterSolid(slot: KeyholeSlot, depth: number, zBase: number): R.Shape3D {
-  let drawing = R.drawCircle(SCREW_MOUNT_HEAD_RADIUS)
+function slotLevelSolid(slot: KeyholeSlot, headRadius: number, otherRadius: number, height: number, zLo: number): R.Shape3D {
+  let drawing = R.drawCircle(headRadius)
     .translate(slot.head.x, slot.head.y)
-    .fuse(R.drawCircle(SCREW_MOUNT_SHANK_RADIUS).translate(slot.shankEnd.x, slot.shankEnd.y));
+    .fuse(R.drawCircle(otherRadius).translate(slot.shankEnd.x, slot.shankEnd.y));
 
   const dx = slot.shankEnd.x - slot.head.x;
   const dy = slot.shankEnd.y - slot.head.y;
@@ -161,8 +165,8 @@ function screwMountCutterSolid(slot: KeyholeSlot, depth: number, zBase: number):
   if (len > 1e-6) {
     const ux = dx / len;
     const uy = dy / len;
-    const px = -uy * SCREW_MOUNT_SHANK_RADIUS;
-    const py = ux * SCREW_MOUNT_SHANK_RADIUS;
+    const px = -uy * otherRadius;
+    const py = ux * otherRadius;
     const channel = R.draw([slot.head.x + px, slot.head.y + py] as [number, number])
       .lineTo([slot.head.x - px, slot.head.y - py] as [number, number])
       .lineTo([slot.shankEnd.x - px, slot.shankEnd.y - py] as [number, number])
@@ -171,8 +175,40 @@ function screwMountCutterSolid(slot: KeyholeSlot, depth: number, zBase: number):
     drawing = drawing.fuse(channel);
   }
 
-  const sketch = drawing.sketchOnPlane("XY", zBase) as R.Sketch;
-  return sketch.extrude(depth);
+  const sketch = drawing.sketchOnPlane("XY", zLo) as R.Sketch;
+  return sketch.extrude(height);
+}
+
+/**
+ * The replicad solid for one keyhole slot (mount.ts's layout math), cut from
+ * `zBase` (the flange's outer face) inward -- mirrors manifold.ts's
+ * `screwMountCutter` primitive-for-primitive (same two depth levels, same
+ * constants), so the mesh and STEP backends can never drift apart. See that
+ * function's own doc comment for the full issue #71 rationale (why a single
+ * uniform-depth cut couldn't actually let the screw head travel to its
+ * resting point, and why the internal seam between the two levels needs no
+ * WELD_OVERLAP-style treatment, unlike the mouth).
+ */
+function screwMountCutterSolid(slot: KeyholeSlot, zBase: number): R.Shape3D {
+  const slotLevel = slotLevelSolid(slot, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_SLOT_RADIUS, SCREW_MOUNT_SLOT_DEPTH, zBase);
+  const undercutLevel = slotLevelSolid(slot, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_UNDERCUT_DEPTH, zBase + SCREW_MOUNT_SLOT_DEPTH);
+  return slotLevel.fuse(undercutLevel);
+}
+
+/**
+ * The replicad solid for one through-hole mount hole (issue #70, mount.ts's
+ * `layoutThroughHoleMount`): a plain, full-thickness cylinder (screw-shank
+ * clearance) fused with a wider, shallower cylinder (the counterbore, screw-
+ * head clearance) blind from the flange's outer face -- mirrors manifold.ts's
+ * `throughHoleCutter` primitive-for-primitive, and `buildInnerEndCutterSolid`'s
+ * own through-cut convention (poking 1mm past both faces).
+ */
+function throughHoleCutterSolid(hole: ThroughHole, holeRadius: number, counterboreRadius: number, counterboreDepth: number, flangeThickness: number): R.Shape3D {
+  const throughH = flangeThickness + 2;
+  const throughZLo = -flangeThickness - 1;
+  const shank = R.makeCylinder(holeRadius, throughH, [hole.x, hole.y, throughZLo]);
+  const counterbore = R.makeCylinder(counterboreRadius, counterboreDepth + 1, [hole.x, hole.y, throughZLo]);
+  return shank.fuse(counterbore);
 }
 
 // S2 RESULT.md: ~20 V-samples per helical pitch keeps the max fitting
@@ -276,17 +312,19 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   // mirroring manifold.ts's `buildInnerEndCutter` primitive-for-primitive
   // (same `layoutInnerEnd` call, same `resolveChannelDepth`), so the mesh and
   // STEP backends can never drift on where the keyhole/channel actually sit.
-  coreSolid = coreSolid.cut(
-    buildInnerEndCutterSolid(
-      flangeSpec.outline,
-      flangeSpec.margin,
-      flangeSpec.thickness,
-      resolveChannelDepth(design.spec.wire.diameter, flangeSpec.thickness, flangeSpec.mount === "keyhole"),
-      design.spec.wire.diameter,
-      design.spec.tolerance,
-      bendMultiplierOf(design.spec.wire) * design.spec.wire.diameter,
-    ),
+  // Kept (not just consumed for its own cutter): issue #70's through-hole
+  // mount checks the SAME real, computed channel footprint, never a
+  // re-derivation.
+  const innerEndCutter = buildInnerEndCutterSolid(
+    flangeSpec.outline,
+    flangeSpec.margin,
+    flangeSpec.thickness,
+    resolveChannelDepth(design.spec.wire.diameter, flangeSpec.thickness, flangeSpec.mount),
+    design.spec.wire.diameter,
+    design.spec.tolerance,
+    bendMultiplierOf(design.spec.wire) * design.spec.wire.diameter,
   );
+  coreSolid = coreSolid.cut(innerEndCutter.cutter);
 
   // Issue #9: bayonet/snap cut a mating groove/relief into the core's own
   // top rim; press engages the bore's existing surface directly (no
@@ -305,9 +343,27 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   // the CORE part's own bottom flange (manifold.ts's fuseFlange), from the
   // identical layout (mount.ts), so STEP and STL/preview never drift apart.
   if (design.flangeSpec.mount === "keyhole") {
-    const layout = layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin);
+    const layout = layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin, flangeSpec.keyholeRotation);
     for (const slot of layout.slots) {
-      const cutter = screwMountCutterSolid(slot, layout.recessDepth, -flangeSpec.thickness);
+      const cutter = screwMountCutterSolid(slot, -flangeSpec.thickness);
+      coreSolid = coreSolid.cut(cutter);
+    }
+  }
+
+  // Issue #70: cut the same through-hole mount the mesh backend cuts into
+  // the CORE part's own bottom flange (manifold.ts's fuseFlange), from the
+  // identical layout (mount.ts) and the SAME inner-end channel footprint
+  // just cut above, so STEP and STL/preview never drift apart.
+  if (design.flangeSpec.mount === "through") {
+    const layout = layoutThroughHoleMount(
+      flangeSpec.outline,
+      flangeSpec.boreOutline,
+      flangeSpec.margin,
+      flangeSpec.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER,
+      innerEndCutter.layout,
+    );
+    for (const hole of layout.holes) {
+      const cutter = throughHoleCutterSolid(hole, layout.holeRadius, layout.counterboreRadius, layout.counterboreDepth, flangeSpec.thickness);
       coreSolid = coreSolid.cut(cutter);
     }
   }
@@ -475,7 +531,7 @@ function buildInnerEndCutterSolid(
   wireDiameter: number,
   tolerance: number,
   bendRadius: number,
-): R.Shape3D {
+): { cutter: R.Shape3D; layout: InnerEndLayout } {
   const layout: InnerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, tolerance, bendRadius);
   const { hole, edge, holeRadius, slitWidth, channelRibbon } = layout;
 
@@ -496,7 +552,7 @@ function buildInnerEndCutterSolid(
   }
 
   const rawChannel = channelCutterSolid(channelRibbon, -channelDepth, 1);
-  if (!rawChannel) return keyhole;
+  if (!rawChannel) return { cutter: keyhole, layout };
   // Offset outward by WELD_OVERLAP: the ribbon's own closing edge at the
   // groove end sits EXACTLY on the wall's true outline by construction (see
   // innerEnd.ts), so clipping against that same outline unmodified is
@@ -507,7 +563,7 @@ function buildInnerEndCutterSolid(
   // well inside the STEP/mesh volume-match tolerance.
   const blocker = outlineSolid(offsetOutline(outline, WELD_OVERLAP), channelDepth + 3, -channelDepth - 1);
   const channel = rawChannel.cut(blocker);
-  return keyhole.fuse(channel);
+  return { cutter: keyhole.fuse(channel), layout };
 }
 
 /**

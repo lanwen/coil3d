@@ -78,6 +78,8 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       print: { bedX: 256, bedY: 256, bedZ: 256 },
       mount: "none",
       plateJoint: "glue",
+      keyholeRotation: 0,
+      throughHoleDiameter: 4.5,
     };
     expect(parseHash(toHash(spec))).toEqual({ ...DESIGN, spec });
   });
@@ -315,6 +317,46 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const hash = toHash(spec);
     expect(decodeDoc(hash)).toEqual({ v: 2, mount: "keyhole" });
     expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
+  });
+
+  it("round-trips a non-default keyhole rotation (issue #71), omitting kr at the default (0)", () => {
+    const rotated: CoilSpec = { ...DEFAULT_SPEC, mount: "keyhole", keyholeRotation: 45 };
+    const hash = toHash(rotated);
+    expect(decodeDoc(hash)).toEqual({ v: 2, mount: "keyhole", kr: 45 });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec: rotated });
+
+    const atDefault: CoilSpec = { ...DEFAULT_SPEC, mount: "keyhole", keyholeRotation: 0 };
+    expect(decodeDoc(toHash(atDefault)).kr).toBeUndefined();
+  });
+
+  it("rejects a keyhole rotation ('kr') set without mount=keyhole, falling back to defaults with a notice", () => {
+    const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, kr: 45 })).toString("base64url")}`);
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
+  });
+
+  it("rejects an out-of-set keyhole rotation value, falling back to defaults with a notice", () => {
+    const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, mount: "keyhole", kr: 30 })).toString("base64url")}`);
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
+  });
+
+  it("round-trips the through-hole mount, including a non-default hole diameter (issue #70)", () => {
+    const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "through" };
+    const hash = toHash(spec);
+    expect(decodeDoc(hash)).toEqual({ v: 2, mount: "through" });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
+
+    const custom: CoilSpec = { ...DEFAULT_SPEC, mount: "through", throughHoleDiameter: 6 };
+    const customHash = toHash(custom);
+    expect(decodeDoc(customHash)).toEqual({ v: 2, mount: "through", thd: 6 });
+    expect(parseHash(customHash)).toEqual({ ...DESIGN, spec: custom });
+  });
+
+  it("rejects a through-hole diameter ('thd') set without mount=through, falling back to defaults with a notice", () => {
+    const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, thd: 6 })).toString("base64url")}`);
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
   });
 
   it("round-trips the skadis clip mount plate with the default (glue) plate joint, omitting pj", () => {

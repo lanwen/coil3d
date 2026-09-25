@@ -91,6 +91,17 @@ test("the conditional advanced fields (custom bend multiplier, objective) have h
   await expect(objectiveField.getByTestId("hint-btn")).toBeVisible();
 });
 
+test("the conditional mount fields (keyhole rotation, through-hole diameter) have hints when they're shown", async ({ page }) => {
+  await page.goto("/#v=1&L=1000&d=4&lock=outer&size=40");
+  await page.getByTestId("select-mount").selectOption("keyhole");
+  const rotationField = page.locator(".field").filter({ hasText: "Keyhole rotation" });
+  await expect(rotationField.getByTestId("hint-btn")).toBeVisible();
+
+  await page.getByTestId("select-mount").selectOption("through");
+  const diameterField = page.locator(".field").filter({ hasText: "Through-hole diameter" });
+  await expect(diameterField.getByTestId("hint-btn")).toBeVisible();
+});
+
 test("the viewer's wound-cable toggle has a hint too", async ({ page }) => {
   await page.goto("/#v=1&L=1000&d=4&lock=outer,ly&size=40");
   await expect(page.getByTestId("diagnosis-status")).toBeVisible();

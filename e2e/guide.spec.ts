@@ -123,6 +123,18 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.getByTestId("guide-step-4")).not.toContainText("coming soon");
   });
 
+  // Issue #70 landed the through-hole mount after this guide shipped, the
+  // same way issue #14's SKÅDIS case did above. "through" is a new mount
+  // kind added after issue #56's `#v=1&...` legacy format was frozen (see
+  // mount.spec.ts's own comment on this), so this navigates via the current
+  // `#s=<base64url(JSON)>` document format directly instead.
+  test("the wall-mount step gives real instructions once the through-hole mount is selected", async ({ page }) => {
+    const doc = { v: 2, L: 1000, d: 4, size: 40 };
+    await gotoGuide(page, `#s=${Buffer.from(JSON.stringify({ ...doc, mount: "through" })).toString("base64url")}`);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/screw straight through/i);
+    await expect(page.getByTestId("guide-step-4")).not.toContainText("coming soon");
+  });
+
   test("the toolbar opens the guide from the design view and back again, without losing the design", async ({ page }) => {
     await page.goto(`/${TWO_LAYER_CAP}`);
     await expect(page.getByTestId("coil-viewer")).toBeVisible();
@@ -176,6 +188,28 @@ test.describe("printable assembly guide (issue #17)", () => {
       test.slow();
       await gotoGuide(page, `${ONE_LAYER}&mount=keyhole`);
       await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-keyhole-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+    });
+
+    // Issue #71: the keyhole mount's own rotation option -- the mount-side
+    // inset (StepMountKeyhole's `guide-mount-inset`) shows the real, built
+    // geometry (rotated by design()'s own `mountAxisDeg`), so a screenshot
+    // at each rotation is a visual check that the cut and the illustration
+    // never disagree, on top of test/mount.test.ts's own numeric coverage.
+    for (const kr of [0, 45, 90] as const) {
+      test(`with the screw-keyhole wall mount, rotated ${kr} degrees`, async ({ page }) => {
+        test.slow();
+        const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
+        await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+        await expect(page.getByTestId("guide-view")).toHaveScreenshot(`guide-keyhole-mount-rotated-${kr}.png`, { timeout: 25000 });
+      });
+    }
+
+    // Issue #70: the new through-hole mount.
+    test("with the through-hole wall mount", async ({ page }) => {
+      test.slow();
+      const doc = { v: 2, L: 1000, d: 4, size: 60, mount: "through" };
+      await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-through-mount.png", { timeout: 25000 });
     });
 
     test("print-media emulation", async ({ page }) => {

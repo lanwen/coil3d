@@ -1,6 +1,20 @@
 import { useEffect, useId, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, Objective, PlateJoint, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
-import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, LABEL_MAX_LENGTH, SHAPES, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
+import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, Objective, PlateJoint, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
+import {
+  BED_SIZE_MAX,
+  BED_SIZE_MIN,
+  DEFAULT_CORNER_RADIUS,
+  DEFAULT_CUSTOM_BEND_MULTIPLIER,
+  DEFAULT_THROUGH_HOLE_DIAMETER,
+  KEYHOLE_ROTATION_OPTIONS,
+  LABEL_MAX_LENGTH,
+  SHAPES,
+  THROUGH_HOLE_DIAMETER_MAX,
+  THROUGH_HOLE_DIAMETER_MIN,
+  TOLERANCE_MAX,
+  TOLERANCE_MIN,
+  WIRE_TYPE_PRESETS,
+} from "../core";
 import { FieldTop, LockRangeField, LockStepperField, RangeField, Section, TextField, cmToMm, mmToCm, roundMm } from "./fields";
 import { HINTS } from "./hints";
 import { ShapePicker } from "./ShapePicker";
@@ -41,6 +55,7 @@ const WIRE_TYPE_OPTIONS: Array<{ id: WireTypeId; label: string }> = [
 const MOUNT_OPTIONS: Array<{ id: MountKind; label: string }> = [
   { id: "none", label: "None" },
   { id: "keyhole", label: "Screw keyhole (wall mount)" },
+  { id: "through", label: "Through-holes (screw straight on)" },
   { id: "skadis", label: "IKEA SKÅDIS clip plate" },
 ];
 
@@ -48,6 +63,12 @@ const PLATE_JOINT_OPTIONS: Array<{ id: PlateJoint; label: string }> = [
   { id: "glue", label: "Glue (alignment pegs)" },
   { id: "snap", label: "Snap tabs" },
 ];
+
+const KEYHOLE_ROTATION_LABELS: Record<KeyholeRotation, string> = {
+  0: "0°",
+  45: "45°",
+  90: "90°",
+};
 
 export function ControlsForm({
   spec,
@@ -88,6 +109,7 @@ export function ControlsForm({
   const coreSizeDimensionId = useId();
   const mountId = useId();
   const plateJointId = useId();
+  const keyholeRotationId = useId();
   const objectiveId = useId();
   const topCapId = useId();
   const jointId = useId();
@@ -268,6 +290,37 @@ export function ControlsForm({
               ))}
             </select>
           </div>
+        )}
+        {spec.mount === "keyhole" && (
+          <div className="field">
+            <FieldTop label="Keyhole rotation" hint={HINTS.keyholeRotation} htmlFor={keyholeRotationId} />
+            <select
+              id={keyholeRotationId}
+              className="field-select"
+              data-testid="select-keyholeRotation"
+              value={spec.keyholeRotation ?? 0}
+              onChange={(e) => onChange({ ...spec, keyholeRotation: Number(e.target.value) as KeyholeRotation })}
+            >
+              {KEYHOLE_ROTATION_OPTIONS.map((opt) => (
+                <option key={opt} value={opt}>
+                  {KEYHOLE_ROTATION_LABELS[opt]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {spec.mount === "through" && (
+          <RangeField
+            testId="throughHoleDiameter"
+            label="Through-hole diameter"
+            unit="mm"
+            min={THROUGH_HOLE_DIAMETER_MIN}
+            max={THROUGH_HOLE_DIAMETER_MAX}
+            step={0.5}
+            value={spec.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER}
+            hint={HINTS.throughHoleDiameter}
+            onChange={(v) => onChange({ ...spec, throughHoleDiameter: v })}
+          />
         )}
       </Section>
 

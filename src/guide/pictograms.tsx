@@ -103,6 +103,17 @@ export function WallMountIcon({ label }: { label: string }) {
   );
 }
 
+/** A screwdriver shaft + flat-blade tip lined up with a plain round hole -- "drive the screw straight through the hole" (issue #70's through-hole mount step). */
+export function ScrewdriverIcon({ label }: { label: string }) {
+  return (
+    <Icon label={label}>
+      <circle cx="16" cy="32" r="8" {...STROKE} />
+      <path d="M28 32 H44" {...STROKE} />
+      <path d="M44 22 L58 32 L44 42 Z" {...STROKE} />
+    </Icon>
+  );
+}
+
 /** A single circular arrow around a coil silhouette -- "unwind by rotating the coil", twist-free (step 7). */
 export function RotateIcon({ label }: { label: string }) {
   return (

@@ -197,6 +197,61 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
     );
   });
 
+  describe("design().mesh with the through-hole wall mount (issue #70)", () => {
+    it(
+      "re-imports the STEP export as one valid solid with volume matching the mesh, with the through-holes cut",
+      async () => {
+        const spec: CoilSpec = {
+          wire: { length: 1500, diameter: 3.8, type: "usb" },
+          shape: { kind: "sq", cornerRadius: 15 },
+          windingQuality: 0.7,
+          coreSize: { locked: true, dimension: "outer", value: 100 },
+          height: { locked: true, value: 60 },
+          layers: { locked: true, value: 1 },
+          objective: "minVolume",
+          topCap: "auto",
+          joint: "press",
+          tolerance: 0.2,
+          print: { bedX: 256, bedY: 256, bedZ: 256 },
+          mount: "through",
+          plateJoint: "glue",
+        };
+        const d = await design(spec);
+        expect(d.flangeSpec.mount).toBe("through");
+
+        const stepBytes = await exportDesign(d, "step");
+        expect(stepBytes.byteLength).toBeGreaterThan(0);
+
+        const { default: initOC } = await import("replicad-opencascadejs");
+        const oc = await initOC();
+        const path = "/reimport-through.step";
+        oc.FS.writeFile(path, stepBytes);
+        const reader = new oc.STEPControl_Reader();
+        reader.ReadFile(path);
+        reader.TransferRoots();
+        const shape = reader.OneShape();
+        oc.FS.unlink(path);
+
+        const analyzer = new oc.BRepCheck_Analyzer(shape, true, false, false);
+        expect(analyzer.IsValid()).toBe(true);
+
+        let solidCount = 0;
+        const explorer = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+        for (; explorer.More(); explorer.Next()) solidCount++;
+        expect(solidCount).toBe(1); // one solid per part -- the through-holes don't split the core into separate pieces
+
+        const gprops = new oc.GProp_GProps();
+        oc.BRepGProp.VolumeProperties(shape, gprops, 1e-5, false, false);
+        const reimportedVolume = gprops.Mass();
+
+        const expectedVolume = meshVolume(d.mesh);
+        expect(reimportedVolume).toBeGreaterThan(0);
+        expect(Math.abs(reimportedVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
+      },
+      STEP_TIMEOUT_MS,
+    );
+  });
+
   describe("design().mesh with the inner-end fixing (issue #8)", () => {
     it(
       "re-imports the STEP export as one valid solid with volume matching the mesh, with the rim keyhole + channel cut",
