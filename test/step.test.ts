@@ -311,13 +311,18 @@ describe.sequential("STEP/OCCT export (issue #32: grouped, generous timeout)", (
     // caught; this file's own `validateSolid` (build.ts) already asserts
     // `solid.solids.length === 1` per part, but no existing STEP test ever
     // combined a non-round shape with a two-part (topCap-enabled) design, so
-    // it never actually ran against the bug. Cover sq/tri here, across all
-    // three joints, re-importing to confirm the STEP file itself -- not just
-    // `exportDesign`'s own internal validation -- sees one solid per part.
-    const NON_ROUND_CASES: Array<{ shape: CoilSpec["shape"]; size: number }> = [
-      { shape: { kind: "sq", cornerRadius: 15 }, size: 60 },
-      { shape: { kind: "tri", cornerRadius: 12 }, size: 113 }, // the repro's own shape/corner radius
-    ];
+    // it never actually ran against the bug. Covers the repro's own shape
+    // (tri) across all three joints, re-importing to confirm the STEP file
+    // itself -- not just `exportDesign`'s own internal validation -- sees
+    // one solid per part. sq is deliberately NOT repeated here: the STEP
+    // collar (`collarBaseSolid`/`outlineLoftSolid`, step/build.ts) is
+    // shape-agnostic beyond `n`/`cornerRadius`, and sq's own STEP re-import
+    // + the full sq/tri x press/bayonet/snap sweep already run in
+    // test/topCap.test.ts's mesh backend (manifold-3d, no OCCT) -- this
+    // file's OCCT instances are heavy enough (one per test, never disposed)
+    // that piling on a second shape here risked exhausting this sandbox's
+    // WASM memory for the LATER tests in this same describe.sequential file.
+    const NON_ROUND_CASES: Array<{ shape: CoilSpec["shape"]; size: number }> = [{ shape: { kind: "tri", cornerRadius: 12 }, size: 113 }]; // the repro's own shape/corner radius
 
     it.each(JOINTS.flatMap((joint) => NON_ROUND_CASES.map((c) => ({ joint, ...c }))))(
       "STEP export re-imports a non-round two-part design as one solid per part (issue #55, joint=$joint, shape=$shape.kind)",
