@@ -1021,6 +1021,11 @@ header p {
   padding: 5px 0;
   font-size: 0.88rem;
   border-bottom: 1px solid var(--hairline-soft);
+  /* Containing block for a row's own `.hint-bubble` (issue #65), the same
+     convention `.field`/`.field-top` already use (see their own comments):
+     positions the bubble against this whole row, left-aligned under the
+     label, never overlapping the value column to the right. */
+  position: relative;
 }
 
 .result-label {

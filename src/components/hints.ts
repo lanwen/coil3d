@@ -1,11 +1,14 @@
-// Plain-English hint text for every control (issue #53). Kept in this one
-// module, separate from the field components that render it, so the text is
-// easy to find and edit without touching any component markup. Each entry is
-// shown by an (i) button next to its control (see Hint.tsx) and stays short:
-// 1-3 plain sentences, active voice, no jargon left undefined.
+// Plain-English hint text for every control (issue #53), plus a few result
+// rows (issue #65) whose numbers are easy to misread side by side. Kept in
+// this one module, separate from the field/row components that render it,
+// so the text is easy to find and edit without touching any component
+// markup. Each entry is shown by an (i) button next to its control or row
+// (see Hint.tsx) and stays short: 1-3 plain sentences, active voice, no
+// jargon left undefined.
 //
-// Keys match the field's own `testId` (ControlsForm.tsx/App.tsx), so a hint
-// is easy to look up from the control that uses it.
+// Keys match the field/row's own `testId` (ControlsForm.tsx/App.tsx,
+// ResultPanel.tsx), so a hint is easy to look up from the control or row
+// that uses it.
 
 export const HINTS = {
   wireLength:
@@ -40,6 +43,15 @@ export const HINTS = {
   wire: "This shows or hides the schematic cable path wound around the core in the 3D view. It does not change the printed design.",
   dimensions: "This shows or hides the overall width, depth and height, in centimetres, drawn around the 3D view. It does not change the printed design.",
   exploded: "This pulls the parts apart in the 3D view so you can see how they fit together. It does not change the printed design.",
+  // Result-panel rows (issue #65): the wound cable's own outer size and the
+  // flange's two outer-extent rows read as unrelated numbers unless a hint
+  // spells out which of them are actually measured the same way.
+  envelope:
+    "This is the wound cable's own outer size, at its widest point. For a square or triangle core, that's measured across the corners, so compare it to the flange's own \"across corners\" number below, not the narrower \"Flange width\" (measured across flats). The flange is sized to clear this.",
+  flange:
+    "This is the flange's real outer size, measured across its flat sides. For a square or triangle core that's the narrower of its two extents, so it reads smaller than the cable's own outer size above -- compare against \"Flange width (across corners)\" below instead.",
+  flangeAcrossCorners:
+    "This is the flange's real outer size measured across its corners, the wider of its two extents -- the same way the cable's own outer size above is measured, so the two are directly comparable.",
 } as const;
 
 export type HintKey = keyof typeof HINTS;

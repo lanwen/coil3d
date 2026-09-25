@@ -269,3 +269,147 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     expect(ink.inRects).toBe(0);
   });
 });
+
+// End-to-end checks for issue #65 (follow-ups from the #63 review):
+// - the height dimension's extension lines must visibly connect to the
+//   model's real top/bottom extreme points in every view, not just Front
+//   (dimensionOverlay.tsx's `anchorByScreenY`, see that file's header);
+// - the result panel's "Envelope" row is renamed and hinted so it reads as
+//   directly comparable to the flange rows, instead of looking like the
+//   cable pokes out past the flange.
+test.describe("height extension lines reach the model's real extremes, and the cable/flange rows are comparable (issue #65)", () => {
+  type Rgb = [number, number, number];
+  const differsPx = (a: Rgb, b: Rgb) => a.some((v, i) => Math.abs(v - b[i]) > 8);
+
+  /** The first/last non-background pixel row in one screenshot column -- the model's own real top/bottom silhouette edge, the same "walk in from the ends" idea `e2e/line-art.spec.ts`'s own `silhouette` uses along a row instead. */
+  async function verticalExtent(page: Page, png: Buffer, xFraction: number): Promise<{ top: number; bottom: number } | null> {
+    const data = await page.evaluate(
+      async ({ b64, frac }) => {
+        const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+        const img = await createImageBitmap(blob, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+        const ctx = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
+        ctx.drawImage(img, 0, 0);
+        return Array.from(ctx.getImageData(Math.round(frac * (img.width - 1)), 0, 1, img.height).data);
+      },
+      { b64: png.toString("base64"), frac: xFraction },
+    );
+    const col: Rgb[] = [];
+    for (let i = 0; i < data.length; i += 4) col.push([data[i], data[i + 1], data[i + 2]]);
+    const bg = col[0];
+    const top = col.findIndex((p) => differsPx(p, bg));
+    if (top < 0) return null;
+    let bottom = col.length - 1;
+    while (!differsPx(col[bottom], bg)) bottom--;
+    return { top, bottom };
+  }
+
+  /** The height dimension's own two extension lines' on-screen Y (they're
+   * horizontal, so a single Y each) plus the model's real top/bottom pixel,
+   * all in viewport coordinates. Reads the live DOM directly (`closest`/
+   * `:scope >`) rather than an index into every `.dimension-extension` on
+   * the page, so it doesn't depend on the width dimension having placed
+   * first (dimensionOverlay.tsx's own `layoutAlong`/`place`: each
+   * dimension is its own `<g>`, `[bottom-anchor, top-anchor]` extension
+   * lines in that order -- see `ea`/`eb`). */
+  async function heightExtensionVsModel(page: Page) {
+    const frame = (await page.getByTestId("coil-viewer").boundingBox())!;
+    const canvas = page.getByTestId("coil-viewer").locator("canvas");
+
+    const extY = await page.evaluate(() => {
+      const text = document.querySelector('[data-testid="dimension-height"]')!;
+      const outerG = text.closest("g")!.parentElement!;
+      const lines = Array.from(outerG.querySelectorAll(":scope > line.dimension-extension"));
+      return lines.map((el) => el.getBoundingClientRect().y);
+    });
+    expect(extY, "the height dimension must have exactly 2 extension lines").toHaveLength(2);
+    const [bottomExtY, topExtY] = extY;
+
+    // A column through the model's own horizontal center crosses the cap at
+    // its top and the flange at its bottom, whatever the exact footprint
+    // shape. The overlay sits directly on top of the canvas (a compositor
+    // capture would pick up its own ink too, see line-art.spec.ts's own
+    // "unbroken silhouette" test), so it's hidden for this one screenshot.
+    await page.evaluate(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="dimension-overlay"]');
+      if (el) el.style.display = "none";
+    });
+    const png = await canvas.screenshot();
+    await page.evaluate(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="dimension-overlay"]');
+      if (el) el.style.display = "";
+    });
+    const extent = await verticalExtent(page, png, 0.5);
+    expect(extent, "the center column must cross the model").not.toBeNull();
+
+    return { modelTopY: frame.y + extent!.top, modelBottomY: frame.y + extent!.bottom, topExtY, bottomExtY };
+  }
+
+  test("iso view, square core: both ends land on the model's actual top/bottom pixels", async ({ page }) => {
+    await gotoDesign(page, SQUARE);
+    await showPreset(page, "iso");
+    const { modelTopY, modelBottomY, topExtY, bottomExtY } = await heightExtensionVsModel(page);
+
+    // Comfortably tighter than the ~80-130px gap the pre-fix anchor (picked
+    // by "furthest toward the sideways extension direction", not "furthest
+    // up/down") left on this exact case -- see dimensionOverlay.tsx's own
+    // `anchorByScreenY` header for why that particular plane shape needed a
+    // different criterion.
+    const TOLERANCE_PX = 20;
+    expect(Math.abs(topExtY - modelTopY), `top extension line y=${topExtY} vs model top=${modelTopY}`).toBeLessThan(TOLERANCE_PX);
+    expect(Math.abs(bottomExtY - modelBottomY), `bottom extension line y=${bottomExtY} vs model bottom=${modelBottomY}`).toBeLessThan(TOLERANCE_PX);
+  });
+
+  test("front view, square core: unaffected -- both ends still land on the model's actual top/bottom pixels", async ({ page }) => {
+    await gotoDesign(page, SQUARE);
+    await showPreset(page, "front");
+    const { modelTopY, modelBottomY, topExtY, bottomExtY } = await heightExtensionVsModel(page);
+
+    const TOLERANCE_PX = 20;
+    expect(Math.abs(topExtY - modelTopY)).toBeLessThan(TOLERANCE_PX);
+    expect(Math.abs(bottomExtY - modelBottomY)).toBeLessThan(TOLERANCE_PX);
+  });
+
+  test("the cable's own outer size and the flange rows are labelled/hinted so they're directly comparable", async ({ page }) => {
+    await gotoDesign(page, SQUARE);
+    // Renamed from the old, unqualified "Envelope" (issue #65): it's a
+    // circumscribed, across-corners extent, same as "Flange width (across
+    // corners)" below it -- not the plain (narrower, across-flats) "Flange
+    // width" right above.
+    await expect(page.getByTestId("envelope")).toHaveText(/^\d+\.\d mm$/);
+    const envelopeRow = page.locator(".result-row").filter({ has: page.getByTestId("envelope") });
+    await expect(envelopeRow.locator(".result-label")).toHaveText("Cable outer size (across corners)");
+
+    const envelopeCm = Number((await page.getByTestId("envelope").textContent())!.match(/[\d.]+/)![0]);
+    const acrossCornersCm = Number((await page.getByTestId("flange-across-corners").textContent())!.match(/[\d.]+/)![0]);
+    expect(envelopeCm).toBeLessThanOrEqual(acrossCornersCm);
+
+    // Every one of the three rows has its own (i) hint, and none of them
+    // are empty.
+    for (const testId of ["envelope", "flange", "flange-across-corners"]) {
+      const row = page.locator(".result-row").filter({ has: page.getByTestId(testId) });
+      const hintBtn = row.getByTestId("hint-btn");
+      await expect(hintBtn).toHaveCount(1);
+      const bubble = row.getByTestId("hint-bubble");
+      await hintBtn.hover();
+      await expect(bubble).toBeVisible();
+      expect((await bubble.textContent())!.length).toBeGreaterThan(20);
+    }
+
+    // A design's warnings never include the cable-exceeds-flange safety net
+    // (design.ts: the flange margin is sized to clear the envelope) --
+    // guarded far more thoroughly across shapes/mounts/cable sizes by
+    // vitest (test/design.test.ts), this is just the UI-wiring sanity check.
+    const hasCount = await page.getByTestId("warnings").count();
+    if (hasCount > 0) {
+      await expect(page.getByTestId("warnings")).not.toContainText("stick out past the flange");
+    }
+  });
+
+  test("round core: 'Cable outer size' (no '(across corners)') matches the flange width directly, since round has no separate across-corners row", async ({ page }) => {
+    await gotoDesign(page, ROUND_CAP);
+    const envelopeRow = page.locator(".result-row").filter({ has: page.getByTestId("envelope") });
+    await expect(envelopeRow.locator(".result-label")).toHaveText("Cable outer size");
+    await expect(page.getByTestId("envelope")).toHaveText(/^Ø\s*\d+\.\d mm$/);
+    await expect(page.getByTestId("flange-across-corners")).toHaveCount(0);
+  });
+});

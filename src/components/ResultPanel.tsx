@@ -1,5 +1,7 @@
 import type { Design, MountKind, Solution } from "../core";
 import { Section, mmToCm } from "./fields";
+import { Hint } from "./Hint";
+import { HINTS } from "./hints";
 
 const MOUNT_LABELS: Record<MountKind, string> = {
   none: "None",
@@ -14,10 +16,13 @@ const FREE_VARIABLE_LABELS: Record<"coreSize" | "height" | "layers", string> = {
   layers: "layers",
 };
 
-function Row({ testId, label, value }: { testId: string; label: string; value: string }) {
+function Row({ testId, label, value, hint }: { testId: string; label: string; value: string; hint?: string }) {
   return (
     <div className="result-row">
-      <span className="result-label">{label}</span>
+      <span className="field-label-row">
+        <span className="result-label">{label}</span>
+        {hint && <Hint text={hint} />}
+      </span>
       <span className="result-value" data-testid={testId}>
         {value}
       </span>
@@ -37,6 +42,26 @@ function flangeWidthValue(solution: Solution, shapeKind: Design["spec"]["shape"]
   const extent = solution.flangeExtent;
   if (!extent) return `${solution.flangeSize.toFixed(1)} mm`;
   return shapeKind === "round" ? `Ø ${extent.acrossFlats.toFixed(1)} mm` : `${extent.acrossFlats.toFixed(1)} mm`;
+}
+
+/**
+ * The wound cable's own outer size (issue #65), formatted the SAME way as
+ * `flangeWidthValue` above: `solution.envelopeDiameter` is already a true
+ * circumscribed (across-corners) extent (`capacity.ts`'s `envelopeDiameter`
+ * -- for round, across-corners === across-flats, so this still reads as a
+ * plain diameter there). Before this issue the row next to it just said
+ * "Envelope", which reads as an unrelated, wider number than "Flange
+ * width" -- it's actually the SAME across-corners measurement `flangeExtent
+ * .acrossCorners` reports below, just for the cable instead of the flange;
+ * renamed so the two are directly comparable, with a hint on each row
+ * spelling out which of the flange's two rows to compare against.
+ */
+function cableOuterSizeLabel(shapeKind: Design["spec"]["shape"]["kind"]): string {
+  return shapeKind === "round" ? "Cable outer size" : "Cable outer size (across corners)";
+}
+
+function cableOuterSizeValue(solution: Solution, shapeKind: Design["spec"]["shape"]["kind"]): string {
+  return shapeKind === "round" ? `Ø ${solution.envelopeDiameter.toFixed(1)} mm` : `${solution.envelopeDiameter.toFixed(1)} mm`;
 }
 
 function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; prefix: string; shapeKind: Design["spec"]["shape"]["kind"] }) {
@@ -72,18 +97,24 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
         label="Capacity range"
         value={`${mmToCm(solution.capacityRange[0]).toFixed(0)} - ${mmToCm(solution.capacityRange[1]).toFixed(0)} cm`}
       />
-      <Row testId={`${prefix}envelope`} label="Envelope" value={`${solution.envelopeDiameter.toFixed(1)} mm`} />
+      <Row
+        testId={`${prefix}envelope`}
+        label={cableOuterSizeLabel(shapeKind)}
+        value={cableOuterSizeValue(solution, shapeKind)}
+        hint={HINTS.envelope}
+      />
       {/* Issue #63: the flange's REAL outer extent (matching the built
           flange mesh, not the solver's own envelope-based estimate) --
           round shows a single true diameter; square/triangle additionally
           show the wider "across corners" extent, since the two together
           are what actually has to clear a bed/enclosure. */}
-      <Row testId={`${prefix}flange`} label="Flange width" value={flangeWidthValue(solution, shapeKind)} />
+      <Row testId={`${prefix}flange`} label="Flange width" value={flangeWidthValue(solution, shapeKind)} hint={HINTS.flange} />
       {shapeKind !== "round" && solution.flangeExtent && (
         <Row
           testId={`${prefix}flange-across-corners`}
           label="Flange width (across corners)"
           value={`${solution.flangeExtent.acrossCorners.toFixed(1)} mm`}
+          hint={HINTS.flangeAcrossCorners}
         />
       )}
       <Row
