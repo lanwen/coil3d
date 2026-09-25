@@ -60,6 +60,6 @@ export {
 export { SHAPES } from "./shapes";
 export type { ShapePlugin } from "./shapes";
 export { parseHash, toHash, DEFAULT_SPEC, DEFAULT_SHOW_WIRE } from "./hash";
-export type { ParsedHash } from "./hash";
+export type { ParsedHash, ViewMode } from "./hash";
 export { design } from "./design";
 export { exportDesign } from "./export";

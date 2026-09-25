@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #12 (label on the top cap, docs/research.md
 // §1 "Extras"). Solver/geometry numbers themselves are covered by vitest
@@ -51,8 +52,7 @@ test.describe("top cap label controls (issue #12)", () => {
     const input = page.getByTestId("input-label");
     await input.fill("USB-C 2m");
     await input.blur();
-    // URLSearchParams' own space encoding (matches test/hash.test.ts).
-    await expect(async () => expect(new URL(page.url()).hash).toContain("label=USB-C+2m")).toPass();
+    await expect(async () => expect(decodeHashDoc(page.url()).label).toBe("USB-C 2m")).toPass();
 
     await page.reload();
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();

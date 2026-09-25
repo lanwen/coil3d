@@ -1,9 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #4 (docs/research.md §5, §10b): the schematic
 // wound-cable render. A distinct wound body at ordinary turn counts, legible
 // (not a black mass) at a few hundred turns, and an on/off toggle mirrored in
-// the URL hash. Screenshot baselines for the 1-layer and multi-layer cases
+// the URL hash (nested under the document's own `ui.wire`, issue #56 -- see
+// `./hashDoc.ts`). Screenshot baselines for the 1-layer and multi-layer cases
 // live in e2e/line-art.spec.ts (SQUAT/LONG/TWO_LAYER), which this ticket's
 // wire render now shows by default; this file adds the many-turn case and
 // the toggle behaviour those don't cover.
@@ -82,14 +84,14 @@ test.describe("wound-cable schematic (issue #4)", () => {
     await page.getByTestId("toggle-wire").uncheck();
     await page.waitForTimeout(300);
     await expect(canvas, "unchecking the toggle must change the render").not.toHaveScreenshot("wire-toggle-on.png");
-    await expect(page).toHaveURL(/(?:[?&]|#).*wire=0/);
+    await expect(async () => expect(decodeHashDoc(page.url()).ui).toEqual({ wire: false })).toPass();
 
     await page.getByTestId("toggle-wire").check();
     await page.waitForTimeout(300);
     await expect(canvas, "re-checking the toggle must restore the original render").toHaveScreenshot(
       "wire-toggle-on.png",
     );
-    await expect(page).not.toHaveURL(/wire=0/);
+    await expect(async () => expect(decodeHashDoc(page.url()).ui).toBeUndefined()).toPass();
   });
 
   test("a wire=0 link loads with the toggle unchecked and no wire drawn", async ({ page }) => {

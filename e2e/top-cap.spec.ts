@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #9 (top cap, joints, exploded view,
 // docs/research.md §1 "Cap joint" & §4 "Joints / tolerances"). Solver/geometry
@@ -44,12 +45,12 @@ test.describe("top cap controls and auto-decision (issue #9)", () => {
   test("changing the joint and tolerance controls updates the hash, and reloading reproduces them", async ({ page }) => {
     await gotoDesign(page, TWO_LAYER);
     await page.getByTestId("select-joint").selectOption("bayonet");
-    await expect(async () => expect(new URL(page.url()).hash).toContain("joint=bayonet")).toPass();
+    await expect(async () => expect(decodeHashDoc(page.url()).joint).toBe("bayonet")).toPass();
 
     const tol = page.getByTestId("input-tolerance");
     await tol.fill("0.35");
     await tol.blur();
-    await expect(async () => expect(new URL(page.url()).hash).toContain("tol=0.35")).toPass();
+    await expect(async () => expect(decodeHashDoc(page.url()).tol).toBe(0.35)).toPass();
 
     await page.reload();
     await expect(page.getByTestId("select-joint")).toHaveValue("bayonet");

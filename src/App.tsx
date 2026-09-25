@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { exportDesign, parseHash, toHash } from "./core";
-import type { CoilSpec } from "./core";
+import type { CoilSpec, ViewMode } from "./core";
 import { useDesignPreview } from "./geometry/useDesignPreview";
 import { ControlsForm } from "./components/ControlsForm";
 import { ResultPanel } from "./components/ResultPanel";
@@ -13,25 +13,8 @@ function readInitialState() {
   return parseHash(window.location.hash);
 }
 
-/**
- * The design/guide view switch (issue #17) is a plain UI-routing concern,
- * NOT part of `CoilSpec` or the versioned hash schema `core/hash.ts` owns --
- * it changes nothing about the solved design, only which component App
- * renders. It piggybacks on the same hash string (`&view=guide`) so a shared
- * link opens straight into the guide, but it's read/written here with a
- * plain `URLSearchParams`, never through `parseHash`/`toHash` (whose
- * `QuerySchema` already ignores unknown keys, so this extra param round-trips
- * through them harmlessly either way).
- */
-type View = "design" | "guide";
-
-function readView(): View {
-  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-  return params.get("view") === "guide" ? "guide" : "design";
-}
-
 export default function App() {
-  const [{ spec, notice, showWire: initialShowWire }] = useState(readInitialState);
+  const [{ spec, notice, showWire: initialShowWire, view: initialView }] = useState(readInitialState);
   const [currentSpec, setCurrentSpec] = useState<CoilSpec>(spec);
   // Wire visibility (issue #4) is a view-only setting, not a CoilSpec field
   // (design() always computes wirePaths regardless), so it's tracked
@@ -41,15 +24,20 @@ export default function App() {
   // hash (only cap/joint/tol are, per the ticket) -- it resets on reload,
   // same as the wire toggle's initial value would if it weren't persisted.
   const [exploded, setExploded] = useState(false);
-  // Design/guide view switch (issue #17): see `readView` above.
-  const [view, setView] = useState<View>(readView);
+  // Design/guide view switch (issue #17): a plain UI-routing concern, not
+  // part of `CoilSpec` -- it changes nothing about the solved design, only
+  // which component App renders. It round-trips through the SAME `#s=`
+  // document as the spec and the wire toggle (issue #56: `core/hash.ts`'s
+  // own `ParsedHash.view`/`toHash`'s own `view` parameter), so a shared
+  // guide link still opens straight into the guide.
+  const [view, setView] = useState<ViewMode>(initialView);
 
-  // The hash reflects the spec, the wire toggle and the view, but none of
-  // toggling the wire, exploding the view or switching views ever needs a
-  // re-solve, so this is independent of useDesignPreview below.
+  // The hash reflects the spec, the wire toggle and the view (all inside
+  // the one document now, see hash.ts), but none of toggling the wire,
+  // exploding the view or switching views ever needs a re-solve, so this is
+  // independent of useDesignPreview below.
   useEffect(() => {
-    const base = toHash(currentSpec, showWire);
-    window.history.replaceState(null, "", view === "guide" ? `${base}&view=guide` : base);
+    window.history.replaceState(null, "", toHash(currentSpec, showWire, view));
   }, [currentSpec, showWire, view]);
 
   // Issue #7: design() runs off the main thread in a worker, debounced, with
