@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 // End-to-end checks for issue #48 (zoom limits): wheel/pinch zoom is
 // clamped to a sensible multiple of the current fitted framing (0.3x-4x,
@@ -10,20 +10,59 @@ import { expect, test, type Page } from "@playwright/test";
 //
 // "Clamped" is verified the direct way: scrolling well past the limit
 // produces the IDENTICAL render as scrolling just up to it (further wheel
-// ticks are true no-ops once the bound is hit) -- a pixel-count/area
+// input is a true no-op once the bound is hit) -- a pixel-count/area
 // argument doesn't actually work here, because at extreme zoom the
 // line-art render's own background-vs-model diff mostly just measures how
 // many groove lines happen to be in frame (interior fill is white, same as
 // the canvas background), which isn't monotonic with zoom at all -- see
 // this file's own history for the pixel-count version that was tried and
 // rejected for exactly that reason.
+//
+// PR #59 review: the original version drove this with dozens of small
+// sequential `page.mouse.wheel()` calls plus fixed `waitForTimeout`s, which
+// timed out under `--workers=2` load. Two fixes:
+// - `three`'s OrbitControls scales its zoom per wheel EVENT by a roughly
+//   constant ~5% (`Math.pow(0.95, zoomSpeed * |deltaY| * 0.01)`,
+//   `node_modules/three/examples/jsm/controls/OrbitControls.js`) --
+//   empirically, a single `page.mouse.wheel()` call, regardless of the
+//   magnitude passed to it, only ever contributes about one such step (the
+//   synthetic event Chromium actually dispatches doesn't scale with the
+//   requested delta the way a real trackpad's would), so reaching the
+//   clamp genuinely needs many discrete wheel events, not a few huge ones.
+//   What DOES cut this down to a single fast round trip: dispatching many
+//   native `WheelEvent`s directly on the canvas from inside the page (one
+//   `page.evaluate` call, a tight synchronous loop) instead of many
+//   separate Playwright protocol round trips -- confirmed to reach and
+//   hold the exact clamp in <5ms for 60+ events, vs. dozens of real
+//   round trips previously.
+// - `waitForSettled` polls the canvas screenshot until it stops changing
+//   (bounded, short-interval), instead of a fixed sleep -- fast when the
+//   machine is idle, and correspondingly patient under load, rather than
+//   racing a guessed constant either way.
 
 const SQUAT = "#v=1&L=1000&d=4&size=40";
+// Comfortably more than the ~30-40 events three's own ~5%-per-event scale
+// needs to cross the 0.3x-4x range from a fitted start; the SECOND batch
+// below (same size again) is the "well past the limit" half of the check.
+const TICKS = 60;
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
   await page.waitForTimeout(1000);
+}
+
+/** Polls `canvas.screenshot()` until two consecutive reads are byte-identical (the render has settled) or `maxWaitMs` elapses, whichever comes first -- a real "wait for the render to finish changing" signal instead of a fixed sleep, so this test is neither slower than it needs to be when idle nor flaky under load. */
+async function waitForSettled(canvas: Locator, maxWaitMs = 3000, pollMs = 100): Promise<Buffer> {
+  let prev = await canvas.screenshot();
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+    const next = await canvas.screenshot();
+    if (next.equals(prev)) return next;
+    prev = next;
+  }
+  return prev;
 }
 
 function hasNonBackgroundPixels(page: Page, b64: string): Promise<boolean> {
@@ -41,57 +80,47 @@ function hasNonBackgroundPixels(page: Page, b64: string): Promise<boolean> {
   }, b64);
 }
 
-// Scrolling "up" (negative deltaY) zooms in; "down" (positive) zooms out --
-// matches the existing convention in top-cap.spec.ts/mount-plate.spec.ts.
-async function wheelOverCanvas(page: Page, canvas: ReturnType<Page["locator"]>, deltaY: number, ticks: number) {
-  const box = (await canvas.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  for (let i = 0; i < ticks; i++) {
-    await page.mouse.wheel(0, deltaY);
-  }
+/** Dispatches `count` native `WheelEvent`s directly on the canvas, all inside one `page.evaluate` round trip (see the file header for why this replaces separate `page.mouse.wheel()` calls). Scrolling "up" (negative deltaY) zooms in; "down" (positive) zooms out -- matches the existing convention in top-cap.spec.ts/mount-plate.spec.ts. */
+async function dispatchWheel(page: Page, deltaY: number, count: number) {
+  await page.evaluate(
+    ({ deltaY, count }) => {
+      const canvas = document.querySelector('[data-testid="coil-viewer"] canvas') as HTMLCanvasElement;
+      const rect = canvas.getBoundingClientRect();
+      const init: WheelEventInit = { bubbles: true, cancelable: true, clientX: rect.x + rect.width / 2, clientY: rect.y + rect.height / 2, deltaY, deltaMode: 0 };
+      for (let i = 0; i < count; i++) canvas.dispatchEvent(new WheelEvent("wheel", init));
+    },
+    { deltaY, count },
+  );
 }
 
 test.describe("zoom limits (issue #48)", () => {
-  // Empirically (see this file's own dev notes / PR description), 60 ticks
-  // of magnitude-120 wheel events already fully saturates the clamp in
-  // either direction, on this design -- AT_LIMIT is comfortably past that,
-  // PAST_LIMIT doubles it again, so a real "still moving" regression (the
-  // clamp not actually engaging) would show up as a genuine pixel
-  // difference between the two, not a false positive from stopping short.
-  const AT_LIMIT_TICKS = 60;
-  const PAST_LIMIT_TICKS = 60;
-
-  test("extreme zoom-in is clamped: scrolling well past the limit stops changing the render, and the silhouette still shows", async ({ page }) => {
+  test("extreme zoom-in is clamped: well past the limit stops changing the render, and the silhouette still shows", async ({ page }) => {
     await gotoDesign(page, SQUAT);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
     const before = await canvas.screenshot();
 
-    await wheelOverCanvas(page, canvas, -120, AT_LIMIT_TICKS);
-    await page.waitForTimeout(300);
-    const atLimit = await canvas.screenshot();
+    await dispatchWheel(page, -120, TICKS);
+    const atLimit = await waitForSettled(canvas);
     expect(atLimit.equals(before), "zooming in must actually change the render").toBe(false);
 
-    await wheelOverCanvas(page, canvas, -120, PAST_LIMIT_TICKS);
-    await page.waitForTimeout(300);
-    const pastLimit = await canvas.screenshot();
+    await dispatchWheel(page, -120, TICKS); // well past whatever it took to hit the ceiling
+    const pastLimit = await waitForSettled(canvas);
     expect(pastLimit.equals(atLimit), "scrolling in further once clamped must be a no-op").toBe(true);
 
     expect(await hasNonBackgroundPixels(page, pastLimit.toString("base64"))).toBe(true);
   });
 
-  test("extreme zoom-out is clamped: scrolling well past the limit stops changing the render, and the silhouette still shows", async ({ page }) => {
+  test("extreme zoom-out is clamped: well past the limit stops changing the render, and the silhouette still shows", async ({ page }) => {
     await gotoDesign(page, SQUAT);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
     const before = await canvas.screenshot();
 
-    await wheelOverCanvas(page, canvas, 120, AT_LIMIT_TICKS);
-    await page.waitForTimeout(300);
-    const atLimit = await canvas.screenshot();
+    await dispatchWheel(page, 120, TICKS);
+    const atLimit = await waitForSettled(canvas);
     expect(atLimit.equals(before), "zooming out must actually change the render").toBe(false);
 
-    await wheelOverCanvas(page, canvas, 120, PAST_LIMIT_TICKS);
-    await page.waitForTimeout(300);
-    const pastLimit = await canvas.screenshot();
+    await dispatchWheel(page, 120, TICKS);
+    const pastLimit = await waitForSettled(canvas);
     expect(pastLimit.equals(atLimit), "scrolling out further once clamped must be a no-op").toBe(true);
 
     expect(await hasNonBackgroundPixels(page, pastLimit.toString("base64"))).toBe(true);
@@ -100,18 +129,16 @@ test.describe("zoom limits (issue #48)", () => {
   test("the clamp also applies in perspective projection", async ({ page }) => {
     await gotoDesign(page, SQUAT);
     await page.getByTestId("toggle-projection").check();
-    await page.waitForTimeout(600);
+    await waitForSettled(page.getByTestId("coil-viewer").locator("canvas"));
 
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
 
-    await wheelOverCanvas(page, canvas, -120, AT_LIMIT_TICKS);
-    await page.waitForTimeout(300);
-    const atLimit = await canvas.screenshot();
+    await dispatchWheel(page, -120, TICKS);
+    const atLimit = await waitForSettled(canvas);
     expect(await hasNonBackgroundPixels(page, atLimit.toString("base64"))).toBe(true);
 
-    await wheelOverCanvas(page, canvas, -120, PAST_LIMIT_TICKS);
-    await page.waitForTimeout(300);
-    const pastLimit = await canvas.screenshot();
+    await dispatchWheel(page, -120, TICKS);
+    const pastLimit = await waitForSettled(canvas);
     expect(pastLimit.equals(atLimit), "scrolling in further once clamped must be a no-op in perspective too").toBe(true);
   });
 });

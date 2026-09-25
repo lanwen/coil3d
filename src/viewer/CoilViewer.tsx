@@ -316,19 +316,27 @@ export function CoilViewer({
   }, [showWire, wirePaths, innerEndLeadIn, wireDiameter]);
   useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
 
+  // The rotation applied to every rendered geometry for the current view
+  // (the wall-mount pose's own geometry rotation, or the inner-end debug
+  // close-up's azimuth spin) -- shared by `viewPartGeometries`/
+  // `viewWireGeometries` below and by DimensionOverlay (issue #50 PR #59
+  // review), which applies the identical rotation to its own local-axis
+  // dimension anchors so they land in the SAME frame as the geometry it's
+  // annotating.
+  const viewRotation = useMemo(() => viewRotations[viewMode] ?? focusRotation, [viewRotations, viewMode, focusRotation]);
+
   // Wall-view preset: physically rotated COPIES of every part's geometry (not
   // the base `partGeometries`/`wireGeometries`, which the draft/final swap
   // and the crease pass above both key off of), so toggling the preset never
   // disturbs those.
   const viewPartGeometries = useMemo(() => {
-    const rotation = viewRotations[viewMode] ?? focusRotation;
-    if (!rotation) return partGeometries;
+    if (!viewRotation) return partGeometries;
     return partGeometries.map(({ part, geometry }) => {
       const rotated = geometry.clone();
-      rotated.applyMatrix4(rotation);
+      rotated.applyMatrix4(viewRotation);
       return { part, geometry: rotated };
     });
-  }, [partGeometries, viewMode, viewRotations, focusRotation]);
+  }, [partGeometries, viewRotation]);
   useEffect(() => {
     if (viewPartGeometries === partGeometries) return;
     return () => viewPartGeometries.forEach(({ geometry }) => geometry.dispose());
@@ -347,14 +355,13 @@ export function CoilViewer({
   const dimensionGeometries = useMemo(() => viewPartGeometries.map(({ geometry }) => geometry), [viewPartGeometries]);
 
   const viewWireGeometries = useMemo(() => {
-    const rotation = viewRotations[viewMode] ?? focusRotation;
-    if (!rotation) return wireGeometries;
+    if (!viewRotation) return wireGeometries;
     return wireGeometries.map((g) => {
       const rotated = g.clone();
-      rotated.applyMatrix4(rotation);
+      rotated.applyMatrix4(viewRotation);
       return rotated;
     });
-  }, [wireGeometries, viewMode, viewRotations, focusRotation]);
+  }, [wireGeometries, viewRotation]);
   useEffect(() => {
     if (viewWireGeometries === wireGeometries) return;
     return () => viewWireGeometries.forEach((g) => g.dispose());
@@ -514,6 +521,7 @@ export function CoilViewer({
           geometries={dimensionGeometries}
           preset={effectivePreset}
           fill={DEFAULT_FILL}
+          rotation={viewRotation}
           widthMm={envelopeWidth}
           heightMm={overallHeight}
           shapeKind={shapeKind}
