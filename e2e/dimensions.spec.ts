@@ -177,6 +177,9 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
         const cm = await dimensionCm(page, which);
         expect(cm, which).toBeGreaterThan(acrossFlatsCm - 0.15);
         expect(cm, which).toBeLessThan(acrossCornersCm + 0.15);
+        // The axes sit flush with the flats, so a square reads exactly the
+        // panel's across-flats flange width on both.
+        if (label === "square") expect(cm, which).toBeCloseTo(acrossFlatsCm, 1);
       }
     });
   }

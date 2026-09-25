@@ -1,11 +1,12 @@
 // Overall-dimension axes (issue #69, replacing #50's 2D SVG overlay): three
-// measurement axes -- width (local X), depth (local Y) and height (the coil
-// axis, local Z) -- drawn as real 3D scene objects along the edges of the
-// assembled model's bounding box, a small gap outside it, so they rotate
-// and zoom with the model in every preset and during orbit.
+// measurement axes -- width, depth and height (the coil axis) -- drawn as
+// real 3D scene objects along the edges of the assembled model's bounding
+// box, a small gap outside it, so they rotate and zoom with the model in
+// every preset and during orbit. The box is spun about the coil axis to sit
+// flush with the flange's flats (see measureDimensionFrame).
 //
-// Layout (all in the model's own local frame, inside a group carrying the
-// same view rotation CoilViewer applies to the part geometries): the two
+// Layout (in that box's own frame, inside a group carrying the spin plus
+// the view rotation CoilViewer applies to the part geometries): the two
 // ground axes run along the two bottom box edges that meet at the bottom
 // corner nearest the camera -- their common origin -- and the height axis
 // stands at the far end of whichever of them reads further out to the side
@@ -44,6 +45,9 @@ const LABEL_FONT_PX = 15;
 // arrowheads outside, on leaders this long past them.
 const MIN_AXIS_PX = 6;
 const SHORT_LEAD_PX = 6;
+// |sin| of the on-screen angle below which a ground axis counts as running
+// along the height axis.
+const PARALLEL_SIN = 0.5;
 const LABEL_PAD_X_PX = 5;
 const LABEL_PAD_Y_PX = 3;
 const LABEL_GAP_PX = 5;
@@ -69,36 +73,92 @@ export interface DimensionLabels {
 }
 
 export interface DimensionAxesProps {
-  /** The box to measure (see measureDimensionFrame), local frame, mm. */
+  /** The box to measure, in measureDimensionFrame's spun frame, mm. */
   box: THREE.Box3;
   /** Lowest local Z of any part (a mount plate may sit below the flange): the ground axes run below this. */
   groundZ: number;
-  /** The view rotation CoilViewer applies to every part geometry, or null. */
+  /** The spun frame to world: CoilViewer's view rotation times measureDimensionFrame's spin. */
   rotation: THREE.Matrix4 | null;
   labels: DimensionLabels;
 }
 
 type AxisId = keyof DimensionLabels;
 
+/** Convex hull of 2D points (Andrew's monotone chain). */
+function hull2d(points: [number, number][]): [number, number][] {
+  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (pts.length < 3) return pts;
+  const cross = (o: [number, number], a: [number, number], b: [number, number]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const half = (list: [number, number][]) => {
+    const out: [number, number][] = [];
+    for (const p of list) {
+      while (out.length >= 2 && cross(out[out.length - 2], out[out.length - 1], p) <= 0) out.pop();
+      out.push(p);
+    }
+    return out.slice(0, -1);
+  };
+  return half(pts).concat(half([...pts].reverse()));
+}
+
+// Spin steps tried for the flush footprint, and how much smaller than the
+// unspun box a spun one must be to count (a round flange's box is the same
+// at every angle: it stays on the model's own X/Y).
+const SPIN_STEPS = 360;
+const SPIN_MIN_GAIN = 0.01;
+
 /**
- * The box the dimension axes measure, in the parts' local frame: the
- * assembled core + cap (a mount plate sits under the flange's footprint and
- * only lowers `groundZ`, where the ground axes run). Upright and on the
- * model's own X/Y -- so a square flange, which the presets see corner-on,
- * measures corner to corner: the room it takes along the drawn lines.
+ * The frame the dimension axes measure in: the assembled core + cap's box (a
+ * mount plate under the flange only lowers `groundZ`, where the ground axes
+ * run), in the parts' local frame spun about the coil axis by `spin` so the
+ * box sits flush against the flange's flat sides -- the smallest-area
+ * footprint rectangle. A square flange then measures across its flats (the
+ * result panel's flange width) on both axes, and a triangle its flat base
+ * and base-to-apex height, instead of the corner-to-corner extents an
+ * unspun box would give.
  */
-export function measureDimensionFrame(parts: Part[]): { box: THREE.Box3; groundZ: number } {
-  const box = new THREE.Box3();
+export function measureDimensionFrame(parts: Part[]): { box: THREE.Box3; groundZ: number; spin: THREE.Matrix4 } {
   let groundZ = Infinity;
-  const p = new THREE.Vector3();
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  const footprint: [number, number][] = [];
   for (const part of parts) {
     const pos = part.mesh.positions;
     for (let i = 0; i < pos.length; i += 3) {
       groundZ = Math.min(groundZ, pos[i + 2]);
-      if (part.role !== "mountPlate") box.expandByPoint(p.set(pos[i], pos[i + 1], pos[i + 2]));
+      if (part.role === "mountPlate") continue;
+      minZ = Math.min(minZ, pos[i + 2]);
+      maxZ = Math.max(maxZ, pos[i + 2]);
+      footprint.push([pos[i], pos[i + 1]]);
     }
   }
-  return { box, groundZ };
+  const outline = hull2d(footprint);
+  // The footprint's bounds in a frame turned by `angle` about Z.
+  const boundsAt = (angle: number) => {
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const [x, y] of outline) {
+      const u = c * x + s * y;
+      const v = -s * x + c * y;
+      x0 = Math.min(x0, u);
+      x1 = Math.max(x1, u);
+      y0 = Math.min(y0, v);
+      y1 = Math.max(y1, v);
+    }
+    return { angle, x0, x1, y0, y1, area: (x1 - x0) * (y1 - y0) };
+  };
+  const unspun = boundsAt(0);
+  let best = unspun;
+  for (let i = 1; i < SPIN_STEPS; i++) {
+    const b = boundsAt((i / SPIN_STEPS) * Math.PI);
+    if (b.area < best.area && b.area < unspun.area * (1 - SPIN_MIN_GAIN)) best = b;
+  }
+  return {
+    box: new THREE.Box3(new THREE.Vector3(best.x0, best.y0, minZ), new THREE.Vector3(best.x1, best.y1, maxZ)),
+    groundZ,
+    // Frame -> local: a point at (u, v) in the spun frame is at angle + its own angle in local.
+    spin: new THREE.Matrix4().makeRotationZ(best.angle),
+  };
 }
 
 function gapFor(box: THREE.Box3): number {
@@ -310,7 +370,17 @@ export function DimensionAxes({ box, groundZ, rotation, labels }: DimensionAxesP
       const endOfDepth = new THREE.Vector3(X(sx), Y(-sy), zg);
       const dw = sideways(endOfWidth);
       const dd = sideways(endOfDepth);
-      const atWidthEnd = Math.abs(Math.abs(dw) - Math.abs(dd)) < 1 ? dw > dd : Math.abs(dw) > Math.abs(dd);
+      // A ground axis that reads nearly parallel to the height on screen is
+      // left out below; stand the height at the other axis's end.
+      const alongHeight = (dir: THREE.Vector3) => {
+        const d = toScreen(center.clone().add(dir));
+        const len = d.length();
+        return len > 1e-9 ? Math.abs(d.x * zScreen.y - d.y * zScreen.x) / len < PARALLEL_SIN : false;
+      };
+      const widthParallel = alongHeight(new THREE.Vector3(1, 0, 0));
+      const depthParallel = alongHeight(new THREE.Vector3(0, 1, 0));
+      const atWidthEnd =
+        widthParallel !== depthParallel ? depthParallel : Math.abs(Math.abs(dw) - Math.abs(dd)) < 1 ? dw > dd : Math.abs(dw) > Math.abs(dd);
       const heightBase = atWidthEnd ? endOfWidth : endOfDepth;
 
       const b = new StrokeBuilder(view, pixel);
@@ -368,9 +438,12 @@ export function DimensionAxes({ box, groundZ, rotation, labels }: DimensionAxesP
       const depthNear = new THREE.Vector3(X(sx), y(sy), zg);
       const heightBottom = new THREE.Vector3(heightBase.x, heightBase.y, box.min.z);
       const heightTop = new THREE.Vector3(heightBase.x, heightBase.y, box.max.z);
-      const W = shown(widthFar, widthNear);
-      const D = shown(depthFar, depthNear);
       const H = shown(heightBottom, heightTop);
+      // A ground axis reading parallel to the height on screen (a square's
+      // depth, seen face-on from above) would pass for a second height:
+      // left out while the height is drawn (the other ground axis still is).
+      const W = shown(widthFar, widthNear) && !(H && widthParallel && !depthParallel);
+      const D = shown(depthFar, depthNear) && !(H && depthParallel && !widthParallel);
       if (W) dimension("width", widthFar, widthNear);
       if (D) dimension("depth", depthFar, depthNear);
       if (H) dimension("height", heightBottom, heightTop);

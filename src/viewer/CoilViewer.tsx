@@ -346,6 +346,7 @@ export function CoilViewer({
 
   // The dimension axes' box (issue #69), in the parts' local frame.
   const dimensionBox = useMemo(() => measureDimensionFrame(parts), [parts]);
+  const dimensionMatrix = useMemo(() => (viewRotation ? viewRotation.clone().multiply(dimensionBox.spin) : dimensionBox.spin), [viewRotation, dimensionBox]);
 
   const dimensionLabels = useMemo((): DimensionLabels | null => {
     if (envelopeWidth === undefined || shapeKind === undefined || dimensionBox.box.isEmpty()) return null;
@@ -412,7 +413,7 @@ export function CoilViewer({
     // they are toggled off, so the toggle never zooms the model).
     if (!exploded && dimensionLabels) {
       const points = dimensionFramePoints(dimensionBox.box, dimensionBox.groundZ);
-      if (viewRotation) new THREE.BufferAttribute(points, 3).applyMatrix4(viewRotation);
+      new THREE.BufferAttribute(points, 3).applyMatrix4(dimensionMatrix);
       chunks.push(points);
     }
     const merged = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
@@ -424,7 +425,7 @@ export function CoilViewer({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionBox, viewRotation]);
+  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionBox, dimensionMatrix]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
   // Debug close-up (continued): a SMALL framing geometry -- just
@@ -521,7 +522,7 @@ export function CoilViewer({
         {/* Issue #69: hidden while exploded (or in the inner-end debug
             close-up) -- they measure the assembled pose. */}
         {showDimensions && !exploded && !focusFramingGeometry && dimensionLabels && (
-          <DimensionAxes box={dimensionBox.box} groundZ={dimensionBox.groundZ} rotation={viewRotation} labels={dimensionLabels} />
+          <DimensionAxes box={dimensionBox.box} groundZ={dimensionBox.groundZ} rotation={dimensionMatrix} labels={dimensionLabels} />
         )}
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
       </Canvas>
