@@ -405,7 +405,12 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
   const mountN = topCapEnabled ? 6 : 4;
   const unwindN = topCapEnabled ? 7 : 5;
   return (
-    <div className="guide" data-testid="guide-view">
+    // data-resolution mirrors ResultPanel's finalReady gate (issue #7):
+    // the guide is generated straight from whatever `design` App currently
+    // holds, draft or final, so a caller that needs the settled, FDM-tuned
+    // render (e.g. before a screenshot) can wait for "final" here the same
+    // way the design view waits for `download-stl` to enable (issue #61/#62).
+    <div className="guide" data-testid="guide-view" data-resolution={design.resolution}>
       <div className="guide-toolbar" data-testid="guide-toolbar">
         <button type="button" className="btn-primary guide-toolbar-btn" data-testid="guide-back" onClick={onBack}>
           &larr; Back to design

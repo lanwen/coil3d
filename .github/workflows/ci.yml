@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Typecheck, unit tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc -b
+
+      - name: Unit tests (vitest)
+        run: npx vitest run
+
+      - name: Production build
+        run: npm run build
+
+  e2e:
+    name: Playwright e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    # Software-rendered WebGL on a shared 2-vCPU runner is slow (see
+    # playwright.config.ts): an unsharded, workers=1 full run has taken
+    # ~50 minutes, and even a 4-way shard (workers=1 each) still saw some
+    # tests fail their screenshot-stability wait well past a minute --
+    # worse later in a shard's run than earlier in it, consistent with the
+    # single long-lived Chromium process each worker reuses across all its
+    # shard's tests accumulating real load (heavy WASM geometry work, GC)
+    # over time. Splitting into more, smaller shards keeps each worker's
+    # browser process alive for fewer tests, not just more parallel jobs.
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    # The official image ships the exact Playwright/Chromium build pinned in
+    # package.json (see docs note below and playwright.config.ts), so the
+    # container's browser reproduces this repo's committed screenshot
+    # baselines instead of whatever Chromium `--with-deps` would resolve on
+    # a bare runner. --ipc=host follows Playwright's own Docker guidance to
+    # avoid Chromium running out of shared memory.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --ipc=host
+    steps:
+      - uses: actions/checkout@v4
+
+      # No actions/setup-node here: the container's own Node/npm (newer than
+      # this repo's baseline dev environment) is intentional, and npm ci
+      # against the committed lockfile is verified to work with it.
+      - run: npm ci
+
+      - name: Playwright e2e (workers=1 in CI, see playwright.config.ts)
+        run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        env:
+          CI: true
+
+      # blob-report/ (see playwright.config.ts's reporter) is this shard's
+      # raw results; merge-reports below combines every shard's blob into
+      # one HTML report. Uploaded even when this shard failed, so the
+      # merged report still reflects its failures, not just the passing
+      # shards.
+      - name: Upload blob report (shard ${{ matrix.shard }})
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 1
+
+      - name: Upload test results (screenshot diffs, traces)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results-${{ matrix.shard }}
+          path: test-results/
+          retention-days: 7
+
+  merge-reports:
+    name: Merge Playwright reports
+    # Runs even if a shard failed, so a failure still gets a browsable
+    # merged report (not just the raw per-shard blobs above).
+    if: always()
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: blob-report-*
+          path: all-blob-reports
+          merge-multiple: true
+
+      - run: npx playwright merge-reports --reporter=html ./all-blob-reports
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

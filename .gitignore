@@ -14,6 +14,8 @@ dist-ssr
 /playwright-report/
 /playwright/.cache/
 /e2e/downloads/
+/blob-report/
+/all-blob-reports/
 
 # Logs
 npm-debug.log*

@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
+// This whole file is ABOUT the transition system itself, so it opts back
+// into real motion over the suite-wide `reducedMotion: "reduce"` default
+// (playwright.config.ts): the two "prefers-reduced-motion" tests below
+// still need a real, non-instant baseline to prove reduced motion actually
+// changes anything, and the rest capture real (settled-after-slerp)
+// screenshots the same way the checked-in baselines were shot.
+test.use({ contextOptions: { reducedMotion: "no-preference" } });
+
 // End-to-end checks for the viewer's camera-view controls. Issue #15
 // originally shipped four standing presets (front/side/top/iso) plus a
 // perspective/orthographic toggle; issue #49 trimmed the bar down to just
@@ -25,6 +33,11 @@ const KEYHOLE = "#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60&mount=keyhole";
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
+  // Wait for the FINAL-resolution mesh before settling: the draft->final
+  // swap (issue #7) is CPU-time-, not wall-clock-bound, so a fixed sleep
+  // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
+  // gotoDesign, issue #61/#62, for the full story).
+  await expect(page.getByTestId("download-stl")).toBeEnabled();
   // A full second, not the usual 800ms (e.g. top-cap.spec.ts): the sidebar's
   // "Kanit" webfont can still be loading at 800ms, and its arrival reflows
   // the header/sidebar and so the canvas's own CSS size by a few px -- which
