@@ -1,31 +1,31 @@
 // IKEA-style overall-dimension lines (issue #50): the assembled coil's
-// overall width/diameter and height, in cm, drawn as thin line-art
-// dimension arrows next to the model -- attached to PROJECTED POINTS ON THE
-// MODEL'S OWN REAL AXES, so the labels stay semantically correct in every
-// preset, including the wall-mount pose (PR #59 review: a screen-space
-// bounding-box version got this wrong -- in the wall-mount pose the coil's
-// axis points roughly at the camera, so the screen-vertical span is the
-// ~diameter, not the height; labelling whatever happens to be vertical on
-// screen "height" was flatly wrong there).
+// overall width/diameter and height, in cm, drawn technical-drawing style
+// OUTSIDE the model's projected silhouette (PR #59 review: lines drawn
+// across the model were unreadable).
 //
-// The height dimension runs along the coil's own local +Z axis (flange to
-// cap), anchored at the flange's own rim (local +X, the SAME radius the
-// width anchors sit at) rather than the coil's central axis -- a real
-// height dimension runs along the model's own silhouette edge, not through
-// its middle. The width/diameter runs across the flange along local +/-X
-// (shapes.ts's own t=0 reference direction -- the same convention
-// CoilViewer's `debugFocusInnerEnd` and wire.ts's inner-end azimuth already
-// key off of). Both anchor pairs are pure LOCAL-frame math (length = the exact physical
-// mm value; position is schematic, like the guide's own approxRimPoint --
-// not a mesh sample), rotated by the SAME `rotation` CoilViewer applies to
-// the rendered geometry for the current view, then projected through this
-// component's own independent camera-fit math (see below). A dimension
-// whose projected on-screen length falls below `FORESHORTEN_MIN` of its
-// true length (nearly edge-on) is hidden rather than drawn misleadingly
-// short -- this can't happen in practice for Front/Iso/room-side Wall
-// mount alone (their fixed camera directions keep both axes comfortably
-// off-axis), but a mount's own `mountAxisDeg` spins the width axis about
-// the coil's own axis, so some designs really can foreshorten one of them.
+// Each dimension measures along a real 3D direction of the model -- height
+// along the coil's own axis, width across the flange plane (the in-plane
+// direction that reads most horizontal in the current view) -- so the
+// labels stay semantically right in every preset, including the wall-mount
+// pose, where the axis points roughly at the camera. The measured span is
+// the part meshes' own extreme planes along that direction; on each plane
+// the vertex nearest the chosen side is that end's anchor. The dimension
+// line runs parallel to the direction's projection, a small gap beyond the
+// silhouette, with thin extension lines from the anchors, arrowheads at
+// both ends and the value centred on it over a white knockout. Width goes
+// below the model (with vertical extension lines when the coil axis reads
+// vertical, the classic iso look), height on the right; the other side is
+// the fallback when the preferred one would leave the frame, cover a
+// control or cross the other dimension. A direction that projects to less
+// than `FORESHORTEN_MIN` of its true length is hidden rather than drawn
+// misleadingly short.
+//
+// Values: a round flange's width is its diameter in every direction, so it
+// shows design()'s own `flangeSize` as "Ø"; square/triangle widths and the
+// overall height are the extents measured off design()'s own part meshes
+// (the result panel's `flangeSize` is a solver envelope, not a sq/tri
+// width, and its `height` is the winding height, which leaves out the
+// bottom flange and the cap).
 //
 // This is the interactive viewer's own small, independent reimplementation
 // of "project a 3D point through the current camera fit", the same idea
@@ -35,8 +35,8 @@
 // duplicated copies of the same math -- each needs to run against a
 // different kind of input at a different time). This third copy runs off
 // the SAME already-rotated, already-creased `THREE.BufferGeometry[]`
-// CoilViewer builds for rendering (`viewPartGeometries`, used here only to
-// size the overall camera fit/scale), at ordinary React render time,
+// CoilViewer builds for rendering (`viewPartGeometries`), at ordinary
+// React render time,
 // against the viewer's own LIVE pixel size (measured via `ResizeObserver`
 // on this component's own wrapper, since -- unlike the guide's fixed-aspect
 // printed figures -- the interactive viewer's canvas is a fluid CSS box).
@@ -53,7 +53,7 @@
 // slightly ahead of the model's own eased camera. That's an acceptable
 // tradeoff for a supplementary annotation, not the model's own render.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import type { ShapeKind } from "../core";
 import { getPreset, type PresetId } from "./lineArt/presets";
@@ -97,20 +97,6 @@ function computeFit(geometries: THREE.BufferGeometry[], preset: PresetId, aspect
   return { center, inverse, halfHeight, halfWidth: halfHeight * aspect };
 }
 
-/** `point` (world/local-post-rotation space) projected to the fit's own camera-flat XY, in WORLD UNITS (mm) -- i.e. BEFORE the halfHeight/fill scaling, unlike a screen fraction. Two such points' distance is exactly "how long this segment reads on screen, in world units", which is what the foreshortening check compares against the segment's own true length. */
-function flatOf(fit: Fit, point: THREE.Vector3): THREE.Vector2 {
-  const v = point.clone().sub(fit.center).applyMatrix4(fit.inverse);
-  return new THREE.Vector2(v.x, v.y);
-}
-
-/** A flat (world-unit) point as a CSS-pixel position within a `width`x`height` frame -- fraction (0..1, origin top-left, matching `projectToFigure`'s own convention) times the frame's own pixel size. */
-function pixelOf(fit: Fit, flat: THREE.Vector2, width: number, height: number): { x: number; y: number } {
-  return {
-    x: (0.5 + flat.x / (2 * fit.halfWidth)) * width,
-    y: (0.5 - flat.y / (2 * fit.halfHeight)) * height,
-  };
-}
-
 /** The wrapper's own live pixel size, via `ResizeObserver` -- the interactive viewer's canvas is a fluid box (unlike the guide's fixed-aspect printed figures), so both the projection's aspect ratio and the SVG's own `viewBox` (a 1:1 unit-to-CSS-px mapping, see the file header) have to be measured, not assumed.
  *
  * Rounded to whole CSS pixels, and only committed to state when that rounded
@@ -146,9 +132,27 @@ function formatCm(mm: number): string {
   return (mm / 10).toFixed(1);
 }
 
-/** A quick, deliberately-approximate text width (px) for sizing the label's paper-coloured halo behind it -- exact glyph metrics aren't worth measuring for a small schematic tag. */
-function approxLabelWidth(label: string): number {
-  return label.length * 6.5 + 12;
+interface Pt {
+  x: number;
+  y: number;
+}
+
+interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+/** One dimension, laid out in CSS px: two extension lines, the dimension line itself, and its label's centre/rotation. */
+interface DimensionLayout {
+  testId: string;
+  label: string;
+  extensions: [Pt, Pt][];
+  line: [Pt, Pt];
+  labelAt: Pt;
+  labelAngle: number; // degrees, always kept upright (-90..90]
+  labelWidth: number;
 }
 
 // A projected dimension whose on-screen length is less than this fraction of
@@ -157,48 +161,285 @@ function approxLabelWidth(label: string): number {
 // review).
 const FORESHORTEN_MIN = 0.25;
 
-const MARGIN = 22; // px -- how far outside the model's own anchor points each dimension line's offset sits, before any keep-out nudging.
-const TICK_GAP = 3; // px -- a small gap between the anchor point and where its extension tick begins (so ticks don't touch the model's own silhouette line).
+const GAP = 18; // px -- clearance between the model's projected silhouette and the dimension line
+const EXT_GAP = 3; // px -- extension lines start this far off the model, so they don't touch its outline
+const EXT_OVERSHOOT = 5; // px -- extension lines run this far past the dimension line (drafting convention)
 const LABEL_HEIGHT = 16; // px
+const ARROW_LENGTH = 9; // px -- see the marker in the SVG below
+const FRAME_INSET = 4; // px -- everything must stay this far inside the viewer frame
+const PLANE_EPS = 0.5; // mm -- how close to an extreme plane a vertex must be to count as "on" it
+const RESERVED_SLACK = 6; // px around each overlay control
 
-// Reserved screen regions (PR #59 review: "keep the dimension lines and
-// labels clear of the overlay controls") -- approximate CSS boxes for the
-// wire/explode toggles (top-left, App.css `.wire-toggle`/`.explode-toggle`)
-// and the view-controls preset bar + projection toggle (top-right,
-// App.css's `.view-controls`), with a little slack. Only the label's own
-// anchor point is tested against these (see `nudgeClearOfControls`); a
-// dimension line/tick brushing near a button's edge is a much smaller
-// problem than its TEXT sitting on top of one.
-function inTopLeftControls(x: number, y: number): boolean {
-  return x < 190 && y < 95;
+// Candidate width directions, degrees from local +X in the flange plane; the
+// overlay measures along whichever reads most horizontal in the current view.
+// A candidate must read at least WIDTH_MIN_LEN of its true length on screen
+// (a steeply foreshortened direction reads badly even when it is the most
+// horizontal one).
+const WIDTH_ANGLES = Array.from({ length: 36 }, (_, i) => i * 5);
+const WIDTH_MIN_LEN = 0.5;
+
+/** A quick, deliberately-approximate text width (px) for sizing the label's knockout -- exact glyph metrics aren't worth measuring for a small schematic tag. */
+function approxLabelWidth(label: string): number {
+  return label.length * 6.5 + 10;
 }
-function inTopRightControls(x: number, y: number, width: number): boolean {
-  return x > width - 130 && y < 95;
+
+// The viewer's own overlay controls (wire/explode toggles, the preset bar,
+// the wall-view caption) -- measured live from the DOM, relative to this
+// overlay, so dimensions keep clear of them at any viewport width (PR #59
+// review).
+const RESERVED_SELECTORS = ".wire-toggle, .explode-toggle, .view-controls, .wall-view-caption";
+
+function measureReserved(el: HTMLElement): Rect[] {
+  const host = el.closest(".viewer") ?? el.parentElement;
+  if (!host) return [];
+  const origin = el.getBoundingClientRect();
+  return Array.from(host.querySelectorAll(RESERVED_SELECTORS)).map((node) => {
+    const r = node.getBoundingClientRect();
+    return {
+      left: Math.round(r.left - origin.left) - RESERVED_SLACK,
+      top: Math.round(r.top - origin.top) - RESERVED_SLACK,
+      right: Math.round(r.right - origin.left) + RESERVED_SLACK,
+      bottom: Math.round(r.bottom - origin.top) + RESERVED_SLACK,
+    };
+  });
+}
+
+/**
+ * Sample points covering a layout's line, extension lines and label box --
+ * enough to test it against the frame, the controls, the other dimension
+ * and the model itself. `skipNearModel` drops each extension line's first
+ * few px, which start right at the silhouette by design; `withExtensions`
+ * false leaves the extension lines out altogether.
+ */
+function samplesOf(layout: DimensionLayout, skipNearModel = false, withExtensions = true): Pt[] {
+  const out: Pt[] = [];
+  const segment = ([a, b]: [Pt, Pt], skip = 0) => {
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const steps = Math.max(1, Math.ceil(len / 3));
+    for (let i = 0; i <= steps; i++) {
+      if ((len * i) / steps < skip) continue;
+      out.push({ x: a.x + ((b.x - a.x) * i) / steps, y: a.y + ((b.y - a.y) * i) / steps });
+    }
+  };
+  segment(layout.line);
+  if (withExtensions) for (const ext of layout.extensions) segment(ext, skipNearModel ? 2 * MASK_CELL : 0);
+  const rad = (layout.labelAngle * Math.PI) / 180;
+  const ux = { x: Math.cos(rad), y: Math.sin(rad) };
+  const uy = { x: -ux.y, y: ux.x };
+  for (let u = -layout.labelWidth / 2; u <= layout.labelWidth / 2; u += 4) {
+    for (let v = -LABEL_HEIGHT / 2; v <= LABEL_HEIGHT / 2; v += 4) {
+      out.push({ x: layout.labelAt.x + ux.x * u + uy.x * v, y: layout.labelAt.y + ux.y * u + uy.y * v });
+    }
+  }
+  return out;
+}
+
+/** How badly a candidate layout misbehaves: points outside the frame, on a control, on the model, or too close to an already-placed dimension. 0 is clean. */
+function penaltyOf(layout: DimensionLayout, projected: Projected, width: number, height: number, reserved: Rect[], placed: DimensionLayout[]): number {
+  let penalty = 0;
+  for (const p of samplesOf(layout)) {
+    if (p.x < FRAME_INSET || p.y < FRAME_INSET || p.x > width - FRAME_INSET || p.y > height - FRAME_INSET) penalty += 2;
+    if (reserved.some((r) => p.x > r.left && p.x < r.right && p.y > r.top && p.y < r.bottom)) penalty += 2;
+  }
+  // Nothing may touch another dimension's line or label; two extension
+  // lines meeting (at a shared corner, say) is fine.
+  const near = (ps: Pt[], qs: Pt[]) => ps.filter((p) => qs.some((q) => Math.abs(q.x - p.x) < 4 && Math.abs(q.y - p.y) < 4)).length;
+  for (const other of placed) {
+    penalty += 4 * near(samplesOf(layout), samplesOf(other, false, false));
+    penalty += 4 * near(samplesOf(layout, false, false), samplesOf(other));
+  }
+  for (const p of samplesOf(layout, true)) if (onModel(projected, p)) penalty += 2;
+  return penalty;
+}
+
+// The model's projected footprint, rasterized into MASK_CELL-px cells, so a
+// layout can be checked for crossing the model (e.g. an extension line
+// that would cut across it from a hidden extreme point).
+const MASK_CELL = 3; // px
+
+/** Every vertex of every part (then of the wound cable), in world space and projected to viewer CSS px, plus the projected footprint mask. */
+interface Projected {
+  world: Float32Array; // xyz per vertex
+  screen: Float32Array; // xy per vertex
+  count: number;
+  /** Vertices [0, partCount) belong to the parts -- the only ones measured; the cable after them only counts toward the silhouette. */
+  partCount: number;
+  mask: Uint8Array;
+  maskWidth: number;
+  maskHeight: number;
+}
+
+function coveredCell(projected: Projected, x: number, y: number): boolean {
+  return x >= 0 && y >= 0 && x < projected.maskWidth && y < projected.maskHeight && projected.mask[y * projected.maskWidth + x] === 1;
+}
+
+function covered(projected: Projected, p: Pt): boolean {
+  return coveredCell(projected, Math.floor(p.x / MASK_CELL), Math.floor(p.y / MASK_CELL));
+}
+
+/** Whether `p` is well inside the model's footprint: its cell and all four neighbours are covered, so a line merely grazing the silhouette doesn't count. */
+function onModel(projected: Projected, p: Pt): boolean {
+  const cx = Math.floor(p.x / MASK_CELL);
+  const cy = Math.floor(p.y / MASK_CELL);
+  return [[0, 0], [-1, 0], [1, 0], [0, -1], [0, 1]].every(([dx, dy]) => coveredCell(projected, cx + dx, cy + dy));
+}
+
+function projectAll(parts: THREE.BufferGeometry[], cable: THREE.BufferGeometry[], fit: Fit, width: number, height: number): Projected {
+  const geometries = [...parts, ...cable];
+  let count = 0;
+  let partCount = 0;
+  for (const geo of geometries) count += geo.getAttribute("position")?.count ?? 0;
+  for (const geo of parts) partCount += geo.getAttribute("position")?.count ?? 0;
+  const world = new Float32Array(count * 3);
+  const screen = new Float32Array(count * 2);
+  const maskWidth = Math.ceil(width / MASK_CELL);
+  const maskHeight = Math.ceil(height / MASK_CELL);
+  const mask = new Uint8Array(maskWidth * maskHeight);
+  const v = new THREE.Vector3();
+  let i = 0;
+  for (const geo of geometries) {
+    const pos = geo.getAttribute("position") as THREE.BufferAttribute | undefined;
+    if (!pos) continue;
+    const base = i;
+    for (let k = 0; k < pos.count; k++, i++) {
+      v.fromBufferAttribute(pos, k);
+      world[i * 3] = v.x;
+      world[i * 3 + 1] = v.y;
+      world[i * 3 + 2] = v.z;
+      v.sub(fit.center).applyMatrix4(fit.inverse);
+      screen[i * 2] = (0.5 + v.x / (2 * fit.halfWidth)) * width;
+      screen[i * 2 + 1] = (0.5 - v.y / (2 * fit.halfHeight)) * height;
+    }
+    // Rasterize every triangle's cell centres into the mask.
+    const index = geo.getIndex();
+    const triCount = index ? index.count / 3 : pos.count / 3;
+    for (let t = 0; t < triCount; t++) {
+      const [a, b, c] = [0, 1, 2].map((j) => base + (index ? index.getX(t * 3 + j) : t * 3 + j));
+      const ax = screen[a * 2], ay = screen[a * 2 + 1];
+      const bx = screen[b * 2], by = screen[b * 2 + 1];
+      const cx = screen[c * 2], cy = screen[c * 2 + 1];
+      const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+      if (Math.abs(area) < 1e-6) continue;
+      const x0 = Math.max(0, Math.floor(Math.min(ax, bx, cx) / MASK_CELL));
+      const x1 = Math.min(maskWidth - 1, Math.floor(Math.max(ax, bx, cx) / MASK_CELL));
+      const y0 = Math.max(0, Math.floor(Math.min(ay, by, cy) / MASK_CELL));
+      const y1 = Math.min(maskHeight - 1, Math.floor(Math.max(ay, by, cy) / MASK_CELL));
+      for (let my = y0; my <= y1; my++) {
+        const py = (my + 0.5) * MASK_CELL;
+        for (let mx = x0; mx <= x1; mx++) {
+          if (mask[my * maskWidth + mx]) continue;
+          const px = (mx + 0.5) * MASK_CELL;
+          const w0 = ((bx - px) * (cy - py) - (by - py) * (cx - px)) / area;
+          const w1 = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / area;
+          if (w0 >= 0 && w1 >= 0 && w0 + w1 <= 1) mask[my * maskWidth + mx] = 1;
+        }
+      }
+    }
+  }
+  return { world, screen, count, partCount, mask, maskWidth, maskHeight };
+}
+
+/**
+ * Lays out one dimension along the world-space unit `axis` (projecting to
+ * the screen unit direction `d`), drafting-style, with its extension lines
+ * running along the screen unit direction `e` (any direction not parallel
+ * to `d`: the screen normal, or a projected model axis for the classic
+ * iso look of vertical extension lines):
+ *
+ * - the measured extent is the model's own extreme planes along `axis`;
+ * - on each plane, the vertex furthest toward `e` is that end's anchor;
+ * - the dimension line runs parallel to `d`, `GAP` beyond every projected
+ *   vertex that lies within its span (in the oblique d/e frame), so it
+ *   clears the model's silhouette entirely;
+ * - the extension lines run from the anchors (or, for a hidden anchor, from
+ *   where their path leaves the model) along `e` to just past the line.
+ */
+function layoutAlong(projected: Projected, axis: THREE.Vector3, d: Pt, e: Pt, testId: string, labelFor: (extentMm: number) => string): DimensionLayout | null {
+  const { world, screen, count, partCount } = projected;
+  // Oblique coordinates: screen point p = s*d + k*e.
+  const det = d.x * e.y - d.y * e.x;
+  if (Math.abs(det) < 0.2) return null;
+  const sOf = (i: number) => (screen[i * 2] * e.y - screen[i * 2 + 1] * e.x) / det;
+  const kOf = (i: number) => (d.x * screen[i * 2 + 1] - d.y * screen[i * 2]) / det;
+  const cOf = (i: number) => world[i * 3] * axis.x + world[i * 3 + 1] * axis.y + world[i * 3 + 2] * axis.z;
+
+  let cMin = Infinity;
+  let cMax = -Infinity;
+  for (let i = 0; i < partCount; i++) {
+    const c = cOf(i);
+    if (c < cMin) cMin = c;
+    if (c > cMax) cMax = c;
+  }
+  let a = -1;
+  let b = -1;
+  for (let i = 0; i < partCount; i++) {
+    const c = cOf(i);
+    if (c <= cMin + PLANE_EPS && (a < 0 || kOf(i) > kOf(a))) a = i;
+    if (c >= cMax - PLANE_EPS && (b < 0 || kOf(i) > kOf(b))) b = i;
+  }
+  if (a < 0 || b < 0) return null;
+
+  const sLo = Math.min(sOf(a), sOf(b)) - ARROW_LENGTH;
+  const sHi = Math.max(sOf(a), sOf(b)) + ARROW_LENGTH;
+  let kClear = Math.max(kOf(a), kOf(b));
+  for (let i = 0; i < count; i++) {
+    const s = sOf(i);
+    if (s >= sLo && s <= sHi) kClear = Math.max(kClear, kOf(i));
+  }
+  const kLine = kClear + GAP;
+
+  const anchor = (i: number) => {
+    const p = { x: screen[i * 2], y: screen[i * 2 + 1] };
+    const k0 = kOf(i);
+    const along = (k: number) => ({ x: p.x + e.x * k, y: p.y + e.y * k });
+    // Drafting convention: the extension line starts a small gap off the
+    // VISIBLE outline -- so from a hidden extreme point, it starts where its
+    // path last leaves the model's footprint, rather than crossing it.
+    let exit = 0;
+    for (let k = 0; k < kLine - k0; k += 1.5) if (covered(projected, along(k))) exit = k;
+    return { from: along(exit + EXT_GAP), onLine: along(kLine - k0), past: along(kLine - k0 + EXT_OVERSHOOT) };
+  };
+  const ea = anchor(a);
+  const eb = anchor(b);
+  const label = labelFor(cMax - cMin);
+  // Keep the label upright: vertical text reads bottom-to-top.
+  let angle = (Math.atan2(d.y, d.x) * 180) / Math.PI;
+  if (angle >= 90) angle -= 180;
+  if (angle < -90) angle += 180;
+  return {
+    testId,
+    label,
+    extensions: [
+      [ea.from, ea.past],
+      [eb.from, eb.past],
+    ],
+    line: [ea.onLine, eb.onLine],
+    labelAt: { x: (ea.onLine.x + eb.onLine.x) / 2, y: (ea.onLine.y + eb.onLine.y) / 2 },
+    labelAngle: angle,
+    labelWidth: approxLabelWidth(label),
+  };
 }
 
 export interface DimensionOverlayProps {
-  /** The SAME (already view-rotated, already creased) per-part geometries CoilViewer renders -- used only to size the overall camera fit (bounding sphere/extent); the dimension anchors themselves are pure local-axis math (see the file header), not read off these. */
+  /** The SAME (already view-rotated, already creased) per-part geometries CoilViewer renders -- they size the camera fit, and every dimension is measured and placed off their vertices. */
   geometries: THREE.BufferGeometry[];
+  /** The wound cable's (already view-rotated) tube geometries, when shown -- part of the silhouette the dimensions keep clear of, never measured. */
+  cableGeometries: THREE.BufferGeometry[];
   preset: PresetId;
   fill: number;
-  /** The SAME rotation CoilViewer applies to `geometries` for the current view (`null` for the standing pose) -- applied to this component's own local-axis anchor points so they land in the identical frame. */
+  /** The SAME rotation CoilViewer applies to `geometries` for the current view (`null` for the standing pose) -- applied to the local width/axis directions so they land in the identical frame. */
   rotation: THREE.Matrix4 | null;
-  /** The flange's own physical outer diameter, mm (`Solution.flangeSize`) -- the width/diameter dimension's value, and the local +/-X anchor points' radius. */
+  /** `Solution.flangeSize`, mm -- shown as a round flange's "Ø" (its true diameter). */
   widthMm: number;
-  /** The assembled coil's overall height, mm (core height plus the top cap's own thickness when present) -- the height dimension's value, and the local +Z anchor points' span. */
-  heightMm: number;
   shapeKind: ShapeKind;
 }
 
 /**
- * Two IKEA-style dimension lines -- one for the overall width/diameter, one
- * for the overall height -- each drawn between the PROJECTED positions of
- * two points on the model's own real axes (see the file header), offset
- * outward from the model and clear of the preset bar / wire-toggle /
- * explode-toggle. A round core's width reads as a literal diameter ("Ø");
- * sq/tri's flange envelope isn't one, so it's shown as a plain value.
+ * Two IKEA-style dimensions -- overall width/diameter and overall height --
+ * laid out drafting-style outside the model's silhouette (see the file
+ * header), clear of the viewer's own overlay controls.
  */
-export function DimensionOverlay({ geometries, preset, fill, rotation, widthMm, heightMm, shapeKind }: DimensionOverlayProps) {
+export function DimensionOverlay({ geometries, cableGeometries, preset, fill, rotation, widthMm, shapeKind }: DimensionOverlayProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const { width, height } = useSize(wrapRef);
   const aspect = width > 0 && height > 0 ? width / height : 1;
@@ -208,105 +449,134 @@ export function DimensionOverlay({ geometries, preset, fill, rotation, widthMm, 
   // pipeline's settle frames on an unrelated re-render).
   const fit = useMemo(() => (width > 0 && height > 0 ? computeFit(geometries, preset, aspect, fill) : null), [geometries, preset, aspect, fill, width, height]);
 
+  // The controls' boxes move with the viewport and the preset (the wall
+  // caption), so re-measure after each of those; only commit a real change,
+  // so a steady view never re-renders (see useSize for why that matters).
+  const [reserved, setReserved] = useState<Rect[]>([]);
+  useLayoutEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const next = measureReserved(el);
+    setReserved((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  }, [width, height, preset]);
+
+  const layouts = useMemo(() => {
+    if (!fit) return [];
+    const projected = projectAll(geometries, cableGeometries, fit, width, height);
+    const toWorld = (local: THREE.Vector3) => (rotation ? local.clone().transformDirection(rotation) : local);
+    // A world direction on screen: unit direction (y down) plus its
+    // projected length (1 = parallel to the screen, 0 = edge-on).
+    // `fit.inverse` is a pure rotation, so a unit direction stays one.
+    const onScreen = (dir: THREE.Vector3) => {
+      const f = dir.clone().applyMatrix4(fit.inverse);
+      const len = Math.hypot(f.x, f.y);
+      return { dir: len > 0 ? { x: f.x / len, y: -f.y / len } : { x: 0, y: 0 }, len };
+    };
+    const flip = (p: Pt) => ({ x: -p.x, y: -p.y });
+
+    const coilAxis = toWorld(new THREE.Vector3(0, 0, 1));
+    const axial = onScreen(coilAxis);
+    const axialDown = axial.dir.y >= 0 ? axial.dir : flip(axial.dir);
+
+    // Width runs across the flange, along the most horizontal-reading
+    // in-plane direction (the rest, less horizontal first, are fallbacks
+    // for when it doesn't fit).
+    const widthAxes = WIDTH_ANGLES.map((deg) => toWorld(new THREE.Vector3(Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180), 0)))
+      .filter((dir) => onScreen(dir).len >= WIDTH_MIN_LEN)
+      .sort((p, q) => Math.abs(onScreen(q).dir.x) - Math.abs(onScreen(p).dir.x));
+
+    const dims = [
+      // Width first, below the model -- the classic place for it; height
+      // then takes whichever side stays clear of it. A round flange's width
+      // is its diameter in every direction, so it shows design()'s own
+      // `flangeSize`; a square/triangle flange's width depends on the
+      // direction, so it shows the extent actually measured along the drawn
+      // line (the result panel's `flangeSize` is the solver's envelope,
+      // not any real sq/tri flange width -- see the file header).
+      {
+        testId: "dimension-width",
+        axes: widthAxes,
+        labelFor: (extentMm: number) => (shapeKind === "round" ? `Ø ${formatCm(widthMm)} cm` : `${formatCm(extentMm)} cm`),
+        down: true,
+      },
+      { testId: "dimension-height", axes: [coilAxis], labelFor: (extentMm: number) => `${formatCm(extentMm)} cm`, down: false },
+    ];
+    // Greedy placement, one dimension at a time, each avoiding those already
+    // placed; tried in both orders when the first leaves a conflict (a
+    // cramped phone-width frame), keeping the cleaner result.
+    const place = (order: typeof dims) => {
+      const placed: DimensionLayout[] = [];
+      let total = 0;
+      for (const dim of order) {
+        let best: { layout: DimensionLayout; penalty: number } | null = null;
+        for (const axis of dim.axes) {
+          const { dir: d, len } = onScreen(axis);
+          if (len < FORESHORTEN_MIN) continue; // nearly edge-on -- hide rather than mislead.
+          let n = { x: -d.y, y: d.x };
+          if ((dim.down ? n.y : n.x) < 0) n = flip(n);
+          // Extension-line directions, preferred first. Width: along the
+          // coil's own axis when that reads as straight down on screen (the
+          // classic iso look: vertical extension lines, the line parallel to
+          // the flange's own edge), else the screen normal, below. Height:
+          // the screen normal, right side first. The opposite side is only a
+          // fallback for when the preferred one would leave the frame, sit
+          // on a control or cross the other dimension.
+          const sides: Pt[] = [n, flip(n)];
+          if (dim.down && axial.len >= FORESHORTEN_MIN && axialDown.y > 0.8 && Math.abs(d.x * axialDown.y - d.y * axialDown.x) >= 0.8) sides.unshift(axialDown);
+          for (const side of sides) {
+            const layout = layoutAlong(projected, axis, d, side, dim.testId, dim.labelFor);
+            if (!layout) continue;
+            const penalty = penaltyOf(layout, projected, width, height, reserved, placed);
+            if (!best || penalty < best.penalty) best = { layout, penalty };
+            if (penalty === 0) break;
+          }
+          if (best?.penalty === 0) break;
+        }
+        if (best) {
+          placed.push(best.layout);
+          total += best.penalty;
+        }
+      }
+      return { placed, total };
+    };
+    const first = place(dims);
+    if (first.total === 0) return first.placed;
+    const second = place([...dims].reverse());
+    // Keep the width-then-height DOM order either way.
+    return (second.total < first.total ? second.placed.reverse() : first.placed);
+  }, [fit, geometries, cableGeometries, width, height, rotation, widthMm, shapeKind, reserved]);
+
   if (!fit) return <div ref={wrapRef} className="dimension-overlay" aria-hidden="true" />;
 
-  const rotate = (p: THREE.Vector3) => (rotation ? p.clone().applyMatrix4(rotation) : p);
-
-  const dims = [
-    {
-      testId: "dimension-height",
-      valueMm: heightMm,
-      label: `${formatCm(heightMm)} cm`,
-      // Anchored at the flange's own rim (local +X, same radius as the
-      // width anchors below), not the coil's central axis -- a real
-      // height dimension runs along the model's own silhouette EDGE (PR
-      // #59 review), not straight through the middle of it.
-      a: rotate(new THREE.Vector3(widthMm / 2, 0, 0)),
-      b: rotate(new THREE.Vector3(widthMm / 2, 0, heightMm)),
-    },
-    {
-      testId: "dimension-width",
-      valueMm: widthMm,
-      label: `${shapeKind === "round" ? "Ø " : ""}${formatCm(widthMm)} cm`,
-      a: rotate(new THREE.Vector3(-widthMm / 2, 0, 0)),
-      b: rotate(new THREE.Vector3(widthMm / 2, 0, 0)),
-    },
-  ];
-
-  const frameCenter = { x: width / 2, y: height / 2 };
-
-  const lines = dims.flatMap((dim) => {
-    const flatA = flatOf(fit, dim.a);
-    const flatB = flatOf(fit, dim.b);
-    const projectedLen = flatA.distanceTo(flatB);
-    if (dim.valueMm <= 0 || projectedLen / dim.valueMm < FORESHORTEN_MIN) return []; // nearly edge-on -- hide rather than mislead.
-
-    const pA = pixelOf(fit, flatA, width, height);
-    const pB = pixelOf(fit, flatB, width, height);
-    const dx = pB.x - pA.x;
-    const dy = pB.y - pA.y;
-    const segLen = Math.hypot(dx, dy);
-    if (segLen < 1) return [];
-    const ux = dx / segLen;
-    const uy = dy / segLen;
-    let px = -uy; // perpendicular, one of two possible directions
-    let py = ux;
-    const mid = { x: (pA.x + pB.x) / 2, y: (pA.y + pB.y) / 2 };
-    // Point the perpendicular AWAY from the frame's own centre, so the
-    // offset line sits outside the model rather than across it.
-    if (px * (mid.x - frameCenter.x) + py * (mid.y - frameCenter.y) < 0) {
-      px = -px;
-      py = -py;
-    }
-
-    // Nudge the offset further out, up to a few tries, if the label would
-    // otherwise land on top of the wire/explode toggles or the preset bar
-    // (PR #59 review) -- checked on the label's own anchor (the offset
-    // line's midpoint), the most visually disruptive overlap.
-    let margin = MARGIN;
-    for (let attempt = 0; attempt < 6; attempt++) {
-      const labelX = mid.x + px * margin;
-      const labelY = mid.y + py * margin;
-      if (!inTopLeftControls(labelX, labelY) && !inTopRightControls(labelX, labelY, width)) break;
-      margin += 20;
-    }
-
-    const offA = { x: pA.x + px * margin, y: pA.y + py * margin };
-    const offB = { x: pB.x + px * margin, y: pB.y + py * margin };
-    const labelPos = { x: (offA.x + offB.x) / 2, y: (offA.y + offB.y) / 2 };
-    const tickA = { x: pA.x + px * TICK_GAP, y: pA.y + py * TICK_GAP };
-    const tickB = { x: pB.x + px * TICK_GAP, y: pB.y + py * TICK_GAP };
-    const labelW = approxLabelWidth(dim.label);
-
-    return [
-      <g key={dim.testId}>
-        <line className="dimension-tick" x1={tickA.x} y1={tickA.y} x2={offA.x} y2={offA.y} />
-        <line className="dimension-tick" x1={tickB.x} y1={tickB.y} x2={offB.x} y2={offB.y} />
-        <line
-          className="dimension-line"
-          x1={offA.x}
-          y1={offA.y}
-          x2={offB.x}
-          y2={offB.y}
-          markerStart="url(#dimension-arrowhead)"
-          markerEnd="url(#dimension-arrowhead)"
-        />
-        <g transform={`translate(${labelPos.x} ${labelPos.y})`}>
-          <rect className="dimension-label-bg" x={-labelW / 2} y={-LABEL_HEIGHT / 2} width={labelW} height={LABEL_HEIGHT} />
-          <text className="dimension-label" data-testid={dim.testId} x={0} y={4} textAnchor="middle">
-            {dim.label}
-          </text>
-        </g>
-      </g>,
-    ];
-  });
+  const lines = layouts.map((layout) => (
+    <g key={layout.testId}>
+      {layout.extensions.map(([a, b], i) => (
+        <line key={i} className="dimension-extension" x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+      ))}
+      <line
+        className="dimension-line"
+        x1={layout.line[0].x}
+        y1={layout.line[0].y}
+        x2={layout.line[1].x}
+        y2={layout.line[1].y}
+        markerStart="url(#dimension-arrowhead)"
+        markerEnd="url(#dimension-arrowhead)"
+      />
+      <g transform={`translate(${layout.labelAt.x} ${layout.labelAt.y}) rotate(${layout.labelAngle})`}>
+        <rect className="dimension-label-bg" x={-layout.labelWidth / 2} y={-LABEL_HEIGHT / 2} width={layout.labelWidth} height={LABEL_HEIGHT} />
+        <text className="dimension-label" data-testid={layout.testId} x={0} y={1} textAnchor="middle">
+          {layout.label}
+        </text>
+      </g>
+    </g>
+  ));
 
   return (
     <div ref={wrapRef} className="dimension-overlay" data-testid="dimension-overlay" aria-hidden="true">
       <svg className="dimension-overlay-svg" viewBox={`0 0 ${width} ${height}`}>
         <defs>
-          <marker id="dimension-arrowhead" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto-start-reverse">
-            <path d="M0 0 L7 3.5 L0 7 Z" fill="currentColor" />
+          <marker id="dimension-arrowhead" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto-start-reverse">
+            <path d="M0 0.5 L9 3.5 L0 6.5 Z" fill="currentColor" />
           </marker>
         </defs>
         {lines}

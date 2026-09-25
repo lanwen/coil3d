@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CAP_THICKNESS, exportDesign, parseHash, toHash } from "./core";
+import { exportDesign, parseHash, toHash } from "./core";
 import type { CoilSpec, ViewMode } from "./core";
 import { useDesignPreview } from "./geometry/useDesignPreview";
 import { ControlsForm } from "./components/ControlsForm";
@@ -170,7 +170,6 @@ export default function App() {
                 exploded={exploded}
                 mountAxisDeg={result.mountAxisDeg}
                 envelopeWidth={result.solution.flangeSize}
-                overallHeight={result.solution.height + (result.solution.topCapEnabled ? CAP_THICKNESS : 0)}
                 shapeKind={result.spec.shape.kind}
               />
             </>

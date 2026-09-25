@@ -62,11 +62,9 @@ export interface CoilViewerProps {
   exploded?: boolean;
   /** `Design.mountAxisDeg` (issue #13): the screw-keyhole mount's own true "hangs level" axis, when it differs from the design's local +Y (WALL_UP) -- see `buildViewRotations`'s comment. Omit (or leave undefined) when there's no mount, or it fits exactly on local +Y already. */
   mountAxisDeg?: number;
-  /** Issue #50: the flange's own physical outer diameter, mm (`Solution.flangeSize` -- the widest thing on the assembled coil, wider than the wound-layer envelope by the flange margin) -- drives the width/diameter dimension line drawn next to the model. Omitted (no solved design yet) hides the whole dimension overlay. */
+  /** Issue #50: `Solution.flangeSize` -- a round flange's true outer diameter, shown as the "Ø" width dimension (sq/tri widths, and the overall height, are measured off the rendered part meshes instead -- see dimensionOverlay.tsx). Omitted (no solved design yet) hides the whole dimension overlay. */
   envelopeWidth?: number;
-  /** Issue #50: the assembled coil's overall height, mm (`Solution.height` plus the top cap's own thickness when present) -- drives the height dimension line. */
-  overallHeight?: number;
-  /** Issue #50: `CoilSpec.shape.kind` -- only changes whether the width dimension reads as a true diameter ("Ø", round) or a plain flat-to-flat width (sq/tri, where the flange envelope's own circumscribed size isn't a literal diameter). */
+  /** Issue #50: `CoilSpec.shape.kind` -- whether the width dimension reads as a true diameter ("Ø", round, from `envelopeWidth`) or a plain width measured along the drawn direction (sq/tri). */
   shapeKind?: ShapeKind;
 }
 
@@ -237,7 +235,6 @@ export function CoilViewer({
   exploded = false,
   mountAxisDeg,
   envelopeWidth,
-  overallHeight,
   shapeKind,
 }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
@@ -516,14 +513,14 @@ export function CoilViewer({
           is active) -- the assembled bounds it measures don't apply to
           either pose, and an exploded view already has its own tighter
           fill/framing (EXPLODED_FILL above) this overlay doesn't share. */}
-      {!exploded && !focusFramingGeometry && envelopeWidth !== undefined && overallHeight !== undefined && shapeKind !== undefined && (
+      {!exploded && !focusFramingGeometry && envelopeWidth !== undefined && shapeKind !== undefined && (
         <DimensionOverlay
           geometries={dimensionGeometries}
+          cableGeometries={viewWireGeometries}
           preset={effectivePreset}
           fill={DEFAULT_FILL}
           rotation={viewRotation}
           widthMm={envelopeWidth}
-          heightMm={overallHeight}
           shapeKind={shapeKind}
         />
       )}

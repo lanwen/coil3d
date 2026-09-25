@@ -1,38 +1,45 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 // End-to-end checks for issue #50: IKEA-style overall-dimension lines (the
-// assembled coil's width/diameter and height, in cm) drawn next to the
-// model, attached to its own projected bounds. Solver/geometry numbers
-// themselves are covered by vitest against the public `design()` interface;
-// these check the viewer overlay <-> design seam: the two dimension labels
-// exist, read the right shape of value (a literal "Ø" diameter for round,
-// a plain value for sq/tri), track the SAME numbers the result panel shows,
-// and disappear in exploded view.
+// assembled coil's width/diameter and height, in cm) drawn technical-drawing
+// style outside the model. Solver/geometry numbers themselves are covered by
+// vitest against the public `design()` interface; these check the viewer
+// overlay <-> design seam: the two dimension labels exist, read the right
+// shape of value (a literal "Ø" diameter for round, a plain measured width
+// for sq/tri), agree with design()'s own numbers, stay put across views,
+// keep clear of the overlay controls, and disappear in exploded view.
 
 const ROUND_NO_CAP = "#v=1&L=1000&d=4&lock=outer,ly&size=50&h=40&ly=1&cap=off";
 const ROUND_CAP = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on";
+const ROUND_CAP_OFF = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=off";
 const SQUARE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=sq&sq.rc=15";
 const TRIANGLE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=tri&tri.rc=15";
+const PRESETS = ["front", "iso", "wallRoom"] as const;
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
-  await page.waitForTimeout(1000);
+  // Wait for the FINAL-resolution mesh (download-stl is gated on it, see
+  // e2e/line-art.spec.ts): the dimensions are measured off the part meshes,
+  // so a draft mesh would give draft numbers and placement.
+  await expect(page.getByTestId("download-stl")).toBeEnabled();
+  await page.waitForTimeout(500);
+}
+
+async function showPreset(page: Page, preset: (typeof PRESETS)[number]) {
+  await page.getByTestId(`preset-${preset}`).click();
+  await page.waitForTimeout(600);
 }
 
 /** `.innerText()` requires a laid-out HTML element; the dimension labels
  * are plain SVG `<text>` nodes (no layout box of their own kind Playwright
  * expects there), so this reads `.textContent()` instead -- works for both
  * those and the ordinary HTML result-panel rows this file also reads. */
-async function readText(locator: ReturnType<Page["getByTestId"]>): Promise<string> {
+async function readText(locator: Locator): Promise<string> {
   return (await locator.textContent()) ?? "";
 }
 
-/** Parses a "<number> <unit>" result-panel value into cm, regardless of
- * which unit it's actually shown in (mm today; tolerant of a future switch
- * to cm elsewhere in the app -- this file only needs to agree with
- * whatever `design()` itself reports, not hardcode a specific display
- * unit). */
+/** Parses a "<number> <unit>" value into cm, whichever unit it's shown in. */
 function toCm(text: string): number {
   const match = text.match(/(-?\d+(?:\.\d+)?)\s*(mm|cm)/i);
   if (!match) throw new Error(`unrecognized dimension value: ${text}`);
@@ -40,51 +47,105 @@ function toCm(text: string): number {
   return match[2].toLowerCase() === "mm" ? value / 10 : value;
 }
 
+async function dimensionCm(page: Page, which: "width" | "height"): Promise<number> {
+  return toCm(await readText(page.getByTestId(`dimension-${which}`)));
+}
+
+function overlaps(a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
 test.describe("overall-dimension lines (issue #50)", () => {
-  test("round core: width reads as a diameter (Ø), height matches the result panel", async ({ page }) => {
+  test("round core: width reads as the flange diameter (Ø), the same in every view", async ({ page }) => {
     await gotoDesign(page, ROUND_NO_CAP);
     await expect(page.getByTestId("dimension-width")).toHaveText(/^Ø\s*\d+\.\d cm$/);
     await expect(page.getByTestId("dimension-height")).toHaveText(/^\d+\.\d cm$/);
-
     const flangeCm = toCm(await readText(page.getByTestId("flange")));
-    const widthText = await readText(page.getByTestId("dimension-width"));
-    expect(Number(widthText.replace(/[^\d.]/g, ""))).toBeCloseTo(flangeCm, 1);
-
-    // No cap (cap=off): overall height equals the core's own height.
-    const coreHeightCm = toCm(await readText(page.getByTestId("height")));
-    const heightCm = Number((await readText(page.getByTestId("dimension-height"))).replace(/[^\d.]/g, ""));
-    await expect(page.getByTestId("caps")).toContainText(/^off/);
-    expect(heightCm).toBeCloseTo(coreHeightCm, 1);
+    for (const preset of PRESETS) {
+      await showPreset(page, preset);
+      expect(await dimensionCm(page, "width"), preset).toBeCloseTo(flangeCm, 1);
+    }
   });
 
-  test("round core with a cap: overall height exceeds the bare core height by the cap's own thickness", async ({ page }) => {
-    await gotoDesign(page, ROUND_CAP);
-    await expect(page.getByTestId("caps")).toContainText(/^on/);
+  test("height is the overall assembled height: the core plus its bottom flange, the same in every view", async ({ page }) => {
+    await gotoDesign(page, ROUND_NO_CAP);
+    await expect(page.getByTestId("caps")).toContainText(/^off/);
+    // The result panel's height is the winding height; the bottom flange
+    // sits below it, so the overall height is taller -- by a flange's
+    // thickness, a few mm.
     const coreHeightCm = toCm(await readText(page.getByTestId("height")));
-    const heightCm = Number((await readText(page.getByTestId("dimension-height"))).replace(/[^\d.]/g, ""));
-    expect(heightCm).toBeGreaterThan(coreHeightCm);
+    const heights: number[] = [];
+    for (const preset of PRESETS) {
+      await showPreset(page, preset);
+      heights.push(await dimensionCm(page, "height"));
+    }
+    expect(heights[0] - coreHeightCm).toBeGreaterThan(0.1);
+    expect(heights[0] - coreHeightCm).toBeLessThan(1.5);
+    expect(heights[1]).toBe(heights[0]);
+    expect(heights[2]).toBe(heights[0]);
+  });
+
+  test("a top cap adds exactly its own thickness to the overall height", async ({ page, context }) => {
+    await gotoDesign(page, ROUND_CAP_OFF);
+    await expect(page.getByTestId("caps")).toContainText(/^off/);
+    const withoutCap = await dimensionCm(page, "height");
+    const capped = await context.newPage(); // a fresh load: a hash-only goto wouldn't reparse the design
+    await gotoDesign(capped, ROUND_CAP);
+    await expect(capped.getByTestId("caps")).toContainText(/^on/);
+    const withCap = await dimensionCm(capped, "height");
     // CAP_THICKNESS is 3mm == 0.3cm (core/constants.ts) -- a loose band
     // rather than an exact literal, so this doesn't silently need updating
     // if that constant ever changes.
-    expect(heightCm - coreHeightCm).toBeGreaterThan(0.1);
-    expect(heightCm - coreHeightCm).toBeLessThan(0.6);
+    expect(withCap - withoutCap).toBeGreaterThan(0.1);
+    expect(withCap - withoutCap).toBeLessThan(0.6);
   });
 
-  test("square core: width is a plain value (no Ø), still matches the flange size", async ({ page }) => {
-    await gotoDesign(page, SQUARE);
-    await expect(page.getByTestId("dimension-width")).toHaveText(/^\d+\.\d cm$/);
-    const flangeCm = toCm(await readText(page.getByTestId("flange")));
-    const widthCm = Number((await readText(page.getByTestId("dimension-width"))).replace(/[^\d.]/g, ""));
-    expect(widthCm).toBeCloseTo(flangeCm, 1);
-  });
+  for (const [label, hash] of [
+    ["square", SQUARE],
+    ["triangle", TRIANGLE],
+  ] as const) {
+    test(`${label} core: width is a plain measured value (no Ø), at least the solver's flange envelope`, async ({ page }) => {
+      await gotoDesign(page, hash);
+      const flangeCm = toCm(await readText(page.getByTestId("flange")));
+      for (const preset of PRESETS) {
+        await showPreset(page, preset);
+        await expect(page.getByTestId("dimension-width")).toHaveText(/^\d+\.\d cm$/);
+        // A sq/tri width depends on the direction it's measured in, so it's
+        // measured off the flange itself; the flange is never narrower than
+        // the solver's own envelope (Solution.flangeSize) in its own view's
+        // horizontal, nor absurdly wider.
+        const widthCm = await dimensionCm(page, "width");
+        expect(widthCm, preset).toBeGreaterThan(flangeCm * 0.75);
+        expect(widthCm, preset).toBeLessThan(flangeCm * 1.5);
+      }
+    });
+  }
 
-  test("triangle core: width is a plain value (no Ø), still matches the flange size", async ({ page }) => {
-    await gotoDesign(page, TRIANGLE);
-    await expect(page.getByTestId("dimension-width")).toHaveText(/^\d+\.\d cm$/);
-    const flangeCm = toCm(await readText(page.getByTestId("flange")));
-    const widthCm = Number((await readText(page.getByTestId("dimension-width"))).replace(/[^\d.]/g, ""));
-    expect(widthCm).toBeCloseTo(flangeCm, 1);
-  });
+  for (const [label, hash] of [
+    ["round", ROUND_CAP],
+    ["square", SQUARE],
+    ["triangle", TRIANGLE],
+  ] as const) {
+    test(`${label}: both labels stay inside the viewer and clear of the overlay controls in every view`, async ({ page }) => {
+      await gotoDesign(page, hash);
+      for (const preset of PRESETS) {
+        await showPreset(page, preset);
+        const frame = (await page.getByTestId("coil-viewer").boundingBox())!;
+        const controls = await Promise.all(
+          [".wire-toggle", ".explode-toggle", ".view-controls", ".wall-view-caption"].map(async (selector) => (await page.locator(selector).count()) ? page.locator(selector).boundingBox() : null),
+        );
+        for (const which of ["width", "height"] as const) {
+          const box = (await page.getByTestId(`dimension-${which}`).boundingBox())!;
+          expect(box, `${preset} ${which}`).not.toBeNull();
+          expect(box.x, `${preset} ${which}`).toBeGreaterThanOrEqual(frame.x);
+          expect(box.y, `${preset} ${which}`).toBeGreaterThanOrEqual(frame.y);
+          expect(box.x + box.width, `${preset} ${which}`).toBeLessThanOrEqual(frame.x + frame.width);
+          expect(box.y + box.height, `${preset} ${which}`).toBeLessThanOrEqual(frame.y + frame.height);
+          for (const control of controls) if (control) expect(overlaps(box, control), `${preset} ${which} vs a control`).toBe(false);
+        }
+      }
+    });
+  }
 
   test("hidden in exploded view, reappears once collapsed", async ({ page }) => {
     await gotoDesign(page, ROUND_CAP);

@@ -180,17 +180,18 @@ header p {
 
 .dimension-line {
   stroke: var(--ink);
-  stroke-width: 1.5;
+  stroke-width: 1.25;
 }
 
-.dimension-tick {
+.dimension-extension {
   stroke: var(--ink);
-  stroke-width: 1;
+  stroke-width: 0.75;
 }
 
+/* White knockout behind the label, so the dimension line reads as broken
+   around its value. */
 .dimension-label-bg {
   fill: var(--paper);
-  opacity: 0.9;
 }
 
 .dimension-label {
