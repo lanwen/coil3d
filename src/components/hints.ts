@@ -38,6 +38,7 @@ export const HINTS = {
   bedY: "This is your 3D printer's build volume along the Y axis, in millimetres. The design warns you when a part is too big to print in one piece.",
   bedZ: "This is your 3D printer's build volume along the Z axis, in millimetres. The design warns you when a part is too big to print in one piece.",
   wire: "This shows or hides the schematic cable path wound around the core in the 3D view. It does not change the printed design.",
+  dimensions: "This shows or hides the overall width, depth and height, in centimetres, drawn around the 3D view. It does not change the printed design.",
   exploded: "This pulls the parts apart in the 3D view so you can see how they fit together. It does not change the printed design.",
 } as const;
 

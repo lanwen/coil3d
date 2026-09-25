@@ -16,10 +16,12 @@ export type Projection = "ortho" | "perspective";
 // CoilViewer biases this up a little while exploded (issue #15, issue #9
 // review: "consider a slight camera reframe while exploded" -- the joint
 // features read clearer when the frame doesn't also reserve room around them).
-// Exported so `dimensionOverlay.tsx` (issue #50) can match its own
-// independent fit computation to this default without hardcoding a second
-// copy of the number.
 export const DEFAULT_FILL = 0.75;
+// Scene layers drawn on top of the line-art pipeline instead of through it
+// (issue #69's dimension axes, see the render loop below): lines before FXAA,
+// labels after it.
+export const DIMENSION_LINE_LAYER = 1;
+export const DIMENSION_LABEL_LAYER = 2;
 // Line weight (thicken radius, CSS px) scales gently with the model's
 // on-screen diagonal (docs/research.md §10b), clamped so it stays a thin pen
 // line on small canvases and never fuses the groove rings on large ones.
@@ -647,7 +649,23 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
     passes.edgePass.render(gl, targets.edge, targets.normalDepth, 0, false);
     passes.thickenPass.render(gl, targets.thicken, targets.edge, 0, false);
     passes.outputPass.render(gl, targets.output, targets.thicken, 0, false);
+    // Overlay layers (issue #69's dimension axes): kept out of the
+    // normal+depth pass above (the camera only sees layer 0 there), so the
+    // edge detector never outlines them. Lines go in before FXAA (smoothed
+    // like the model's own lines), labels straight onto the canvas after it.
+    const prevAutoClear = gl.autoClear;
+    gl.autoClear = false;
+    activeCamera.layers.set(DIMENSION_LINE_LAYER);
+    gl.setRenderTarget(targets.output);
+    gl.clearDepth();
+    gl.render(scene, activeCamera);
     passes.fxaaPass.render(gl, targets.output, targets.output, 0, false); // renderToScreen: writes the canvas
+    activeCamera.layers.set(DIMENSION_LABEL_LAYER);
+    gl.setRenderTarget(null);
+    gl.clearDepth();
+    gl.render(scene, activeCamera);
+    activeCamera.layers.set(0);
+    gl.autoClear = prevAutoClear;
     gl.setClearAlpha(prevClearAlpha);
   }, 1);
 

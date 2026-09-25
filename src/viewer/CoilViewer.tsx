@@ -6,8 +6,8 @@ import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.j
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CAP_THICKNESS, JOINT_ENGAGE_DEPTH, JOINT_TRANSITION_HEIGHT } from "../core";
 import type { CoilMesh, Part, Resolution, ShapeKind, WireLayerPath } from "../core";
-import { DimensionOverlay } from "./dimensionOverlay";
-import { DEFAULT_FILL, LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
+import { DimensionAxes, dimensionFramePoints, measureDimensionFrame, type DimensionLabels } from "./DimensionAxes";
+import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
 import { getPreset, type PresetId } from "./lineArt/presets";
 import { ViewControls } from "./ViewControls";
 import { WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
@@ -62,10 +62,14 @@ export interface CoilViewerProps {
   exploded?: boolean;
   /** `Design.mountAxisDeg` (issue #13): the screw-keyhole mount's own true "hangs level" axis, when it differs from the design's local +Y (WALL_UP) -- see `buildViewRotations`'s comment. Omit (or leave undefined) when there's no mount, or it fits exactly on local +Y already. */
   mountAxisDeg?: number;
-  /** Issue #50 (numbers fixed in #63): `Solution.flangeExtent.acrossFlats` -- a round flange's true outer diameter, shown as the "Ø" width dimension (sq/tri widths, and the overall height, are measured off the rendered part meshes instead -- see dimensionOverlay.tsx). Omitted (no solved design yet) hides the whole dimension overlay. */
+  /** Issue #50 (numbers fixed in #63): `Solution.flangeExtent.acrossFlats` -- a round flange's true outer diameter, shown as the "Ø" width and depth dimensions (sq/tri widths/depths are the flange mesh's own extents along local X/Y). Omitted (no solved design yet) hides the dimension axes. */
   envelopeWidth?: number;
-  /** Issue #50: `CoilSpec.shape.kind` -- whether the width dimension reads as a true diameter ("Ø", round, from `envelopeWidth`) or a plain width measured along the drawn direction (sq/tri). */
+  /** Issue #63: `Solution.overallHeight` -- the height dimension (flange underside to the top). Falls back to the part meshes' own Z extent. */
+  overallHeight?: number;
+  /** Issue #50: `CoilSpec.shape.kind` -- whether the width/depth dimensions read as a true diameter ("Ø", round, from `envelopeWidth`) or a plain width (sq/tri). */
   shapeKind?: ShapeKind;
+  /** Issue #69: the dimension axes' visibility toggle. */
+  showDimensions?: boolean;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -235,7 +239,9 @@ export function CoilViewer({
   exploded = false,
   mountAxisDeg,
   envelopeWidth,
+  overallHeight,
   shapeKind,
+  showDimensions = true,
 }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -316,10 +322,9 @@ export function CoilViewer({
   // The rotation applied to every rendered geometry for the current view
   // (the wall-mount pose's own geometry rotation, or the inner-end debug
   // close-up's azimuth spin) -- shared by `viewPartGeometries`/
-  // `viewWireGeometries` below and by DimensionOverlay (issue #50 PR #59
-  // review), which applies the identical rotation to its own local-axis
-  // dimension anchors so they land in the SAME frame as the geometry it's
-  // annotating.
+  // `viewWireGeometries` below and by DimensionAxes (issue #69), which
+  // carries the identical rotation on its own group so the axes stay on the
+  // geometry they measure.
   const viewRotation = useMemo(() => viewRotations[viewMode] ?? focusRotation, [viewRotations, viewMode, focusRotation]);
 
   // Wall-view preset: physically rotated COPIES of every part's geometry (not
@@ -339,17 +344,16 @@ export function CoilViewer({
     return () => viewPartGeometries.forEach(({ geometry }) => geometry.dispose());
   }, [viewPartGeometries, partGeometries]);
 
-  // A stable geometries-only array for DimensionOverlay (issue #50), so its
-  // own bounds computation only reruns when `viewPartGeometries` itself
-  // actually changes -- a fresh inline `.map()` at the JSX call site below
-  // would produce a NEW array reference (and, since that component isn't
-  // memoized, a full recompute over every vertex) on every unrelated
-  // CoilViewer re-render (a projection/explode toggle, a resize), which
-  // measurably taxed the main thread on a final-resolution mesh and, in
-  // practice, delayed the line-art pipeline's own settle frames enough to
-  // occasionally capture a screenshot mid-render (e2e/line-art.spec.ts's
-  // "silhouette is unbroken" check, caught this exact race).
-  const dimensionGeometries = useMemo(() => viewPartGeometries.map(({ geometry }) => geometry), [viewPartGeometries]);
+  // The dimension axes' box (issue #69), in the parts' local frame.
+  const dimensionBox = useMemo(() => measureDimensionFrame(parts), [parts]);
+
+  const dimensionLabels = useMemo((): DimensionLabels | null => {
+    if (envelopeWidth === undefined || shapeKind === undefined || dimensionBox.box.isEmpty()) return null;
+    const size = dimensionBox.box.getSize(new THREE.Vector3());
+    const cm = (mm: number) => `${(mm / 10).toFixed(1)} cm`;
+    const across = (mm: number) => (shapeKind === "round" ? `Ø ${cm(envelopeWidth)}` : cm(mm));
+    return { width: across(size.x), depth: across(size.y), height: cm(overallHeight ?? size.z) };
+  }, [dimensionBox, envelopeWidth, shapeKind, overallHeight]);
 
   const viewWireGeometries = useMemo(() => {
     if (!viewRotation) return wireGeometries;
@@ -404,6 +408,13 @@ export function CoilViewer({
       }
       return shifted;
     });
+    // Issue #69: room for the dimension axes and their labels (kept even when
+    // they are toggled off, so the toggle never zooms the model).
+    if (!exploded && dimensionLabels) {
+      const points = dimensionFramePoints(dimensionBox.box, dimensionBox.groundZ);
+      if (viewRotation) new THREE.BufferAttribute(points, 3).applyMatrix4(viewRotation);
+      chunks.push(points);
+    }
     const merged = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
     let at = 0;
     for (const c of chunks) {
@@ -413,7 +424,7 @@ export function CoilViewer({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded]);
+  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionBox, viewRotation]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
   // Debug close-up (continued): a SMALL framing geometry -- just
@@ -507,22 +518,27 @@ export function CoilViewer({
           fill={focusFramingGeometry ? FOCUS_FILL : exploded ? EXPLODED_FILL : undefined}
           reducedMotion={reducedMotion}
         />
+        {/* Issue #69: hidden while exploded (or in the inner-end debug
+            close-up) -- they measure the assembled pose. */}
+        {showDimensions && !exploded && !focusFramingGeometry && dimensionLabels && (
+          <DimensionAxes box={dimensionBox.box} groundZ={dimensionBox.groundZ} rotation={viewRotation} labels={dimensionLabels} />
+        )}
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
       </Canvas>
-      {/* Issue #50: hidden while exploded (or the inner-end debug close-up
-          is active) -- the assembled bounds it measures don't apply to
-          either pose, and an exploded view already has its own tighter
-          fill/framing (EXPLODED_FILL above) this overlay doesn't share. */}
-      {!exploded && !focusFramingGeometry && envelopeWidth !== undefined && shapeKind !== undefined && (
-        <DimensionOverlay
-          geometries={dimensionGeometries}
-          cableGeometries={viewWireGeometries}
-          preset={effectivePreset}
-          fill={DEFAULT_FILL}
-          rotation={viewRotation}
-          widthMm={envelopeWidth}
-          shapeKind={shapeKind}
-        />
+      {/* The same values as text, for screen readers (the axes' labels are
+          drawn inside the canvas). */}
+      {showDimensions && !exploded && !focusFramingGeometry && dimensionLabels && (
+        <ul className="visually-hidden" data-testid="dimensions" aria-label="Overall dimensions">
+          <li>
+            Width <span data-testid="dimension-width">{dimensionLabels.width}</span>
+          </li>
+          <li>
+            Depth <span data-testid="dimension-depth">{dimensionLabels.depth}</span>
+          </li>
+          <li>
+            Height <span data-testid="dimension-height">{dimensionLabels.height}</span>
+          </li>
+        </ul>
       )}
       <ViewControls preset={effectivePreset} onPresetChange={handlePresetChange} projection={projection} onProjectionChange={setProjection} />
     </div>
