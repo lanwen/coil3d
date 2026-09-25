@@ -1,0 +1,63 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (with the /scroll3d/ Pages base path)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # VITE_BASE makes every built asset URL absolute under /scroll3d/,
+      # matching where GitHub Pages serves a project site from
+      # (https://lanwen.github.io/scroll3d/). See vite.config.ts.
+      - name: Build
+        run: npm run build
+        env:
+          VITE_BASE: /scroll3d/
+
+      # Packages dist/ as a deployable artifact. This alone makes no API
+      # calls and has no effect on the repo's Pages settings, so it's safe
+      # to run on every push to main even before Pages is enabled.
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Deploy
+    needs: build
+    # Gate: this job (the only one that actually talks to the Pages API)
+    # only runs once a maintainer has both enabled Pages (Settings > Pages >
+    # Source: GitHub Actions) and set the PAGES_ENABLED repo variable to
+    # "true" -- see README. Until then this job is skipped, not failed, on
+    # every push and on manual workflow_dispatch runs alike.
+    if: vars.PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
