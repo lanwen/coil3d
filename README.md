@@ -41,7 +41,10 @@ so a dev server does not need to be running first.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on every pull request and on push to `main`:
+`.github/workflows/ci.yml` runs on push to `main` and on manual dispatch.
+Pull requests skip it by default. Run `npm test` and `npm run e2e` locally
+before merging, or add the `run-ci` label to a PR to opt in (it then re-runs
+on every later push to that PR). The jobs are:
 
 1. **`build-and-test`** — `npm ci`, `tsc -b` (typecheck), `vitest run` (the
    coil core's public interface), then `npm run build`.
