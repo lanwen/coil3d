@@ -518,6 +518,7 @@ export function CoilViewer({
           preset={effectivePreset}
           fill={focusFramingGeometry ? FOCUS_FILL : exploded ? EXPLODED_FILL : undefined}
           reducedMotion={reducedMotion}
+          resolution={resolution}
         />
         {/* Issue #69: hidden while exploded (or in the inner-end debug
             close-up) -- they measure the assembled pose. */}
