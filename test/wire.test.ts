@@ -283,33 +283,164 @@ function expectContinuousJoin(before: Float32Array, after: Float32Array, label: 
   expect(angleBetweenDeg(tangentBefore, tangentAfter), `${label}: tangent angle`).toBeLessThan(20);
 }
 
+// Guards against a specific PR #77 review bug class: `layerTransitions`/
+// `outerEndLeadOut` are Hermite curves built in cylindrical (radius, angle,
+// height) coordinates around the coil axis (wire.ts's `cylindricalBridge`).
+// `expectContinuousJoin` above only checks the two exact ENDPOINTS -- gap and
+// tangent direction are satisfied there by construction, no matter what the
+// curve does in BETWEEN them. The bug this catches lived entirely in that
+// middle stretch and was invisible to the endpoint checks: an earlier
+// "always advance the angle forward, never backward" rule could force a
+// bridge to sweep almost a full extra turn around the coil (for a non-round
+// outline, two points that are only a hair apart in true winding progress
+// can still read as slightly BACKWARD in raw global angle, since a corner
+// arc's own local centre sits off the global axis -- shapes.ts's
+// `evalOutline`), and an unclamped radius channel could similarly overshoot
+// on the way between two nearby radii. Both read fine at the sampled
+// endpoints (gap/tangent) but rendered as a dramatic loop bulging away from
+// the coil's own surface in between. Caught originally by rendering
+// screenshots and diffing against `origin/main`, not by any vitest check --
+// this is that missing check.
+//
+// Bounds (found empirically, see PR #77's description for the full sweep):
+// legitimate bridges never exceed ~15 degrees of sweep beyond the maximum
+// half-turn (180 degrees) an orthocyclic phase shift can ever require
+// (`phaseShiftTurns` caps at exactly half a turn), and never deviate
+// radially by more than ~15% of the bridge's own larger endpoint radius
+// (observed up to ~14.7% for a thin-wire, many-layer, large-core design)
+// -- both WAY under what the regression produced (a ~180-degree accidental
+// EXTRA sweep, i.e. close to 360 total, and a radial dip of ~85% of the
+// endpoint radius, collapsing nearly to the coil's own axis). The radial
+// bound is relative to the bridge's own radius, not an absolute "N x wire
+// diameter": a thin wire on a large core legitimately needs a few mm of
+// slack that would fail a fixed small absolute bound despite being a
+// perfectly ordinary, correctly-behaved bridge (verified separately against
+// several wire diameters and core sizes before picking this bound).
+const MAX_BRIDGE_SWEEP_DEG = 210; // 180 (max possible phase shift) + slack
+const MAX_BRIDGE_RADIAL_DEVIATION_FRACTION = 0.2; // of the bridge's own larger endpoint radius
+
+function radiusAt3(points: Float32Array, i: number): number {
+  return Math.hypot(points[i * 3], points[i * 3 + 1]);
+}
+function angleDegAt(points: Float32Array, i: number): number {
+  return (Math.atan2(points[i * 3 + 1], points[i * 3]) * 180) / Math.PI;
+}
+
+/** The bridge's own total angular travel around the axis (degrees), unwrapped so a run of samples that individually stay within +-180 degrees of each other doesn't get miscounted at the wrap. */
+function angularSweepDeg(points: Float32Array): number {
+  const sampleCount = points.length / 3;
+  let unwrapped = angleDegAt(points, 0);
+  let min = unwrapped;
+  let max = unwrapped;
+  let prevRaw = unwrapped;
+  for (let i = 1; i < sampleCount; i++) {
+    const raw = angleDegAt(points, i);
+    let delta = raw - prevRaw;
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    unwrapped += delta;
+    prevRaw = raw;
+    min = Math.min(min, unwrapped);
+    max = Math.max(max, unwrapped);
+  }
+  return max - min;
+}
+
+/** Asserts a bridge (a layer transition or the outer lead-out) stays close to its own two endpoints' radii and doesn't sweep an unreasonable amount of angle in between -- see the guard's own doc comment above for why. */
+function expectBridgeHugsTheSurface(bridge: Float32Array, label: string) {
+  const sampleCount = bridge.length / 3;
+  const r0 = radiusAt3(bridge, 0);
+  const rLast = radiusAt3(bridge, sampleCount - 1);
+  const rLo = Math.min(r0, rLast);
+  const rHi = Math.max(r0, rLast);
+
+  let maxDeviation = 0;
+  for (let i = 0; i < sampleCount; i++) {
+    const r = radiusAt3(bridge, i);
+    maxDeviation = Math.max(maxDeviation, r - rHi, rLo - r);
+  }
+  expect(maxDeviation / rHi, `${label}: radial deviation as a fraction of its own larger endpoint radius`).toBeLessThan(
+    MAX_BRIDGE_RADIAL_DEVIATION_FRACTION,
+  );
+  expect(angularSweepDeg(bridge), `${label}: angular sweep around the axis`).toBeLessThan(MAX_BRIDGE_SWEEP_DEG);
+}
+
 describe("design() is one continuous cable, inner end to outer end (issue #68)", () => {
   for (const shapeKind of ["round", "sq", "tri"] as const) {
     for (let layers = 1; layers <= 6; layers++) {
-      it(`shape=${shapeKind} layers=${layers}: every join has zero gap and a small tangent-angle change`, async () => {
-        const d = await design(
-          baseSpec({
-            shape: shapeKind === "round" ? { kind: "round" } : { kind: shapeKind, cornerRadius: 10 },
-            wire: { length: 3000, diameter: 3.8, type: "usb" },
-            coreSize: { locked: true, dimension: "outer", value: 30 },
-            height: { locked: true, value: 60 },
-            layers: { locked: true, value: layers },
-          }),
-        );
-        expect(d.solution.layers).toBe(layers);
-        expect(d.wirePaths).toHaveLength(layers);
-        expect(d.wirePaths.every((p) => p.turns > 0)).toBe(true);
-        expect(d.layerTransitions).toHaveLength(layers - 1);
+      // windingQuality=1 maximizes each layer-to-layer phase shift (a full
+      // half-turn, `phaseShiftTurns`'s own cap) -- the case that most
+      // exercises a bridge's own angular sweep, so it's included alongside
+      // the default 0.7 rather than only tested separately.
+      for (const windingQuality of [0.7, 1]) {
+        it(`shape=${shapeKind} layers=${layers} quality=${windingQuality}: every join has zero gap/small tangent change, and every bridge hugs the surface`, async () => {
+          const d = await design(
+            baseSpec({
+              shape: shapeKind === "round" ? { kind: "round" } : { kind: shapeKind, cornerRadius: 10 },
+              wire: { length: 3000, diameter: 3.8, type: "usb" },
+              coreSize: { locked: true, dimension: "outer", value: 30 },
+              height: { locked: true, value: 60 },
+              layers: { locked: true, value: layers },
+              windingQuality,
+            }),
+          );
+          expect(d.solution.layers).toBe(layers);
+          expect(d.wirePaths).toHaveLength(layers);
+          expect(d.wirePaths.every((p) => p.turns > 0)).toBe(true);
+          expect(d.layerTransitions).toHaveLength(layers - 1);
 
-        expectContinuousJoin(d.innerEndLeadIn, d.wirePaths[0].points, "inner lead-in -> layer 1");
-        for (let i = 0; i + 1 < d.wirePaths.length; i++) {
-          expectContinuousJoin(d.wirePaths[i].points, d.layerTransitions[i], `layer ${i + 1} -> transition ${i + 1}`);
-          expectContinuousJoin(d.layerTransitions[i], d.wirePaths[i + 1].points, `transition ${i + 1} -> layer ${i + 2}`);
-        }
-        expectContinuousJoin(d.wirePaths.at(-1)!.points, d.outerEndLeadOut, "last layer -> outer lead-out");
-      });
+          expectContinuousJoin(d.innerEndLeadIn, d.wirePaths[0].points, "inner lead-in -> layer 1");
+          for (let i = 0; i + 1 < d.wirePaths.length; i++) {
+            expectContinuousJoin(d.wirePaths[i].points, d.layerTransitions[i], `layer ${i + 1} -> transition ${i + 1}`);
+            expectContinuousJoin(d.layerTransitions[i], d.wirePaths[i + 1].points, `transition ${i + 1} -> layer ${i + 2}`);
+            expectBridgeHugsTheSurface(d.layerTransitions[i], `transition ${i + 1}`);
+          }
+          expectContinuousJoin(d.wirePaths.at(-1)!.points, d.outerEndLeadOut, "last layer -> outer lead-out");
+          expectBridgeHugsTheSurface(d.outerEndLeadOut, "outer lead-out");
+        });
+      }
     }
   }
+
+  it("a thin wire on a large, many-layer core doesn't trip the surface-hugging guard (a legitimate few-mm bulge, not the PR #77 regression)", async () => {
+    const d = await design(
+      baseSpec({
+        shape: { kind: "sq", cornerRadius: 20 },
+        wire: { length: 3000, diameter: 1.2, type: "usb" },
+        coreSize: { locked: true, dimension: "outer", value: 100 },
+        height: { locked: true, value: 60 },
+        layers: { locked: true, value: 6 },
+        windingQuality: 0.55,
+      }),
+    );
+    expect(d.layerTransitions.length).toBeGreaterThan(0);
+    for (const [i, t] of d.layerTransitions.entries()) expectBridgeHugsTheSurface(t, `transition ${i + 1}`);
+    expectBridgeHugsTheSurface(d.outerEndLeadOut, "outer lead-out");
+  });
+
+  it("the design that originally caught the PR #77 regression (a big rounded-square core, skadis mount, 1 layer) still hugs the surface", async () => {
+    // This is what the almost-360-degree-loop bug looked like in practice:
+    // a single-layer square core with a large, off-centre-cornered outline
+    // (see wire.ts's `cylindricalBridge` doc comment), where the outer
+    // lead-out's own two endpoints sit at a GLOBAL angle that drifts
+    // slightly "backward" despite representing essentially zero true
+    // winding progress -- forcing "always forward" swept the bridge almost
+    // all the way around the coil instead of the tiny hop it actually
+    // needed. Found by rendering screenshots and diffing against
+    // `origin/main`, not by any vitest check that existed at the time.
+    const d = await design(
+      baseSpec({
+        shape: { kind: "sq", cornerRadius: 15 },
+        wire: { length: 2000, diameter: 3.8, type: "usb" },
+        coreSize: { locked: true, dimension: "outer", value: 100 },
+        height: { locked: false },
+        layers: { locked: true, value: 1 },
+        mount: "skadis",
+      }),
+    );
+    expect(d.layerTransitions).toHaveLength(0); // 1 layer: only the outer lead-out is at risk here
+    expectBridgeHugsTheSurface(d.outerEndLeadOut, "outer lead-out");
+  });
 
   it("the outer-end lead-out reaches the top cap's own rim keyhole position, even when the top cap is off (1 layer)", async () => {
     const d = await design(
