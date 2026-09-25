@@ -6,6 +6,7 @@ import { ControlsForm } from "./components/ControlsForm";
 import { ResultPanel } from "./components/ResultPanel";
 import { CoilViewer } from "./viewer/CoilViewer";
 import { EyeToggle } from "./components/fields";
+import { HINTS } from "./components/hints";
 import { Guide } from "./guide/Guide";
 import "./App.css";
 
@@ -152,11 +153,11 @@ export default function App() {
           {result && (
             <>
               <div className="wire-toggle">
-                <EyeToggle testId="wire" label="Show wound cable" checked={showWire} onChange={setShowWire} />
+                <EyeToggle testId="wire" label="Show wound cable" checked={showWire} hint={HINTS.wire} onChange={setShowWire} />
               </div>
               {result.parts.length > 1 && (
                 <div className="explode-toggle">
-                  <EyeToggle testId="exploded" label="Exploded view" checked={exploded} onChange={setExploded} />
+                  <EyeToggle testId="exploded" label="Exploded view" checked={exploded} hint={HINTS.exploded} onChange={setExploded} />
                 </div>
               )}
               <CoilViewer

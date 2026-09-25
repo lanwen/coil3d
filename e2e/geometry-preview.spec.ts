@@ -21,7 +21,8 @@ test("editing disables downloads until the design re-settles to final resolution
   await expect(page.getByTestId("mesh-detail")).toContainText("final");
   await expect(page.getByTestId("resolution-settling")).toHaveCount(0);
 
-  await page.getByTestId("input-wireLength").fill("1200");
+  // Cable length is entered/shown in centimetres (issue #51): 120cm = 1200mm.
+  await page.getByTestId("input-wireLength").fill("120");
 
   // The moment input changes, exports must not be offered against a stale
   // or draft mesh: both downloads disable, with a visible reason.

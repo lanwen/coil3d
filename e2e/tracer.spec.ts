@@ -41,7 +41,9 @@ test("a hash URL with explicit locks drives the result panel and the STL downloa
 test("a garbage hash falls back to defaults with a visible notice", async ({ page }) => {
   await page.goto("/#v=1&L=not-a-number");
   await expect(page.getByTestId("hash-notice")).toBeVisible();
-  await expect(page.getByTestId("input-wireLength")).toHaveValue("2000");
+  // Cable length is entered/shown in centimetres (issue #51); the default
+  // 2000mm CoilSpec value displays as 200cm.
+  await expect(page.getByTestId("input-wireLength")).toHaveValue("200");
 });
 
 test("an unknown lock token in the hash falls back to defaults with a notice", async ({ page }) => {

@@ -1,10 +1,64 @@
+import { useId } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import type { Lock } from "../core";
+import { Hint } from "./Hint";
 
 /** Round to the nearest 0.1 -- the solver's raw floats (e.g. 34.65625mm) are
  * never shown to the user; every displayed/seeded number is sane. See issue
  * #16: "the solved values in free fields must be rounded". */
 export const round1 = (n: number) => Math.round(n * 10) / 10;
+
+/**
+ * Cable length is entered and shown in centimetres (issue #51); `CoilSpec`
+ * itself keeps it in millimetres exactly like every other dimension -- the
+ * core, the hash and the solver never see a unit change. This is a pure
+ * UI-layer conversion, shared by the length input (ControlsForm) and every
+ * result row that reports a wound-cable length (ResultPanel), so both sides
+ * of that seam agree on the same unit.
+ */
+export const MM_PER_CM = 10;
+export const mmToCm = (mm: number) => mm / MM_PER_CM;
+export const cmToMm = (cm: number) => cm * MM_PER_CM;
+
+/**
+ * A field's own label, plus an optional (i) hint button (issue #53) shown
+ * right after it -- never overlapping the value, which sits in its own
+ * column to the right of this row. `htmlFor` links the label text to its
+ * control the normal way (a real `<label for>`, not a wrapping `<label>`),
+ * which keeps the hint button a plain sibling rather than nested inside a
+ * label that would also forward clicks to an unrelated control.
+ */
+export function FieldTop({
+  label,
+  hint,
+  htmlFor,
+  labelId,
+}: {
+  label: string;
+  hint?: string;
+  htmlFor?: string;
+  /** An id on just the label text itself (not the hint) -- for a caller
+   * that needs to name something ELSE by this label (e.g. `ShapePicker`'s
+   * `role="radiogroup"` via `aria-labelledby`), so that name is exactly the
+   * label text, never polluted by the hint button's own accessible name or
+   * its (always-mounted) tooltip text. */
+  labelId?: string;
+}) {
+  return (
+    <span className="field-label-row">
+      {htmlFor ? (
+        <label id={labelId} htmlFor={htmlFor} className="field-label">
+          {label}
+        </label>
+      ) : (
+        <span id={labelId} className="field-label">
+          {label}
+        </span>
+      )}
+      {hint && <Hint text={hint} />}
+    </span>
+  );
+}
 
 /** A labelled group of fields (Cable / Shape / Core / Result / Export). Pure
  * presentation: calm vertical rhythm instead of a flat wall of inputs. */
@@ -35,6 +89,8 @@ export function RangeField({
    * issue #16 review: the lock must sit inline with the field it controls,
    * not on a row of its own above it. */
   leading,
+  /** Plain-English explanation shown by an (i) button next to the label (issue #53). */
+  hint,
   onChange,
 }: {
   testId: string;
@@ -46,8 +102,10 @@ export function RangeField({
   step: number;
   disabled?: boolean;
   leading?: ReactNode;
+  hint?: string;
   onChange: (value: number) => void;
 }) {
+  const numberId = useId();
   const handleNumber = (event: ChangeEvent<HTMLInputElement>) => {
     const next = Number(event.target.value);
     if (!Number.isFinite(next)) return;
@@ -59,10 +117,11 @@ export function RangeField({
       <div className="field-top">
         <span className="field-top-label">
           {leading}
-          <span className="field-label">{label}</span>
+          <FieldTop label={label} hint={hint} htmlFor={numberId} />
         </span>
         <span className="field-value">
           <input
+            id={numberId}
             type="number"
             className="field-number"
             data-testid={`input-${testId}`}
@@ -100,6 +159,7 @@ export function TextField({
   value,
   placeholder,
   maxLength,
+  hint,
   onChange,
 }: {
   testId: string;
@@ -107,12 +167,15 @@ export function TextField({
   value: string;
   placeholder?: string;
   maxLength?: number;
+  hint?: string;
   onChange: (value: string) => void;
 }) {
+  const inputId = useId();
   return (
-    <label className="field">
-      <span className="field-label">{label}</span>
+    <div className="field">
+      <FieldTop label={label} hint={hint} htmlFor={inputId} />
       <input
+        id={inputId}
         type="text"
         className="field-text"
         data-testid={`input-${testId}`}
@@ -121,7 +184,7 @@ export function TextField({
         maxLength={maxLength}
         onChange={(e) => onChange(e.target.value)}
       />
-    </label>
+    </div>
   );
 }
 
@@ -134,6 +197,7 @@ export function StepperField({
   max,
   disabled,
   leading,
+  hint,
   onChange,
 }: {
   testId: string;
@@ -143,8 +207,10 @@ export function StepperField({
   max: number;
   disabled?: boolean;
   leading?: ReactNode;
+  hint?: string;
   onChange: (value: number) => void;
 }) {
+  const numberId = useId();
   const clamp = (n: number) => Math.min(max, Math.max(min, n));
   const handleNumber = (event: ChangeEvent<HTMLInputElement>) => {
     const next = Number(event.target.value);
@@ -156,7 +222,7 @@ export function StepperField({
       <div className="field-top">
         <span className="field-top-label">
           {leading}
-          <span className="field-label">{label}</span>
+          <FieldTop label={label} hint={hint} htmlFor={numberId} />
         </span>
       </div>
       <div className="stepper">
@@ -170,6 +236,7 @@ export function StepperField({
           &minus;
         </button>
         <input
+          id={numberId}
           type="number"
           className="stepper-number"
           data-testid={`input-${testId}`}
@@ -233,6 +300,7 @@ export function LockRangeField({
   max,
   step,
   freeValue,
+  hint,
   onChange,
 }: {
   testId: string;
@@ -243,6 +311,7 @@ export function LockRangeField({
   max: number;
   step: number;
   freeValue: number;
+  hint?: string;
   onChange: (lock: Lock<number>) => void;
 }) {
   const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? lock.value : freeValue } : { locked: false });
@@ -260,6 +329,7 @@ export function LockRangeField({
       step={step}
       disabled={!lock.locked}
       leading={<LockCheckbox testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
+      hint={hint}
       onChange={setValue}
     />
   );
@@ -273,6 +343,7 @@ export function LockStepperField({
   min,
   max,
   freeValue,
+  hint,
   onChange,
 }: {
   testId: string;
@@ -281,6 +352,7 @@ export function LockStepperField({
   min: number;
   max: number;
   freeValue: number;
+  hint?: string;
   onChange: (lock: Lock<number>) => void;
 }) {
   const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? lock.value : freeValue } : { locked: false });
@@ -296,6 +368,7 @@ export function LockStepperField({
       max={max}
       disabled={!lock.locked}
       leading={<LockCheckbox testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
+      hint={hint}
       onChange={setValue}
     />
   );
@@ -307,22 +380,37 @@ export function LockStepperField({
  * a black/white pictogram, here an eye / crossed-out eye -- never a raw
  * checkbox (issue #16 review).
  */
-export function EyeToggle({ testId, label, checked, onChange }: { testId: string; label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+export function EyeToggle({
+  testId,
+  label,
+  checked,
+  hint,
+  onChange,
+}: {
+  testId: string;
+  label: string;
+  checked: boolean;
+  hint?: string;
+  onChange: (checked: boolean) => void;
+}) {
   return (
-    <label className="eye-toggle" title={checked ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}>
-      <input
-        type="checkbox"
-        className="eye-toggle-input"
-        data-testid={`toggle-${testId}`}
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span className="eye-icon" aria-hidden="true">
-        <span className="eye-icon-outer" />
-        <span className="eye-icon-pupil" />
-        <span className="eye-icon-slash" />
-      </span>
-      <span className="eye-toggle-text">{label}</span>
-    </label>
+    <span className="eye-toggle-row">
+      <label className="eye-toggle" title={checked ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}>
+        <input
+          type="checkbox"
+          className="eye-toggle-input"
+          data-testid={`toggle-${testId}`}
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+        <span className="eye-icon" aria-hidden="true">
+          <span className="eye-icon-outer" />
+          <span className="eye-icon-pupil" />
+          <span className="eye-icon-slash" />
+        </span>
+        <span className="eye-toggle-text">{label}</span>
+      </label>
+      {hint && <Hint text={hint} />}
+    </span>
   );
 }
