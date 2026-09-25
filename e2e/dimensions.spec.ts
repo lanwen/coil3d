@@ -270,105 +270,14 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
   });
 });
 
-// End-to-end checks for issue #65 (follow-ups from the #63 review):
-// - the height dimension's extension lines must visibly connect to the
-//   model's real top/bottom extreme points in every view, not just Front
-//   (dimensionOverlay.tsx's `anchorByScreenY`, see that file's header);
-// - the result panel's "Envelope" row is renamed and hinted so it reads as
-//   directly comparable to the flange rows, instead of looking like the
-//   cable pokes out past the flange.
-test.describe("height extension lines reach the model's real extremes, and the cable/flange rows are comparable (issue #65)", () => {
-  type Rgb = [number, number, number];
-  const differsPx = (a: Rgb, b: Rgb) => a.some((v, i) => Math.abs(v - b[i]) > 8);
-
-  /** The first/last non-background pixel row in one screenshot column -- the model's own real top/bottom silhouette edge, the same "walk in from the ends" idea `e2e/line-art.spec.ts`'s own `silhouette` uses along a row instead. */
-  async function verticalExtent(page: Page, png: Buffer, xFraction: number): Promise<{ top: number; bottom: number } | null> {
-    const data = await page.evaluate(
-      async ({ b64, frac }) => {
-        const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
-        const img = await createImageBitmap(blob, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
-        const ctx = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
-        ctx.drawImage(img, 0, 0);
-        return Array.from(ctx.getImageData(Math.round(frac * (img.width - 1)), 0, 1, img.height).data);
-      },
-      { b64: png.toString("base64"), frac: xFraction },
-    );
-    const col: Rgb[] = [];
-    for (let i = 0; i < data.length; i += 4) col.push([data[i], data[i + 1], data[i + 2]]);
-    const bg = col[0];
-    const top = col.findIndex((p) => differsPx(p, bg));
-    if (top < 0) return null;
-    let bottom = col.length - 1;
-    while (!differsPx(col[bottom], bg)) bottom--;
-    return { top, bottom };
-  }
-
-  /** The height dimension's own two extension lines' on-screen Y (they're
-   * horizontal, so a single Y each) plus the model's real top/bottom pixel,
-   * all in viewport coordinates. Reads the live DOM directly (`closest`/
-   * `:scope >`) rather than an index into every `.dimension-extension` on
-   * the page, so it doesn't depend on the width dimension having placed
-   * first (dimensionOverlay.tsx's own `layoutAlong`/`place`: each
-   * dimension is its own `<g>`, `[bottom-anchor, top-anchor]` extension
-   * lines in that order -- see `ea`/`eb`). */
-  async function heightExtensionVsModel(page: Page) {
-    const frame = (await page.getByTestId("coil-viewer").boundingBox())!;
-    const canvas = page.getByTestId("coil-viewer").locator("canvas");
-
-    const extY = await page.evaluate(() => {
-      const text = document.querySelector('[data-testid="dimension-height"]')!;
-      const outerG = text.closest("g")!.parentElement!;
-      const lines = Array.from(outerG.querySelectorAll(":scope > line.dimension-extension"));
-      return lines.map((el) => el.getBoundingClientRect().y);
-    });
-    expect(extY, "the height dimension must have exactly 2 extension lines").toHaveLength(2);
-    const [bottomExtY, topExtY] = extY;
-
-    // A column through the model's own horizontal center crosses the cap at
-    // its top and the flange at its bottom, whatever the exact footprint
-    // shape. The overlay sits directly on top of the canvas (a compositor
-    // capture would pick up its own ink too, see line-art.spec.ts's own
-    // "unbroken silhouette" test), so it's hidden for this one screenshot.
-    await page.evaluate(() => {
-      const el = document.querySelector<HTMLElement>('[data-testid="dimension-overlay"]');
-      if (el) el.style.display = "none";
-    });
-    const png = await canvas.screenshot();
-    await page.evaluate(() => {
-      const el = document.querySelector<HTMLElement>('[data-testid="dimension-overlay"]');
-      if (el) el.style.display = "";
-    });
-    const extent = await verticalExtent(page, png, 0.5);
-    expect(extent, "the center column must cross the model").not.toBeNull();
-
-    return { modelTopY: frame.y + extent!.top, modelBottomY: frame.y + extent!.bottom, topExtY, bottomExtY };
-  }
-
-  test("iso view, square core: both ends land on the model's actual top/bottom pixels", async ({ page }) => {
-    await gotoDesign(page, SQUARE);
-    await showPreset(page, "iso");
-    const { modelTopY, modelBottomY, topExtY, bottomExtY } = await heightExtensionVsModel(page);
-
-    // Comfortably tighter than the ~80-130px gap the pre-fix anchor (picked
-    // by "furthest toward the sideways extension direction", not "furthest
-    // up/down") left on this exact case -- see dimensionOverlay.tsx's own
-    // `anchorByScreenY` header for why that particular plane shape needed a
-    // different criterion.
-    const TOLERANCE_PX = 20;
-    expect(Math.abs(topExtY - modelTopY), `top extension line y=${topExtY} vs model top=${modelTopY}`).toBeLessThan(TOLERANCE_PX);
-    expect(Math.abs(bottomExtY - modelBottomY), `bottom extension line y=${bottomExtY} vs model bottom=${modelBottomY}`).toBeLessThan(TOLERANCE_PX);
-  });
-
-  test("front view, square core: unaffected -- both ends still land on the model's actual top/bottom pixels", async ({ page }) => {
-    await gotoDesign(page, SQUARE);
-    await showPreset(page, "front");
-    const { modelTopY, modelBottomY, topExtY, bottomExtY } = await heightExtensionVsModel(page);
-
-    const TOLERANCE_PX = 20;
-    expect(Math.abs(topExtY - modelTopY)).toBeLessThan(TOLERANCE_PX);
-    expect(Math.abs(bottomExtY - modelBottomY)).toBeLessThan(TOLERANCE_PX);
-  });
-
+// End-to-end checks for issue #65 (follow-ups from the #63 review): the
+// result panel's "Envelope" row is renamed and hinted so it reads as
+// directly comparable to the flange rows, instead of looking like the
+// cable pokes out past the flange. (This issue also fixed the height
+// dimension's own extension lines in the old SVG overlay; issue #69/#75
+// replaced that overlay with the 3D dimension axes above, so that part is
+// superseded and dropped here.)
+test.describe("the cable/flange rows are comparable (issue #65)", () => {
   test("the cable's own outer size and the flange rows are labelled/hinted so they're directly comparable", async ({ page }) => {
     await gotoDesign(page, SQUARE);
     // Renamed from the old, unqualified "Envelope" (issue #65): it's a

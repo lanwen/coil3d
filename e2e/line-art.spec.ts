@@ -86,20 +86,6 @@ test.describe("IKEA line-art renderer", () => {
 
   test("the fill is pure white and the silhouette is a dark line against the background", async ({ page }) => {
     await gotoDesign(page, SQUAT);
-    // Issue #65 fixed the height dimension's own extension lines to reach
-    // the model's REAL top/bottom extreme points (previously they fell
-    // short, so this row happened never to cross them) -- the default
-    // (Iso) view's height dimension now legitimately reaches the middle
-    // row too. Hide the overlay for this scan, the same reason the
-    // "unbroken silhouette" test below already does: a plain
-    // canvas.screenshot() is a real compositor capture (the overlay sits
-    // directly on top of the canvas), and this scan cares only about the
-    // 3D-rendered silhouette itself, not the dimension line's own thin,
-    // antialiased stroke sitting just outside it.
-    await page.evaluate(() => {
-      const el = document.querySelector<HTMLElement>('[data-testid="dimension-overlay"]');
-      if (el) el.style.display = "none";
-    });
     const png = await page.getByTestId("coil-viewer").locator("canvas").screenshot();
     const [row] = await readRows(page, png, [0.5]);
 
