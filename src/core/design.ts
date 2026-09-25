@@ -167,8 +167,15 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     mountLayout = layoutKeyholeMount(outline, boreOutline, margin, spec.keyholeRotation);
     if (mountLayout.warning) warnings.push(mountLayout.warning);
   }
+  // Issue #70 PR review: reuses `solution.flangeSize / 2` as the wound
+  // envelope's own radius -- mirrors flange.ts's `resolveFlangeSizing`
+  // identically (that function's own doc comment explains why this
+  // already-padded number is a safe, conservative stand-in), so the margin
+  // that got GROWN to fit and the layout that actually CUTS the holes can
+  // never disagree about where "outside the envelope" starts.
+  const envelopeRadius = solution.flangeSize / 2;
   if (wantsThrough) {
-    const throughLayout = layoutThroughHoleMount(outline, boreOutline, margin, spec.throughHoleDiameter, innerEndLayout);
+    const throughLayout = layoutThroughHoleMount(outline, boreOutline, margin, spec.throughHoleDiameter, innerEndLayout, envelopeRadius);
     if (throughLayout.warning) warnings.push(throughLayout.warning);
   }
 
@@ -181,6 +188,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     mount: spec.mount,
     keyholeRotation: spec.keyholeRotation,
     throughHoleDiameter: spec.throughHoleDiameter,
+    envelopeRadius,
   };
 
   // Issue #14: lay out the clip mount plate (SKÅDIS/openGrid) against the

@@ -67,7 +67,6 @@ const PLATE_JOINT_OPTIONS: Array<{ id: PlateJoint; label: string }> = [
 const KEYHOLE_ROTATION_LABELS: Record<KeyholeRotation, string> = {
   0: "0°",
   45: "45°",
-  90: "90°",
 };
 
 export function ControlsForm({

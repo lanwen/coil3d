@@ -361,6 +361,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
       flangeSpec.margin,
       flangeSpec.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER,
       innerEndCutter.layout,
+      flangeSpec.envelopeRadius ?? 0,
     );
     for (const hole of layout.holes) {
       const cutter = throughHoleCutterSolid(hole, layout.holeRadius, layout.counterboreRadius, layout.counterboreDepth, flangeSpec.thickness);

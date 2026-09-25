@@ -107,10 +107,12 @@ export interface FlangeSpec {
   columns: number;
   /** Screw-keyhole wall mount (issue #13): cut into the flange's outer (wall-facing, z=-thickness) face when `"keyhole"`. See mount.ts. */
   mount: MountKind;
-  /** Issue #71: shifts the keyhole mount's own `bestAxisDeg` search away from literal vertical, in fixed 0/45/90 degree steps (`KEYHOLE_ROTATION_OPTIONS`). Ignored (and may be omitted) when `mount !== "keyhole"`. */
+  /** Issue #71: prefers a different one of the shape's own natural axes for the keyhole mount's own `bestAxisDeg` search, 0 or 45 degrees off literal vertical (`KEYHOLE_ROTATION_OPTIONS`; 90 is not offered -- see that constant's own doc comment). Ignored (and may be omitted) when `mount !== "keyhole"`. */
   keyholeRotation?: number;
   /** Issue #70: through-hole (screw-shank clearance) diameter, mm; defaults to `DEFAULT_THROUGH_HOLE_DIAMETER` when omitted. Ignored when `mount !== "through"`. */
   throughHoleDiameter?: number;
+  /** Issue #70 PR review: the wound cable's own outer radius (mirrors flange.ts's own `flangeSizeEnvelope / 2` reasoning) -- every through-hole is kept clear of it too, not just the wall's own surface, so it stays reachable with a screwdriver. 0/omitted when not relevant (no mount, or not yet known). */
+  envelopeRadius?: number;
 }
 
 /** What `fuseFlange` needs to cut a bayonet/snap joint's mating feature into the core's own top rim. Press needs no core-side cut, so it's omitted entirely by the caller. */
@@ -547,7 +549,7 @@ export async function fuseFlange(
       // it -- design.ts always provides one): fall back to a channel guard
       // far from the flange, which never collides, rather than crashing.
       const channelGuard = innerEndLayout ?? { hole: { x: 1e9, y: 1e9 }, holeRadius: 0, channelRibbon: [] };
-      const layout = layoutThroughHoleMount(flange.outline, flange.boreOutline, flange.margin, flange.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER, channelGuard);
+      const layout = layoutThroughHoleMount(flange.outline, flange.boreOutline, flange.margin, flange.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER, channelGuard, flange.envelopeRadius ?? 0);
       for (const hole of layout.holes) {
         const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, layout.counterboreRadius, layout.counterboreDepth, flange.thickness));
         fused = track(fused.subtract(cutter));

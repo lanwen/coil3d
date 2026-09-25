@@ -200,8 +200,9 @@ const DocSchema = z
     // (defaults + notice).
     mount: z.enum(["keyhole", "through", "skadis"]).optional(),
     pj: z.literal("snap").optional(),
-    // Issue #71: only ever one of KEYHOLE_ROTATION_OPTIONS.
-    kr: z.union([z.literal(0), z.literal(45), z.literal(90)]).optional(),
+    // Issue #71: only ever one of KEYHOLE_ROTATION_OPTIONS (90 is not
+    // offered -- see that constant's own doc comment).
+    kr: z.union([z.literal(0), z.literal(45)]).optional(),
     // Issue #70: through-hole (screw-shank clearance) diameter, mm.
     thd: z.number().finite().min(THROUGH_HOLE_DIAMETER_MIN).max(THROUGH_HOLE_DIAMETER_MAX).optional(),
     lock: z.array(z.enum(LOCK_TOKENS)).max(LOCK_TOKENS.length).optional(),

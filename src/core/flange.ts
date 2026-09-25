@@ -96,10 +96,17 @@ export function resolveFlangeSizing(
   // what's needed for the flange's own circumscribed radius to reach
   // flangeSizeEnvelope / 2.
   const baseMargin = Math.max(FLANGE_MARGIN, flangeSizeEnvelope / 2 - circumscribedRadius(outline, 0));
+  // Issue #70 AC ("outside the winding envelope, so a screwdriver can reach
+  // them"): `flangeSizeEnvelope` is already the wound envelope's own
+  // diameter (plus a flat FLANGE_MARGIN pad, docs/research.md "Flange size =
+  // final outer envelope + margin") -- reusing it directly as the through
+  // mount's own envelope-clearance radius is a few mm more conservative than
+  // the bare minimum (that pad), never less, so it's a safe stand-in with no
+  // extra plumbing.
   const margin = wantsKeyhole
     ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline, keyholeRotation))
     : wantsThrough
-      ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter))
+      ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, flangeSizeEnvelope / 2))
       : baseMargin;
 
   const minPlateThickness = mountKindForPlate ? (plateJoint === "snap" ? MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE : MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE) : 0;

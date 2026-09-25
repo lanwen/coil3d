@@ -195,7 +195,7 @@ test.describe("printable assembly guide (issue #17)", () => {
     // geometry (rotated by design()'s own `mountAxisDeg`), so a screenshot
     // at each rotation is a visual check that the cut and the illustration
     // never disagree, on top of test/mount.test.ts's own numeric coverage.
-    for (const kr of [0, 45, 90] as const) {
+    for (const kr of [0, 45] as const) {
       test(`with the screw-keyhole wall mount, rotated ${kr} degrees`, async ({ page }) => {
         test.slow();
         const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
@@ -223,7 +223,7 @@ test.describe("printable assembly guide (issue #17)", () => {
     test.describe("mount-side face-on close-ups", () => {
       test.use({ deviceScaleFactor: 3 });
 
-      for (const kr of [0, 45, 90] as const) {
+      for (const kr of [0, 45] as const) {
         test(`keyhole rotated ${kr} degrees`, async ({ page }) => {
           test.slow();
           const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };

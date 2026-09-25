@@ -97,8 +97,8 @@ export interface PrintSpec {
  */
 export type MountKind = "none" | "keyhole" | "through" | "skadis" | "opengrid";
 
-/** Issue #71: the screw-keyhole mount's own placement axis, shifted away from literal vertical in fixed steps (mount.ts's `bestAxisDeg`/`KEYHOLE_ROTATION_OPTIONS`). Ignored when `mount !== "keyhole"`. */
-export type KeyholeRotation = 0 | 45 | 90;
+/** Issue #71: the screw-keyhole mount's own placement axis, shifted away from literal vertical in fixed steps (mount.ts's `bestAxisDeg`/`KEYHOLE_ROTATION_OPTIONS`; 90 is deliberately not offered -- see that constant's own doc comment, a horizontal channel can't retain the coil). Ignored when `mount !== "keyhole"`. */
+export type KeyholeRotation = 0 | 45;
 
 /**
  * How the clip mount plate (issue #14, `mount: "skadis" | "opengrid"`)

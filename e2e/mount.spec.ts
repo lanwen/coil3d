@@ -119,7 +119,7 @@ test("the wall-mount preset changes the render and shows its own caption", async
   await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);
 });
 
-// Issue #71 acceptance criteria: a `keyholeRotation` 0/45/90 option in the
+// Issue #71 acceptance criteria: a `keyholeRotation` 0/45 option in the
 // UI/hash, with a hint, that follows through to the geometry (and the
 // guide's own mount-side inset, see guide.spec.ts) -- vitest (test/mount.
 // test.ts) covers the actual placement math; these check the UI wiring.

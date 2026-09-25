@@ -43,13 +43,16 @@
 // vertical at once after installing.
 //
 // Rotation (issue #71, `keyholeRotation`/`KEYHOLE_ROTATION_OPTIONS`): the
-// user can shift `bestAxisDeg`'s own search away from literal vertical by a
-// fixed 0/45/90 degree step, landing the slot(s) on a DIFFERENT one of the
-// shape's own natural mirror axes (see `candidateAxisDegs`) instead of
-// whichever needs the least flange margin. The result still always hangs
-// level -- rotation only changes WHICH natural axis is chosen, never
-// invents a non-symmetric one -- so "the mount axis and the hanging stay
-// level" holds for every option.
+// user can ask `bestAxisDeg` to prefer a DIFFERENT one of the shape's own
+// natural mirror axes (see `candidateAxisDegs`) than whichever needs the
+// least flange margin -- 0 (the default) or 45 degrees off literal
+// vertical. The search window itself (`SCREW_MOUNT_AXIS_SEARCH_MAX_DEG`,
+// 60 degrees) is NEVER shifted by this request, only used as the SET the
+// request picks from -- so the result always hangs level AND always
+// retains the coil (see `KEYHOLE_ROTATION_OPTIONS`'s own doc comment for
+// why a literal 90-degree option is unsafe and not offered: a channel that
+// far off vertical, once actually hung level, would be horizontal, with
+// zero gravity component along its own length).
 //
 // "Up", explicitly (this is the one axis every other piece of this feature
 // is defined against -- see WALL_UP below): local +Y at angle 0 in the
@@ -102,6 +105,7 @@ import {
   THROUGH_MOUNT_COUNTERBORE_DEPTH,
   THROUGH_MOUNT_COUNTERBORE_MARGIN,
   THROUGH_MOUNT_EDGE_MARGIN,
+  THROUGH_MOUNT_ENVELOPE_MARGIN,
   THROUGH_MOUNT_ROUND_HOLE_COUNTS,
 } from "./constants";
 import type { XY } from "./innerEnd";
@@ -131,55 +135,83 @@ export function standardAngleRad(thetaDeg: number): number {
 /**
  * Every corner's and every side-midpoint's own standard angle, converted to
  * `makeSlotAt` theta and normalised to (-180, 180], keeping only those within
- * `SCREW_MOUNT_AXIS_SEARCH_MAX_DEG` of `referenceDeg` (default 0, i.e.
- * literal vertical/`WALL_UP`) -- see the file header. Each one is (one end
- * of) a genuine mirror axis of the whole outline, so placing a slot on it, or
- * two slots symmetric about it, always hangs level, whatever `referenceDeg`
- * is: it only shifts WHICH of the shape's own natural axes the search
- * considers, never invents a non-symmetric one (issue #71's `keyholeRotation`
- * -- see `bestAxisDeg`).
+ * `SCREW_MOUNT_AXIS_SEARCH_MAX_DEG` of TRUE vertical (theta=0, `WALL_UP`) --
+ * see the file header. This window is FIXED -- issue #71 PR review: an
+ * earlier version re-centred it on the rotation request instead, which let
+ * the chosen axis drift arbitrarily far from true vertical (e.g. all the way
+ * to 105 degrees off it for a 45-degree request) -- defeating the ENTIRE
+ * point of this bound (this project's own accepted "how far off vertical can
+ * the mount tilt and still reliably hang" limit, cos(60 deg)=0.5 of gravity's
+ * pull retained at the very edge of it). `keyholeRotation` (see
+ * `bestAxisDeg`) only ever chooses AMONG these same safe candidates, never
+ * moves the window itself. Each candidate is (one end of) a genuine mirror
+ * axis of the whole outline, so placing a slot on it, or two slots symmetric
+ * about it, always hangs level.
  */
-function candidateAxisDegs(n: number, referenceDeg = 0): number[] {
+function candidateAxisDegs(n: number): number[] {
   const stepDeg = 360 / n;
   const candidates: number[] = [];
   for (let i = 0; i < n; i++) {
     for (const standardDeg of [i * stepDeg, i * stepDeg + stepDeg / 2]) {
       const theta = (((90 - standardDeg + 180) % 360) + 360) % 360 - 180;
-      const distFromReference = (((theta - referenceDeg + 180) % 360) + 360) % 360 - 180;
-      if (Math.abs(distFromReference) <= SCREW_MOUNT_AXIS_SEARCH_MAX_DEG) candidates.push(theta);
+      if (Math.abs(theta) <= SCREW_MOUNT_AXIS_SEARCH_MAX_DEG) candidates.push(theta);
     }
   }
   return candidates;
 }
 
 /**
- * Among the reachable axes, the one whose FANNED position (`axis +
- * fanDeg`, matching whatever a 2-slot layout will actually place a slot
- * at -- pass `fanDeg=0` for the single-slot case) sits closest to the
- * outline's own flat sides (the smallest `radiusAtAngle`), i.e. needs the
- * least flange margin to fit -- see the file header.
+ * Among the reachable axes (`candidateAxisDegs`, ALWAYS within
+ * `SCREW_MOUNT_AXIS_SEARCH_MAX_DEG` of true vertical -- never shifted, see
+ * that function's own doc comment), which one to use:
  *
- * `referenceDeg` (issue #71, `KEYHOLE_ROTATION_OPTIONS`) re-centres BOTH the
- * search window (`candidateAxisDegs`) and the near-tie break below on this
- * angle instead of literal vertical -- e.g. for a square (whose natural axes
- * sit every 45 degrees, corner and flat-side-midpoint alternating),
- * `referenceDeg=45` lands the search on the OTHER kind of axis than
- * `referenceDeg=0` would, without ever picking a non-symmetric angle: the
- * result still always hangs level (see `candidateAxisDegs`'s own doc
- * comment), just with a different corner/side of the core facing up.
+ * - `keyholeRotation === 0` (the default, issue #13's original behaviour,
+ *   unchanged): whichever axis needs the LEAST flange margin (the smallest
+ *   `radiusAtAngle` at its own FANNED position, `axis + fanDeg` -- pass
+ *   `fanDeg=0` for the single-slot case), tie-broken by closeness to true
+ *   vertical. A side's own midpoint has NO bulge at all (`radiusAtAngle`
+ *   there is just `apothem`, the same as round); a corner's own midpoint has
+ *   the FULL bulge (`circumscribedRadius`) -- always the more expensive
+ *   choice, so this never picks a corner when a side is reachable.
+ * - `keyholeRotation !== 0` (issue #71, `KEYHOLE_ROTATION_OPTIONS`): the
+ *   user has explicitly asked for a DIFFERENT axis than the automatic
+ *   (cheapest) one -- so this instead picks whichever SAFE candidate sits
+ *   CLOSEST to that request, cost only as a final tie-break (design.ts's
+ *   `requiredFlangeMargin` already grows the flange margin to fit whichever
+ *   axis is actually chosen, exactly as it already does for the automatic
+ *   case, so a more expensive explicit choice is never silently rejected,
+ *   only costed).
  */
-export function bestAxisDeg(boreOutline: ShapeOutline, fanDeg: number, referenceDeg = 0): number {
-  let best = referenceDeg;
+export function bestAxisDeg(boreOutline: ShapeOutline, fanDeg: number, keyholeRotation = 0): number {
+  const candidates = candidateAxisDegs(boreOutline.n);
+  if (keyholeRotation === 0) {
+    let best = 0;
+    let bestRadius = Infinity;
+    for (const theta of candidates) {
+      const r = radiusAtAngle(boreOutline, standardAngleRad(theta + fanDeg));
+      // Prefer a strictly cheaper candidate, but break a (near-)tie -- e.g.
+      // round, or any shape with no bulge to speak of, ties on EVERY
+      // candidate -- by whichever sits closest to true vertical, so a
+      // fully-agnostic shape still gets the visually obvious "top centre"
+      // placement instead of an arbitrary, equally-valid-but-surprising tilt.
+      const tied = Math.abs(r - bestRadius) < 1e-6;
+      if (r < bestRadius - 1e-6 || (tied && Math.abs(theta) < Math.abs(best))) {
+        bestRadius = r;
+        best = theta;
+      }
+    }
+    return best;
+  }
+
+  let best = candidates[0] ?? 0;
+  let bestDist = Infinity;
   let bestRadius = Infinity;
-  for (const theta of candidateAxisDegs(boreOutline.n, referenceDeg)) {
+  for (const theta of candidates) {
+    const dist = Math.abs(theta - keyholeRotation);
     const r = radiusAtAngle(boreOutline, standardAngleRad(theta + fanDeg));
-    // Prefer a strictly cheaper candidate, but break a (near-)tie -- e.g.
-    // round, or any shape with no bulge to speak of, ties on EVERY
-    // candidate -- by whichever sits closest to `referenceDeg`, so a
-    // fully-agnostic shape still gets the visually obvious "reference centre"
-    // placement instead of an arbitrary, equally-valid-but-surprising tilt.
-    const tied = Math.abs(r - bestRadius) < 1e-6;
-    if (r < bestRadius - 1e-6 || (tied && Math.abs(theta - referenceDeg) < Math.abs(best - referenceDeg))) {
+    const tiedDist = Math.abs(dist - bestDist) < 1e-6;
+    if (dist < bestDist - 1e-6 || (tiedDist && r < bestRadius - 1e-6)) {
+      bestDist = dist;
       bestRadius = r;
       best = theta;
     }
@@ -205,7 +237,11 @@ export function requiredFlangeMargin(outline: ShapeOutline, boreOutline: ShapeOu
   const requiredAnnulusAt = (fanDeg: number): number => {
     const axis = bestAxisDeg(boreOutline, fanDeg, keyholeRotation);
     const phi = standardAngleRad(axis + fanDeg);
-    const boreR = radiusAtAngle(boreOutline, phi);
+    // The wall's own outer (winding) surface, NOT the bore -- must match
+    // `slotAt`'s own `innerLimit` reference exactly, or this could solve for
+    // a margin that "fits" by the wrong measure (see that function's own
+    // doc comment on why the bore alone isn't the right inner bound).
+    const wallR = radiusAtAngle(outline, phi);
     // A hairline (1e-6 mm) safety margin past the bare-minimum target: this
     // margin is found by bisection, not a closed form (see this function's
     // own doc comment), so its own `hi` can land close enough to the true
@@ -215,7 +251,7 @@ export function requiredFlangeMargin(outline: ShapeOutline, boreOutline: ShapeOu
     // against -- imperceptible at print scale, but enough to flip a `>=`
     // into a `<` and report "doesn't fit" for a margin that, by construction,
     // was meant to.
-    const target = boreR + SCREW_MOUNT_ANNULUS_WIDTH + 1e-6;
+    const target = wallR + SCREW_MOUNT_ANNULUS_WIDTH + 1e-6;
 
     const flangeRadiusAt = (margin: number) => radiusAtAngle(offsetOutline(outline, margin), phi);
     let lo = 0;
@@ -265,9 +301,9 @@ export interface MountLayout {
  * outline), so the mesh and STEP backends compute the identical layout from
  * identical inputs.
  *
- * `keyholeRotation` (issue #71, one of `KEYHOLE_ROTATION_OPTIONS`) shifts
- * `bestAxisDeg`'s own search reference away from literal vertical -- see
- * that function's doc comment. Default 0 reproduces the original,
+ * `keyholeRotation` (issue #71, one of `KEYHOLE_ROTATION_OPTIONS`) asks
+ * `bestAxisDeg` to prefer a different one of the shape's own natural axes --
+ * see that function's own doc comment. Default 0 reproduces the original,
  * pre-#71 placement exactly.
  */
 export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutline, margin: number, keyholeRotation = 0): MountLayout {
@@ -279,6 +315,17 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
    * doesn't fit there. Both channels stay PARALLEL to WALL_UP (see the file
    * header): only the ANCHOR point rotates by `axisDeg`.
    *
+   * `innerLimit` clears the WALL'S OWN outer (winding) surface (`outline`
+   * at offset 0), NOT the hollow bore (issue #71 PR review, a confirmed
+   * bug): the flange's own inner annulus, from the bore out to `outline`,
+   * sits DIRECTLY BELOW the solid wall tube (same footprint, welded
+   * together at z=0) -- it is NOT empty/hollow space the way the bore
+   * itself is. A cut placed there would undermine the wall's own printed
+   * support (the wall exists at z>=0 with nothing but this same flange
+   * material underneath it at z<0) even though it never touches the bore.
+   * The safe region for any mount cut is only the OUTER annulus, `outline`
+   * to the flange's own true edge.
+   *
    * `outerLimit` budgets `SCREW_MOUNT_HEAD_RADIUS` at the shank-rest end too
    * (issue #71), not just at the head end: that end's own SURFACE opening is
    * narrower (`SCREW_MOUNT_SLOT_RADIUS`), but the undercut chamber directly
@@ -289,7 +336,7 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
    */
   const slotAt = (axisDeg: number): KeyholeSlot | null => {
     const phi = standardAngleRad(axisDeg);
-    const innerLimit = radiusAtAngle(boreOutline, phi) + SCREW_MOUNT_EDGE_MARGIN + SCREW_MOUNT_HEAD_RADIUS;
+    const innerLimit = radiusAtAngle(outline, phi) + SCREW_MOUNT_EDGE_MARGIN + SCREW_MOUNT_HEAD_RADIUS;
     const outerLimit = radiusAtAngle(flangeOutline, phi) - SCREW_MOUNT_EDGE_MARGIN - SCREW_MOUNT_HEAD_RADIUS;
     const bandLo = innerLimit + halfTravel;
     const bandHi = outerLimit - halfTravel;
@@ -362,19 +409,33 @@ export interface ThroughMountLayout {
 /**
  * The minimum flange margin that lets `layoutThroughHoleMount` place every
  * hole (mirrors mount.ts's own `requiredFlangeMargin`, but as a closed form
- * -- see the file header above).
+ * -- see the file header above). `envelopeRadius` (issue #70 AC: holes must
+ * be reachable with a screwdriver, "outside the winding envelope") is the
+ * wound cable's own outer radius (`Solution.envelopeDiameter / 2`, 0 if not
+ * yet known/relevant) -- when it reaches further out than the wall's own
+ * surface does, it becomes the REAL inner bound instead.
  */
-export function requiredThroughMountMargin(outline: ShapeOutline, boreOutline: ShapeOutline, holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER): number {
+export function requiredThroughMountMargin(
+  outline: ShapeOutline,
+  _boreOutline: ShapeOutline,
+  holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
+  envelopeRadius = 0,
+): number {
   const counterboreRadius = holeDiameter / 2 + THROUGH_MOUNT_COUNTERBORE_MARGIN;
   const isRound = outline.cornerRadius === outline.apothem;
   const outlineR0 = isRound ? outline.apothem : circumscribedRadius(outline, 0);
-  const boreR = isRound ? boreOutline.apothem : circumscribedRadius(boreOutline, 0);
+  // The wall's own outer (winding) surface -- NOT the bore (issue #71 PR
+  // review's same fix, mirrored here: see `layoutKeyholeMount`'s `slotAt`
+  // doc comment for why the bore alone isn't the right inner bound) -- or
+  // the wound envelope, whichever reaches further out.
+  const innerBound0 = Math.max(outlineR0 + THROUGH_MOUNT_EDGE_MARGIN, envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN);
   // A hairline (1e-6 mm) safety margin past the bare-minimum requirement --
-  // mirrors `requiredFlangeMargin`'s own epsilon: without it, `outlineR0`'s
-  // own floating-point rounding can occasionally leave `layoutThroughHoleMount`'s
-  // later, independent recomputation of this SAME "does it fit" check a few
-  // ULPs short of the target it was solved against.
-  const required = boreR + 2 * THROUGH_MOUNT_EDGE_MARGIN + 2 * counterboreRadius - outlineR0 + 1e-6;
+  // mirrors `requiredFlangeMargin`'s own epsilon: without it, floating-point
+  // rounding can occasionally leave `layoutThroughHoleMount`'s later,
+  // independent recomputation of this SAME "does it fit" check a few ULPs
+  // short of the target it was solved against.
+  const target = innerBound0 + 2 * counterboreRadius + THROUGH_MOUNT_EDGE_MARGIN + 1e-6;
+  const required = target - outlineR0;
   return Math.max(0, required);
 }
 
@@ -407,13 +468,23 @@ function distanceToClosedPolygon(px: number, py: number, points: XY[]): number {
  * simply skips (and warns about) whichever corner doesn't clear, keeping
  * every other corner's hole rather than giving up the whole mount over one
  * conflict.
+ *
+ * `envelopeRadius` (issue #70 AC, PR review: holes must be reachable with a
+ * screwdriver, "outside the winding envelope") is the wound cable's own
+ * outer radius (`Solution.envelopeDiameter / 2`) -- every hole is also kept
+ * at least `THROUGH_MOUNT_ENVELOPE_MARGIN` beyond it, not just beyond the
+ * wall's own surface (`_boreOutline` is unused here for the SAME reason
+ * `layoutKeyholeMount`'s `slotAt` no longer uses it: the flange's own inner
+ * annulus, bore to `outline`, sits directly below the solid wall and is
+ * NOT a safe place to cut, regardless of the hollow bore).
  */
 export function layoutThroughHoleMount(
   outline: ShapeOutline,
-  boreOutline: ShapeOutline,
+  _boreOutline: ShapeOutline,
   margin: number,
   holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
   innerEndChannel: { hole: XY; holeRadius: number; channelRibbon: XY[] },
+  envelopeRadius = 0,
 ): ThroughMountLayout {
   const holeRadius = holeDiameter / 2;
   const counterboreRadius = holeRadius + THROUGH_MOUNT_COUNTERBORE_MARGIN;
@@ -430,7 +501,9 @@ export function layoutThroughHoleMount(
 
   /** A hole centred on standard angle `phi` (shapes.ts convention), or null if it doesn't fit there. */
   const holeAt = (phi: number): ThroughHole | null => {
-    const innerLimit = radiusAtAngle(boreOutline, phi) + THROUGH_MOUNT_EDGE_MARGIN + counterboreRadius;
+    const wallBound = radiusAtAngle(outline, phi) + THROUGH_MOUNT_EDGE_MARGIN;
+    const envelopeBound = envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN;
+    const innerLimit = Math.max(wallBound, envelopeBound) + counterboreRadius;
     const outerLimit = radiusAtAngle(flangeOutline, phi) - THROUGH_MOUNT_EDGE_MARGIN - counterboreRadius;
     if (outerLimit < innerLimit) return null;
     const R = (innerLimit + outerLimit) / 2;

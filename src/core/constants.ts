@@ -158,7 +158,8 @@ export const SCREW_MOUNT_SHANK_RADIUS = SCREW_MOUNT_SHANK_DIAMETER / 2;
 /** Centre-to-centre distance from the head opening to the shank's resting point. */
 export const SCREW_MOUNT_SLOT_TRAVEL = 4; // mm
 /** Minimum flange material left around the cut, to the bore and to the flange's own outer edge. */
-export const SCREW_MOUNT_EDGE_MARGIN = 1; // mm
+/** Minimum flange material left around the cut, to the wall's own outer (winding) surface and to the flange's own outer edge -- issue #71 PR review: bumped from 1mm to a hard 2mm floor, verified by vitest (test/mount.test.ts's clearance checks) against the ACTUAL resolved geometry, not just this constant's own value. */
+export const SCREW_MOUNT_EDGE_MARGIN = 2; // mm
 /** Depth of the pocket, cut inward from the flange's outer (wall-facing) face -- the TOTAL of the two depth levels below (issue #71 re-shapes this SAME budget into "a shallow slot in front of a deeper undercut", it does not cut any deeper into the flange than the original single-level pocket did). */
 export const SCREW_MOUNT_RECESS_DEPTH = 3; // mm
 /**
@@ -254,16 +255,28 @@ export const SCREW_MOUNT_TWO_SLOT_ANGLE = 25; // degrees
 export const SCREW_MOUNT_AXIS_SEARCH_MAX_DEG = 60;
 /**
  * Issue #71: "allow rotating the keyhole slot direction ... so users can
- * hang it differently, the mount axis and the hanging stay level". Rather
- * than always searching for whichever reachable axis needs the LEAST flange
- * margin (mount.ts's `bestAxisDeg` default), this shifts the search's own
- * reference direction away from literal vertical (`WALL_UP`) by one of these
- * fixed steps -- still only ever landing on a genuine mirror axis of the
- * shape (see mount.ts's file header), so the result always hangs level, just
- * with a DIFFERENT corner/side of the core facing up. 0 is the original,
- * unrotated behaviour.
+ * hang it differently, the mount axis and the hanging stay level". 0 is the
+ * original, unrotated (cost-minimizing) behaviour; 45 asks `bestAxisDeg` to
+ * instead prefer whichever REACHABLE axis (still within
+ * `SCREW_MOUNT_AXIS_SEARCH_MAX_DEG` of TRUE vertical -- this bound is never
+ * shifted by the rotation request, only used as a tie-break/target inside
+ * it) sits closest to 45 degrees off vertical, landing the slot(s) on a
+ * DIFFERENT one of the shape's own natural mirror axes.
+ *
+ * 90 is deliberately NOT offered (issue #71 PR review): at 90 degrees off
+ * vertical the channel -- built parallel to WALL_UP, see mount.ts's file
+ * header -- would run perfectly HORIZONTAL once actually hung level (that
+ * axis vertical), so gravity has zero component along its own length
+ * (cos(90 deg) = 0): nothing would stop the screw sliding either way in the
+ * slot, i.e. the coil would NOT reliably stay hung. `SCREW_MOUNT_AXIS_
+ * SEARCH_MAX_DEG` (60 degrees, cos(60 deg) = 0.5) is already this project's
+ * own accepted outer bound for how far off vertical the mount ever tilts
+ * (including the pre-#71 automatic triangle case), so a requested rotation
+ * can never be honoured past it either -- 90 would just silently clamp to
+ * 60, which is more confusing to expose as its own labelled option than to
+ * leave out.
  */
-export const KEYHOLE_ROTATION_OPTIONS = [0, 45, 90] as const;
+export const KEYHOLE_ROTATION_OPTIONS = [0, 45] as const;
 
 // Through-hole wall mount (issue #70, docs/research.md "Mounting"): plain,
 // counterbored screw-shank holes cut straight through the bottom flange's
@@ -282,8 +295,10 @@ export const THROUGH_MOUNT_COUNTERBORE_DEPTH = 3; // mm
 export const THROUGH_MOUNT_MIN_SHELF = 1; // mm
 /** design.ts bumps FLANGE_THICKNESS up to this (and warns) whenever mount === "through". */
 export const MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT = THROUGH_MOUNT_COUNTERBORE_DEPTH + THROUGH_MOUNT_MIN_SHELF; // 4 mm
-/** Minimum flange material left around each hole, to the bore and to the flange's own outer edge (mirrors SCREW_MOUNT_EDGE_MARGIN). */
-export const THROUGH_MOUNT_EDGE_MARGIN = 1.5; // mm
+/** Minimum flange material left around each hole, to the wall's own outer (winding) surface and to the flange's own outer edge (mirrors SCREW_MOUNT_EDGE_MARGIN) -- a hard 2mm floor, verified by vitest against the ACTUAL resolved geometry. */
+export const THROUGH_MOUNT_EDGE_MARGIN = 2; // mm
+/** Minimum clearance kept between a through-hole's own counterbore and the wound cable's outer envelope, so the hole is genuinely reachable with a screwdriver from outside the winding (issue #70 AC). */
+export const THROUGH_MOUNT_ENVELOPE_MARGIN = 2; // mm
 /** Evenly-spaced hole counts tried on a round flange, widest first (issue #70 AC: "evenly spaced (3 or 4) on round"). */
 export const THROUGH_MOUNT_ROUND_HOLE_COUNTS = [4, 3] as const;
 

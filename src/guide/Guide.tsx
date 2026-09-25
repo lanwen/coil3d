@@ -289,7 +289,7 @@ function StepMountGeneric({ design, n }: { design: Design; n: number }) {
         />
         {mountCoreParts && (
           <CornerInset>
-            <GuideFigure parts={mountCoreParts} preset="iso" fill={0.92} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
+            <GuideFigure parts={mountCoreParts} preset="iso" fill={0.7} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
           </CornerInset>
         )}
       </div>
@@ -356,7 +356,7 @@ function StepMountKeyhole({ design, n }: { design: Design; n: number }) {
   const mountCoreParts = rotateParts([core], mountRotation);
   const screwLocal = new THREE.Vector3(0, Math.max(1, design.solution.flangeSize / 2) * 0.8, meshBounds(core.mesh).min.z + 1);
   const screwRotated = rotatePoint(screwLocal, mountRotation);
-  const insetFit = computeGuideFit(mountCoreParts, "iso", 0.92, 1);
+  const insetFit = computeGuideFit(mountCoreParts, "iso", 0.7, 1);
   const screwFrac = insetFit ? projectToFigure(insetFit, screwRotated) : { x: 0.5, y: 0.32 };
 
   return (
@@ -375,7 +375,7 @@ function StepMountKeyhole({ design, n }: { design: Design; n: number }) {
           )}
         />
         <CornerInset>
-          <GuideFigure parts={mountCoreParts} preset="iso" fill={0.92} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
+          <GuideFigure parts={mountCoreParts} preset="iso" fill={0.7} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
           <InsetMark at={screwFrac} />
         </CornerInset>
       </div>

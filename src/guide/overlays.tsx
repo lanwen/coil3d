@@ -277,9 +277,9 @@ export function WallQuad({ corners }: { corners: [Pt, Pt, Pt, Pt] }) {
 }
 
 /** A small round window in a fixed corner, for a figure rendered at a DIFFERENT orientation than the host (the mount-side face-on view, issue #17 review) -- unlike `ZoomInset`, this isn't a crop of the host's own render, so it needs no fill/zoom math: whatever's passed as `children` (typically another `GuideFigure` plus an `InsetMark`) is simply drawn at the window's own natural size. */
-export function CornerInset({ children, corner = "bottom-right" }: { children: React.ReactNode; corner?: "bottom-right" | "bottom-left" }) {
+export function CornerInset({ children, corner = "bottom-right", size = INSET_SIZE }: { children: React.ReactNode; corner?: "bottom-right" | "bottom-left"; size?: number }) {
   return (
-    <div className={`guide-zoom-inset guide-zoom-inset-${corner}`} style={{ width: INSET_SIZE, height: INSET_SIZE }}>
+    <div className={`guide-zoom-inset guide-zoom-inset-${corner}`} style={{ width: size, height: size }}>
       {children}
     </div>
   );
