@@ -204,12 +204,43 @@ test.describe("printable assembly guide (issue #17)", () => {
       });
     }
 
-    // Issue #70: the new through-hole mount.
+    // Issue #70: the new through-hole mount -- one full guide-page screenshot
+    // (round, matching the keyhole mount's own precedent above); dedicated
+    // mount-side face-on close-ups per shape are below.
     test("with the through-hole wall mount", async ({ page }) => {
       test.slow();
       const doc = { v: 2, L: 1000, d: 4, size: 60, mount: "through" };
       await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
       await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-through-mount.png", { timeout: 25000 });
+    });
+
+    // Dedicated, higher-resolution close-ups of JUST the mount-side inset
+    // (not the whole guide page) -- much clearer for visually reviewing
+    // slot/hole placement than the small corner circle above. `guide-mount-
+    // inset` renders at a fixed 100 CSS px (overlays.tsx's `INSET_SIZE`), so
+    // a 3x `deviceScaleFactor` supersamples it to a genuinely sharp ~300px
+    // capture instead of a soft, hard-to-inspect one.
+    test.describe("mount-side face-on close-ups", () => {
+      test.use({ deviceScaleFactor: 3 });
+
+      for (const kr of [0, 45, 90] as const) {
+        test(`keyhole rotated ${kr} degrees`, async ({ page }) => {
+          test.slow();
+          const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
+          await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+          await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-keyhole-rotated-${kr}.png`, { timeout: 25000 });
+        });
+      }
+
+      // Issue #70 AC: "Screenshots: mount-side face-on view for round/sq/tri".
+      for (const shape of ["round", "sq", "tri"] as const) {
+        test(`through-hole mount (${shape})`, async ({ page }) => {
+          test.slow();
+          const doc = { v: 2, L: 1000, d: 4, size: 60, mount: "through", ...(shape !== "round" ? { shape, rc: 15 } : {}) };
+          await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+          await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-through-${shape}.png`, { timeout: 25000 });
+        });
+      }
     });
 
     test("print-media emulation", async ({ page }) => {

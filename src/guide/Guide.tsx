@@ -253,10 +253,24 @@ function mountIcon(mount: MountKind) {
   return mount === "through" ? <ScrewdriverIcon label="Drive a screw through each hole" /> : <WallMountIcon label="Mount on the wall" />;
 }
 
-/** No illustrated hung orientation (no mount, issue #70's through-hole mount, or issue #14's SKÅDIS clip-plate mount -- unlike the keyhole mount below, none of these rotate the core itself onto the wall: the through-hole mount has no gravity-seated "hung orientation" to show since it isn't sliding onto anything, and the clip plate is a separate part) -- the coil stays in its standing pose next to a plain, decorative wall strip (issue #17 review: "for SKÅDIS/none, render generically as before"). `mountLine`/`mountIcon` still give each mount its own accurate instruction text/icon. */
+/** No illustrated hung orientation (no mount, issue #70's through-hole mount, or issue #14's SKÅDIS clip-plate mount -- unlike the keyhole mount below, none of these rotate the core itself onto the wall: the through-hole mount has no gravity-seated "hung orientation" to show since it isn't sliding onto anything, and the clip plate is a separate part) -- the coil stays in its standing pose next to a plain, decorative wall strip (issue #17 review: "for SKÅDIS/none, render generically as before"). `mountLine`/`mountIcon` still give each mount its own accurate instruction text/icon.
+ *
+ * Issue #70 AC ("Screenshots: mount-side face-on view for round/sq/tri"): the
+ * through-hole mount has no gravity-seated hung ORIENTATION to show (unlike
+ * the keyhole mount below), but its own hole placement is still worth seeing
+ * face-on -- unlike the keyhole's single schematic screw mark (mount.ts's
+ * exact slot count/radius are core internals, "not for UI use"), the
+ * through-holes are REAL cut geometry, already in `core.mesh`, so this inset
+ * needs no schematic overlay at all: just the same mount-side rotation
+ * (`wallMountRotation`) StepMountKeyhole's own inset uses, with
+ * `mountAxisDeg` undefined (design.ts never sets one for "through" -- there's
+ * no hung axis to correct for), which is exactly the identity/base rotation.
+ */
 function StepMountGeneric({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
   const wallAnchor = approxRimPoint(core.mesh, 0.05, -1);
+  const showThroughInset = design.spec.mount === "through";
+  const mountCoreParts = showThroughInset ? rotateParts([core], wallMountRotation(design.mountAxisDeg)) : undefined;
   return (
     <StepCard n={n} title="Mount on the wall">
       <div className="guide-figure-row guide-figure-row--solo">
@@ -273,6 +287,11 @@ function StepMountGeneric({ design, n }: { design: Design; n: number }) {
             );
           }}
         />
+        {mountCoreParts && (
+          <CornerInset>
+            <GuideFigure parts={mountCoreParts} preset="iso" fill={0.92} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
+          </CornerInset>
+        )}
       </div>
       <Callout icons={mountIcon(design.spec.mount)}>{mountLine(design.spec.mount)}</Callout>
     </StepCard>
