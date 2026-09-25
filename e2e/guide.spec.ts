@@ -200,7 +200,7 @@ test.describe("printable assembly guide (issue #17)", () => {
         test.slow();
         const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
         await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
-        await expect(page.getByTestId("guide-view")).toHaveScreenshot(`guide-keyhole-mount-rotated-${kr}.png`, { timeout: 25000 });
+        await expect(page.getByTestId("guide-view")).toHaveScreenshot(`guide-keyhole-mount-rotated-${kr}.png`, { timeout: GUIDE_SCREENSHOT_TIMEOUT });
       });
     }
 
@@ -211,7 +211,7 @@ test.describe("printable assembly guide (issue #17)", () => {
       test.slow();
       const doc = { v: 2, L: 1000, d: 4, size: 60, mount: "through" };
       await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
-      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-through-mount.png", { timeout: 25000 });
+      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-through-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
     // Dedicated, higher-resolution close-ups of JUST the mount-side inset
@@ -228,7 +228,7 @@ test.describe("printable assembly guide (issue #17)", () => {
           test.slow();
           const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
           await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
-          await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-keyhole-rotated-${kr}.png`, { timeout: 25000 });
+          await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-keyhole-rotated-${kr}.png`, { timeout: GUIDE_SCREENSHOT_TIMEOUT });
         });
       }
 
@@ -238,7 +238,7 @@ test.describe("printable assembly guide (issue #17)", () => {
           test.slow();
           const doc = { v: 2, L: 1000, d: 4, size: 60, mount: "through", ...(shape !== "round" ? { shape, rc: 15 } : {}) };
           await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
-          await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-through-${shape}.png`, { timeout: 25000 });
+          await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-through-${shape}.png`, { timeout: GUIDE_SCREENSHOT_TIMEOUT });
         });
       }
     });
