@@ -13,7 +13,17 @@ const TWO_LAYER = "#v=1&L=3000&d=4&size=40&ly=2";
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
-  // Let the design solve and the pipeline render a few settled frames.
+  // Wait for the FINAL-resolution mesh, not just the fast draft
+  // (src/geometry/useDesignPreview.ts, issue #7): the final design is solved
+  // off a worker on its own debounce and swaps in whenever that finishes,
+  // which is CPU-time-dependent, not wall-clock-dependent -- under a loaded,
+  // software-rendered CI run the swap can land well past a fixed sleep,
+  // right in the middle of the next few lines of a test. `download-stl` is
+  // already gated on the very same `finalReady` flag for the same "never
+  // trust a stale mesh" reason (issue #7 AC), so wait on it here too instead
+  // of guessing a duration.
+  await expect(page.getByTestId("download-stl")).toBeEnabled();
+  // Let the pipeline render a few settled frames past that point.
   await page.waitForTimeout(800);
 }
 
