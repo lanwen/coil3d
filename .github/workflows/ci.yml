@@ -1,9 +1,13 @@
 name: CI
 
 on:
+  # PRs skip CI by default (tests run locally before merge). Add the `run-ci`
+  # label to a PR to opt in; the run then repeats on every later push.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -12,6 +16,7 @@ concurrency:
 jobs:
   build-and-test:
     name: Typecheck, unit tests, build
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-ci')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -96,8 +101,9 @@ jobs:
   merge-reports:
     name: Merge Playwright reports
     # Runs even if a shard failed, so a failure still gets a browsable
-    # merged report (not just the raw per-shard blobs above).
-    if: always()
+    # merged report (not just the raw per-shard blobs above). Skipped when
+    # the e2e shards were skipped (a PR without the `run-ci` label).
+    if: always() && needs.e2e.result != 'skipped'
     needs: [e2e]
     runs-on: ubuntu-latest
     steps:
