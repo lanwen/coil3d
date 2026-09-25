@@ -25,6 +25,11 @@ const KEYHOLE = "#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60&mount=keyhole";
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
+  // Wait for the FINAL-resolution mesh before settling: the draft->final
+  // swap (issue #7) is CPU-time-, not wall-clock-bound, so a fixed sleep
+  // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
+  // gotoDesign, issue #61/#62, for the full story).
+  await expect(page.getByTestId("download-stl")).toBeEnabled();
   // A full second, not the usual 800ms (e.g. top-cap.spec.ts): the sidebar's
   // "Kanit" webfont can still be loading at 800ms, and its arrival reflows
   // the header/sidebar and so the canvas's own CSS size by a few px -- which

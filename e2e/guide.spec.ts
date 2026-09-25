@@ -17,6 +17,14 @@ const TWO_LAYER_CAP = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2"; // 
 async function gotoGuide(page: Page, hash: string) {
   await page.goto(`/${hash}&view=guide`);
   await expect(page.getByTestId("guide-view")).toBeVisible();
+  // Wait for the FINAL-resolution design, not just the fast draft the guide
+  // may still be showing right after load: the draft->final swap (issue #7)
+  // is CPU-time-, not wall-clock-bound, so a fixed sleep alone can race it
+  // under a loaded/slow CI run (see line-art.spec.ts's gotoDesign, issue
+  // #61/#62, for the full story; Guide.tsx exposes the same signal here as
+  // `data-resolution` since the design view's own `download-stl` isn't in
+  // the DOM while viewing the guide).
+  await expect(page.getByTestId("guide-view")).toHaveAttribute("data-resolution", "final");
   // Let every guide figure's own WebGL canvas render at least one settled frame.
   await page.waitForTimeout(1000);
 }

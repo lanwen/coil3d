@@ -31,6 +31,11 @@ test.use({ viewport: { width: 900, height: 700 } });
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
+  // Wait for the FINAL-resolution mesh before settling: the draft->final
+  // swap (issue #7) is CPU-time-, not wall-clock-bound, so a fixed sleep
+  // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
+  // gotoDesign, issue #61/#62, for the full story).
+  await expect(page.getByTestId("download-stl")).toBeEnabled();
   await page.waitForTimeout(800);
 }
 

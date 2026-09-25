@@ -97,6 +97,11 @@ test("the wall-mount preset changes the render and shows its own caption", async
   await page.goto(`/${KEYHOLE_HASH}`);
   const canvas = page.getByTestId("coil-viewer").locator("canvas");
   await expect(canvas).toBeVisible();
+  // Wait for the FINAL-resolution mesh before settling: the draft->final
+  // swap (issue #7) is CPU-time-, not wall-clock-bound, so a fixed sleep
+  // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
+  // gotoDesign, issue #61/#62, for the full story).
+  await expect(page.getByTestId("download-stl")).toBeEnabled();
   await page.waitForTimeout(500); // let the pipeline settle a few frames, matching e2e/line-art.spec.ts
 
   await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);

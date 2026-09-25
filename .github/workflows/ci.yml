@@ -33,9 +33,19 @@ jobs:
         run: npm run build
 
   e2e:
-    name: Playwright e2e (pinned Chromium, official Playwright image)
+    name: Playwright e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})
     needs: build-and-test
     runs-on: ubuntu-latest
+    # Software-rendered WebGL on a shared 2-vCPU runner is slow (see
+    # playwright.config.ts): an unsharded, workers=1 full run has taken
+    # ~50 minutes. Sharding across parallel runner jobs (each still
+    # workers=1, so no in-job GPU/SwiftShader contention) cuts that down by
+    # roughly the shard count; a shard failing doesn't cancel the others.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     # The official image ships the exact Playwright/Chromium build pinned in
     # package.json (see docs note below and playwright.config.ts), so the
     # container's browser reproduces this repo's committed screenshot
@@ -53,23 +63,59 @@ jobs:
       # against the committed lockfile is verified to work with it.
       - run: npm ci
 
-      - name: Playwright e2e (workers capped, see playwright.config.ts)
-        run: npx playwright test
+      - name: Playwright e2e (workers=1 in CI, see playwright.config.ts)
+        run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           CI: true
 
-      - name: Upload Playwright HTML report
-        if: failure()
+      # blob-report/ (see playwright.config.ts's reporter) is this shard's
+      # raw results; merge-reports below combines every shard's blob into
+      # one HTML report. Uploaded even when this shard failed, so the
+      # merged report still reflects its failures, not just the passing
+      # shards.
+      - name: Upload blob report (shard ${{ matrix.shard }})
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 7
+          name: blob-report-${{ matrix.shard }}
+          path: blob-report/
+          retention-days: 1
 
       - name: Upload test results (screenshot diffs, traces)
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-test-results
+          name: playwright-test-results-${{ matrix.shard }}
           path: test-results/
+          retention-days: 7
+
+  merge-reports:
+    name: Merge Playwright reports
+    # Runs even if a shard failed, so a failure still gets a browsable
+    # merged report (not just the raw per-shard blobs above).
+    if: always()
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: blob-report-*
+          path: all-blob-reports
+          merge-multiple: true
+
+      - run: npx playwright merge-reports --reporter=html ./all-blob-reports
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
           retention-days: 7

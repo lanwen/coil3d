@@ -14,33 +14,41 @@ const swiftshaderArgs = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader
 
 export default defineConfig({
   testDir: "./e2e",
-  // CI (and especially the containerized Playwright-image run used for the
-  // e2e job, see .github/workflows/ci.yml) is noticeably slower per-frame
-  // than this sandbox's native Chromium, so tests get more overall headroom.
-  timeout: process.env.CI ? 60_000 : 30_000,
+  // Real GitHub-hosted runners (2 shared vCPUs, no GPU) turned out to be far
+  // slower at software-rendered WebGL than this sandbox or even a local run
+  // of the same official Playwright Docker image (see .github/workflows/
+  // ci.yml and issue #18's PR): tests that touch the canvas took 5-10x
+  // longer than locally, some legitimately needing most of a minute for a
+  // few sequential screenshots. Generous headroom here, not a tight bound.
+  timeout: process.env.CI ? 120_000 : 30_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  // CI runners have few cores and the e2e job's Playwright-image container
-  // shares them across all screenshot tests; capping workers avoids
-  // GPU/SwiftShader contention (see docs/research.md and issue #18 review
-  // comments). Left unset locally so `npm run e2e` keeps using this
+  // One worker in CI: two parallel software-rendered WebGL/WASM-heavy pages
+  // fighting over a 2-vCPU runner was slower overall (contention) than
+  // running them one at a time, and caused widespread screenshot-stability
+  // timeouts. Left unset locally so `npm run e2e` keeps using this
   // machine's own default worker count.
-  workers: process.env.CI ? 2 : undefined,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  workers: process.env.CI ? 1 : undefined,
+  // CI shards the suite across parallel runner jobs (.github/workflows/
+  // ci.yml), each with its own worker=1 process, so no single report from
+  // any one shard covers the whole run. "blob" is Playwright's own format
+  // for that: each shard uploads its blob-report/ as an artifact, and a
+  // separate merge-reports job combines them into one browsable HTML
+  // report. "github" adds inline PR annotations on failures at no extra
+  // cost. Locally (no sharding) plain "list" is all that's needed.
+  reporter: process.env.CI ? [["blob"], ["github"]] : "list",
   // Software-rendered WebGL (SwiftShader, see PINNED_CHROMIUM above) is
   // deterministic per-machine but not bit-identical across environments, so
   // screenshot assertions get a small pixel-ratio allowance rather than an
-  // exact match. `expect.timeout` (not the pixel allowance) is what needed
-  // raising for CI: verified against the exact baselines in this repo, in
-  // the official mcr.microsoft.com/playwright:v1.61.1-noble image (same
-  // Chromium 1228 build the baselines were shot with, via PLAYWRIGHT_BROWSERS_PATH
-  // -- see PINNED_CHROMIUM below), every screenshot matched pixel-for-pixel;
-  // the one flake seen there was the frame-stability wait alone exceeding
-  // the default 5s under that container's slower/virtualized CPU, not a
-  // rendering difference (font, DPR, GPU) -- so only the timeout moved.
+  // exact match. Verified in the official mcr.microsoft.com/playwright:
+  // v1.61.1-noble image (same Chromium 1228 build the baselines were shot
+  // with, via PLAYWRIGHT_BROWSERS_PATH -- see PINNED_CHROMIUM below): every
+  // screenshot matched pixel-for-pixel there, so `expect.timeout` (not the
+  // pixel allowance) is what needed raising for CI -- the real bottleneck
+  // was render speed, not a rendering difference (font, DPR, GPU flags).
   expect: {
-    timeout: 15_000,
+    timeout: process.env.CI ? 30_000 : 5_000,
     toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
   },
   webServer: {
