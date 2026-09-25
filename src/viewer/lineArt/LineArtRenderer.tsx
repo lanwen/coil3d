@@ -5,11 +5,27 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { FXAAShader } from "three/examples/jsm/shaders/FXAAShader.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
+import type { Resolution } from "../../core";
 import { EdgeShader } from "./edgeShader";
 import { MAX_THICKEN_RADIUS, ThickenShader } from "./thickenShader";
 import { directionAndUpOf, getPreset, presetQuaternion, type PresetId } from "./presets";
 
 export type Projection = "ortho" | "perspective";
+
+// Test-only instrumentation (issue #72 AC: "a sequence of rapid edits
+// produces exactly one framing tween at the end (instrumented)"). Counts
+// how many parameter-change scale tweens have actually STARTED (see the
+// geometry-change effect below) -- nothing in this app reads it outside
+// e2e/smooth-param-changes.spec.ts, which polls it off `window` the same
+// way any other Playwright check reads app state through the DOM.
+declare global {
+  interface Window {
+    __framingTweenCount?: number;
+  }
+}
+function recordFramingTween() {
+  if (typeof window !== "undefined") window.__framingTweenCount = (window.__framingTweenCount ?? 0) + 1;
+}
 
 // The model's projected bounds fill this fraction of the canvas's tighter
 // axis by default; a caller can ask for a tighter (larger) fraction, e.g.
@@ -295,6 +311,15 @@ export interface LineArtRendererProps {
   fill?: number;
   /** `prefers-reduced-motion`: every transition below becomes instant. */
   reducedMotion: boolean;
+  /** The resolution `geometry` was built at (issue #72). Defaults to
+   * "final" for callers that never show anything else (e.g. the guide's
+   * `CoilScene`, always a one-shot final render). Once a real final has
+   * been framed, a later "draft" geometry change is ignored FOR FRAMING
+   * PURPOSES ONLY -- it's still drawn (CoilViewer keeps rendering whatever
+   * mesh `useDesignPreview` currently shows), but never moves or tweens the
+   * camera, so a slow-build fallback draft never has to un-tween back off
+   * again once the real final arrives. See the geometry-change effect below. */
+  resolution?: Resolution;
 }
 
 /**
@@ -313,7 +338,7 @@ export interface LineArtRendererProps {
  * renders on demand (the pipeline is heavy on software GL), so every change
  * made here outside R3F's own props calls `invalidate()`.
  */
-export function LineArtRenderer({ geometry, controlsRef, projection, preset, fill = DEFAULT_FILL, reducedMotion }: LineArtRendererProps) {
+export function LineArtRenderer({ geometry, controlsRef, projection, preset, fill = DEFAULT_FILL, reducedMotion, resolution = "final" }: LineArtRendererProps) {
   const { gl, scene, size, invalidate, set } = useThree();
 
   const orthoCamera = useMemo(() => {
@@ -437,8 +462,25 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
   // kick off a (nearly imperceptible, but real, non-zero-duration) tween
   // even when nothing a user would call "a parameter change" happened,
   // which made e2e screenshots taken shortly after load flaky depending on
-  // exactly when the final mesh settled relative to the screenshot. ---
+  // exactly when the final mesh settled relative to the screenshot.
+  //
+  // Issue #72: once something has actually been framed, a `resolution !==
+  // "final"` geometry change is skipped entirely here (it's still DRAWN --
+  // CoilViewer keeps rendering whatever mesh useDesignPreview currently
+  // shows -- just never used to move the camera). Without this, a slow
+  // build's fallback draft (useDesignPreview.ts's DRAFT_FALLBACK_MS) would
+  // tween the camera to ITS OWN (often slightly different) bounds, only to
+  // tween again moments later once the real final replaced it -- visibly
+  // "growing" the model in two steps instead of the one clean tween AC
+  // #72 asks for. Skipping means `settledFit`/`from` below always still
+  // reflects the last FINAL fit, so that later final's own tween starts
+  // from the right place regardless of whether a draft was ever shown in
+  // between. The very first geometry (whatever resolution it happens to be
+  // -- there's nothing better to show yet) still frames instantly, same as
+  // before, via the `!mountedGeometry.current` branch below. ---
   useEffect(() => {
+    if (mountedGeometry.current && resolution !== "final") return;
+
     const toFit = computeFit(geometry, settledDirection.current, settledUp.current, aspectOf(), fill, projection);
     if (!toFit) return;
     const from = settledFit.current;
@@ -450,10 +492,11 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
       scaleAnim.current = null;
     } else {
       scaleAnim.current = { from: from ?? toFit, to: toFit, start: performance.now(), duration: SCALE_TWEEN_MS };
+      recordFramingTween(); // test-only instrumentation, see its own doc comment
     }
     kickInvalidate(invalidate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geometry]);
+  }, [geometry, resolution]);
 
   // --- Preset views (issue #15 AC "slerped camera transitions"): slerp the
   // orientation quaternion from wherever the view currently is to the

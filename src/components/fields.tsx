@@ -3,10 +3,24 @@ import type { ChangeEvent, ReactNode } from "react";
 import type { Lock } from "../core";
 import { Hint } from "./Hint";
 
-/** Round to the nearest 0.1 -- the solver's raw floats (e.g. 34.65625mm) are
- * never shown to the user; every displayed/seeded number is sane. See issue
- * #16: "the solved values in free fields must be rounded". */
-export const round1 = (n: number) => Math.round(n * 10) / 10;
+/** Core size/height rounding (issue #72 AC: "sliders step 1 mm; the
+ * displayed solver values are rounded to 1 mm (0.5 mm if needed for small
+ * coils)"; supersedes issue #16's own, finer-grained `round1`, which this
+ * replaces -- these two fields were its only callers). Whole millimetres are
+ * already coarse relative to the 5-500mm (core size) / 1-400mm (height)
+ * range these two fields cover, EXCEPT down near the solver's own
+ * small-coil floor (`SIZE_LO_FLOOR` = 5mm): a size that small can
+ * meaningfully differ from its neighbour by well under 1mm, so a value
+ * below `SMALL_COIL_MM` rounds to the nearest 0.5mm instead. Used for BOTH
+ * the displayed free (solver-produced) value and whatever the user types
+ * into the paired number input -- `LockRangeField` is only ever used for
+ * these two fields, so this is safe to bake in here rather than at each
+ * call site. */
+const SMALL_COIL_MM = 20;
+export function roundMm(value: number): number {
+  const step = value < SMALL_COIL_MM ? 0.5 : 1;
+  return Math.round(value / step) * step;
+}
 
 /**
  * Cable length is entered and shown in centimetres (issue #51); `CoilSpec`
@@ -314,16 +328,21 @@ export function LockRangeField({
   hint?: string;
   onChange: (lock: Lock<number>) => void;
 }) {
-  const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? lock.value : freeValue } : { locked: false });
+  // Issue #72 AC: "the spec stores rounded values when the user edits" --
+  // `setValue` rounds here (not just the free-value display below) so a
+  // value typed into the paired number input (which, unlike the slider,
+  // isn't clamped to `step` by the browser) can never push a long decimal
+  // into the spec.
+  const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? lock.value : roundMm(freeValue) } : { locked: false });
   const setValue = (value: number) => {
-    if (lock.locked) onChange({ locked: true, value });
+    if (lock.locked) onChange({ locked: true, value: roundMm(value) });
   };
   return (
     <RangeField
       testId={testId}
       label={label}
       unit={unit}
-      value={lock.locked ? lock.value : round1(freeValue)}
+      value={lock.locked ? lock.value : roundMm(freeValue)}
       min={min}
       max={max}
       step={step}

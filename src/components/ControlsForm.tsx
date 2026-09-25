@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, Objective, PlateJoint, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
 import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, LABEL_MAX_LENGTH, SHAPES, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
-import { FieldTop, LockRangeField, LockStepperField, RangeField, Section, TextField, cmToMm, mmToCm, round1 } from "./fields";
+import { FieldTop, LockRangeField, LockStepperField, RangeField, Section, TextField, cmToMm, mmToCm, roundMm } from "./fields";
 import { HINTS } from "./hints";
 import { ShapePicker } from "./ShapePicker";
 
@@ -212,7 +212,7 @@ export function ControlsForm({
         />
         {coreSizeRaised && (
           <p className="field-note" data-testid="core-size-raised-note">
-            Built at {round1(coreSizeRaised.built)} mm, not {round1(coreSizeRaised.requested)} mm: a {SHAPES[spec.shape.kind].label.toLowerCase()} core needs
+            Built at {roundMm(coreSizeRaised.built)} mm, not {roundMm(coreSizeRaised.requested)} mm: a {SHAPES[spec.shape.kind].label.toLowerCase()} core needs
             this much room for this cable's rounded corners.
           </p>
         )}
