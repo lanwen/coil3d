@@ -18,7 +18,8 @@ export const HINTS = {
     "This is the radius of the rounded corners on a square or triangle core. The solver limits it so a corner never bends the cable past its minimum bend radius.",
   coreSizeDimension:
     "This chooses which core measurement you lock: the outer size (the winding surface) or the inner bore (the hollow center). The solver then works out the other one for you.",
-  outer: "This is the size of the core, in millimetres. Lock it to set an exact size, or leave it free and let the solver pick a size that fits your cable.",
+  outer:
+    "This is the size of the core, in millimetres. Lock it to set an exact size, or leave it free and let the solver pick a size that fits your cable. For a square or triangle core, a stiffer cable needs bigger rounded corners, so the minimum size can be bigger than for a round core.",
   height: "This is how tall the core stands, in millimetres. Lock it to set an exact height, or leave it free and let the solver pick one.",
   layers: "This is how many times the cable wraps around the core, one layer stacked on the next. Lock it to set an exact count, or leave it free.",
   mount: "This adds a way to hang the coil on a wall: a screw keyhole, or a clip plate for an IKEA SKÅDIS pegboard.",

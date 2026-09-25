@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // Issue #51 acceptance criteria: cable length is entered and shown in
 // centimetres, with a 1cm step and a 20-1500cm range; other dimensions stay
@@ -6,7 +7,8 @@ import { expect, test } from "@playwright/test";
 // old links (which store mm) keep their exact length. `CoilSpec.wire.length`
 // itself never changes unit -- this is a pure UI conversion (ControlsForm.tsx
 // / ResultPanel.tsx), so the hash format is untouched (test/hash.test.ts
-// still covers it in mm).
+// still covers it in mm). The hash's own `L` field is asserted via
+// `decodeHashDoc` (issue #56: the hash is now `#s=<base64url(JSON)>`).
 
 test("the default cable length shows as 200cm (2000mm) with a 1cm step and a 20-1500cm range", async ({ page }) => {
   await page.goto("/");
@@ -26,7 +28,7 @@ test("editing the cable length in cm updates the hash's mm value (L)", async ({ 
   await input.blur();
 
   await expect(async () => {
-    expect(new URL(page.url()).hash).toContain("L=3500");
+    expect(decodeHashDoc(page.url()).L).toBe(3500);
   }).toPass();
 });
 
@@ -41,7 +43,7 @@ test("an old link storing an exact mm length keeps it exactly, even when it isn'
   await page.getByTestId("input-wireDiameter").fill("4.5");
   await page.getByTestId("input-wireDiameter").blur();
   await expect(async () => {
-    expect(new URL(page.url()).hash).toContain("L=1234");
+    expect(decodeHashDoc(page.url()).L).toBe(1234);
   }).toPass();
 });
 

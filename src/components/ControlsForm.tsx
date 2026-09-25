@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, Objective, PlateJoint, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
-import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, LABEL_MAX_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
-import { FieldTop, LockRangeField, LockStepperField, RangeField, Section, TextField, cmToMm, mmToCm } from "./fields";
+import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, LABEL_MAX_LENGTH, SHAPES, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
+import { FieldTop, LockRangeField, LockStepperField, RangeField, Section, TextField, cmToMm, mmToCm, round1 } from "./fields";
 import { HINTS } from "./hints";
 import { ShapePicker } from "./ShapePicker";
 
@@ -95,6 +95,23 @@ export function ControlsForm({
   const freeCount = [spec.coreSize.locked, spec.height.locked, spec.layers.locked].filter((locked) => !locked).length;
   const showObjective = freeCount >= 2;
 
+  // Issue #54/#58: for a square or triangle core, this cable's bend limit
+  // can force a bigger minimum core size than a round core needs (a bigger
+  // corner radius, at a fixed size, erodes the straight sides). The size
+  // slider's own minimum follows that (never lets the user drag below a
+  // size the solver would just raise anyway); `solution` is undefined only
+  // before the very first solve, when 5mm is as good a placeholder as any.
+  const outerSizeMin = spec.shape.kind === "round" ? 5 : Math.max(5, solution?.minOuterSizeForShape ?? 5);
+  // The solver silently raises a LOCKED size below that floor (with its own
+  // warning in the Result panel) -- the input itself still shows the raw
+  // value the user typed (never swapped out from under them mid-edit, which
+  // would fight typing), but this note next to it says plainly that the
+  // built core is actually bigger, and why.
+  const coreSizeRaised =
+    spec.shape.kind !== "round" && spec.coreSize.locked && solution && solution.outerSize > spec.coreSize.value + 0.05
+      ? { requested: spec.coreSize.value, built: solution.outerSize }
+      : undefined;
+
   // "Advanced settings" (winding quality, custom bend multiplier, objective)
   // stay collapsed behind a disclosure (issue #16 AC) so the form isn't a
   // wall of fields -- except the objective picker forces the disclosure open
@@ -186,13 +203,19 @@ export function ControlsForm({
           label="Core size"
           unit="mm"
           lock={spec.coreSize}
-          min={5}
+          min={outerSizeMin}
           max={500}
           step={1}
           freeValue={solution?.outerSize ?? 30}
           hint={HINTS.outer}
           onChange={setCoreSizeLock}
         />
+        {coreSizeRaised && (
+          <p className="field-note" data-testid="core-size-raised-note">
+            Built at {round1(coreSizeRaised.built)} mm, not {round1(coreSizeRaised.requested)} mm: a {SHAPES[spec.shape.kind].label.toLowerCase()} core needs
+            this much room for this cable's rounded corners.
+          </p>
+        )}
         <LockRangeField
           testId="height"
           label="Height"

@@ -287,6 +287,16 @@ header p {
   min-width: 0;
 }
 
+/* A short, plain-English note under a field (issue #54/#58: the built core
+   size for a square/triangle shape, silently raised past a locked request
+   that was below this cable's minimum). Never the field's own value -- that
+   input keeps showing exactly what the user typed. */
+.field-note {
+  margin: -2px 0 0;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
 /* ---------- (i) hint button + bubble (issue #53) ---------- */
 
 .hint {
