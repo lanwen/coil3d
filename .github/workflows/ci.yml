@@ -38,14 +38,18 @@ jobs:
     runs-on: ubuntu-latest
     # Software-rendered WebGL on a shared 2-vCPU runner is slow (see
     # playwright.config.ts): an unsharded, workers=1 full run has taken
-    # ~50 minutes. Sharding across parallel runner jobs (each still
-    # workers=1, so no in-job GPU/SwiftShader contention) cuts that down by
-    # roughly the shard count; a shard failing doesn't cancel the others.
-    timeout-minutes: 30
+    # ~50 minutes, and even a 4-way shard (workers=1 each) still saw some
+    # tests fail their screenshot-stability wait well past a minute --
+    # worse later in a shard's run than earlier in it, consistent with the
+    # single long-lived Chromium process each worker reuses across all its
+    # shard's tests accumulating real load (heavy WASM geometry work, GC)
+    # over time. Splitting into more, smaller shards keeps each worker's
+    # browser process alive for fewer tests, not just more parallel jobs.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     # The official image ships the exact Playwright/Chromium build pinned in
     # package.json (see docs note below and playwright.config.ts), so the
     # container's browser reproduces this repo's committed screenshot

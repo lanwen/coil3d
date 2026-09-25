@@ -14,6 +14,15 @@ import { decodeHashDoc } from "./hashDoc";
 const ONE_LAYER = "#v=1&L=1000&d=4&size=40"; // layers=1 (default): no top cap, so the two cap steps are skipped
 const TWO_LAYER_CAP = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2"; // layers=2: top cap auto-on
 
+// The guide's own screenshots render several distinct WebGL figures at
+// once (one per step), so they're the heaviest screenshots in the whole
+// suite -- real GitHub-hosted runners (2 shared vCPUs, no GPU) need much
+// more than this repo's usual per-assertion default for these specifically
+// (see playwright.config.ts and issue #18's PR for the general CI-speed
+// finding); test.slow() below covers the surrounding test's own timeout,
+// not this per-assertion one.
+const GUIDE_SCREENSHOT_TIMEOUT = process.env.CI ? 120_000 : 25_000;
+
 async function gotoGuide(page: Page, hash: string) {
   await page.goto(`/${hash}&view=guide`);
   await expect(page.getByTestId("guide-view")).toBeVisible();
@@ -154,19 +163,19 @@ test.describe("printable assembly guide (issue #17)", () => {
     test("1-layer design (no cap)", async ({ page }) => {
       test.slow();
       await gotoGuide(page, ONE_LAYER);
-      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-one-layer.png", { timeout: 25000 });
+      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-one-layer.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
     test("2-layer design with a top cap (bayonet joint)", async ({ page }) => {
       test.slow();
       await gotoGuide(page, `${TWO_LAYER_CAP}&joint=bayonet`);
-      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-two-layer-cap.png", { timeout: 25000 });
+      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-two-layer-cap.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
     test("with the screw-keyhole wall mount", async ({ page }) => {
       test.slow();
       await gotoGuide(page, `${ONE_LAYER}&mount=keyhole`);
-      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-keyhole-mount.png", { timeout: 25000 });
+      await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-keyhole-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
     test("print-media emulation", async ({ page }) => {
@@ -174,7 +183,7 @@ test.describe("printable assembly guide (issue #17)", () => {
       await gotoGuide(page, TWO_LAYER_CAP);
       await page.emulateMedia({ media: "print" });
       await page.waitForTimeout(300);
-      await expect(page).toHaveScreenshot("guide-print-media.png", { timeout: 25000 });
+      await expect(page).toHaveScreenshot("guide-print-media.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
   });
 });

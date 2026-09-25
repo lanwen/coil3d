@@ -18,9 +18,11 @@ export default defineConfig({
   // slower at software-rendered WebGL than this sandbox or even a local run
   // of the same official Playwright Docker image (see .github/workflows/
   // ci.yml and issue #18's PR): tests that touch the canvas took 5-10x
-  // longer than locally, some legitimately needing most of a minute for a
-  // few sequential screenshots. Generous headroom here, not a tight bound.
-  timeout: process.env.CI ? 120_000 : 30_000,
+  // longer than locally, and the heaviest (several sequential screenshots
+  // in one test) needed close to `expect.timeout` below just for their
+  // LAST assertion, so this needs enough headroom above that, not just
+  // above a typical test's total local runtime.
+  timeout: process.env.CI ? 180_000 : 30_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -45,10 +47,16 @@ export default defineConfig({
   // v1.61.1-noble image (same Chromium 1228 build the baselines were shot
   // with, via PLAYWRIGHT_BROWSERS_PATH -- see PINNED_CHROMIUM below): every
   // screenshot matched pixel-for-pixel there, so `expect.timeout` (not the
-  // pixel allowance) is what needed raising for CI -- the real bottleneck
-  // was render speed, not a rendering difference (font, DPR, GPU flags).
+  // pixel allowance) is what needed raising for CI -- the real bottleneck is
+  // render speed on that shared, GPU-less hardware, not a rendering
+  // difference (font, DPR, GPU flags). 30s wasn't enough either: real runs
+  // showed tests that take several sequential screenshots (zooms, toggles,
+  // camera-preset switches) in one test regularly needing closer to a
+  // minute for the LAST screenshot's own "wait for a stable frame" check,
+  // apparently because the main thread is still working through earlier
+  // renders' backlog by the time that check starts sampling frames.
   expect: {
-    timeout: process.env.CI ? 30_000 : 5_000,
+    timeout: process.env.CI ? 60_000 : 5_000,
     toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
   },
   webServer: {
