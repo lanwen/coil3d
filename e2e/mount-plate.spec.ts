@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #14 (clip mount plate: SKÅDIS and openGrid).
 // Solver/geometry numbers themselves are covered by vitest against the
@@ -37,14 +38,14 @@ test.describe("mount plate controls (issue #14)", () => {
   test("switching to skadis reveals the plate-joint field, updates the hash, and reproduces on reload", async ({ page }) => {
     await gotoDesign(page, "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60");
     await page.getByTestId("select-mount").selectOption("skadis");
-    await expect(async () => expect(new URL(page.url()).hash).toContain("mount=skadis")).toPass();
+    await expect(async () => expect(decodeHashDoc(page.url()).mount).toBe("skadis")).toPass();
     await expect(page.getByTestId("select-plateJoint")).toBeVisible();
     await expect(page.getByTestId("select-plateJoint")).toHaveValue("glue");
     await expect(page.getByTestId("mount")).toContainText(/SK.DIS/i);
     await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
 
     await page.getByTestId("select-plateJoint").selectOption("snap");
-    await expect(async () => expect(new URL(page.url()).hash).toContain("pj=snap")).toPass();
+    await expect(async () => expect(decodeHashDoc(page.url()).pj).toBe("snap")).toPass();
 
     await page.reload();
     await expect(page.getByTestId("select-mount")).toHaveValue("skadis");

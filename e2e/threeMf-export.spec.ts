@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // 3MF export, plate layout and bed warnings (issue #10).
 
@@ -41,5 +42,5 @@ test("the bed-size fields exist and shrinking the bed produces a fit warning", a
 
   // The hash reflects the new bed size, so a reload reproduces it.
   await page.waitForTimeout(300);
-  expect(page.url()).toContain("bx=20");
+  expect(decodeHashDoc(page.url()).bx).toBe(20);
 });

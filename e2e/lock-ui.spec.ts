@@ -1,8 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // Issue #5 acceptance criteria: lock toggles update both the result panel
 // and the URL hash, and any subset of {outer/inner size, height, layers}
 // can be locked.
+//
+// The hash's own lock/size fields are asserted via `decodeHashDoc` (issue
+// #56: the hash is now `#s=<base64url(JSON)>`, not a flat `key=value`
+// string), not a literal substring check on `page.url()`.
 
 test("the default state locks outer size + layers, leaving height free", async ({ page }) => {
   await page.goto("/");
@@ -10,7 +15,7 @@ test("the default state locks outer size + layers, leaving height free", async (
   await expect(page.getByTestId("lock-layers")).toBeChecked();
   await expect(page.getByTestId("lock-height")).not.toBeChecked();
   await expect(page.getByTestId("input-height")).toBeDisabled();
-  expect(page.url()).not.toContain("lock=");
+  expect(decodeHashDoc(page.url()).lock).toBeUndefined();
 });
 
 test("locking height updates the result panel and adds it to the hash's lock list", async ({ page }) => {
@@ -22,9 +27,7 @@ test("locking height updates the result panel and adds it to the hash's lock lis
 
   // Now 0 free (outer + layers + height all locked): the hash must record it.
   await expect(async () => {
-    const hash = new URL(page.url()).hash;
-    const params = new URLSearchParams(hash.replace(/^#/, ""));
-    const lockTokens = (params.get("lock") ?? "").split(",");
+    const lockTokens = decodeHashDoc(page.url()).lock;
     expect(lockTokens).toContain("h");
   }).toPass();
   await expect(page.getByTestId("diagnosis-status")).toHaveText(/ok|over-constrained/);
@@ -38,7 +41,7 @@ test("changing the locked outer size value updates both the result panel and the
 
   await expect(page.getByTestId("outer-size")).toHaveText("50.0 mm");
   await expect(async () => {
-    expect(new URL(page.url()).hash).toContain("size=50");
+    expect(decodeHashDoc(page.url()).size).toBe(50);
   }).toPass();
 });
 
@@ -50,9 +53,9 @@ test("switching the locked core-size dimension to inner and reloading reproduces
   await innerInput.blur();
 
   await expect(async () => {
-    const hash = new URL(page.url()).hash;
-    expect(hash).toContain("lock=inner");
-    expect(hash).toContain("size=20");
+    const doc = decodeHashDoc(page.url());
+    expect(doc.lock).toContain("inner");
+    expect(doc.size).toBe(20);
   }).toPass();
   const innerBoreBefore = await page.getByTestId("inner-bore").textContent();
 

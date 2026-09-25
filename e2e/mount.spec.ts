@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // Issue #13 acceptance criteria: a `mount` option (none|keyhole) in the UI
 // and hash, the core still prints flat (no supports) with a recessed
@@ -17,7 +18,7 @@ test("mount defaults to none, with no mount param in the hash", async ({ page })
   await page.goto("/");
   await expect(page.getByTestId("select-mount")).toHaveValue("none");
   await expect(page.getByTestId("mount")).toHaveText("None");
-  expect(page.url()).not.toContain("mount=");
+  expect(decodeHashDoc(page.url()).mount).toBeUndefined();
 });
 
 test("switching to the screw-keyhole mount updates the hash + result panel, and reproduces on reload", async ({ page }) => {
@@ -25,7 +26,7 @@ test("switching to the screw-keyhole mount updates the hash + result panel, and 
   await page.getByTestId("select-mount").selectOption("keyhole");
 
   await expect(async () => {
-    expect(new URL(page.url()).hash).toContain("mount=keyhole");
+    expect(decodeHashDoc(page.url()).mount).toBe("keyhole");
   }).toPass();
   await expect(page.getByTestId("mount")).toHaveText("Screw keyhole");
   // The bumped flange margin/thickness (design.ts) surface as warnings.

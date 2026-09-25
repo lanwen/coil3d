@@ -1,15 +1,20 @@
 import { expect, test } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // Issue #6 acceptance criteria: the user can choose a rounded-square or
 // rounded-triangle core, with a corner-radius control, and the result panel
 // / hash reflect the choice. Solver math itself is covered by vitest
 // against the public `design()` interface (test/design.test.ts).
+//
+// The hash's own shape/rc fields are asserted via `decodeHashDoc` (issue
+// #56: the hash is now `#s=<base64url(JSON)>`, and no longer namespaces the
+// corner radius per shape -- a single `rc` key, paired with `shape`).
 
 test("the default shape is round, with no corner-radius control shown", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("select-shape")).toHaveValue("round");
   await expect(page.getByTestId("input-shapeCornerRadius")).toHaveCount(0);
-  expect(page.url()).not.toContain("shape=");
+  expect(decodeHashDoc(page.url()).shape).toBeUndefined();
 });
 
 test("switching to a rounded square shows the corner-radius control and updates the hash + result panel", async ({ page }) => {
@@ -18,12 +23,12 @@ test("switching to a rounded square shows the corner-radius control and updates 
 
   await expect(page.getByTestId("input-shapeCornerRadius")).toBeVisible();
   await expect(async () => {
-    expect(new URL(page.url()).hash).toContain("shape=sq");
+    expect(decodeHashDoc(page.url()).shape).toBe("sq");
   }).toPass();
   await expect(page.getByTestId("corner-radius")).toBeVisible();
 });
 
-test("editing the corner radius for a rounded triangle updates the hash (namespaced tri.rc) and reproduces on reload", async ({ page }) => {
+test("editing the corner radius for a rounded triangle updates the hash and reproduces on reload", async ({ page }) => {
   // A large-enough locked outer size that the requested corner radius (15mm)
   // isn't clamped by the bend limit (see test/design.test.ts for the
   // clamping/"became round" cases).
@@ -36,7 +41,7 @@ test("editing the corner radius for a rounded triangle updates the hash (namespa
   await cornerInput.fill("18");
   await cornerInput.blur();
   await expect(async () => {
-    expect(new URL(page.url()).hash).toContain("tri.rc=18");
+    expect(decodeHashDoc(page.url()).rc).toBe(18);
   }).toPass();
 
   await page.reload();
