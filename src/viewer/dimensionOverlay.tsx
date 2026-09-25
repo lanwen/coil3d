@@ -21,11 +21,14 @@
 // misleadingly short.
 //
 // Values: a round flange's width is its diameter in every direction, so it
-// shows design()'s own `flangeSize` as "Ø"; square/triangle widths and the
-// overall height are the extents measured off design()'s own part meshes
-// (the result panel's `flangeSize` is a solver envelope, not a sq/tri
-// width, and its `height` is the winding height, which leaves out the
-// bottom flange and the cap).
+// shows design()'s own real `flangeExtent.acrossFlats` as "Ø" (issue #63:
+// this used to show `Solution.flangeSize`, the solver's own envelope-based
+// estimate, which drifted from the built flange for non-round shapes and
+// whenever a mount grew the margin -- see design.ts/flange.ts);
+// square/triangle widths and the overall height are the extents measured
+// off design()'s own part meshes directly (the result panel's own "Flange
+// width"/"Overall height" rows read the SAME `flangeExtent`/`overallHeight`
+// fields, computed once in the core -- see ResultPanel.tsx).
 //
 // This is the interactive viewer's own small, independent reimplementation
 // of "project a 3D point through the current camera fit", the same idea
@@ -429,7 +432,7 @@ export interface DimensionOverlayProps {
   fill: number;
   /** The SAME rotation CoilViewer applies to `geometries` for the current view (`null` for the standing pose) -- applied to the local width/axis directions so they land in the identical frame. */
   rotation: THREE.Matrix4 | null;
-  /** `Solution.flangeSize`, mm -- shown as a round flange's "Ø" (its true diameter). */
+  /** `Solution.flangeExtent.acrossFlats` (issue #63), mm -- shown as a round flange's "Ø" (its true diameter; round's `acrossFlats`/`acrossCorners` are equal). */
   widthMm: number;
   shapeKind: ShapeKind;
 }
@@ -488,11 +491,11 @@ export function DimensionOverlay({ geometries, cableGeometries, preset, fill, ro
     const dims = [
       // Width first, below the model -- the classic place for it; height
       // then takes whichever side stays clear of it. A round flange's width
-      // is its diameter in every direction, so it shows design()'s own
-      // `flangeSize`; a square/triangle flange's width depends on the
-      // direction, so it shows the extent actually measured along the drawn
-      // line (the result panel's `flangeSize` is the solver's envelope,
-      // not any real sq/tri flange width -- see the file header).
+      // is its diameter in every direction, so it shows the real
+      // `flangeExtent.acrossFlats` (`widthMm`); a square/triangle flange's
+      // width depends on the direction, so it shows the extent actually
+      // measured along the drawn line -- always between the result panel's
+      // own "across flats"/"across corners" numbers (see the file header).
       {
         testId: "dimension-width",
         axes: widthAxes,

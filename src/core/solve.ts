@@ -23,6 +23,7 @@
 
 import { computeCapacity, envelopeDiameter } from "./capacity";
 import type { CapacityResult } from "./capacity";
+import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
 import {
   MARGIN,
   CLEARANCE,
@@ -197,24 +198,50 @@ function turnsPerLayerPenalty(cap: CapacityResult): number {
   return 1 + shortfall * shortfall;
 }
 
+/**
+ * The real, mesh-matching flange margin and overall assembled height for a
+ * candidate geometry (issue #63): the SAME analytic derivation design.ts
+ * uses to actually BUILD the flange (flange.ts), computed here purely off
+ * `g`/`cap` -- no meshing, so the search stays fast -- instead of the
+ * cruder envelope-only proxy this used to lean on (the wound envelope's own
+ * offset/diameter, which silently ignores the flange margin/thickness and
+ * any top cap). `topCapEnabled` mirrors `finishSolution`'s own resolution
+ * (`spec.topCap` overriding "layers > 1"), so a candidate with a cap scores
+ * against its real, taller assembled height, not just its winding height.
+ */
+function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap: CapacityResult): { margin: number; overallHeight: number } {
+  const { boreOutline } = resolveBoreOutline(outline);
+  const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
+  const flangeSizeEnvelope = env + 2 * FLANGE_MARGIN;
+  const { margin, thickness } = resolveFlangeSizing(outline, boreOutline, flangeSizeEnvelope, spec.wire.diameter, spec.mount, spec.plateJoint);
+  const topCapEnabled = spec.topCap === "on" ? true : spec.topCap === "off" ? false : g.layers > 1;
+  return { margin, overallHeight: overallHeightOf(thickness, g.height, topCapEnabled) };
+}
+
 function envelopeVolumeFor(spec: CoilSpec, g: Resolved): number {
   const cap = capacityOf(spec, spec.windingQuality, g);
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire));
-  // True swept envelope volume (docs/research.md §10a, shapes.ts's
-  // `offsetArea`): the outline's own enclosed area at the outermost wound
-  // wire's outer edge, not a bounding-circle overestimate across the
-  // envelope diameter -- matters for sq/tri, where the true footprint is
-  // smaller than its circumscribed bounding circle.
-  const outerOffset = cap.outermostOffset + spec.wire.diameter / 2;
-  const trueVolume = offsetArea(outline, outerOffset) * g.height;
+  // Real printed-volume proxy (issue #63): the flange's own true footprint
+  // area (shapes.ts's `offsetArea`, at the REAL flange margin -- not the
+  // wound envelope's own offset) times the REAL overall assembled height
+  // (flange bottom to cap top), so the objective optimizes the dimensions
+  // that actually end up printed, not an internal estimate that silently
+  // omitted the flange margin/thickness and any cap.
+  const { margin, overallHeight } = realExtentsFor(spec, g, outline, cap);
+  const trueVolume = offsetArea(outline, margin) * overallHeight;
   return trueVolume * turnsPerLayerPenalty(cap);
 }
 
 function aspectScoreFor(spec: CoilSpec, g: Resolved): number {
   const cap = capacityOf(spec, spec.windingQuality, g);
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire));
-  const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
-  return Math.abs(g.height - env);
+  const { margin, overallHeight } = realExtentsFor(spec, g, outline, cap);
+  // The real flange's own "across flats" extent (shapes.ts sizeSemantics:
+  // round=diameter, square=across flats, triangle=inscribed diameter) --
+  // the real, built counterpart of the wound envelope diameter this used to
+  // compare against.
+  const flangeWidth = flangeExtentOf(outline, margin).acrossFlats;
+  return Math.abs(overallHeight - flangeWidth);
 }
 
 function scoreOf(objective: Objective): (spec: CoilSpec, g: Resolved) => number {

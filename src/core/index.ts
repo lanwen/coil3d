@@ -23,6 +23,7 @@ export type {
   Design,
   Diagnosis,
   ExportFormat,
+  FlangeExtent,
   JointKind,
   LayerResult,
   Lock,

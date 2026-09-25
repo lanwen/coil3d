@@ -169,7 +169,7 @@ export default function App() {
                 showWire={showWire}
                 exploded={exploded}
                 mountAxisDeg={result.mountAxisDeg}
-                envelopeWidth={result.solution.flangeSize}
+                envelopeWidth={result.solution.flangeExtent?.acrossFlats ?? result.solution.flangeSize}
                 shapeKind={result.spec.shape.kind}
               />
             </>

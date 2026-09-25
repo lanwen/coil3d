@@ -8,6 +8,16 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // shape of value (a literal "Ø" diameter for round, a plain measured width
 // for sq/tri), agree with design()'s own numbers, stay put across views,
 // keep clear of the overlay controls, and disappear in exploded view.
+//
+// Issue #63 (PR #59 review) found the numbers themselves didn't actually
+// agree: the result panel's old "Flange size" was a solver envelope
+// estimate, not the real built flange -- wrong for non-round shapes and
+// whenever a mount grew the margin -- and its "Core height" excluded the
+// bottom flange/cap entirely. The panel now has real "Flange width"
+// (+ "Flange width (across corners)" for sq/tri) and "Overall height" rows,
+// computed once in the core (design.ts/flange.ts) and read by both the
+// panel and this dimension overlay -- several tests below were tightened
+// to assert against those real numbers directly, not just loose bounds.
 
 const ROUND_NO_CAP = "#v=1&L=1000&d=4&lock=outer,ly&size=50&h=40&ly=1&cap=off";
 const ROUND_CAP = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on";
@@ -56,7 +66,7 @@ function overlaps(a: { x: number; y: number; width: number; height: number }, b:
 }
 
 test.describe("overall-dimension lines (issue #50)", () => {
-  test("round core: width reads as the flange diameter (Ø), the same in every view", async ({ page }) => {
+  test("round core: width reads as the flange diameter (Ø), the same in every view, and matches the result panel's real flange width (issue #63)", async ({ page }) => {
     await gotoDesign(page, ROUND_NO_CAP);
     await expect(page.getByTestId("dimension-width")).toHaveText(/^Ø\s*\d+\.\d cm$/);
     await expect(page.getByTestId("dimension-height")).toHaveText(/^\d+\.\d cm$/);
@@ -67,13 +77,18 @@ test.describe("overall-dimension lines (issue #50)", () => {
     }
   });
 
-  test("height is the overall assembled height: the core plus its bottom flange, the same in every view", async ({ page }) => {
+  test("height is the overall assembled height: the core plus its bottom flange, the same in every view, and matches the result panel's own 'overall height' row (issue #63)", async ({ page }) => {
     await gotoDesign(page, ROUND_NO_CAP);
     await expect(page.getByTestId("caps")).toContainText(/^off/);
-    // The result panel's height is the winding height; the bottom flange
-    // sits below it, so the overall height is taller -- by a flange's
-    // thickness, a few mm.
+    // The result panel's "Core height" is the winding height only; the
+    // bottom flange sits below it, so the overall height is taller -- by a
+    // flange's thickness, a few mm.
     const coreHeightCm = toCm(await readText(page.getByTestId("height")));
+    // The panel's own "Overall height" row (issue #63) is design()'s exact
+    // analytic overallHeight -- the SAME number the dimension line below
+    // reads off the real meshes -- so this must match far more tightly
+    // than the loose "a few mm taller" band above.
+    const overallHeightCm = toCm(await readText(page.getByTestId("overall-height")));
     const heights: number[] = [];
     for (const preset of PRESETS) {
       await showPreset(page, preset);
@@ -81,6 +96,7 @@ test.describe("overall-dimension lines (issue #50)", () => {
     }
     expect(heights[0] - coreHeightCm).toBeGreaterThan(0.1);
     expect(heights[0] - coreHeightCm).toBeLessThan(1.5);
+    expect(heights[0]).toBeCloseTo(overallHeightCm, 1);
     expect(heights[1]).toBe(heights[0]);
     expect(heights[2]).toBe(heights[0]);
   });
@@ -104,19 +120,24 @@ test.describe("overall-dimension lines (issue #50)", () => {
     ["square", SQUARE],
     ["triangle", TRIANGLE],
   ] as const) {
-    test(`${label} core: width is a plain measured value (no Ø), at least the solver's flange envelope`, async ({ page }) => {
+    test(`${label} core: width is a plain measured value (no Ø), always between the result panel's real across-flats/across-corners flange extent (issue #63)`, async ({ page }) => {
       await gotoDesign(page, hash);
-      const flangeCm = toCm(await readText(page.getByTestId("flange")));
+      // Issue #63: the panel now reports the flange's own two real extents
+      // -- "across flats" (the `flange` row -- narrower) and "across
+      // corners" (wider) -- computed from the SAME resolved outline/margin
+      // the flange mesh is built from. Whichever direction the dimension
+      // line happens to measure on screen, it must fall between them (a
+      // convex shape's radius at any angle is bounded by its narrowest and
+      // widest real extents).
+      const acrossFlatsCm = toCm(await readText(page.getByTestId("flange")));
+      const acrossCornersCm = toCm(await readText(page.getByTestId("flange-across-corners")));
+      expect(acrossCornersCm).toBeGreaterThan(acrossFlatsCm);
       for (const preset of PRESETS) {
         await showPreset(page, preset);
         await expect(page.getByTestId("dimension-width")).toHaveText(/^\d+\.\d cm$/);
-        // A sq/tri width depends on the direction it's measured in, so it's
-        // measured off the flange itself; the flange is never narrower than
-        // the solver's own envelope (Solution.flangeSize) in its own view's
-        // horizontal, nor absurdly wider.
         const widthCm = await dimensionCm(page, "width");
-        expect(widthCm, preset).toBeGreaterThan(flangeCm * 0.75);
-        expect(widthCm, preset).toBeLessThan(flangeCm * 1.5);
+        expect(widthCm, preset).toBeGreaterThan(acrossFlatsCm - 0.15);
+        expect(widthCm, preset).toBeLessThan(acrossCornersCm + 0.15);
       }
     });
   }

@@ -690,3 +690,94 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
     expect(tooSmall.mountAxisDeg).not.toBeUndefined(); // requiredFlangeMargin grows the flange to fit -- see the "tiny, sharp core" test above
   });
 });
+
+// Issue #63 (PR #59 review): the result panel's flange/height numbers must
+// match the ACTUAL built parts, not the solver's own envelope-based
+// estimates -- verified here directly against `design()`'s own mesh
+// vertices (never a re-derivation of the formula design.ts/solve.ts use),
+// across round/sq/tri, with and without a mount, capped and uncapped.
+describe("design() real overall height / flange extent match the built parts (issue #63)", () => {
+  /** min/max per axis over every vertex of every part, in the shared assembly frame (types.ts's `Part` doc: no printTransform needed to measure the assembled design). */
+  function assembledBBox(parts: { mesh: { positions: Float32Array } }[]) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const part of parts) {
+      const p = part.mesh.positions;
+      for (let i = 0; i < p.length; i += 3) {
+        const x = p[i], y = p[i + 1], z = p[i + 2];
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        if (z < minZ) minZ = z;
+        if (z > maxZ) maxZ = z;
+      }
+    }
+    return { minX, maxX, minY, maxY, minZ, maxZ };
+  }
+
+  /** min/max X/Y over just the core part's own bottom-flange vertices (z in [-thickness, 0], the flange's own z-slab -- see design.ts/manifold.ts's z=[-thickness,0] convention). */
+  function flangeBBox(core: { mesh: { positions: Float32Array } }, thickness: number) {
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const p = core.mesh.positions;
+    const eps = 1e-6;
+    for (let i = 0; i < p.length; i += 3) {
+      const z = p[i + 2];
+      if (z < -thickness - eps || z > eps) continue;
+      const x = p[i], y = p[i + 1];
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    return { width: maxX - minX, depth: maxY - minY };
+  }
+
+  const TOLERANCE_MM = 0.5;
+
+  for (const shape of [{ kind: "round" as const }, { kind: "sq" as const, cornerRadius: 15 }, { kind: "tri" as const, cornerRadius: 15 }]) {
+    for (const mount of ["none", "keyhole"] as const) {
+      for (const topCap of ["off", "on"] as const) {
+        it(`${shape.kind}, mount=${mount}, cap=${topCap}: overallHeight and flangeExtent match the built parts within ${TOLERANCE_MM} mm`, async () => {
+          const d = await design(
+            baseSpec({
+              shape,
+              coreSize: { locked: true, dimension: "outer", value: 70 },
+              height: { locked: true, value: 55 },
+              layers: { locked: true, value: 2 },
+              mount,
+              topCap,
+            }),
+          );
+          expect(d.solution.overallHeight).toBeDefined();
+          expect(d.solution.flangeExtent).toBeDefined();
+
+          const overall = assembledBBox(d.parts);
+          const realOverallHeight = overall.maxZ - overall.minZ;
+          expect(d.solution.overallHeight!).toBeCloseTo(realOverallHeight, 0); // toBeCloseTo(_, 0) is +-0.5
+          expect(Math.abs(d.solution.overallHeight! - realOverallHeight)).toBeLessThan(TOLERANCE_MM);
+
+          const core = d.parts.find((p) => p.role === "core")!;
+          const flange = flangeBBox(core, d.flangeSpec.thickness);
+          const { acrossFlats, acrossCorners } = d.solution.flangeExtent!;
+          // Every real flange vertex's per-axis extent lies between the
+          // shape's own narrowest (across flats) and widest (across
+          // corners) real extent -- exact for round/square (this shape
+          // registry's square places its corners exactly on the X/Y axes,
+          // see shapes.ts's `polygonVertex`), a true bound for triangle
+          // (whose axis-aligned bbox mixes flats and corners).
+          expect(flange.width).toBeGreaterThan(acrossFlats - TOLERANCE_MM);
+          expect(flange.width).toBeLessThan(acrossCorners + TOLERANCE_MM);
+          expect(flange.depth).toBeGreaterThan(acrossFlats - TOLERANCE_MM);
+          expect(flange.depth).toBeLessThan(acrossCorners + TOLERANCE_MM);
+          if (shape.kind !== "tri") {
+            // Round and square are both symmetric under a 90-degree
+            // rotation, so their axis-aligned bbox lands exactly on one of
+            // the two named extents in both X and Y.
+            expect(Math.min(Math.abs(flange.width - acrossFlats), Math.abs(flange.width - acrossCorners))).toBeLessThan(TOLERANCE_MM);
+            expect(Math.min(Math.abs(flange.depth - acrossFlats), Math.abs(flange.depth - acrossCorners))).toBeLessThan(TOLERANCE_MM);
+          }
+        });
+      }
+    }
+  }
+});

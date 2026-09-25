@@ -25,6 +25,20 @@ function Row({ testId, label, value }: { testId: string; label: string; value: s
   );
 }
 
+/**
+ * The flange's real outer extent (issue #63), formatted for the row below:
+ * `solution.flangeExtent` is set once `design()` has resolved the real
+ * flange margin (see design.ts/flange.ts) -- undefined only for an
+ * `alternates` entry, whose geometry `design()` never actually builds, so
+ * this falls back to the solver's own (less accurate) envelope estimate
+ * there rather than hiding the row.
+ */
+function flangeWidthValue(solution: Solution, shapeKind: Design["spec"]["shape"]["kind"]): string {
+  const extent = solution.flangeExtent;
+  if (!extent) return `${solution.flangeSize.toFixed(1)} mm`;
+  return shapeKind === "round" ? `Ø ${extent.acrossFlats.toFixed(1)} mm` : `${extent.acrossFlats.toFixed(1)} mm`;
+}
+
 function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; prefix: string; shapeKind: Design["spec"]["shape"]["kind"] }) {
   return (
     <>
@@ -32,6 +46,16 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
       {shapeKind !== "round" && <Row testId={`${prefix}corner-radius`} label="Corner radius" value={`${solution.cornerRadius.toFixed(1)} mm`} />}
       <Row testId={`${prefix}inner-bore`} label="Inner bore" value={`${solution.innerBore.toFixed(1)} mm`} />
       <Row testId={`${prefix}height`} label="Core height" value={`${solution.height.toFixed(1)} mm`} />
+      {/* Issue #63: the assembled part's REAL overall height (flange bottom
+          to cap top), matching the viewer's own "height" dimension line --
+          "Core height" above is the wall's own WINDING height only (it
+          excludes the bottom flange's thickness and any top cap), kept
+          unchanged for anyone relying on that narrower number. */}
+      <Row
+        testId={`${prefix}overall-height`}
+        label="Overall height"
+        value={`${(solution.overallHeight ?? solution.height).toFixed(1)} mm`}
+      />
       <Row testId={`${prefix}layers`} label="Layers" value={String(solution.layers)} />
       {/* Cable-length results, shown in centimetres for consistency with the
           cm-based length input (issue #51 AC) -- everything else in this
@@ -49,7 +73,19 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
         value={`${mmToCm(solution.capacityRange[0]).toFixed(0)} - ${mmToCm(solution.capacityRange[1]).toFixed(0)} cm`}
       />
       <Row testId={`${prefix}envelope`} label="Envelope" value={`${solution.envelopeDiameter.toFixed(1)} mm`} />
-      <Row testId={`${prefix}flange`} label="Flange size" value={`${solution.flangeSize.toFixed(1)} mm`} />
+      {/* Issue #63: the flange's REAL outer extent (matching the built
+          flange mesh, not the solver's own envelope-based estimate) --
+          round shows a single true diameter; square/triangle additionally
+          show the wider "across corners" extent, since the two together
+          are what actually has to clear a bed/enclosure. */}
+      <Row testId={`${prefix}flange`} label="Flange width" value={flangeWidthValue(solution, shapeKind)} />
+      {shapeKind !== "round" && solution.flangeExtent && (
+        <Row
+          testId={`${prefix}flange-across-corners`}
+          label="Flange width (across corners)"
+          value={`${solution.flangeExtent.acrossCorners.toFixed(1)} mm`}
+        />
+      )}
       <Row
         testId={`${prefix}caps`}
         label="Top cap"
