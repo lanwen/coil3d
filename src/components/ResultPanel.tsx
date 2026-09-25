@@ -1,5 +1,5 @@
 import type { Design, MountKind, Solution } from "../core";
-import { Section } from "./fields";
+import { Section, mmToCm } from "./fields";
 
 const MOUNT_LABELS: Record<MountKind, string> = {
   none: "None",
@@ -33,13 +33,21 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
       <Row testId={`${prefix}inner-bore`} label="Inner bore" value={`${solution.innerBore.toFixed(1)} mm`} />
       <Row testId={`${prefix}height`} label="Core height" value={`${solution.height.toFixed(1)} mm`} />
       <Row testId={`${prefix}layers`} label="Layers" value={String(solution.layers)} />
-      <Row testId={`${prefix}wound-length`} label="Wound length" value={`${solution.totalWoundLength.toFixed(1)} mm`} />
+      {/* Cable-length results, shown in centimetres for consistency with the
+          cm-based length input (issue #51 AC) -- everything else in this
+          summary stays in mm (it describes the printed core, not the wound
+          cable). */}
+      <Row testId={`${prefix}wound-length`} label="Wound length" value={`${mmToCm(solution.totalWoundLength).toFixed(1)} cm`} />
       <Row
         testId={`${prefix}capacity-vs-target`}
         label="Capacity vs. target"
-        value={`${solution.totalWireLength.toFixed(1)} mm (${solution.lengthDeltaPct >= 0 ? "+" : ""}${solution.lengthDeltaPct.toFixed(1)}%)`}
+        value={`${mmToCm(solution.totalWireLength).toFixed(1)} cm (${solution.lengthDeltaPct >= 0 ? "+" : ""}${solution.lengthDeltaPct.toFixed(1)}%)`}
       />
-      <Row testId={`${prefix}capacity-range`} label="Capacity range" value={`${solution.capacityRange[0].toFixed(0)} - ${solution.capacityRange[1].toFixed(0)} mm`} />
+      <Row
+        testId={`${prefix}capacity-range`}
+        label="Capacity range"
+        value={`${mmToCm(solution.capacityRange[0]).toFixed(0)} - ${mmToCm(solution.capacityRange[1]).toFixed(0)} cm`}
+      />
       <Row testId={`${prefix}envelope`} label="Envelope" value={`${solution.envelopeDiameter.toFixed(1)} mm`} />
       <Row testId={`${prefix}flange`} label="Flange size" value={`${solution.flangeSize.toFixed(1)} mm`} />
       <Row
@@ -62,7 +70,7 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
               <td>{layer.layer}</td>
               <td>{layer.turns}</td>
               <td>{layer.perimeter.toFixed(1)} mm</td>
-              <td>{layer.length.toFixed(1)} mm</td>
+              <td>{mmToCm(layer.length).toFixed(1)} cm</td>
             </tr>
           ))}
         </tbody>

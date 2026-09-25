@@ -1,7 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import type { CoilSpec, CoreSizeLock, JointKind, Lock, MountKind, Objective, PlateJoint, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
-import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, LABEL_MAX_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
-import { LockRangeField, LockStepperField, RangeField, Section, TextField } from "./fields";
+import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_CORNER_RADIUS, DEFAULT_CUSTOM_BEND_MULTIPLIER, LABEL_MAX_LENGTH, SHAPES, TOLERANCE_MAX, TOLERANCE_MIN, WIRE_TYPE_PRESETS } from "../core";
+import { FieldTop, LockRangeField, LockStepperField, RangeField, Section, TextField, cmToMm, mmToCm, round1 } from "./fields";
+import { HINTS } from "./hints";
+import { ShapePicker } from "./ShapePicker";
+
+/** Slider bounds in cm (issue #51 AC: "20-1500 cm"); converted to the mm `CoilSpec` stores. */
+const WIRE_LENGTH_MIN_CM = 20;
+const WIRE_LENGTH_MAX_CM = 1500;
 
 const TOP_CAP_OPTIONS: Array<{ id: TopCapMode; label: string }> = [
   { id: "auto", label: "Auto (on when layers > 1)" },
@@ -20,12 +26,6 @@ const WIRE_TYPE_OPTIONS: Array<{ id: WireTypeId; label: string }> = [
   { id: "flex", label: WIRE_TYPE_PRESETS.flex.label },
   { id: "stiff", label: WIRE_TYPE_PRESETS.stiff.label },
   { id: "custom", label: "Custom" },
-];
-
-const SHAPE_OPTIONS: Array<{ id: ShapeKind; label: string }> = [
-  { id: "round", label: "Round" },
-  { id: "sq", label: "Rounded square" },
-  { id: "tri", label: "Rounded triangle" },
 ];
 
 // openGrid (issue #14 PR review): the grid pitch is verified, but its real
@@ -81,8 +81,36 @@ export function ControlsForm({
     onChange({ ...spec, shape: { kind: spec.shape.kind, cornerRadius } });
   };
 
+  // Ids for the plain `<select>` fields below, so each one's `FieldTop`
+  // label is a real `<label for>` (issue #53's (i) button sits next to that
+  // label, as a sibling -- never nested inside a wrapping `<label>`).
+  const wireTypeId = useId();
+  const coreSizeDimensionId = useId();
+  const mountId = useId();
+  const plateJointId = useId();
+  const objectiveId = useId();
+  const topCapId = useId();
+  const jointId = useId();
+
   const freeCount = [spec.coreSize.locked, spec.height.locked, spec.layers.locked].filter((locked) => !locked).length;
   const showObjective = freeCount >= 2;
+
+  // Issue #54/#58: for a square or triangle core, this cable's bend limit
+  // can force a bigger minimum core size than a round core needs (a bigger
+  // corner radius, at a fixed size, erodes the straight sides). The size
+  // slider's own minimum follows that (never lets the user drag below a
+  // size the solver would just raise anyway); `solution` is undefined only
+  // before the very first solve, when 5mm is as good a placeholder as any.
+  const outerSizeMin = spec.shape.kind === "round" ? 5 : Math.max(5, solution?.minOuterSizeForShape ?? 5);
+  // The solver silently raises a LOCKED size below that floor (with its own
+  // warning in the Result panel) -- the input itself still shows the raw
+  // value the user typed (never swapped out from under them mid-edit, which
+  // would fight typing), but this note next to it says plainly that the
+  // built core is actually bigger, and why.
+  const coreSizeRaised =
+    spec.shape.kind !== "round" && spec.coreSize.locked && solution && solution.outerSize > spec.coreSize.value + 0.05
+      ? { requested: spec.coreSize.value, built: solution.outerSize }
+      : undefined;
 
   // "Advanced settings" (winding quality, custom bend multiplier, objective)
   // stay collapsed behind a disclosure (issue #16 AC) so the form isn't a
@@ -97,12 +125,33 @@ export function ControlsForm({
   return (
     <form className="controls" onSubmit={(e) => e.preventDefault()}>
       <Section title="Cable">
-        <RangeField testId="wireLength" label="Cable length" unit="mm" min={1} max={15000} step={10} value={spec.wire.length} onChange={(v) => setWire({ length: v })} />
-        <RangeField testId="wireDiameter" label="Cable diameter" unit="mm" min={0.5} max={20} step={0.1} value={spec.wire.diameter} onChange={(v) => setWire({ diameter: v })} />
+        <RangeField
+          testId="wireLength"
+          label="Cable length"
+          unit="cm"
+          min={WIRE_LENGTH_MIN_CM}
+          max={WIRE_LENGTH_MAX_CM}
+          step={1}
+          value={mmToCm(spec.wire.length)}
+          hint={HINTS.wireLength}
+          onChange={(v) => setWire({ length: cmToMm(v) })}
+        />
+        <RangeField
+          testId="wireDiameter"
+          label="Cable diameter"
+          unit="mm"
+          min={0.5}
+          max={20}
+          step={0.1}
+          value={spec.wire.diameter}
+          hint={HINTS.wireDiameter}
+          onChange={(v) => setWire({ diameter: v })}
+        />
 
-        <label className="field">
-          <span className="field-label">Cable type</span>
+        <div className="field">
+          <FieldTop label="Cable type" hint={HINTS.wireType} htmlFor={wireTypeId} />
           <select
+            id={wireTypeId}
             className="field-select"
             data-testid="select-wireType"
             value={spec.wire.type}
@@ -114,20 +163,11 @@ export function ControlsForm({
               </option>
             ))}
           </select>
-        </label>
+        </div>
       </Section>
 
       <Section title="Shape">
-        <label className="field">
-          <span className="field-label">Core shape</span>
-          <select className="field-select" data-testid="select-shape" value={spec.shape.kind} onChange={(e) => setShapeKind(e.target.value as ShapeKind)}>
-            {SHAPE_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <ShapePicker testId="shape" label="Core shape" hint={HINTS.shape} value={spec.shape.kind} onChange={setShapeKind} />
         {spec.shape.kind !== "round" && (
           <RangeField
             testId="shapeCornerRadius"
@@ -137,15 +177,17 @@ export function ControlsForm({
             max={250}
             step={0.5}
             value={spec.shape.cornerRadius}
+            hint={HINTS.shapeCornerRadius}
             onChange={setShapeCornerRadius}
           />
         )}
       </Section>
 
       <Section title="Core">
-        <label className="field">
-          <span className="field-label">Locked dimension</span>
+        <div className="field">
+          <FieldTop label="Locked dimension" hint={HINTS.coreSizeDimension} htmlFor={coreSizeDimensionId} />
           <select
+            id={coreSizeDimensionId}
             className="field-select"
             data-testid="select-coreSizeDimension"
             value={spec.coreSize.locked ? spec.coreSize.dimension : "outer"}
@@ -155,18 +197,25 @@ export function ControlsForm({
             <option value="outer">Outer (winding surface)</option>
             <option value="inner">Inner (bore)</option>
           </select>
-        </label>
+        </div>
         <LockRangeField
           testId="outer"
           label="Core size"
           unit="mm"
           lock={spec.coreSize}
-          min={5}
+          min={outerSizeMin}
           max={500}
           step={1}
           freeValue={solution?.outerSize ?? 30}
+          hint={HINTS.outer}
           onChange={setCoreSizeLock}
         />
+        {coreSizeRaised && (
+          <p className="field-note" data-testid="core-size-raised-note">
+            Built at {round1(coreSizeRaised.built)} mm, not {round1(coreSizeRaised.requested)} mm: a {SHAPES[spec.shape.kind].label.toLowerCase()} core needs
+            this much room for this cable's rounded corners.
+          </p>
+        )}
         <LockRangeField
           testId="height"
           label="Height"
@@ -176,6 +225,7 @@ export function ControlsForm({
           max={400}
           step={1}
           freeValue={solution?.height ?? 40}
+          hint={HINTS.height}
           onChange={(lock) => onChange({ ...spec, height: lock })}
         />
         <LockStepperField
@@ -185,32 +235,39 @@ export function ControlsForm({
           min={1}
           max={40}
           freeValue={solution?.layers ?? 1}
+          hint={HINTS.layers}
           onChange={(lock) => onChange({ ...spec, layers: lock })}
         />
       </Section>
 
       <Section title="Mount">
-        <label className="field">
-          <span className="field-label">Wall mount</span>
-          <select className="field-select" data-testid="select-mount" value={spec.mount} onChange={(e) => onChange({ ...spec, mount: e.target.value as MountKind })}>
+        <div className="field">
+          <FieldTop label="Wall mount" hint={HINTS.mount} htmlFor={mountId} />
+          <select id={mountId} className="field-select" data-testid="select-mount" value={spec.mount} onChange={(e) => onChange({ ...spec, mount: e.target.value as MountKind })}>
             {MOUNT_OPTIONS.map((opt) => (
               <option key={opt.id} value={opt.id}>
                 {opt.label}
               </option>
             ))}
           </select>
-        </label>
+        </div>
         {(spec.mount === "skadis" || spec.mount === "opengrid") && (
-          <label className="field">
-            <span className="field-label">Plate joint</span>
-            <select className="field-select" data-testid="select-plateJoint" value={spec.plateJoint} onChange={(e) => onChange({ ...spec, plateJoint: e.target.value as PlateJoint })}>
+          <div className="field">
+            <FieldTop label="Plate joint" hint={HINTS.plateJoint} htmlFor={plateJointId} />
+            <select
+              id={plateJointId}
+              className="field-select"
+              data-testid="select-plateJoint"
+              value={spec.plateJoint}
+              onChange={(e) => onChange({ ...spec, plateJoint: e.target.value as PlateJoint })}
+            >
               {PLATE_JOINT_OPTIONS.map((opt) => (
                 <option key={opt.id} value={opt.id}>
                   {opt.label}
                 </option>
               ))}
             </select>
-          </label>
+          </div>
         )}
       </Section>
 
@@ -225,6 +282,7 @@ export function ControlsForm({
             max={1}
             step={0.05}
             value={spec.windingQuality}
+            hint={HINTS.windingQuality}
             onChange={(v) => onChange({ ...spec, windingQuality: v })}
           />
           {spec.wire.type === "custom" && (
@@ -236,42 +294,49 @@ export function ControlsForm({
               max={50}
               step={0.5}
               value={spec.wire.customBendMultiplier ?? DEFAULT_CUSTOM_BEND_MULTIPLIER}
+              hint={HINTS.customMultiplier}
               onChange={(v) => setWire({ customBendMultiplier: v })}
             />
           )}
           {showObjective && (
-            <label className="field">
-              <span className="field-label">Objective ({freeCount} free dimensions)</span>
-              <select className="field-select" data-testid="select-objective" value={spec.objective} onChange={(e) => onChange({ ...spec, objective: e.target.value as Objective })}>
+            <div className="field">
+              <FieldTop label={`Objective (${freeCount} free dimensions)`} hint={HINTS.objective} htmlFor={objectiveId} />
+              <select
+                id={objectiveId}
+                className="field-select"
+                data-testid="select-objective"
+                value={spec.objective}
+                onChange={(e) => onChange({ ...spec, objective: e.target.value as Objective })}
+              >
                 <option value="minVolume">Minimum volume</option>
                 <option value="aspectRatio">Cube-like proportions</option>
               </select>
-            </label>
+            </div>
           )}
         </div>
       </details>
 
       <Section title="Top cap & joint">
-        <label className="field">
-          <span className="field-label">Top cap</span>
-          <select className="field-select" data-testid="select-topCap" value={spec.topCap} onChange={(e) => onChange({ ...spec, topCap: e.target.value as TopCapMode })}>
+        <div className="field">
+          <FieldTop label="Top cap" hint={HINTS.topCap} htmlFor={topCapId} />
+          <select id={topCapId} className="field-select" data-testid="select-topCap" value={spec.topCap} onChange={(e) => onChange({ ...spec, topCap: e.target.value as TopCapMode })}>
             {TOP_CAP_OPTIONS.map((opt) => (
               <option key={opt.id} value={opt.id}>
                 {opt.label}
               </option>
             ))}
           </select>
-        </label>
-        <label className="field">
-          <span className="field-label">Joint</span>
-          <select className="field-select" data-testid="select-joint" value={spec.joint} onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}>
+        </div>
+        <div className="field">
+          <FieldTop label="Joint" hint={HINTS.joint} htmlFor={jointId} />
+          <select id={jointId} className="field-select" data-testid="select-joint" value={spec.joint} onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}>
             {JOINT_OPTIONS.map((opt) => (
               <option key={opt.id} value={opt.id}>
                 {opt.label}
               </option>
             ))}
           </select>
-        </label>
+        </div>
         <RangeField
           testId="tolerance"
           label="Joint tolerance"
@@ -280,6 +345,7 @@ export function ControlsForm({
           max={TOLERANCE_MAX}
           step={0.05}
           value={spec.tolerance}
+          hint={HINTS.tolerance}
           onChange={(v) => onChange({ ...spec, tolerance: v })}
         />
         <TextField
@@ -288,14 +354,15 @@ export function ControlsForm({
           placeholder="e.g. USB-C 2m"
           maxLength={LABEL_MAX_LENGTH}
           value={spec.label ?? ""}
+          hint={HINTS.label}
           onChange={(v) => onChange({ ...spec, label: v })}
         />
       </Section>
 
       <Section title="Print bed">
-        <RangeField testId="bedX" label="Bed X" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedX} onChange={(v) => setPrint({ bedX: v })} />
-        <RangeField testId="bedY" label="Bed Y" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedY} onChange={(v) => setPrint({ bedY: v })} />
-        <RangeField testId="bedZ" label="Bed Z" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedZ} onChange={(v) => setPrint({ bedZ: v })} />
+        <RangeField testId="bedX" label="Bed X" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedX} hint={HINTS.bedX} onChange={(v) => setPrint({ bedX: v })} />
+        <RangeField testId="bedY" label="Bed Y" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedY} hint={HINTS.bedY} onChange={(v) => setPrint({ bedY: v })} />
+        <RangeField testId="bedZ" label="Bed Z" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedZ} hint={HINTS.bedZ} onChange={(v) => setPrint({ bedZ: v })} />
       </Section>
     </form>
   );

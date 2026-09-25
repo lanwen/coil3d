@@ -6,21 +6,38 @@ import { decodeHashDoc } from "./hashDoc";
 // / hash reflect the choice. Solver math itself is covered by vitest
 // against the public `design()` interface (test/design.test.ts).
 //
+// Issue #52 replaced the `<select>` dropdown with a row of pictogram radio
+// buttons (one real `<input type="radio">` per shape, generated from the
+// shape registry): `shape-option-<kind>` is now how a shape is selected
+// and asserted on, in place of the old `select-shape` testid.
+//
 // The hash's own shape/rc fields are asserted via `decodeHashDoc` (issue
 // #56: the hash is now `#s=<base64url(JSON)>`, and no longer namespaces the
 // corner radius per shape -- a single `rc` key, paired with `shape`).
 
 test("the default shape is round, with no corner-radius control shown", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("select-shape")).toHaveValue("round");
+  await expect(page.getByTestId("shape-option-round")).toBeChecked();
+  await expect(page.getByTestId("shape-option-sq")).not.toBeChecked();
+  await expect(page.getByTestId("shape-option-tri")).not.toBeChecked();
   await expect(page.getByTestId("input-shapeCornerRadius")).toHaveCount(0);
   expect(decodeHashDoc(page.url()).shape).toBeUndefined();
 });
 
+test("every shape in the registry gets its own accessible radio button", async ({ page }) => {
+  await page.goto("/");
+  const group = page.getByRole("radiogroup", { name: "Core shape" });
+  await expect(group).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Round", exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Rounded square", exact: true })).toBeVisible();
+  await expect(page.getByRole("radio", { name: "Rounded triangle", exact: true })).toBeVisible();
+});
+
 test("switching to a rounded square shows the corner-radius control and updates the hash + result panel", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("select-shape").selectOption("sq");
+  await page.getByTestId("shape-option-sq").check();
 
+  await expect(page.getByTestId("shape-option-sq")).toBeChecked();
   await expect(page.getByTestId("input-shapeCornerRadius")).toBeVisible();
   await expect(async () => {
     expect(decodeHashDoc(page.url()).shape).toBe("sq");
@@ -28,12 +45,21 @@ test("switching to a rounded square shows the corner-radius control and updates 
   await expect(page.getByTestId("corner-radius")).toBeVisible();
 });
 
+test("keyboard: arrow keys move the selection within the shape radiogroup", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("shape-option-round").focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("shape-option-sq")).toBeChecked();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByTestId("shape-option-tri")).toBeChecked();
+});
+
 test("editing the corner radius for a rounded triangle updates the hash and reproduces on reload", async ({ page }) => {
   // A large-enough locked outer size that the requested corner radius (15mm)
   // isn't clamped by the bend limit (see test/design.test.ts for the
   // clamping/"became round" cases).
   await page.goto("/#v=1&shape=tri&tri.rc=15&lock=outer,ly&size=60");
-  await expect(page.getByTestId("select-shape")).toHaveValue("tri");
+  await expect(page.getByTestId("shape-option-tri")).toBeChecked();
   await expect(page.getByTestId("input-shapeCornerRadius")).toHaveValue("15");
   await expect(page.getByTestId("corner-radius")).toHaveText("15.0 mm");
 
@@ -45,7 +71,7 @@ test("editing the corner radius for a rounded triangle updates the hash and repr
   }).toPass();
 
   await page.reload();
-  await expect(page.getByTestId("select-shape")).toHaveValue("tri");
+  await expect(page.getByTestId("shape-option-tri")).toBeChecked();
   await expect(page.getByTestId("input-shapeCornerRadius")).toHaveValue("18");
 });
 
