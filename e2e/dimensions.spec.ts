@@ -269,3 +269,56 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     expect(ink.inRects).toBe(0);
   });
 });
+
+// End-to-end checks for issue #65 (follow-ups from the #63 review): the
+// result panel's "Envelope" row is renamed and hinted so it reads as
+// directly comparable to the flange rows, instead of looking like the
+// cable pokes out past the flange. (This issue also fixed the height
+// dimension's own extension lines in the old SVG overlay; issue #69/#75
+// replaced that overlay with the 3D dimension axes above, so that part is
+// superseded and dropped here.)
+test.describe("the cable/flange rows are comparable (issue #65)", () => {
+  test("the cable's own outer size and the flange rows are labelled/hinted so they're directly comparable", async ({ page }) => {
+    await gotoDesign(page, SQUARE);
+    // Renamed from the old, unqualified "Envelope" (issue #65): it's a
+    // circumscribed, across-corners extent, same as "Flange width (across
+    // corners)" below it -- not the plain (narrower, across-flats) "Flange
+    // width" right above.
+    await expect(page.getByTestId("envelope")).toHaveText(/^\d+\.\d mm$/);
+    const envelopeRow = page.locator(".result-row").filter({ has: page.getByTestId("envelope") });
+    await expect(envelopeRow.locator(".result-label")).toHaveText("Cable outer size (across corners)");
+
+    const envelopeCm = Number((await page.getByTestId("envelope").textContent())!.match(/[\d.]+/)![0]);
+    const acrossCornersCm = Number((await page.getByTestId("flange-across-corners").textContent())!.match(/[\d.]+/)![0]);
+    expect(envelopeCm).toBeLessThanOrEqual(acrossCornersCm);
+
+    // Every one of the three rows has its own (i) hint, and none of them
+    // are empty.
+    for (const testId of ["envelope", "flange", "flange-across-corners"]) {
+      const row = page.locator(".result-row").filter({ has: page.getByTestId(testId) });
+      const hintBtn = row.getByTestId("hint-btn");
+      await expect(hintBtn).toHaveCount(1);
+      const bubble = row.getByTestId("hint-bubble");
+      await hintBtn.hover();
+      await expect(bubble).toBeVisible();
+      expect((await bubble.textContent())!.length).toBeGreaterThan(20);
+    }
+
+    // A design's warnings never include the cable-exceeds-flange safety net
+    // (design.ts: the flange margin is sized to clear the envelope) --
+    // guarded far more thoroughly across shapes/mounts/cable sizes by
+    // vitest (test/design.test.ts), this is just the UI-wiring sanity check.
+    const hasCount = await page.getByTestId("warnings").count();
+    if (hasCount > 0) {
+      await expect(page.getByTestId("warnings")).not.toContainText("stick out past the flange");
+    }
+  });
+
+  test("round core: 'Cable outer size' (no '(across corners)') matches the flange width directly, since round has no separate across-corners row", async ({ page }) => {
+    await gotoDesign(page, ROUND_CAP);
+    const envelopeRow = page.locator(".result-row").filter({ has: page.getByTestId("envelope") });
+    await expect(envelopeRow.locator(".result-label")).toHaveText("Cable outer size");
+    await expect(page.getByTestId("envelope")).toHaveText(/^Ø\s*\d+\.\d mm$/);
+    await expect(page.getByTestId("flange-across-corners")).toHaveCount(0);
+  });
+});

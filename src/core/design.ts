@@ -208,6 +208,18 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const flangeExtent = flangeExtentOf(outline, margin);
   const overallHeight = overallHeightOf(thickness, solution.height, topCapEnabled);
 
+  // Issue #65: the flange is sized to clear the wound cable's own envelope
+  // (see `resolveFlangeSizing`'s `baseMargin`, which is why this should
+  // never actually fire), but it's a safety net for whatever the solver
+  // didn't anticipate -- compared apples-to-apples, both across corners
+  // (`envelopeDiameter` is already a circumscribed, across-corners extent;
+  // for round, across-corners === across-flats, so this still holds).
+  if (solution.envelopeDiameter > flangeExtent.acrossCorners + 1e-6) {
+    warnings.push(
+      `Cable outer size (${solution.envelopeDiameter.toFixed(1)} mm, across corners) is bigger than the flange (${flangeExtent.acrossCorners.toFixed(1)} mm, across corners) -- the wound cable would stick out past the flange.`,
+    );
+  }
+
   const wall = buildWall(wallSpec);
   const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint, innerEndCut, mountPlateCut);
 

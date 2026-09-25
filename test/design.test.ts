@@ -781,3 +781,37 @@ describe("design() real overall height / flange extent match the built parts (is
     }
   }
 });
+
+// Issue #65 (result panel review): the wound cable's own outer size
+// (`envelopeDiameter`, always a circumscribed/across-corners extent, see
+// capacity.ts) must never exceed the flange's own across-corners extent --
+// design.ts's flange margin is deliberately sized to clear it (flange.ts's
+// `resolveFlangeSizing`'s `baseMargin`), so this is the invariant a "cable
+// sticks out past the flange" warning would guard; it's a genuine
+// mathematical guarantee of that sizing (never just true by luck for these
+// particular specs), so it's checked across round/sq/tri, with and without
+// a mount, and across a spread of cable sizes -- and the warning itself
+// must correspondingly never appear.
+describe("design() cable outer size never exceeds the flange (issue #65)", () => {
+  for (const shape of [{ kind: "round" as const }, { kind: "sq" as const, cornerRadius: 15 }, { kind: "tri" as const, cornerRadius: 15 }]) {
+    for (const mount of ["none", "keyhole"] as const) {
+      for (const wireDiameter of [1.5, 3.8, 8]) {
+        it(`${shape.kind}, mount=${mount}, wire=${wireDiameter}mm: envelope stays within the flange's across-corners extent, no warning`, async () => {
+          const d = await design(
+            baseSpec({
+              shape,
+              wire: { length: 2000, diameter: wireDiameter, type: "usb" },
+              coreSize: { locked: true, dimension: "outer", value: 70 },
+              height: { locked: true, value: 55 },
+              layers: { locked: true, value: 2 },
+              mount,
+            }),
+          );
+          expect(d.solution.flangeExtent).toBeDefined();
+          expect(d.solution.envelopeDiameter).toBeLessThanOrEqual(d.solution.flangeExtent!.acrossCorners);
+          expect(d.warnings.some((w) => w.includes("stick out past the flange"))).toBe(false);
+        });
+      }
+    }
+  }
+});
