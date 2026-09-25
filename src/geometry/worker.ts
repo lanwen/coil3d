@@ -44,6 +44,10 @@ scope.onmessage = (ev) => {
         ...d.wirePaths.map((p) => p.points.buffer),
         // The inner-end lead-in centerline (issue #8) is a typed array too.
         d.innerEndLeadIn.buffer,
+        // The layer-to-layer transitions and the outer-end lead-out (issue
+        // #68) are typed arrays too.
+        ...d.layerTransitions.map((t) => t.buffer),
+        d.outerEndLeadOut.buffer,
       ]),
     (err: unknown) => scope.postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) }),
   );

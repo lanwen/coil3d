@@ -142,11 +142,16 @@ describe("design().wirePaths (issue #4)", () => {
     expect(r2).toBeGreaterThan(r1);
     expect(r2 - r1).toBeCloseTo(d.solution.layerResults[1].offset - d.solution.layerResults[0].offset, 3);
 
-    // At quality=1 the ideal half-pitch shift applies: layer 2 starts half a
-    // pitch (in z) above layer 1's own start (docs/research.md §3).
+    // Issue #68: layer 2 is TRAVERSE-wound -- it descends instead of
+    // climbing (see wire.ts's `buildWirePaths` doc comment), so its own
+    // chronological END (its last sample, not its first) is the one that
+    // sits right next to layer 1's own start, one phase-shift's worth of
+    // pitch away. At quality=1 the ideal half-pitch shift applies (docs/
+    // research.md §3).
     const pitch = 3.8 + 0.3;
     const z1 = zAt(layer1.points, 0);
-    const z2 = zAt(layer2.points, 0);
+    const layer2Last = layer2.points.length / 3 - 1;
+    const z2 = zAt(layer2.points, layer2Last);
     expect(z2 - z1).toBeCloseTo(pitch / 2, 3);
   });
 
@@ -161,7 +166,38 @@ describe("design().wirePaths (issue #4)", () => {
       }),
     );
     const [layer1, layer2] = d.wirePaths;
-    expect(zAt(layer2.points, 0)).toBeCloseTo(zAt(layer1.points, 0), 3);
+    const layer2Last = layer2.points.length / 3 - 1;
+    expect(zAt(layer2.points, layer2Last)).toBeCloseTo(zAt(layer1.points, 0), 3);
+  });
+
+  it("traverse winding (issue #68): even layers descend in z instead of climbing", async () => {
+    const d = await design(
+      baseSpec({
+        wire: { length: 6000, diameter: 3.8, type: "usb" },
+        coreSize: { locked: true, dimension: "outer", value: 30 },
+        height: { locked: true, value: 60 },
+        layers: { locked: true, value: 3 },
+      }),
+    );
+    expect(d.wirePaths).toHaveLength(3);
+    const [layer1, layer2, layer3] = d.wirePaths;
+    const sampleCount = (p: (typeof d.wirePaths)[number]) => p.points.length / 3;
+
+    // Layer 1 (odd) still climbs, exactly as before.
+    for (let i = 1; i < sampleCount(layer1); i++) {
+      expect(zAt(layer1.points, i)).toBeGreaterThan(zAt(layer1.points, i - 1));
+    }
+    // Layer 2 (even) descends: it starts near the top (right next to where
+    // layer 1 just finished) and ends near the bottom (right next to where
+    // layer 3 starts) -- the core keeps spinning the same way the whole
+    // time, only the Z direction alternates (see wire.ts's file header).
+    for (let i = 1; i < sampleCount(layer2); i++) {
+      expect(zAt(layer2.points, i)).toBeLessThan(zAt(layer2.points, i - 1));
+    }
+    // Layer 3 (odd) climbs again.
+    for (let i = 1; i < sampleCount(layer3); i++) {
+      expect(zAt(layer3.points, i)).toBeGreaterThan(zAt(layer3.points, i - 1));
+    }
   });
 
   it("omits layers with zero turns (a locked height too short to wind even one turn)", async () => {
@@ -209,5 +245,115 @@ describe("design().wirePaths (issue #4)", () => {
     const samplesPerTurn = (d: typeof draft) => d.wirePaths[0].points.length / 3 / d.wirePaths[0].turns;
     expect(samplesPerTurn(final)).toBeGreaterThan(samplesPerTurn(draft) * 2);
     expect(samplesPerTurn(final)).toBeGreaterThanOrEqual(90);
+  });
+});
+
+// Issue #68 acceptance criteria: "design() returns one continuous polyline
+// (or joined segments with matching endpoints and tangent continuity) from
+// the inner end to the outer end" -- checked here across every join (the
+// inner-end lead-in into layer 1, every layer-to-layer transition, and the
+// last layer into the outer-end lead-out), for 1-6 layers and all 3 shapes.
+
+/** xyz at sample `i`. */
+function pointAt3(points: Float32Array, i: number): [number, number, number] {
+  return [points[i * 3], points[i * 3 + 1], points[i * 3 + 2]];
+}
+function distance(a: [number, number, number], b: [number, number, number]): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+function unitVector(a: [number, number, number], b: [number, number, number]): [number, number, number] {
+  const d: [number, number, number] = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const len = Math.hypot(...d) || 1;
+  return [d[0] / len, d[1] / len, d[2] / len];
+}
+function angleBetweenDeg(u: [number, number, number], v: [number, number, number]): number {
+  const dot = Math.max(-1, Math.min(1, u[0] * v[0] + u[1] * v[1] + u[2] * v[2]));
+  return (Math.acos(dot) * 180) / Math.PI;
+}
+
+/** Asserts the join from the end of `before` to the start of `after` has a gap under 0.1 mm and a tangent-direction change under 20 degrees (issue #68 AC). */
+function expectContinuousJoin(before: Float32Array, after: Float32Array, label: string) {
+  const beforeCount = before.length / 3;
+  const endBefore = pointAt3(before, beforeCount - 1);
+  const startAfter = pointAt3(after, 0);
+  expect(distance(endBefore, startAfter), `${label}: gap`).toBeLessThan(0.1);
+
+  const tangentBefore = unitVector(pointAt3(before, beforeCount - 2), endBefore);
+  const tangentAfter = unitVector(startAfter, pointAt3(after, 1));
+  expect(angleBetweenDeg(tangentBefore, tangentAfter), `${label}: tangent angle`).toBeLessThan(20);
+}
+
+describe("design() is one continuous cable, inner end to outer end (issue #68)", () => {
+  for (const shapeKind of ["round", "sq", "tri"] as const) {
+    for (let layers = 1; layers <= 6; layers++) {
+      it(`shape=${shapeKind} layers=${layers}: every join has zero gap and a small tangent-angle change`, async () => {
+        const d = await design(
+          baseSpec({
+            shape: shapeKind === "round" ? { kind: "round" } : { kind: shapeKind, cornerRadius: 10 },
+            wire: { length: 3000, diameter: 3.8, type: "usb" },
+            coreSize: { locked: true, dimension: "outer", value: 30 },
+            height: { locked: true, value: 60 },
+            layers: { locked: true, value: layers },
+          }),
+        );
+        expect(d.solution.layers).toBe(layers);
+        expect(d.wirePaths).toHaveLength(layers);
+        expect(d.wirePaths.every((p) => p.turns > 0)).toBe(true);
+        expect(d.layerTransitions).toHaveLength(layers - 1);
+
+        expectContinuousJoin(d.innerEndLeadIn, d.wirePaths[0].points, "inner lead-in -> layer 1");
+        for (let i = 0; i + 1 < d.wirePaths.length; i++) {
+          expectContinuousJoin(d.wirePaths[i].points, d.layerTransitions[i], `layer ${i + 1} -> transition ${i + 1}`);
+          expectContinuousJoin(d.layerTransitions[i], d.wirePaths[i + 1].points, `transition ${i + 1} -> layer ${i + 2}`);
+        }
+        expectContinuousJoin(d.wirePaths.at(-1)!.points, d.outerEndLeadOut, "last layer -> outer lead-out");
+      });
+    }
+  }
+
+  it("the outer-end lead-out reaches the top cap's own rim keyhole position, even when the top cap is off (1 layer)", async () => {
+    const d = await design(
+      baseSpec({
+        wire: { length: 3000, diameter: 3.8, type: "usb" },
+        coreSize: { locked: true, dimension: "outer", value: 30 },
+        height: { locked: true, value: 40 },
+        layers: { locked: true, value: 1 },
+        topCap: "auto",
+      }),
+    );
+    expect(d.parts.some((p) => p.role === "topCap")).toBe(false); // auto: off for a single layer
+    expect(d.outerEndLeadOut.length).toBeGreaterThanOrEqual(6);
+
+    const n = d.outerEndLeadOut.length / 3;
+    const lastX = d.outerEndLeadOut[(n - 1) * 3];
+    const lastY = d.outerEndLeadOut[(n - 1) * 3 + 1];
+    const lastZ = d.outerEndLeadOut[(n - 1) * 3 + 2];
+    // Same (x, y) as the bottom flange's own keyhole (both are the SAME
+    // outline/margin/wireDiameter/tolerance formula at t=0, see
+    // wire.ts's `buildOuterEndLeadOut` doc comment), well above the core's
+    // own top rim.
+    expect(lastX).toBeCloseTo(d.innerEndLeadIn[0], 3);
+    expect(lastY).toBeCloseTo(d.innerEndLeadIn[1], 3);
+    expect(lastZ).toBeGreaterThan(d.solution.height);
+  });
+
+  it("has no layer transitions for a single-layer design, and both lead-in/lead-out are still present", async () => {
+    const d = await design(baseSpec());
+    expect(d.wirePaths).toHaveLength(1);
+    expect(d.layerTransitions).toHaveLength(0);
+    expect(d.innerEndLeadIn.length).toBeGreaterThanOrEqual(6);
+    expect(d.outerEndLeadOut.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("is empty (no layers, no lead-in/lead-out) when no layer has any turns", async () => {
+    const d = await design(
+      baseSpec({
+        wire: { length: 50, diameter: 3.8, type: "usb" },
+        height: { locked: true, value: 5 },
+      }),
+    );
+    expect(d.wirePaths).toHaveLength(0);
+    expect(d.layerTransitions).toHaveLength(0);
+    expect(d.outerEndLeadOut.length).toBe(0);
   });
 });

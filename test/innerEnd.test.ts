@@ -191,7 +191,7 @@ describe("inner-end fixing: bottom rim keyhole and channel (issue #8)", () => {
     await assertManifold(keyhole.mesh, "mount + inner-end channel");
   });
 
-  it("the wound-cable schematic's lead-in starts at the keyhole and ends near the groove start", async () => {
+  it("the wound-cable schematic's lead-in starts at the keyhole and ends EXACTLY at layer 1's own first sample (issue #68)", async () => {
     const d = await design(baseSpec());
     expect(d.innerEndLeadIn.length).toBeGreaterThanOrEqual(6); // at least 2 samples (x,y,z)
 
@@ -202,19 +202,19 @@ describe("inner-end fixing: bottom rim keyhole and channel (issue #8)", () => {
     expect(d.innerEndLeadIn[1]).toBeCloseTo(layout.hole.y, 5);
     expect(d.innerEndLeadIn[2]).toBe(0); // flat, cut into the flange's inner (z=0) face
 
+    // Issue #68: the lead-in no longer just gets CLOSE to the groove start
+    // (the fillet's own tangent point, a few mm short of layer 1's real
+    // centerline) -- a second Hermite bridge (wire.ts's `buildInnerEndLeadIn`)
+    // closes that gap exactly, so the lead-in's own last sample is now
+    // BIT-FOR-BIT `wirePaths[0]`'s own first sample.
     const n = d.innerEndLeadIn.length / 3;
     const lastX = d.innerEndLeadIn[(n - 1) * 3];
     const lastY = d.innerEndLeadIn[(n - 1) * 3 + 1];
-    expect(Math.hypot(lastX - layout.groove.x, lastY - layout.groove.y)).toBeLessThanOrEqual(layout.channelRadius + 1e-6);
-
-    // The lead-in's last point should sit close to `wirePaths[0]`'s own
-    // first sample in the XY plane (both aim at the same groove-start
-    // vicinity), even though they're deliberately separate arrays (see
-    // wire.ts's `buildInnerEndLeadIn` doc comment).
+    const lastZ = d.innerEndLeadIn[(n - 1) * 3 + 2];
     const firstTurn = d.wirePaths[0];
-    const firstTurnX = firstTurn.points[0];
-    const firstTurnY = firstTurn.points[1];
-    expect(Math.hypot(lastX - firstTurnX, lastY - firstTurnY)).toBeLessThan(layout.channelRadius + d.spec.wire.diameter * 2);
+    expect(lastX).toBeCloseTo(firstTurn.points[0], 5);
+    expect(lastY).toBeCloseTo(firstTurn.points[1], 5);
+    expect(lastZ).toBeCloseTo(firstTurn.points[2], 5);
   });
 
   it("is empty when layer 1 has no turns (nothing to lead into)", async () => {

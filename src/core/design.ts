@@ -49,7 +49,7 @@ import { solve } from "./solve";
 import { bendMultiplierOf } from "./types";
 import type { CoilSpec, Design, Part, Resolution } from "./types";
 import { buildWall } from "./wall";
-import { buildInnerEndLeadIn, buildWirePaths } from "./wire";
+import { buildInnerEndLeadIn, buildLayerTransitions, buildOuterEndLeadOut, buildWirePaths } from "./wire";
 
 export async function design(spec: CoilSpec, resolution: Resolution = "final"): Promise<Design> {
   const { solution, warnings } = solve(spec);
@@ -282,7 +282,16 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // cable can't show it entering the groove anywhere but where it was
   // actually cut. Kept as its own field, not folded into `wirePaths[0]`
   // (see buildInnerEndLeadIn's own doc comment for why).
-  const innerEndLeadIn = buildInnerEndLeadIn(innerEndLayout.channelPath);
+  const innerEndLeadIn = buildInnerEndLeadIn(innerEndLayout.channelPath, wirePaths[0]);
+  // Issue #68: bridge every layer-to-layer transition, then lead the last
+  // layer's own end out to the top cap's rim keyhole -- same (x, y) as the
+  // bottom flange's own keyhole (`innerEndLayout.hole`, both derived from
+  // the identical outline/margin/wireDiameter/tolerance at t=0), sitting at
+  // the assembled height of the cap's own mid-thickness. Computed
+  // unconditionally, whether or not a top cap is actually built (see
+  // wire.ts's `buildOuterEndLeadOut` doc comment).
+  const layerTransitions = buildLayerTransitions(wirePaths);
+  const outerEndLeadOut = buildOuterEndLeadOut(wirePaths, innerEndLayout.hole, solution.height + CAP_THICKNESS / 2);
 
   // Per-part bed-fit warnings (issue #10 AC): each part in ITS OWN print
   // orientation (printBBox reads printTransform, same as the STL/3MF
@@ -322,6 +331,8 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     flangeSpec,
     mountAxisDeg: mountLayout?.axisDeg ?? mountPlateLayout?.axisDeg,
     innerEndLeadIn,
+    layerTransitions,
+    outerEndLeadOut,
   };
 }
 
