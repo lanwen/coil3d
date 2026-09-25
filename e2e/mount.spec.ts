@@ -82,52 +82,34 @@ test("the keyhole-mount core renders, stays manifold end to end, and both STL an
   expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
 });
 
-test("the wall-mount viewer presets (room side, mount side) each change the render and show their own caption", async ({ page }) => {
+// Issue #49 trimmed the viewer's own view controls down to just Front, Iso
+// and a single "Wall mount" preset (the hung, room-side view) -- the
+// standalone `toggle-wall-view` button that used to cycle standing -> room
+// side -> mount side is gone (its room-side state is now just the "Wall
+// mount" preset button, alongside Front/Iso, in the same bar), and the
+// mount-side ("what the wall sees") camera view no longer exists in the
+// interactive viewer at all -- it stays available in the assembly guide
+// (`guide/Guide.tsx`'s `StepMountKeyhole`, which never used this viewer's
+// preset bar in the first place). The `?debugAxis=1` screenshot-only debug
+// overlay existed solely to check that now-removed mount-side preset's slot
+// symmetry, so it (and this test) went with it.
+test("the wall-mount preset changes the render and shows its own caption", async ({ page }) => {
   await page.goto(`/${KEYHOLE_HASH}`);
   const canvas = page.getByTestId("coil-viewer").locator("canvas");
-  const toggle = page.getByTestId("toggle-wall-view");
   await expect(canvas).toBeVisible();
   await page.waitForTimeout(500); // let the pipeline settle a few frames, matching e2e/line-art.spec.ts
 
   await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);
   const standing = await canvas.screenshot();
 
-  // Room-side preset (the coil as it hangs, flange against the wall).
-  await toggle.click();
+  // Wall mount (the coil as it hangs, flange against the wall, top cap
+  // facing the room).
+  await page.getByTestId("preset-wallRoom").click();
   await expect(page.getByTestId("wall-view-caption")).toHaveText(/top cap faces the room/i);
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(900);
   const wallRoom = await canvas.screenshot();
-  expect(wallRoom.equals(standing), "the room-side wall preset must change the render").toBe(false);
+  expect(wallRoom.equals(standing), "the wall-mount preset must change the render").toBe(false);
 
-  // Mount-side preset (issue #13 PR review round 2: the flange's outer,
-  // keyhole-bearing face turned to face the camera, "what the wall sees").
-  await toggle.click();
-  await expect(page.getByTestId("wall-view-caption")).toHaveText(/line up screws with the keyhole slots/i);
-  await page.waitForTimeout(500);
-  const wallMount = await canvas.screenshot();
-  expect(wallMount.equals(standing), "the mount-side wall preset must change the render").toBe(false);
-  expect(wallMount.equals(wallRoom), "the mount-side preset must render differently from the room-side preset").toBe(false);
-
-  await toggle.click();
+  await page.getByTestId("preset-iso").click();
   await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);
-});
-
-test("the debug axis overlay stays hidden by default and only appears in the mount-side preset behind ?debugAxis=1", async ({ page }) => {
-  await page.goto(`/${KEYHOLE_HASH}`);
-  await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
-  await expect(page.getByTestId("debug-axis-overlay")).toHaveCount(0);
-  const toggle = page.getByTestId("toggle-wall-view");
-  await toggle.click(); // room side
-  await expect(page.getByTestId("debug-axis-overlay")).toHaveCount(0);
-  await toggle.click(); // mount side
-  await expect(page.getByTestId("debug-axis-overlay")).toHaveCount(0);
-
-  // The debug flag is a URL query param, which lives before the hash.
-  await page.goto(`/?debugAxis=1${KEYHOLE_HASH}`);
-  await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
-  await expect(page.getByTestId("debug-axis-overlay")).toHaveCount(0); // still standing view
-  await page.getByTestId("toggle-wall-view").click(); // room side
-  await expect(page.getByTestId("debug-axis-overlay")).toHaveCount(0);
-  await page.getByTestId("toggle-wall-view").click(); // mount side
-  await expect(page.getByTestId("debug-axis-overlay")).toBeVisible();
 });

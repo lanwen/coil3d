@@ -103,6 +103,18 @@ test.describe("IKEA line-art renderer", () => {
 
   test("the silhouette of the long coil is unbroken from top to bottom", async ({ page }) => {
     await gotoDesign(page, LONG);
+    // Issue #50's dimension-overlay SVG sits directly on top of the canvas
+    // (so it visually reads as attached to the model), which means a plain
+    // `canvas.screenshot()` -- a real compositor capture of that screen
+    // region, not an isolated read of the WebGL buffer -- can include its
+    // ink too. This scan cares only about the 3D-rendered silhouette
+    // itself, so it hides that annotation layer first, the same way a
+    // pixel-diff suite elsewhere might mask a live clock or a cookie
+    // banner before comparing.
+    await page.evaluate(() => {
+      const el = document.querySelector<HTMLElement>('[data-testid="dimension-overlay"]');
+      if (el) el.style.display = "none";
+    });
     const png = await page.getByTestId("coil-viewer").locator("canvas").screenshot();
     const fractions = Array.from({ length: 60 }, (_, i) => 0.25 + (0.5 * i) / 59);
     const rows = await readRows(page, png, fractions);

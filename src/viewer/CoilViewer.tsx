@@ -5,11 +5,12 @@ import * as THREE from "three";
 import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CAP_THICKNESS, JOINT_ENGAGE_DEPTH, JOINT_TRANSITION_HEIGHT } from "../core";
-import type { CoilMesh, MountKind, Part, Resolution, WireLayerPath } from "../core";
-import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
+import type { CoilMesh, Part, Resolution, ShapeKind, WireLayerPath } from "../core";
+import { DimensionOverlay } from "./dimensionOverlay";
+import { DEFAULT_FILL, LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
 import { getPreset, type PresetId } from "./lineArt/presets";
 import { ViewControls } from "./ViewControls";
-import { WALL_MOUNT_VIEW_ROTATION, WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
+import { WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
 import { buildWireGeometries } from "./wireGeometry";
 
 // Normals are split where faces meet at more than this angle, so the edge
@@ -61,8 +62,12 @@ export interface CoilViewerProps {
   exploded?: boolean;
   /** `Design.mountAxisDeg` (issue #13): the screw-keyhole mount's own true "hangs level" axis, when it differs from the design's local +Y (WALL_UP) -- see `buildViewRotations`'s comment. Omit (or leave undefined) when there's no mount, or it fits exactly on local +Y already. */
   mountAxisDeg?: number;
-  /** `CoilSpec.mount` (issue #14): only used to pick the mount-side preset's own caption text (a screw-keyhole vs. a clip mount plate need different wording) -- every other wall-view behaviour is already mount-kind-agnostic. Defaults to "none" (no caption override). */
-  mount?: MountKind;
+  /** Issue #50: the flange's own physical outer diameter, mm (`Solution.flangeSize` -- the widest thing on the assembled coil, wider than the wound-layer envelope by the flange margin) -- drives the width/diameter dimension line drawn next to the model. Omitted (no solved design yet) hides the whole dimension overlay. */
+  envelopeWidth?: number;
+  /** Issue #50: the assembled coil's overall height, mm (`Solution.height` plus the top cap's own thickness when present) -- drives the height dimension line. */
+  overallHeight?: number;
+  /** Issue #50: `CoilSpec.shape.kind` -- only changes whether the width dimension reads as a true diameter ("Ø", round) or a plain flat-to-flat width (sq/tri, where the flange envelope's own circumscribed size isn't a literal diameter). */
+  shapeKind?: ShapeKind;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -150,90 +155,52 @@ function ExplodedPart({
   );
 }
 
-// Wall-mount presets (issue #13 AC: "the viewer can show the wall
-// orientation, bottom flange against the wall, top cap facing the room").
-// `WALL_VIEW_ROTATION`/`WALL_MOUNT_VIEW_ROTATION` and the `mountAxisDeg`
-// correction are the one shared definition in `./wallRotations` (issue #40)
-// -- the printable guide (`guide/wallView.ts`) uses the exact same matrices,
-// so its wall step can never drift out of sync with this viewer's. See that
-// module for the full derivation of both matrices and the axis correction.
+// Wall-mount preset (issue #13 AC: "the viewer can show the wall
+// orientation, bottom flange against the wall, top cap facing the room";
+// issue #49 trimmed the interactive viewer down to just this one, room-side
+// hung view -- the mount-side "what the wall sees" view stays available in
+// the assembly guide, `guide/Guide.tsx`'s `StepMountKeyhole`, via its own
+// separate use of `WALL_MOUNT_VIEW_ROTATION`). `WALL_VIEW_ROTATION` and the
+// `mountAxisDeg` correction are the one shared definition in
+// `./wallRotations` (issue #40) -- the printable guide (`guide/wallView.ts`)
+// uses the exact same matrix, so its wall step can never drift out of sync
+// with this viewer's. See that module for the full derivation.
 //
-// Both rotate the GEOMETRY itself, not a wrapping group: LineArtRenderer
-// frames the camera from `geometry`'s own LOCAL vertex positions (see
+// Rotates the GEOMETRY itself, not a wrapping group: LineArtRenderer frames
+// the camera from `geometry`'s own LOCAL vertex positions (see
 // LineArtRenderer.tsx's reframe effect), with no knowledge of a parent
 // transform, so a group-level rotation would frame the UNrotated shape
 // while rendering the rotated one. The schematic wire geometries (issue #4)
 // are rotated the identical way, so the wire never visually separates from
 // its coil when the preset is toggled.
 
-type ViewMode = "standing" | "wallRoom" | "wallMount";
+type ViewMode = "standing" | "wallRoom";
 
 function buildViewRotations(mountAxisDeg: number | undefined): Record<ViewMode, THREE.Matrix4 | null> {
   return {
     standing: null,
     wallRoom: withMountAxisCorrection(WALL_VIEW_ROTATION, mountAxisDeg),
-    wallMount: withMountAxisCorrection(WALL_MOUNT_VIEW_ROTATION, mountAxisDeg),
   };
 }
 
 // The coil's own axis (local +Z), wherever each preset renders it -- see
 // wallRotations.ts's WALL_REMAP comment for the room-side case (world +X; a
 // rotation about world X, its spin correction, never moves points along
-// world X, so it needs no correction of its own) and its WALL_MOUNT_VIEW_ROTATION
-// comment for the mount-side case (the camera's own `forward` vector, since
-// that preset points the axis straight down the camera's view direction).
+// world X, so it needs no correction of its own).
 const EXPLODE_AXES: Record<ViewMode, THREE.Vector3> = {
   standing: new THREE.Vector3(0, 0, 1),
   wallRoom: new THREE.Vector3(1, 0, 0),
-  wallMount: new THREE.Vector3(-0.59654998627189371, 0.59654998627189371, -0.53689498764470434),
 };
 
-const VIEW_MODE_ORDER: ViewMode[] = ["standing", "wallRoom", "wallMount"];
-// What clicking the toggle button will switch TO, i.e. the next preset in
-// the cycle -- matches this component's existing convention of labelling
-// the button with its destination, not its current state.
-const NEXT_VIEW_LABEL: Record<ViewMode, string> = {
-  standing: "Wall-mount view (room side)",
-  wallRoom: "Wall-mount view (mount side)",
-  wallMount: "Standing view",
-};
 const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
   wallRoom: "Bottom flange against the wall -- top cap faces the room",
-  wallMount: "Wall-facing side -- line up screws with the keyhole slots here",
 };
-/** Issue #14: the mount-side caption is specific to the mount kind (a clip mount plate has no screws to line up) -- every other mount kind (including "none", where this preset shows the flange's plain wall-facing face) keeps the shared VIEW_CAPTION.wallMount text above. */
-const MOUNT_PLATE_KINDS: ReadonlySet<MountKind> = new Set(["skadis", "opengrid"]);
-const WALL_MOUNT_CAPTION_FOR_MOUNT_PLATE = "Wall-facing side -- the mount plate glues or snaps on here";
-
-/**
- * Screenshot-only debug overlay (issue #13 PR review, round 2): a thin
- * vertical centreline and a dot at the coil axis, to help a reviewer
- * (or this implementer) confirm the wall-mount-face preset's slot layout
- * is actually centred/symmetric. Gated behind a URL query flag so it never
- * ships visible in the normal UI -- `?debugAxis=1` (checked once at mount,
- * not reactively, since it's a screenshot tool, not a user-facing control).
- * Pure CSS overlay, not a 3D scene element: LineArtRenderer's reframe
- * effect centres the model's own projected bounds on the canvas, so a
- * plain screen-centred line + dot already lines up with the coil axis
- * without any extra 3D math.
- */
-function useDebugAxisOverlay(): boolean {
-  const [enabled] = useState(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return new URLSearchParams(window.location.search).get("debugAxis") === "1";
-    } catch {
-      return false;
-    }
-  });
-  return enabled;
-}
 
 /**
  * Screenshot-only close-up on the bottom flange's own inner-end keyhole +
- * channel (issue #8 PR review), gated behind `?debugFocusInnerEnd=1` (same
- * "checked once at mount, not reactively" convention as
- * `useDebugAxisOverlay` above -- a screenshot tool, not a user control).
+ * channel (issue #8 PR review), gated behind `?debugFocusInnerEnd=1`
+ * (checked once at mount, not reactively -- a screenshot tool, not a user
+ * control).
  */
 function useDebugFocusInnerEnd(): boolean {
   const [enabled] = useState(() => {
@@ -269,14 +236,15 @@ export function CoilViewer({
   showWire = true,
   exploded = false,
   mountAxisDeg,
-  mount = "none",
+  envelopeWidth,
+  overallHeight,
+  shapeKind,
 }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const prevResolution = useRef<Resolution>(resolution);
   const reducedMotion = usePrefersReducedMotion();
   const [viewMode, setViewMode] = useState<ViewMode>("standing");
-  const debugAxisOverlay = useDebugAxisOverlay();
   const debugFocusInnerEnd = useDebugFocusInnerEnd();
   const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg), [mountAxisDeg]);
 
@@ -299,13 +267,14 @@ export function CoilViewer({
   const partGeometries = useMemo(() => parts.map((part) => ({ part, geometry: buildCreasedGeometry(part.mesh) })), [parts]);
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
 
-  // Camera view controls (issue #15): both are purely viewer-internal (no
-  // bearing on the design itself), so they're owned here rather than lifted
-  // to App -- they reset on reload, same as the exploded-view toggle. `preset`
-  // only ever holds a STANDING-camera value (front/side/top/iso): the two
-  // wall presets are represented by `viewMode` instead (issue #13, see
-  // `effectivePreset` below), since they're really a geometry rotation this
-  // component already owned, not a new camera direction of their own.
+  // Camera view controls (issue #15, trimmed to Front/Iso/Wall mount by
+  // issue #49): both are purely viewer-internal (no bearing on the design
+  // itself), so they're owned here rather than lifted to App -- they reset
+  // on reload, same as the exploded-view toggle. `preset` only ever holds a
+  // STANDING-camera value (front/iso): the wall preset is represented by
+  // `viewMode` instead (issue #13, see `effectivePreset` below), since it's
+  // really a geometry rotation this component already owned, not a new
+  // camera direction of its own.
   const [projection, setProjection] = useState<Projection>("ortho");
   const [preset, setPreset] = useState<PresetId>("iso");
 
@@ -316,11 +285,10 @@ export function CoilViewer({
   // camera preset was last chosen.
   const effectivePreset: PresetId = viewMode === "standing" ? preset : viewMode;
 
-  /** Clicking a standing-camera preset exits any wall view; clicking a wall
-   * preset here is just another way to reach the same `viewMode` the
-   * toggle-wall-view button below cycles through. */
+  /** Clicking Front/Iso exits the wall view; clicking "Wall mount" sets the
+   * `viewMode` that rotates the geometry into its as-hung pose. */
   const handlePresetChange = (id: PresetId) => {
-    if (id === "wallRoom" || id === "wallMount") {
+    if (id === "wallRoom") {
       setViewMode(id);
     } else {
       setViewMode("standing");
@@ -365,6 +333,18 @@ export function CoilViewer({
     if (viewPartGeometries === partGeometries) return;
     return () => viewPartGeometries.forEach(({ geometry }) => geometry.dispose());
   }, [viewPartGeometries, partGeometries]);
+
+  // A stable geometries-only array for DimensionOverlay (issue #50), so its
+  // own bounds computation only reruns when `viewPartGeometries` itself
+  // actually changes -- a fresh inline `.map()` at the JSX call site below
+  // would produce a NEW array reference (and, since that component isn't
+  // memoized, a full recompute over every vertex) on every unrelated
+  // CoilViewer re-render (a projection/explode toggle, a resize), which
+  // measurably taxed the main thread on a final-resolution mesh and, in
+  // practice, delayed the line-art pipeline's own settle frames enough to
+  // occasionally capture a screenshot mid-render (e2e/line-art.spec.ts's
+  // "silhouette is unbroken" check, caught this exact race).
+  const dimensionGeometries = useMemo(() => viewPartGeometries.map(({ geometry }) => geometry), [viewPartGeometries]);
 
   const viewWireGeometries = useMemo(() => {
     const rotation = viewRotations[viewMode] ?? focusRotation;
@@ -494,24 +474,10 @@ export function CoilViewer({
 
   return (
     <div ref={frameRef} data-testid="coil-viewer" className="coil-viewer-frame">
-      <button
-        type="button"
-        data-testid="toggle-wall-view"
-        className="wall-view-toggle"
-        onClick={() => setViewMode((mode) => VIEW_MODE_ORDER[(VIEW_MODE_ORDER.indexOf(mode) + 1) % VIEW_MODE_ORDER.length])}
-      >
-        {NEXT_VIEW_LABEL[viewMode]}
-      </button>
       {VIEW_CAPTION[viewMode] && (
         <p className="wall-view-caption" data-testid="wall-view-caption">
-          {viewMode === "wallMount" && MOUNT_PLATE_KINDS.has(mount) ? WALL_MOUNT_CAPTION_FOR_MOUNT_PLATE : VIEW_CAPTION[viewMode]}
+          {VIEW_CAPTION[viewMode]}
         </p>
-      )}
-      {debugAxisOverlay && viewMode === "wallMount" && (
-        <div className="debug-axis-overlay" data-testid="debug-axis-overlay" aria-hidden="true">
-          <div className="debug-axis-overlay-line" />
-          <div className="debug-axis-overlay-dot" />
-        </div>
       )}
       <Canvas
         flat
@@ -539,6 +505,20 @@ export function CoilViewer({
         />
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
       </Canvas>
+      {/* Issue #50: hidden while exploded (or the inner-end debug close-up
+          is active) -- the assembled bounds it measures don't apply to
+          either pose, and an exploded view already has its own tighter
+          fill/framing (EXPLODED_FILL above) this overlay doesn't share. */}
+      {!exploded && !focusFramingGeometry && envelopeWidth !== undefined && overallHeight !== undefined && shapeKind !== undefined && (
+        <DimensionOverlay
+          geometries={dimensionGeometries}
+          preset={effectivePreset}
+          fill={DEFAULT_FILL}
+          widthMm={envelopeWidth}
+          heightMm={overallHeight}
+          shapeKind={shapeKind}
+        />
+      )}
       <ViewControls preset={effectivePreset} onPresetChange={handlePresetChange} projection={projection} onProjectionChange={setProjection} />
     </div>
   );

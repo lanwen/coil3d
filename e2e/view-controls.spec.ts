@@ -1,17 +1,26 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// End-to-end checks for issue #15 (viewer controls polish, docs/research.md
-// §10b "dual persp/ortho camera rig ... preset views with slerp transitions
-// ... tweened parameter changes"). Solver/geometry numbers are unaffected by
-// this ticket (vitest coverage is unchanged); these tests check the viewer
-// overlay <-> camera seam: preset-view buttons, the perspective/orthographic
-// toggle, and prefers-reduced-motion turning every transition instant.
+// End-to-end checks for the viewer's camera-view controls. Issue #15
+// originally shipped four standing presets (front/side/top/iso) plus a
+// perspective/orthographic toggle; issue #49 trimmed the bar down to just
+// Front, Iso and Wall mount (the room-side hung view) -- see presets.ts's
+// own file header for why side/top/the mount-side wall preset are gone
+// entirely, not just hidden. Solver/geometry numbers are unaffected by
+// either ticket (vitest coverage is unchanged); these tests check the
+// viewer overlay <-> camera seam: preset-view buttons, the perspective/
+// orthographic toggle, and prefers-reduced-motion turning every transition
+// instant.
 
 const SQUAT = "#v=1&L=1000&d=4&size=40";
 // layers=2 locked, so the exploded-view toggle is present too (issue #9),
 // letting the explode-toggle's own camera reframe (issue #9 review) share
 // coverage with the preset/projection tests below.
 const TWO_LAYER = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2";
+// A screw-keyhole mount so the "Wall mount" preset actually rotates the
+// geometry into a real hung pose (unmounted designs still show the room-side
+// preset -- it's just a plain standing-on-the-flange rotation with no real
+// mount feature to look at).
+const KEYHOLE = "#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60&mount=keyhole";
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -28,36 +37,39 @@ async function gotoDesign(page: Page, hash: string) {
   await page.waitForTimeout(1000);
 }
 
-const PRESETS = ["front", "side", "top", "iso"] as const;
-
-test.describe("camera view presets (issue #15)", () => {
-  test("iso is the default, active preset on load", async ({ page }) => {
+test.describe("camera view presets (issue #15/#49)", () => {
+  test("only Front, Iso and Wall mount are offered; iso is the default, active preset on load", async ({ page }) => {
     await gotoDesign(page, SQUAT);
     await expect(page.getByTestId("preset-iso")).toHaveAttribute("aria-pressed", "true");
-    for (const id of ["front", "side", "top"]) {
-      await expect(page.getByTestId(`preset-${id}`)).toHaveAttribute("aria-pressed", "false");
-    }
+    await expect(page.getByTestId("preset-front")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("preset-wallRoom")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("preset-side")).toHaveCount(0);
+    await expect(page.getByTestId("preset-top")).toHaveCount(0);
+    await expect(page.getByTestId("toggle-wall-view")).toHaveCount(0); // the standalone cycling button (issue #13) is gone -- folded into this bar
   });
 
-  test("each preset renders a distinct view, and clicking one marks it active", async ({ page }) => {
-    await gotoDesign(page, SQUAT);
+  test("front, iso and wall-mount each render a distinct view (and screenshot each preset)", async ({ page }) => {
+    await gotoDesign(page, KEYHOLE);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
     const shots: Record<string, Buffer> = {};
 
-    for (const id of PRESETS) {
+    for (const id of ["front", "iso", "wallRoom"] as const) {
       await page.getByTestId(`preset-${id}`).click();
       await expect(page.getByTestId(`preset-${id}`)).toHaveAttribute("aria-pressed", "true");
-      await page.waitForTimeout(700); // slerp settles (ORIENT_TWEEN_MS in LineArtRenderer.tsx)
+      await page.waitForTimeout(900); // slerp (ORIENT_TWEEN_MS) + wall-mount's own geometry-swap scale tween
       shots[id] = await canvas.screenshot();
+      await expect(canvas).toHaveScreenshot(`view-controls-preset-${id}.png`);
     }
 
     // Every preset must actually change the render -- an exact byte
     // comparison (not toHaveScreenshot's tolerant perceptual diff): a
-    // camera rotation moves real silhouette pixels well past the 2%
-    // maxDiffPixelRatio tolerance, so an exact inequality is the honest check.
-    for (let i = 0; i < PRESETS.length; i++) {
-      for (let j = i + 1; j < PRESETS.length; j++) {
-        expect(shots[PRESETS[i]].equals(shots[PRESETS[j]]), `${PRESETS[i]} vs ${PRESETS[j]} must differ`).toBe(false);
+    // camera rotation/geometry swap moves real silhouette pixels well past
+    // the 2% maxDiffPixelRatio tolerance, so an exact inequality is the
+    // honest check.
+    const ids = ["front", "iso", "wallRoom"] as const;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        expect(shots[ids[i]].equals(shots[ids[j]]), `${ids[i]} vs ${ids[j]} must differ`).toBe(false);
       }
     }
   });
@@ -73,9 +85,9 @@ test.describe("camera view presets (issue #15)", () => {
     // edge pixel by 1 unit.
     await expect(canvas).toHaveScreenshot("view-controls-iso-baseline.png");
 
-    for (const id of ["front", "top", "side", "iso"] as const) {
+    for (const id of ["front", "wallRoom", "iso"] as const) {
       await page.getByTestId(`preset-${id}`).click();
-      await page.waitForTimeout(700);
+      await page.waitForTimeout(900);
     }
     await expect(canvas).toHaveScreenshot("view-controls-iso-baseline.png");
   });
@@ -85,13 +97,38 @@ test.describe("camera view presets (issue #15)", () => {
     await gotoDesign(page, SQUAT);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
 
-    await page.getByTestId("preset-top").click();
+    await page.getByTestId("preset-front").click();
     await page.waitForTimeout(60); // well under the normal-motion slerp duration
     const soonAfterClick = await canvas.screenshot();
 
-    await page.waitForTimeout(700);
+    await page.waitForTimeout(900);
     const settled = await canvas.screenshot();
-    expect(soonAfterClick.equals(settled), "reduced motion must already show the settled top view almost immediately").toBe(true);
+    expect(soonAfterClick.equals(settled), "reduced motion must already show the settled front view almost immediately").toBe(true);
+  });
+
+  test("prefers-reduced-motion also makes the wall-mount preset's transition instant", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await gotoDesign(page, KEYHOLE);
+    const canvas = page.getByTestId("coil-viewer").locator("canvas");
+
+    await page.getByTestId("preset-wallRoom").click();
+    await page.waitForTimeout(60);
+    const soonAfterClick = await canvas.screenshot();
+
+    await page.waitForTimeout(900);
+    const settled = await canvas.screenshot();
+    expect(soonAfterClick.equals(settled), "reduced motion must already show the settled wall-mount view almost immediately").toBe(true);
+  });
+
+  test("the wall-mount preset shows a caption; front/iso don't", async ({ page }) => {
+    await gotoDesign(page, KEYHOLE);
+    await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);
+
+    await page.getByTestId("preset-wallRoom").click();
+    await expect(page.getByTestId("wall-view-caption")).toHaveText(/top cap faces the room/i);
+
+    await page.getByTestId("preset-front").click();
+    await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);
   });
 });
 
@@ -155,14 +192,10 @@ test.describe("perspective/orthographic toggle (issue #15)", () => {
     expect(afterCount).toBeLessThan(beforeCount * 1.4);
   });
 
-  test("a deep, edge-on, tightly-framed model (exploded + side view) stays clearly visible in perspective too", async ({ page }) => {
+  test("a deep, exploded model stays clearly visible in perspective too", async ({ page }) => {
     await gotoDesign(page, TWO_LAYER);
-    // A side-on preset stresses foreshortening the most (the model's own
-    // depth extent, seen edge-on, is largest relative to its projected
-    // width, and the exploded view's own tighter fill leaves less margin
-    // to absorb it) -- see LineArtRenderer.tsx's computeFit doc comment.
-    await page.getByTestId("preset-side").click();
-    await page.waitForTimeout(700);
+    // Exploded view (its own tighter fill leaves less margin to absorb
+    // foreshortening) -- see LineArtRenderer.tsx's computeFit doc comment.
     await page.getByTestId("toggle-exploded").check();
     await page.waitForTimeout(1200);
 
