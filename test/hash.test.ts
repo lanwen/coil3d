@@ -2,15 +2,14 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SHOW_WIRE, DEFAULT_SPEC, parseHash, toHash } from "../src/core";
 import type { CoilSpec } from "../src/core";
 
+const DESIGN = { spec: DEFAULT_SPEC, showWire: DEFAULT_SHOW_WIRE, view: "design" as const };
+
 /**
  * Decodes a `#s=<base64url(JSON)>` hash back to its raw document, purely for
  * asserting on the wire format's own shape in these tests (issue #56 AC:
  * "the hash is `#s=<base64url(...)>`, with a version field inside"). This is
  * NOT part of the codec's public interface (`parseHash`/`toHash` only) --
- * it's a test-only mirror of `hash.ts`'s own `base64UrlToBytes`. Reads the
- * `s` param via `URLSearchParams` (not a plain string slice) because `wire`
- * -- deliberately kept OUTSIDE the document, see hash.ts's file header --
- * can sit alongside it as its own literal `&wire=0` companion param.
+ * it's a test-only mirror of `hash.ts`'s own `base64UrlToBytes`.
  */
 function decodeDoc(hash: string): Record<string, unknown> {
   expect(hash).toMatch(/^#s=/);
@@ -22,8 +21,8 @@ function decodeDoc(hash: string): Record<string, unknown> {
 
 describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => {
   it("parses an empty hash as the defaults, with no notice", () => {
-    expect(parseHash("")).toEqual({ spec: DEFAULT_SPEC, showWire: DEFAULT_SHOW_WIRE });
-    expect(parseHash("#")).toEqual({ spec: DEFAULT_SPEC, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash("")).toEqual(DESIGN);
+    expect(parseHash("#")).toEqual(DESIGN);
   });
 
   it("encodes as #s=<base64url(JSON)>, with a numeric version field inside, and omits fields equal to the default", () => {
@@ -36,8 +35,8 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const hash = toHash({ ...DEFAULT_SPEC, wire: { ...DEFAULT_SPEC.wire, diameter: 6 } });
     expect(decodeDoc(hash)).toEqual({ v: 2, d: 6 });
     expect(parseHash(hash)).toEqual({
+      ...DESIGN,
       spec: { ...DEFAULT_SPEC, wire: { ...DEFAULT_SPEC.wire, diameter: 6 } },
-      showWire: DEFAULT_SHOW_WIRE,
     });
   });
 
@@ -47,7 +46,7 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       wire: { length: 5000, diameter: 8, type: "usb" },
       coreSize: { locked: true, dimension: "outer", value: 60 },
     };
-    expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(toHash(spec))).toEqual({ ...DESIGN, spec });
   });
 
   it("round-trips locking height and outer size, with lock as a real JSON array (issue #5 example: lock=h,outer)", () => {
@@ -61,7 +60,7 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const doc = decodeDoc(hash);
     expect(Array.isArray(doc.lock)).toBe(true);
     expect(new Set(doc.lock as string[])).toEqual(new Set(["h", "outer"]));
-    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
   });
 
   it("round-trips a locked inner bore, a custom wire type, quality and objective", () => {
@@ -80,15 +79,15 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       mount: "none",
       plateJoint: "glue",
     };
-    expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(toHash(spec))).toEqual({ ...DESIGN, spec });
   });
 
   it("round-trips a fully free (0-locked) and a fully locked (3-locked) spec", () => {
     const free: CoilSpec = { ...DEFAULT_SPEC, coreSize: { locked: false }, layers: { locked: false } };
-    expect(parseHash(toHash(free))).toEqual({ spec: free, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(toHash(free))).toEqual({ ...DESIGN, spec: free });
 
     const fullyLocked: CoilSpec = { ...DEFAULT_SPEC, height: { locked: true, value: 45 } };
-    expect(parseHash(toHash(fullyLocked))).toEqual({ spec: fullyLocked, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(toHash(fullyLocked))).toEqual({ ...DESIGN, spec: fullyLocked });
   });
 
   it("falls back to defaults with a notice on an unsupported document version", () => {
@@ -121,6 +120,12 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(notice).toBeDefined();
   });
 
+  it("falls back to defaults with a notice on an unknown key inside 'ui' too", () => {
+    const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, ui: { bogus: true } })).toString("base64url")}`);
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
+  });
+
   it("falls back to defaults with a notice on an unknown lock token", () => {
     const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, lock: ["bogus"] })).toString("base64url")}`);
     expect(spec).toEqual(DEFAULT_SPEC);
@@ -137,12 +142,12 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const spec: CoilSpec = { ...DEFAULT_SPEC, shape: { kind: "sq", cornerRadius: 18 } };
     const hash = toHash(spec);
     expect(decodeDoc(hash)).toMatchObject({ shape: "sq", rc: 18 });
-    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
   });
 
   it("round-trips a rounded-triangle shape", () => {
     const spec: CoilSpec = { ...DEFAULT_SPEC, shape: { kind: "tri", cornerRadius: 12.5 } };
-    expect(parseHash(toHash(spec))).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(toHash(spec))).toEqual({ ...DESIGN, spec });
   });
 
   it("omits the shape key for round (the default) and a default-valued corner radius", () => {
@@ -158,24 +163,80 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(notice).toBeDefined();
   });
 
-  it("the wire toggle (issue #4) defaults to shown and round-trips through the hash", () => {
-    expect(parseHash("").showWire).toBe(true);
+  describe("the wire toggle and the design/guide view (issue #4, #17) -- nested under 'ui' in the document", () => {
+    it("default to shown/design and round-trip through the hash", () => {
+      expect(parseHash("").showWire).toBe(true);
+      expect(parseHash("").view).toBe("design");
 
-    const shown = toHash(DEFAULT_SPEC, true);
-    expect(shown).not.toContain("wire=0"); // shown is the default: omitted entirely
-    expect(decodeDoc(shown)).toEqual({ v: 2 }); // NOT part of the document -- see hash.ts's file header
+      const shown = toHash(DEFAULT_SPEC, true, "design");
+      expect(decodeDoc(shown)).toEqual({ v: 2 }); // both at default: 'ui' omitted entirely
+      expect(parseHash(shown)).toEqual(DESIGN);
+    });
 
-    const hidden = toHash(DEFAULT_SPEC, false);
-    expect(hidden).toMatch(/&wire=0$/); // a literal companion param, not buried in the base64 document
-    expect(decodeDoc(hidden)).toEqual({ v: 2 });
-    expect(parseHash(hidden)).toEqual({ spec: DEFAULT_SPEC, showWire: false });
-  });
+    it("hiding the wire writes ui.wire=false, nested inside the document (not a literal URL substring)", () => {
+      const hidden = toHash(DEFAULT_SPEC, false);
+      expect(hidden).not.toContain("wire=0"); // no longer a literal companion param
+      expect(decodeDoc(hidden)).toEqual({ v: 2, ui: { wire: false } });
+      expect(parseHash(hidden)).toEqual({ ...DESIGN, showWire: false });
+    });
 
-  it("falls back to defaults with a notice on a garbage 'wire' companion param", () => {
-    const hash = `${toHash(DEFAULT_SPEC)}&wire=maybe`;
-    const { spec, notice } = parseHash(hash);
-    expect(spec).toEqual(DEFAULT_SPEC);
-    expect(notice).toBeDefined();
+    it("switching to the guide view writes ui.view='guide', nested inside the document", () => {
+      const guideHash = toHash(DEFAULT_SPEC, DEFAULT_SHOW_WIRE, "guide");
+      expect(guideHash).not.toContain("view=guide"); // no longer a literal companion param
+      expect(decodeDoc(guideHash)).toEqual({ v: 2, ui: { view: "guide" } });
+      expect(parseHash(guideHash)).toEqual({ ...DESIGN, view: "guide" });
+    });
+
+    it("both hidden wire and the guide view round-trip together under one 'ui' object", () => {
+      const hash = toHash(DEFAULT_SPEC, false, "guide");
+      expect(decodeDoc(hash)).toEqual({ v: 2, ui: { wire: false, view: "guide" } });
+      expect(parseHash(hash)).toEqual({ ...DESIGN, showWire: false, view: "guide" });
+    });
+
+    it("falls back to defaults with a notice on a garbage ui.wire value (schema rejects anything but false)", () => {
+      const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, ui: { wire: true } })).toString("base64url")}`);
+      expect(spec).toEqual(DEFAULT_SPEC);
+      expect(notice).toBeDefined();
+    });
+
+    it("falls back to defaults with a notice on a garbage ui.view value", () => {
+      const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, ui: { view: "bogus" } })).toString("base64url")}`);
+      expect(spec).toEqual(DEFAULT_SPEC);
+      expect(notice).toBeDefined();
+    });
+
+    // Backward compat with the short-lived intermediate format this ticket
+    // briefly shipped (`ui` as literal `&wire=0`/`&view=guide` companion
+    // params next to `s=`, before they moved inside the document).
+    it("a link with a literal '&wire=0' companion (pre-'ui' format) still reads as hidden and migrates forward", () => {
+      const oldStyleLink = `${toHash(DEFAULT_SPEC)}&wire=0`;
+      const parsed = parseHash(oldStyleLink);
+      expect(parsed).toEqual({ ...DESIGN, showWire: false });
+
+      const migrated = toHash(parsed.spec, parsed.showWire, parsed.view);
+      expect(decodeDoc(migrated)).toEqual({ v: 2, ui: { wire: false } });
+    });
+
+    it("a link with a literal '&view=guide' companion (pre-'ui' format) still reads as the guide view and migrates forward", () => {
+      const oldStyleLink = `${toHash(DEFAULT_SPEC)}&view=guide`;
+      const parsed = parseHash(oldStyleLink);
+      expect(parsed).toEqual({ ...DESIGN, view: "guide" });
+
+      const migrated = toHash(parsed.spec, parsed.showWire, parsed.view);
+      expect(decodeDoc(migrated)).toEqual({ v: 2, ui: { view: "guide" } });
+    });
+
+    it("falls back to defaults with a notice on a garbage 'wire' companion param", () => {
+      const hash = `${toHash(DEFAULT_SPEC)}&wire=maybe`;
+      const { spec, notice } = parseHash(hash);
+      expect(spec).toEqual(DEFAULT_SPEC);
+      expect(notice).toBeDefined();
+    });
+
+    it("an unrecognised 'view' companion value is ignored leniently (defaults to 'design'), matching the pre-#56 App.tsx behaviour", () => {
+      const hash = `${toHash(DEFAULT_SPEC)}&view=bogus`;
+      expect(parseHash(hash)).toEqual(DESIGN);
+    });
   });
 
   it("top cap/joint/tolerance (issue #9) round-trip and omit defaults", () => {
@@ -184,10 +245,10 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const spec: CoilSpec = { ...DEFAULT_SPEC, topCap: "on", joint: "bayonet", tolerance: 0.35 };
     const hash = toHash(spec);
     expect(decodeDoc(hash)).toEqual({ v: 2, cap: "on", joint: "bayonet", tol: 0.35 });
-    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
 
     const off: CoilSpec = { ...DEFAULT_SPEC, topCap: "off", joint: "snap" };
-    expect(parseHash(toHash(off))).toEqual({ spec: off, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(toHash(off))).toEqual({ ...DESIGN, spec: off });
   });
 
   it("falls back to defaults with a notice on an out-of-range tolerance", () => {
@@ -202,13 +263,13 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const spec: CoilSpec = { ...DEFAULT_SPEC, print: { bedX: 220, bedY: 220, bedZ: 250 } };
     const hash = toHash(spec);
     expect(decodeDoc(hash)).toEqual({ v: 2, bx: 220, by: 220, bz: 250 });
-    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
 
     // A single non-default axis omits the other two.
     const singleAxis: CoilSpec = { ...DEFAULT_SPEC, print: { bedX: 300, bedY: 256, bedZ: 256 } };
     const singleHash = toHash(singleAxis);
     expect(decodeDoc(singleHash)).toEqual({ v: 2, bx: 300 });
-    expect(parseHash(singleHash)).toEqual({ spec: singleAxis, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(singleHash)).toEqual({ ...DESIGN, spec: singleAxis });
   });
 
   it("falls back to defaults with a notice on an unknown cap/joint value", () => {
@@ -222,7 +283,7 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const spec: CoilSpec = { ...DEFAULT_SPEC, label: "USB-C 2m" };
     const hash = toHash(spec);
     expect(decodeDoc(hash)).toEqual({ v: 2, label: "USB-C 2m" });
-    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
   });
 
   it("unicode labels (issue #56 AC) survive the round trip losslessly", () => {
@@ -246,21 +307,21 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
 
   it("defaults to mount=none, omitted from the hash (issue #13)", () => {
     expect(DEFAULT_SPEC.mount).toBe("none");
-    expect(parseHash(toHash(DEFAULT_SPEC))).toEqual({ spec: DEFAULT_SPEC, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(toHash(DEFAULT_SPEC))).toEqual(DESIGN);
   });
 
   it("round-trips the screw-keyhole mount", () => {
     const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "keyhole" };
     const hash = toHash(spec);
     expect(decodeDoc(hash)).toEqual({ v: 2, mount: "keyhole" });
-    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
   });
 
   it("round-trips the skadis clip mount plate with the default (glue) plate joint, omitting pj", () => {
     const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "skadis" };
     const hash = toHash(spec);
     expect(decodeDoc(hash)).toEqual({ v: 2, mount: "skadis" });
-    expect(parseHash(hash)).toEqual({ spec, showWire: DEFAULT_SHOW_WIRE });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
   });
 
   it("rejects mount=opengrid from a shared link, falling back to defaults with a notice (issue #14 PR review, issue #38: hidden until the real connector geometry lands)", () => {
@@ -327,11 +388,18 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       expect(notice).toBeDefined();
     });
 
+    it("a legacy link with a trailing '&view=guide' reads as the guide view, leniently (no schema validation)", () => {
+      const { spec, notice, view } = parseHash("#v=1&L=1000&d=4&size=40&view=guide");
+      expect(notice).toBeUndefined();
+      expect(spec.wire.length).toBe(1000);
+      expect(view).toBe("guide");
+    });
+
     // issue #56 AC: "legacy links migrate losslessly" -- every legacy field,
     // round-tripped through the OLD codec then re-encoded/re-parsed through
-    // the NEW one, must resolve to the exact same spec + showWire. This is
-    // the migration `App.tsx` relies on (parse the old hash once, then
-    // `toHash` immediately rewrites the URL bar to the new format).
+    // the NEW one, must resolve to the exact same spec + showWire + view.
+    // This is the migration `App.tsx` relies on (parse the old hash once,
+    // then `toHash` immediately rewrites the URL bar to the new format).
     const LEGACY_LINKS = [
       "#v=1&L=1000&d=4&size=40",
       "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2",
@@ -347,13 +415,15 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       "#v=1&mount=skadis&pj=snap",
       "#v=1&label=USB-C+2m",
       "#v=1&wire=0",
+      "#v=1&L=1000&d=4&size=40&view=guide",
+      "#v=1&wire=0&view=guide",
       "#v=1&L=20&d=1&lock=outer,ly&size=6&h=20", // small-values edge case (mount e2e fixture)
     ];
     it.each(LEGACY_LINKS)("migrates '%s' losslessly through toHash/parseHash", (legacyHash) => {
       const first = parseHash(legacyHash);
       expect(first.notice).toBeUndefined();
 
-      const migratedHash = toHash(first.spec, first.showWire);
+      const migratedHash = toHash(first.spec, first.showWire, first.view);
       expect(migratedHash).toMatch(/^#s=/); // toHash always re-emits the new format
 
       const second = parseHash(migratedHash);

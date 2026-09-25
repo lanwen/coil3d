@@ -1,11 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
+import { decodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #17 (the printable, IKEA-style assembly
 // guide). The guide is generated from the current design via `&view=guide`
-// in the URL hash (App.tsx), so these check that seam -- hash -> UI ->
-// step content/screenshots -- not the solver itself (see test/design.test.ts
-// for that). Every step's illustration reuses the same line-art pipeline as
-// the interactive viewer (src/viewer/CoilScene.tsx, src/viewer/GuideFigure.tsx).
+// in the URL hash -- a legacy-format trailing param that still works on
+// load, but once the app rewrites the URL (issue #56) the view lives nested
+// under the document's own `ui.view`, see `./hashDoc.ts` -- so these check
+// that seam -- hash -> UI -> step content/screenshots -- not the solver
+// itself (see test/design.test.ts for that). Every step's illustration
+// reuses the same line-art pipeline as the interactive viewer
+// (src/viewer/CoilScene.tsx, src/viewer/GuideFigure.tsx).
 
 const ONE_LAYER = "#v=1&L=1000&d=4&size=40"; // layers=1 (default): no top cap, so the two cap steps are skipped
 const TWO_LAYER_CAP = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2"; // layers=2: top cap auto-on
@@ -109,11 +113,11 @@ test.describe("printable assembly guide (issue #17)", () => {
 
     await page.getByTestId("open-guide").click();
     await expect(page.getByTestId("guide-view")).toBeVisible();
-    await expect(async () => expect(new URL(page.url()).hash).toContain("view=guide")).toPass();
+    await expect(async () => expect(decodeHashDoc(page.url()).ui).toMatchObject({ view: "guide" })).toPass();
 
     await page.getByTestId("guide-back").click();
     await expect(page.getByTestId("coil-viewer")).toBeVisible();
-    await expect(async () => expect(new URL(page.url()).hash).not.toContain("view=guide")).toPass();
+    await expect(async () => expect((decodeHashDoc(page.url()).ui as { view?: string } | undefined)?.view).toBeUndefined()).toPass();
     // Still the same (2-layer) design after returning.
     await expect(page.getByTestId("layers")).toHaveText("2");
   });

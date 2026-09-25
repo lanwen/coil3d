@@ -1,15 +1,29 @@
 // Versioned URL hash codec (docs/research.md §7, issue #56). The hash is
 // `#s=<base64url(JSON)>`: a compact, schema-validated (zod) document that
-// mirrors `CoilSpec` (lengths stay mm; the cm display in the controls is a
-// UI-only conversion, see ControlsForm), omits defaults, and always stamps
-// a numeric `v`. Falls back to defaults with a notice on garbage input.
+// omits defaults and always stamps a numeric `v`. Falls back to defaults
+// with a notice on garbage input.
+//
+// The document holds the WHOLE hash-worthy app state, not just `CoilSpec`:
+// the top-level keys mirror `CoilSpec` (lengths stay mm; the cm display in
+// the controls is a UI-only conversion, see ControlsForm), and a nested
+// `ui` object carries the view-only state that isn't part of the spec at
+// all -- the wire-visibility toggle (`ui.wire`) and the design/guide screen
+// switch (`ui.view`), both omitted when at their default. Neither changes
+// what `design()` computes; they only round-trip here because a shared link
+// should be able to reproduce the exact screen the user was looking at.
 //
 // Legacy links (`#v=1&L=..&d=..&...`, the flat key=value format this ticket
 // replaces) still parse -- `parseLegacyHash` below is that original codec,
-// kept byte-for-byte in behaviour -- and `toHash` always re-emits the new
-// `#s=` format, so `App.tsx`'s `replaceState` on load silently migrates any
-// legacy link the moment it's opened (issue #56 AC: "Legacy links migrate
-// losslessly").
+// kept byte-for-byte in behaviour, including its own flat `wire=0/1` and
+// (read leniently, unvalidated, exactly like the pre-#56 `App.tsx` used to)
+// `view=guide` params. `toHash` always re-emits the new `#s=` format with
+// `ui` embedded, so `App.tsx`'s `replaceState` on load silently migrates
+// any legacy link the moment it's opened (issue #56 AC: "Legacy links
+// migrate losslessly"). The short-lived intermediate format this ticket
+// briefly shipped (`#s=...&wire=0`/`&view=guide`, `ui` as literal companion
+// params rather than inside the document) is ALSO still read the same
+// lenient way, purely so any link generated during that window keeps
+// migrating forward too -- see `parseHash`'s own comment.
 //
 // Compression: deliberately NOT applied. `CompressionStream` is a streaming,
 // async API, which would make this codec's public interface async too (every
@@ -23,33 +37,12 @@
 // the PR), a compression step would only add a dependency and a few bytes
 // of deflate-stream overhead for no measurable win.
 //
-// `wire` (issue #4) toggles the schematic wound-cable render on/off. It is
-// a view setting, not a `CoilSpec` field -- `design()` always computes
-// `wirePaths` regardless. It's still this codec's job (unlike `view`,
-// below): `parseHash`/`toHash`'s own `showWire` parameter already owned it
-// before this ticket. But it deliberately stays OUTSIDE the `s=` JSON
-// document itself -- a literal, un-encoded `&wire=0` suffix next to `s=`,
-// exactly like `view` -- rather than moving inside it as another key: the
-// document is kept a clean mirror of `CoilSpec` alone (see this file's own
-// opening line), and existing e2e checks
-// (`await expect(page).toHaveURL(/wire=0/)`, wire.spec.ts) depend on that
-// substring appearing in the URL bar literally, not buried in base64.
-// Default is shown; only an explicit `wire=0` is written.
-//
-// `label` (issue #12) is the top cap's engraved text, IS a `CoilSpec` field
-// (unlike `wire`: it changes the geometry, not just the view). It survives
-// the JSON + UTF-8 + base64url round trip losslessly, unlike the old
-// `URLSearchParams`-encoded query string -- see `bytesToBase64Url`/
-// `base64UrlToBytes` below -- so unicode labels (issue #56 AC) need no
-// special-casing here at all.
-//
-// `view` (issue #17, the design/guide switch) is deliberately NOT part of
-// this document: it's a plain UI-routing concern, not part of `CoilSpec` or
-// this codec (see `App.tsx`'s own comment on `readView`). It stays a plain,
-// unencoded `&view=guide` suffix appended/read outside `toHash`/`parseHash`
-// entirely, so existing shared `&view=guide` guide links keep working
-// unchanged and the toolbar's own `history.replaceState` output keeps
-// literally containing `view=guide` (e2e: guide.spec.ts).
+// `label` (issue #12) is the top cap's engraved text -- a real `CoilSpec`
+// field (unlike `ui.wire`/`ui.view`: it changes the geometry, not just the
+// view). It survives the JSON + UTF-8 + base64url round trip losslessly,
+// unlike the old `URLSearchParams`-encoded query string -- see
+// `bytesToBase64Url`/`base64UrlToBytes` below -- so unicode labels (issue
+// #56 AC) need no special-casing here at all.
 
 import { z } from "zod";
 import { BED_SIZE_MAX, BED_SIZE_MIN, DEFAULT_BED_SIZE, DEFAULT_CORNER_RADIUS, DEFAULT_TOLERANCE, LABEL_MAX_LENGTH, MAX_WIRE_LENGTH, TOLERANCE_MAX, TOLERANCE_MIN } from "./constants";
@@ -83,6 +76,10 @@ export const DEFAULT_SPEC: CoilSpec = {
 
 export const DEFAULT_SHOW_WIRE = true;
 
+/** The design/guide screen switch (issue #17). `"design"` is the default, never written to `ui.view`. */
+export type ViewMode = "design" | "guide";
+const DEFAULT_VIEW: ViewMode = "design";
+
 const DEFAULT_LOCK_TOKENS = ["outer", "ly"] as const;
 const LOCK_TOKENS = ["outer", "inner", "h", "ly"] as const;
 type LockToken = (typeof LOCK_TOKENS)[number];
@@ -91,12 +88,14 @@ export interface ParsedHash {
   spec: CoilSpec;
   /** Whether the schematic wound-cable render should be shown (issue #4). */
   showWire: boolean;
+  /** Which screen the app should show (issue #17). */
+  view: ViewMode;
   /** Set when the hash was unreadable and defaults were substituted. */
   notice?: string;
 }
 
 function fallback(notice: string): ParsedHash {
-  return { spec: cloneSpec(DEFAULT_SPEC), showWire: DEFAULT_SHOW_WIRE, notice };
+  return { spec: cloneSpec(DEFAULT_SPEC), showWire: DEFAULT_SHOW_WIRE, view: DEFAULT_VIEW, notice };
 }
 
 function cloneSpec(spec: CoilSpec): CoilSpec {
@@ -194,6 +193,19 @@ const DocSchema = z
     by: z.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
     bz: z.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
     label: z.string().max(LABEL_MAX_LENGTH).optional(),
+    // View-only state (issue #17's design/guide switch, issue #4's wire
+    // toggle): NOT `CoilSpec` fields, but still part of "the whole hash
+    // worthy state" this document holds -- nested here rather than flattened
+    // alongside the spec keys above so the two categories stay visually
+    // distinct. Omitted entirely (not just its own keys) when both are at
+    // their default -- see `toHash`.
+    ui: z
+      .object({
+        wire: z.literal(false).optional(),
+        view: z.literal("guide").optional(),
+      })
+      .strict()
+      .optional(),
   })
   // Reject unrecognised keys outright (rather than silently ignoring them,
   // as the legacy `QuerySchema` does): a hand-crafted/corrupted `#s=`
@@ -235,6 +247,7 @@ function buildParsed(p: {
   h?: number;
   ly?: number;
   showWire: boolean;
+  view: ViewMode;
   cap?: TopCapMode;
   joint?: JointKind;
   tol?: number;
@@ -279,7 +292,7 @@ function buildParsed(p: {
     mount: p.mount ?? "none",
     plateJoint: p.pj ?? DEFAULT_SPEC.plateJoint,
   };
-  return { spec, showWire: p.showWire };
+  return { spec, showWire: p.showWire, view: p.view };
 }
 
 function parseDocHash(encoded: string): ParsedHash {
@@ -326,9 +339,8 @@ function parseDocHash(encoded: string): ParsedHash {
     size: p.size,
     h: p.h,
     ly: p.ly,
-    // Not this document's concern -- see hash.ts's file header on `wire`.
-    // `parseHash` overrides this with the literal companion `&wire=` param.
-    showWire: DEFAULT_SHOW_WIRE,
+    showWire: p.ui?.wire ?? DEFAULT_SHOW_WIRE,
+    view: p.ui?.view ?? DEFAULT_VIEW,
     cap: p.cap,
     joint: p.joint,
     tol: p.tol,
@@ -405,6 +417,14 @@ function parseLegacyHash(qs: string): ParsedHash {
   }
   const rc = shapeKind === "sq" ? p["sq.rc"] : shapeKind === "tri" ? p["tri.rc"] : undefined;
 
+  // `view` was never part of this schema even before issue #56 -- pre-#56
+  // `App.tsx` read it with a bare, unvalidated `=== "guide"` check on the
+  // raw hash string, so a shared `&view=guide` link kept working no matter
+  // what else was on the URL. Matching that same leniency here (reading
+  // straight off `raw`, not through `LegacyQuerySchema`) means an unrelated
+  // typo in `view` can't turn into a whole-hash parse failure.
+  const view: ViewMode = raw.view === "guide" ? "guide" : DEFAULT_VIEW;
+
   return buildParsed({
     L: p.L,
     d: p.d,
@@ -421,6 +441,7 @@ function parseLegacyHash(qs: string): ParsedHash {
     h: p.h,
     ly: p.ly,
     showWire: p.wire !== undefined ? p.wire !== "0" : DEFAULT_SHOW_WIRE,
+    view,
     cap: p.cap,
     joint: p.joint,
     tol: p.tol,
@@ -440,28 +461,34 @@ function parseLegacyHash(qs: string): ParsedHash {
  */
 export function parseHash(hash: string): ParsedHash {
   const qs = hash.replace(/^#/, "");
-  if (!qs) return { spec: cloneSpec(DEFAULT_SPEC), showWire: DEFAULT_SHOW_WIRE };
+  if (!qs) return { spec: cloneSpec(DEFAULT_SPEC), showWire: DEFAULT_SHOW_WIRE, view: DEFAULT_VIEW };
 
   const params = new URLSearchParams(qs);
   const s = params.get("s");
   if (s === null) return parseLegacyHash(qs);
 
-  // `wire` lives OUTSIDE the document for this format (see this file's own
-  // header) -- a literal companion param next to `s=`, same "0"/"1" values
-  // the legacy format used, validated the same way (an unrecognised value
-  // falls back to full defaults, not just a default wire toggle).
+  const parsed = parseDocHash(s);
+  if (parsed.notice) return parsed;
+
+  // Backward compat with the short-lived companion-param format this ticket
+  // briefly shipped (`#s=...&wire=0`/`&view=guide`, before `ui` existed
+  // inside the document): read them here too, but only as a fallback when
+  // the document itself doesn't already carry `ui.wire`/`ui.view` -- so a
+  // link from that window still opens correctly, and the very next
+  // `toHash` (App.tsx's own replaceState) folds them into `ui`, migrating
+  // it forward exactly like every other legacy field already does.
   const rawWire = params.get("wire");
   if (rawWire !== null && rawWire !== "0" && rawWire !== "1") {
     return fallback('Could not read this link ("wire" must be "0" or "1") -- showing default values instead.');
   }
+  const showWire = parsed.showWire !== DEFAULT_SHOW_WIRE ? parsed.showWire : rawWire !== null ? rawWire !== "0" : DEFAULT_SHOW_WIRE;
+  const view: ViewMode = parsed.view === "guide" || params.get("view") === "guide" ? "guide" : DEFAULT_VIEW;
 
-  const parsed = parseDocHash(s);
-  if (parsed.notice) return parsed;
-  return { ...parsed, showWire: rawWire !== null ? rawWire !== "0" : DEFAULT_SHOW_WIRE };
+  return { ...parsed, showWire, view };
 }
 
-/** Encode a spec into a hash string (with leading `#`), omitting defaults. Always writes the current `#s=` format. */
-export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE): string {
+/** Encode a spec (+ the view-only `showWire`/`view` state) into a hash string (with leading `#`), omitting defaults. Always writes the current `#s=` format. */
+export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, view: ViewMode = DEFAULT_VIEW): string {
   const doc: Doc = { v: DOC_VERSION };
 
   if (spec.wire.length !== DEFAULT_SPEC.wire.length) doc.L = spec.wire.length;
@@ -512,8 +539,12 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE): s
   if (spec.print.bedY !== DEFAULT_SPEC.print.bedY) doc.by = spec.print.bedY;
   if (spec.print.bedZ !== DEFAULT_SPEC.print.bedZ) doc.bz = spec.print.bedZ;
 
-  // `wire` is a literal companion param, not part of the document -- see
-  // this file's own header. Only an explicit hidden state is ever written.
-  const wireSuffix = showWire !== DEFAULT_SHOW_WIRE ? "&wire=0" : "";
-  return `#s=${encodeDoc(doc)}${wireSuffix}`;
+  // View-only state, nested under `ui` (see this file's own header) --
+  // omitted entirely when both are at their default.
+  const ui: NonNullable<Doc["ui"]> = {};
+  if (showWire !== DEFAULT_SHOW_WIRE) ui.wire = false;
+  if (view !== DEFAULT_VIEW) ui.view = "guide";
+  if (Object.keys(ui).length > 0) doc.ui = ui;
+
+  return `#s=${encodeDoc(doc)}`;
 }
