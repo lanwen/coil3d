@@ -375,6 +375,27 @@ export interface Design {
    * Empty when layer 1 has no turns (nothing to lead into).
    */
   innerEndLeadIn: Float32Array;
+  /**
+   * Short Hermite bridges connecting the chronological end of each wound
+   * layer to the start of the next (issue #68): `layerTransitions[i]` joins
+   * `wirePaths[i]` to `wirePaths[i + 1]`, so `wirePaths.length - 1` entries.
+   * Each bridge's own first/last sample is EXACTLY the joined layer's own
+   * endpoint (see wire.ts's `buildLayerTransitions`), so the wound cable
+   * reads as one continuous line across every layer transition, with no
+   * gap and no visible kink. Empty when fewer than 2 layers have turns.
+   */
+  layerTransitions: Float32Array[];
+  /**
+   * The outer-end lead-out (issue #68, docs/research.md "Wire ends": "Outer
+   * end: keyhole in the top cap rim"): from the chronological end of the
+   * last wound layer (`wirePaths.at(-1)`) to the top cap's own rim keyhole,
+   * in the shared assembly frame -- xyz per sample (see wire.ts's
+   * `buildOuterEndLeadOut`). Computed unconditionally, whether or not the
+   * top cap is actually enabled (exactly like `innerEndLeadIn` never
+   * depends on any other part), so the cable's outer end is always
+   * well-defined. Empty when no layer has any turns.
+   */
+  outerEndLeadOut: Float32Array;
 }
 
 export type ExportFormat = "stl" | "step" | "3mf";

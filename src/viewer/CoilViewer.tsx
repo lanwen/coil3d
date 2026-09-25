@@ -54,6 +54,10 @@ export interface CoilViewerProps {
   wirePaths?: WireLayerPath[];
   /** `Design.innerEndLeadIn` (issue #8): the inner-end keyhole-through-channel centerline, drawn as one more small tube alongside `wirePaths` so the wound cable reads as one continuous line from the keyhole into the groove. Omitted/too short to draw none. */
   innerEndLeadIn?: Float32Array;
+  /** `Design.layerTransitions` (issue #68): one short bridging tube per layer-to-layer transition, drawn alongside `wirePaths` so a multi-layer coil reads as ONE continuous cable instead of a fresh start at every layer. Omitted/empty draws none. */
+  layerTransitions?: Float32Array[];
+  /** `Design.outerEndLeadOut` (issue #68): from the last wound layer's own end to the top cap's rim keyhole, drawn the same way as `innerEndLeadIn`. Omitted/too short to draw none. */
+  outerEndLeadOut?: Float32Array;
   /** Cable outer diameter, mm -- sets the drawn wire's tube radius. */
   wireDiameter?: number;
   /** Wire visibility toggle (issue #4), mirrored in the URL hash by the caller. */
@@ -234,6 +238,8 @@ export function CoilViewer({
   resolution,
   wirePaths,
   innerEndLeadIn,
+  layerTransitions,
+  outerEndLeadOut,
   wireDiameter,
   showWire = true,
   exploded = false,
@@ -309,14 +315,19 @@ export function CoilViewer({
   const wireGeometries = useMemo(() => {
     if (!showWire || !wireDiameter) return [];
     const paths = wirePaths ? [...wirePaths] : [];
-    // The inner-end lead-in (issue #8) is drawn as one more small path
-    // alongside the real layers -- `turns: 1` keeps it well under
-    // wireGeometry.ts's TURNS_FOR_ENVELOPE, so it always gets the full,
-    // non-schematic tube regardless of how layer 1 itself is drawn.
+    // The inner-end lead-in (issue #8), every layer-to-layer transition and
+    // the outer-end lead-out (issue #68) are drawn as more small paths
+    // alongside the real layers -- `turns: 1` keeps them well under
+    // wireGeometry.ts's TURNS_FOR_ENVELOPE, so they always get the full,
+    // non-schematic tube regardless of how the layers themselves are drawn.
     if (innerEndLeadIn && innerEndLeadIn.length >= 6) paths.push({ layer: 0, turns: 1, points: innerEndLeadIn });
+    for (const t of layerTransitions ?? []) {
+      if (t.length >= 6) paths.push({ layer: 0, turns: 1, points: t });
+    }
+    if (outerEndLeadOut && outerEndLeadOut.length >= 6) paths.push({ layer: 0, turns: 1, points: outerEndLeadOut });
     if (!paths.length) return [];
     return buildWireGeometries(paths, wireDiameter / 2);
-  }, [showWire, wirePaths, innerEndLeadIn, wireDiameter]);
+  }, [showWire, wirePaths, innerEndLeadIn, layerTransitions, outerEndLeadOut, wireDiameter]);
   useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
 
   // The rotation applied to every rendered geometry for the current view
