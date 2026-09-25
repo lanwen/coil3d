@@ -510,35 +510,16 @@ export interface TopCapSpec {
 }
 
 /**
- * Build the top cap: a SOLID disc following the core's own outline out to
- * the flange's footprint (issue #67 -- previously an annular plate mirroring
- * the bottom flange's own open-bore ring, see below), with a downward
+ * Build the top cap: an annular plate following the core's own outline out
+ * to the flange's footprint (mirroring the bottom flange), with a downward
  * engagement collar for the chosen joint and a rim keyhole for the outer
  * cable end. Built entirely in a LOCAL frame (plate z=[0, CAP_THICKNESS],
  * collar z=[-JOINT_ENGAGE_DEPTH, 0]) and translated by the caller into the
  * shared assembly frame -- see design.ts.
- *
- * Issue #67 (the top cap has no flat face to print on): the plate used to be
- * built by the SAME `buildOutlineRing` as the bottom flange -- open all the
- * way through at the bore's own outline, exactly like the flange needs (the
- * flange's hole is where the wall passes through and the inner connector
- * dangles out the bottom, docs/research.md's "Wire ends"). But the cap's
- * print orientation flips the plate's OUTWARD (room/label) face down onto
- * the bed (design.ts's `printTransform` comment: "the flat plate face -- not
- * the boss -- sits on the bed"); with an open bore hole running through the
- * plate's own full thickness, that entire hole-shaped region has NO material
- * from the bed up to the collar's own weld line (CAP_THICKNESS above), which
- * is exactly a floating, unsupported island in the print, and it also has no
- * business being open at all: nothing needs to reach through the TOP of the
- * assembled coil the way the inner connector needs the bottom flange's hole.
- * A solid disc closes that hole -- the collar still reaches down from the
- * disc's inward face for the joint fit, but the resting (outward) face is
- * now flat across the whole footprint bar the rim keyhole and any label
- * recess, which is what the ticket's own bed-contact-area check requires.
  */
 export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   const wasm = await getWasm();
-  const { Manifold } = wasm;
+  const { Manifold, Mesh } = wasm;
   const trash: { delete(): void }[] = [];
   const track = <T extends { delete(): void }>(m: T): T => {
     trash.push(m);
@@ -547,8 +528,11 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
 
   try {
     const { flange, joint, tolerance, wireDiameter, label } = spec;
-    const capOutline = offsetOutline(flange.outline, flange.margin);
-    const plate = track(outlinePrismSolid(wasm, capOutline, CAP_THICKNESS, 0, flange.columns));
+    const plateMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, 0, CAP_THICKNESS, flange.columns);
+    const plate = track(new Manifold(new Mesh({ numProp: 3, vertProperties: plateMesh.positions, triVerts: plateMesh.indices })));
+    if (plate.status() !== "NoError") {
+      throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
+    }
 
     const { collarRadius, collarOutline, weldOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
     const segments = 48;

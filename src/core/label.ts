@@ -332,8 +332,7 @@ export async function resolveLabel(rawText: string | undefined, outline: ShapeOu
 
 /**
  * The positioned glyph loops for a resolved label, in the plate's own local
- * XY frame (same frame the top cap's plate solid is sampled in, manifold.ts's
- * `buildTopCap`/step/build.ts's `buildTopCapSolid`): centered on the
+ * XY frame (same frame `buildOutlineRing`'s plate uses): centered on the
  * tangential axis, occupying radial distance [label.yLo, label.yLo +
  * inkHeight] measured along `label.bearingDeg` (issue #12 review: the band
  * sits on a flat side for sq/tri, not a corner-pointing bearing -- see
