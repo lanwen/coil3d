@@ -2,6 +2,8 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
 import type { CoilSpec, JointKind, ShapeSpec } from "../src/core";
+import { bedRestingTransform } from "../src/core/plate";
+import { applyRigidTransform } from "../src/core/transform";
 
 // Issue #9 acceptance criteria: "Top cap auto-on when layers > 1; override
 // on/off in the UI and hash", "The cap is a second named, manifold part in
@@ -325,4 +327,130 @@ describe("exportDesign for a two-part design (issue #9)", () => {
   // Issue #32: the per-joint STEP export test moved to test/step.test.ts,
   // grouped with the other STEP/OCCT tests so they don't run concurrently
   // with each other and get a generous explicit timeout.
+});
+
+// Issue #67 ("the top cap has no flat face to print on"): the plate used to
+// be an ANNULUS (`buildOutlineRing`, mirroring the bottom flange's own open
+// bore hole), and the print orientation rests the plate's OUTWARD/label face
+// on the bed (design.ts's own `printTransform` comment). With an open bore
+// running through the plate's full thickness, the entire bore-shaped region
+// had NO material from the bed up to the joint collar's own weld line
+// (CAP_THICKNESS above) -- a floating, unsupported island, and depending on
+// how big the bore is relative to the flange envelope, the remaining flat
+// annulus could easily fall (well) under any reasonable "flat bed contact"
+// floor. `buildTopCap`/`buildTopCapSolid` now build the plate as a SOLID
+// disc (no bore hole at all -- nothing needs the top of the assembled coil
+// open the way the bottom flange's hole must stay open for the inner
+// connector), so the resting face is flat across the whole footprint bar the
+// rim keyhole and any label recess.
+describe("issue #67: the top cap rests on one flat, mostly-solid bed-contact face", () => {
+  // A part's own convex-hull footprint (mesh.ts/plate.ts have no such
+  // helper -- this test only needs a rough "how big is this part in XY"
+  // reference, not a precise silhouette): a simple monotone-chain hull, used
+  // ONLY as the denominator below.
+  function hullArea(points: Array<[number, number]>): number {
+    const pts = [...points].sort((a, b) => (a[0] === b[0] ? a[1] - b[1] : a[0] - b[0]));
+    const cross = (o: [number, number], a: [number, number], b: [number, number]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const build = (seq: Array<[number, number]>) => {
+      const hull: Array<[number, number]> = [];
+      for (const p of seq) {
+        while (hull.length >= 2 && cross(hull[hull.length - 2], hull[hull.length - 1], p) <= 0) hull.pop();
+        hull.push(p);
+      }
+      return hull;
+    };
+    const lower = build(pts);
+    const upper = build([...pts].reverse());
+    const hull = lower.slice(0, -1).concat(upper.slice(0, -1));
+    let area = 0;
+    for (let i = 0; i < hull.length; i++) {
+      const [x1, y1] = hull[i];
+      const [x2, y2] = hull[(i + 1) % hull.length];
+      area += x1 * y2 - x2 * y1;
+    }
+    return Math.abs(area) / 2;
+  }
+
+  // The fraction of the part's own footprint that its lowest (bed-resting)
+  // layer actually covers: sums the XY area of every triangle whose three
+  // vertices all sit at the mesh's global min Z (the AC's own "triangles at
+  // min z" -- for a valid, closed manifold a triangle strictly at the global
+  // min Z can only be normal -Z, never anything else, so this doubles as the
+  // AC's "with normal -Z" clause without needing the normal itself).
+  function flatBedContactFraction(mesh: { positions: Float32Array; indices: Uint32Array }): number {
+    const { positions, indices } = mesh;
+    let minZ = Infinity;
+    for (let i = 2; i < positions.length; i += 3) if (positions[i] < minZ) minZ = positions[i];
+    const EPS = 1e-3;
+    const xy: Array<[number, number]> = [];
+    for (let i = 0; i < positions.length; i += 3) xy.push([positions[i], positions[i + 1]]);
+    const footprint = hullArea(xy);
+    let flatArea = 0;
+    for (let t = 0; t < indices.length; t += 3) {
+      const ia = indices[t] * 3;
+      const ib = indices[t + 1] * 3;
+      const ic = indices[t + 2] * 3;
+      if (positions[ia + 2] < minZ + EPS && positions[ib + 2] < minZ + EPS && positions[ic + 2] < minZ + EPS) {
+        const [ax, ay] = [positions[ia], positions[ia + 1]];
+        const [bx, by] = [positions[ib], positions[ib + 1]];
+        const [cx, cy] = [positions[ic], positions[ic + 1]];
+        flatArea += Math.abs((bx - ax) * (cy - ay) - (cx - ax) * (by - ay)) / 2;
+      }
+    }
+    return flatArea / footprint;
+  }
+
+  describe.each(JOINTS)("joint = %s", (joint) => {
+    it.each(SHAPES)("$kind, no label: the flat resting face covers >= 90% of the footprint", async (shape) => {
+      const d = await design(
+        baseSpec({
+          wire: { length: 6000, diameter: 3.8, type: "usb" },
+          shape,
+          coreSize: { locked: true, dimension: "outer", value: 60 },
+          height: { locked: true, value: 60 },
+          layers: { locked: true, value: 2 },
+          joint,
+        }),
+      );
+      const cap = d.parts.find((p) => p.role === "topCap")!;
+      const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
+      expect(flatBedContactFraction(resting)).toBeGreaterThanOrEqual(0.9);
+    });
+
+    it.each(SHAPES)("$kind, with a label: the flat resting face still covers >= 90% of the footprint", async (shape) => {
+      const d = await design(
+        baseSpec({
+          wire: { length: 6000, diameter: 3.8, type: "usb" },
+          shape,
+          coreSize: { locked: true, dimension: "outer", value: 60 },
+          height: { locked: true, value: 60 },
+          layers: { locked: true, value: 2 },
+          joint,
+          label: "HI",
+        }),
+      );
+      const cap = d.parts.find((p) => p.role === "topCap")!;
+      const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
+      expect(flatBedContactFraction(resting)).toBeGreaterThanOrEqual(0.9);
+    });
+  });
+
+  // The ticket's own repro (square, 5 layers, keyhole wall mount, default
+  // press joint, no label).
+  it("the ticket's own repro (square/5-layer/keyhole) rests on a flat face", async () => {
+    const d = await design(
+      baseSpec({
+        wire: { length: 2000, diameter: 5.8, type: "custom", customBendMultiplier: 4 },
+        shape: { kind: "sq", cornerRadius: 8 },
+        windingQuality: 0.55,
+        coreSize: { locked: false },
+        height: { locked: false },
+        layers: { locked: true, value: 5 },
+        mount: "keyhole",
+      }),
+    );
+    const cap = d.parts.find((p) => p.role === "topCap")!;
+    const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
+    expect(flatBedContactFraction(resting)).toBeGreaterThanOrEqual(0.9);
+  });
 });

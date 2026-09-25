@@ -595,13 +595,25 @@ async function buildLabelCutterSolid(label: ResolvedLabel): Promise<R.Shape3D | 
   return cutter;
 }
 
-/** Build the top cap solid (plate + engagement collar for the chosen joint + rim keyhole + engraved label), directly in the shared assembly frame -- see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin. */
+/**
+ * Build the top cap solid (plate + engagement collar for the chosen joint +
+ * rim keyhole + engraved label), directly in the shared assembly frame --
+ * see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin.
+ *
+ * Issue #67 (the top cap has no flat face to print on): the plate is a SOLID
+ * disc, not an annulus with the bore cut through it like the bottom flange
+ * (`flangeOuter.cut(flangeInner)` above) -- see manifold.ts's `buildTopCap`
+ * doc comment for the full reasoning. The cap's print orientation rests its
+ * outward (label) face on the bed; an open bore hole running through the
+ * plate's own full thickness left that whole region floating, unsupported,
+ * above the bed until the collar's weld line -- and nothing needs the top of
+ * the assembled coil open the way the bottom flange's hole must stay open
+ * for the inner connector.
+ */
 async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
   const outerOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
-  const plateOuter = outlineSolid(outerOutline, CAP_THICKNESS, 0);
-  const plateInner = outlineSolid(flangeSpec.boreOutline, CAP_THICKNESS + 2, -1);
-  const plate = plateOuter.cut(plateInner);
+  const plate = outlineSolid(outerOutline, CAP_THICKNESS, 0);
 
   const { boreRadius, collarRadius, collarOutline, weldOutline } = jointGeometry(flangeSpec.boreOutline, spec.joint, spec.tolerance);
   const canCutJoint = boreRadius >= JOINT_MIN_BORE_RADIUS && solution.height >= JOINT_ENGAGE_DEPTH + 2;
