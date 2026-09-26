@@ -97,3 +97,30 @@ export function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, numbe
     return [dx, dy];
   });
 }
+
+export interface PartPlacement {
+  part: Part;
+  /** `bedRestingTransform` composed with `layoutParts`' own X/Y offset: the exact transform that places this part on the shared plate. */
+  transform: RigidTransform;
+}
+
+/**
+ * Every part's final print-bed transform (issue #78): `bedRestingTransform`
+ * (each part resting on its own min Z) composed with `layoutParts`' X/Y
+ * offset (laid out side by side on `bed`). The ONE function both the 3MF
+ * writer (threeMf.ts) and the viewer's print-layout view call, so "where a
+ * part sits" can never independently drift between the export and the
+ * on-screen preview (issue #78 AC: "3MF placement and view placement
+ * agree").
+ */
+export function printPlacements(parts: Part[], bed: PrintSpec): PartPlacement[] {
+  const offsets = layoutParts(parts, bed);
+  return parts.map((part, i) => {
+    const [ox, oy] = offsets[i];
+    const resting = bedRestingTransform(part);
+    return {
+      part,
+      transform: { rotateX: resting.rotateX, translate: [resting.translate[0] + ox, resting.translate[1] + oy, resting.translate[2]] },
+    };
+  });
+}

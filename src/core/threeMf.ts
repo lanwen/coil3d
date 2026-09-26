@@ -28,9 +28,12 @@
 // does not promise the part's min Z is 0 -- see that function's doc
 // comment). `export.ts`'s STL branch uses the exact same function, so STL
 // and 3MF can never independently drift on what "resting on the bed"
-// means. `layoutParts` only ever supplies the X/Y plate-arrangement offset.
+// means. Both the Z-resting transform and the X/Y plate layout go through
+// `plate.ts`'s `printPlacements` (issue #78), the same function the viewer's
+// print-layout view calls, so the export and that on-screen preview can
+// never drift apart either.
 
-import { bedRestingTransform, layoutParts } from "./plate";
+import { printPlacements } from "./plate";
 import { writeZip } from "./zip";
 import type { CoilMesh, Design, RigidTransform } from "./types";
 
@@ -85,20 +88,12 @@ function transformAttr(t: RigidTransform): string {
 
 export function write3mf(design: Design): Uint8Array<ArrayBuffer> {
   const { parts } = design;
-  const offsets = layoutParts(parts, design.spec.print);
+  const placements = printPlacements(parts, design.spec.print);
 
   const objects = parts.map((part, i) => `<object id="${i + 1}" type="model" name="${escapeXml(part.name)}">${meshXml(part.mesh)}</object>`).join("");
 
-  const items = parts
-    .map((part, i) => {
-      const [ox, oy] = offsets[i];
-      const resting = bedRestingTransform(part);
-      const t: RigidTransform = {
-        rotateX: resting.rotateX,
-        translate: [resting.translate[0] + ox, resting.translate[1] + oy, resting.translate[2]],
-      };
-      return `<item objectid="${i + 1}" transform="${transformAttr(t)}"/>`;
-    })
+  const items = placements
+    .map(({ transform }, i) => `<item objectid="${i + 1}" transform="${transformAttr(transform)}"/>`)
     .join("");
 
   const model = `<?xml version="1.0" encoding="UTF-8"?>

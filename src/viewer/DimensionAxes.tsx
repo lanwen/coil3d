@@ -32,6 +32,7 @@ import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import type { Part } from "../core";
 import { DIMENSION_LABEL_LAYER, DIMENSION_LINE_LAYER } from "./lineArt/LineArtRenderer";
+import { LABEL_FONT_PX, LABEL_PAD_Y_PX, labelTexture, makeLabelSprite, StrokeBuilder } from "./screenSpaceInk";
 
 // Screen-space sizes, CSS px. The dimension line is drawn bolder than the
 // model's own ~1-1.6px pen line (LineArtRenderer's MIN/MAX_LINE_WEIGHT).
@@ -40,7 +41,6 @@ const EXTENSION_PX = 1.2;
 const TICK_PX = 12;
 const ARROW_LENGTH_PX = 13;
 const ARROW_HALF_WIDTH_PX = 4.5;
-const LABEL_FONT_PX = 15;
 // Below this on-screen length an axis is hidden; a short one draws its
 // arrowheads outside, on leaders this long past them.
 const MIN_AXIS_PX = 6;
@@ -48,12 +48,7 @@ const SHORT_LEAD_PX = 6;
 // |sin| of the on-screen angle below which a ground axis counts as running
 // along the height axis.
 const PARALLEL_SIN = 0.5;
-const LABEL_PAD_X_PX = 5;
-const LABEL_PAD_Y_PX = 3;
 const LABEL_GAP_PX = 5;
-// Label textures are drawn at this multiple of CSS px (x devicePixelRatio)
-// so they stay crisp.
-const LABEL_SUPERSAMPLE = 2;
 // The axes sit this far outside the box: a fraction of the footprint's size
 // (not the height -- a tall, slim coil would push them far off to the side),
 // floored so a tiny coil still gets clear air.
@@ -115,8 +110,19 @@ const SPIN_MIN_GAIN = 0.01;
  * result panel's flange width) on both axes, and a triangle its flat base
  * and base-to-apex height, instead of the corner-to-corner extents an
  * unspun box would give.
+ *
+ * `forcedSpinRad`, when given, skips that area search and uses this exact
+ * angle instead (issue #79): a heavily-rounded triangle can have its true
+ * minimal-area angle sit at a "corner-through-the-axis" orientation instead
+ * of a flat-flush one (the two are only EXACTLY tied for a shape with a
+ * rotational symmetry matching the box's own -- true for round/square, not
+ * for a triangle's odd corner count) -- close enough in area that the
+ * search's plain `<` picks whichever it meets first, not necessarily the
+ * flat-flush one. CoilViewer passes the SAME angle `frontFacingRotation`
+ * rotates the mesh by (negated), so the box stays flush with the identical
+ * flat the standing view now faces, rather than an independently-found one.
  */
-export function measureDimensionFrame(parts: Part[]): { box: THREE.Box3; groundZ: number; spin: THREE.Matrix4 } {
+export function measureDimensionFrame(parts: Part[], forcedSpinRad?: number): { box: THREE.Box3; groundZ: number; spin: THREE.Matrix4 } {
   let groundZ = Infinity;
   let minZ = Infinity;
   let maxZ = -Infinity;
@@ -149,9 +155,13 @@ export function measureDimensionFrame(parts: Part[]): { box: THREE.Box3; groundZ
   };
   const unspun = boundsAt(0);
   let best = unspun;
-  for (let i = 1; i < SPIN_STEPS; i++) {
-    const b = boundsAt((i / SPIN_STEPS) * Math.PI);
-    if (b.area < best.area && b.area < unspun.area * (1 - SPIN_MIN_GAIN)) best = b;
+  if (forcedSpinRad !== undefined) {
+    best = boundsAt(forcedSpinRad);
+  } else {
+    for (let i = 1; i < SPIN_STEPS; i++) {
+      const b = boundsAt((i / SPIN_STEPS) * Math.PI);
+      if (b.area < best.area && b.area < unspun.area * (1 - SPIN_MIN_GAIN)) best = b;
+    }
   }
   return {
     box: new THREE.Box3(new THREE.Vector3(best.x0, best.y0, minZ), new THREE.Vector3(best.x1, best.y1, maxZ)),
@@ -181,73 +191,6 @@ export function dimensionFramePoints(box: THREE.Box3, groundZ: number): Float32A
   return new Float32Array(out);
 }
 
-function labelTexture(text: string): { texture: THREE.CanvasTexture; widthPx: number; heightPx: number } {
-  const scale = LABEL_SUPERSAMPLE * (typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1);
-  const font = `bold ${LABEL_FONT_PX}px ${getComputedStyle(document.body).fontFamily || "sans-serif"}`;
-  const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d")!;
-  ctx.font = font;
-  const widthPx = Math.ceil(ctx.measureText(text).width) + 2 * LABEL_PAD_X_PX;
-  const heightPx = LABEL_FONT_PX + 2 * LABEL_PAD_Y_PX;
-  canvas.width = Math.ceil(widthPx * scale);
-  canvas.height = Math.ceil(heightPx * scale);
-  ctx.scale(scale, scale);
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, widthPx, heightPx);
-  ctx.font = font;
-  ctx.fillStyle = "#000";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, widthPx / 2, heightPx / 2 + 1);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.minFilter = THREE.LinearFilter;
-  texture.generateMipmaps = false;
-  return { texture, widthPx, heightPx };
-}
-
-/** Appends camera-facing triangles to `out` (flat xyz triples). */
-class StrokeBuilder {
-  out: number[] = [];
-  constructor(
-    private view: THREE.Vector3, // unit, local frame, toward the camera
-    private pixel: number, // world mm per CSS px
-  ) {}
-
-  /** Unit screen-perpendicular to a segment direction (in the view plane). */
-  perp(dir: THREE.Vector3): THREE.Vector3 {
-    const p = new THREE.Vector3().crossVectors(dir, this.view);
-    return p.lengthSq() > 1e-12 ? p.normalize() : p;
-  }
-
-  tri(a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3) {
-    this.out.push(a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
-  }
-
-  segment(a: THREE.Vector3, b: THREE.Vector3, widthPx: number) {
-    const dir = b.clone().sub(a);
-    if (dir.lengthSq() < 1e-12) return;
-    const n = this.perp(dir.normalize()).multiplyScalar((widthPx / 2) * this.pixel);
-    // Square caps (extend half a width) so joined segments meet cleanly.
-    const ext = dir.clone().multiplyScalar((widthPx / 2) * this.pixel);
-    const a0 = a.clone().sub(ext);
-    const b0 = b.clone().add(ext);
-    const p1 = a0.clone().add(n);
-    const p2 = a0.clone().sub(n);
-    const p3 = b0.clone().add(n);
-    const p4 = b0.clone().sub(n);
-    this.tri(p1, p2, p3);
-    this.tri(p3, p2, p4);
-  }
-
-  /** Filled arrowhead with its tip at `tip`, pointing along `dir` (unit). */
-  arrow(tip: THREE.Vector3, dir: THREE.Vector3) {
-    const back = tip.clone().addScaledVector(dir, -ARROW_LENGTH_PX * this.pixel);
-    const n = this.perp(dir).multiplyScalar(ARROW_HALF_WIDTH_PX * this.pixel);
-    this.tri(tip, back.clone().add(n), back.clone().sub(n));
-  }
-}
-
 export function DimensionAxes({ box, groundZ, rotation, labels }: DimensionAxesProps) {
   const group = useMemo(() => {
     const g = new THREE.Group();
@@ -267,11 +210,7 @@ export function DimensionAxes({ box, groundZ, rotation, labels }: DimensionAxesP
 
   const sprites = useMemo(() => {
     const make = () => {
-      const material = new THREE.SpriteMaterial({ depthTest: false, depthWrite: false, transparent: true });
-      const sprite = new THREE.Sprite(material);
-      sprite.layers.set(DIMENSION_LABEL_LAYER);
-      sprite.frustumCulled = false;
-      sprite.renderOrder = 1;
+      const sprite = makeLabelSprite(DIMENSION_LABEL_LAYER);
       sprite.visible = false;
       return sprite;
     };
@@ -402,15 +341,15 @@ export function DimensionAxes({ box, groundZ, rotation, labels }: DimensionAxesP
         if (onScreenPx >= 2 * ARROW_LENGTH_PX + 4) {
           // Arrowheads inside, pointing out at the tick bars.
           b.segment(from.clone().addScaledVector(dir, ARROW_LENGTH_PX * pixel * 0.8), to.clone().addScaledVector(dir, -ARROW_LENGTH_PX * pixel * 0.8), LINE_PX);
-          b.arrow(from, dir.clone().negate());
-          b.arrow(to, dir);
+          b.arrow(from, dir.clone().negate(), ARROW_LENGTH_PX, ARROW_HALF_WIDTH_PX);
+          b.arrow(to, dir, ARROW_LENGTH_PX, ARROW_HALF_WIDTH_PX);
         } else {
           // Too short for that (a slim coil's footprint): arrowheads outside,
           // pointing in, the drafting convention for a small span.
           const lead = (ARROW_LENGTH_PX + SHORT_LEAD_PX) * pixel;
           b.segment(from.clone().addScaledVector(dir, -lead), to.clone().addScaledVector(dir, lead), LINE_PX);
-          b.arrow(from, dir);
-          b.arrow(to, dir.clone().negate());
+          b.arrow(from, dir, ARROW_LENGTH_PX, ARROW_HALF_WIDTH_PX);
+          b.arrow(to, dir.clone().negate(), ARROW_LENGTH_PX, ARROW_HALF_WIDTH_PX);
         }
         const tick = b.perp(dir).multiplyScalar((TICK_PX / 2) * pixel);
         b.segment(from.clone().add(tick), from.clone().sub(tick), LINE_PX);

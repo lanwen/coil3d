@@ -15,7 +15,7 @@
 
 import * as THREE from "three";
 
-export type PresetId = "front" | "iso" | "wallRoom";
+export type PresetId = "front" | "iso" | "wallRoom" | "printLayout";
 
 export interface ViewPreset {
   id: PresetId;
@@ -44,6 +44,15 @@ export const VIEW_PRESETS: ViewPreset[] = [
   // no-op if it's already there) while CoilViewer swaps in the rotated
   // geometry.
   { id: "wallRoom", label: "Wall mount", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
+  // Print layout (issue #78): every part swaps to its own print-bed pose,
+  // laid out flat on a drawn bed rectangle -- CoilViewer's own `viewMode`
+  // (see that file's `buildPrintLayout`), not a rotation of the assembled
+  // model, so this reuses the plain iso direction/up exactly like wallRoom
+  // does, rather than a dedicated top-down camera (which would need its own
+  // `upHint`, since `presetQuaternion`'s `lookAt` can't resolve roll from a
+  // hint parallel to a purely-vertical direction -- see this file's own
+  // header on the removed "top" preset).
+  { id: "printLayout", label: "Print layout", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
 ];
 
 const byId = new Map(VIEW_PRESETS.map((p) => [p.id, p]));

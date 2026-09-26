@@ -5,10 +5,13 @@ import * as THREE from "three";
 import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CAP_THICKNESS, JOINT_ENGAGE_DEPTH, JOINT_TRANSITION_HEIGHT } from "../core";
-import type { CoilMesh, Part, Resolution, ShapeKind, WireLayerPath } from "../core";
+import type { CoilMesh, Part, PrintSpec, Resolution, ShapeKind, WireLayerPath } from "../core";
 import { DimensionAxes, dimensionFramePoints, measureDimensionFrame, type DimensionLabels } from "./DimensionAxes";
+import { frontFacingDimensionSpin, frontFacingRotation } from "./frontFacing";
 import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
 import { getPreset, type PresetId } from "./lineArt/presets";
+import { PrintLayoutLabels } from "./PrintLayoutLabels";
+import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
 import { ViewControls } from "./ViewControls";
 import { WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
 import { buildWireGeometries } from "./wireGeometry";
@@ -74,6 +77,19 @@ export interface CoilViewerProps {
   shapeKind?: ShapeKind;
   /** Issue #69: the dimension axes' visibility toggle. */
   showDimensions?: boolean;
+  /** `CoilSpec.print` (issue #78): the configured print bed, driving the
+   * "Print layout" view's drawn bed rectangle and part arrangement -- the
+   * SAME `PrintSpec` the 3MF plate layout reads. */
+  bed: PrintSpec;
+  /** Issue #78 PR review: the print-layout view force-hides the wound cable
+   * and the dimension axes itself (there's nothing to toggle -- the core
+   * prints without a cable, see CoilViewer's own render), but the "Show
+   * wound cable"/"Dimensions" TOGGLE CONTROLS live in App.tsx, outside this
+   * component -- fired whenever `viewMode` enters/leaves "printLayout" so
+   * the caller can hide those controls while they'd have no visible effect,
+   * without touching `showWire`/`showDimensions` themselves (so whatever
+   * the user had them set to is exactly what shows again once they leave). */
+  onPrintLayoutActiveChange?: (active: boolean) => void;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -180,26 +196,41 @@ function ExplodedPart({
 // are rotated the identical way, so the wire never visually separates from
 // its coil when the preset is toggled.
 
-type ViewMode = "standing" | "wallRoom";
+type ViewMode = "standing" | "wallRoom" | "printLayout";
 
-function buildViewRotations(mountAxisDeg: number | undefined): Record<ViewMode, THREE.Matrix4 | null> {
+// Issue #79: "standing" now also carries a per-shape presentation rotation
+// (frontFacing.ts) so Front (and Iso, 45 degrees off it) face a flat side
+// for square/triangle -- null for round (nothing to face) and undefined
+// shapeKind (no design solved yet). `printLayout` needs no rotation of its
+// own: its scene is a completely different geometry (buildPrintLayout), not
+// a rotated copy of the assembled one (see CoilViewer's own render below).
+function buildViewRotations(mountAxisDeg: number | undefined, shapeKind: ShapeKind | undefined): Record<ViewMode, THREE.Matrix4 | null> {
   return {
-    standing: null,
+    standing: frontFacingRotation(shapeKind),
     wallRoom: withMountAxisCorrection(WALL_VIEW_ROTATION, mountAxisDeg),
+    printLayout: null,
   };
 }
 
 // The coil's own axis (local +Z), wherever each preset renders it -- see
 // wallRotations.ts's WALL_REMAP comment for the room-side case (world +X; a
 // rotation about world X, its spin correction, never moves points along
-// world X, so it needs no correction of its own).
+// world X, so it needs no correction of its own). Unused in `printLayout`
+// (that view never explodes, see CoilViewer's own render below) -- present
+// only so this stays a total map over `ViewMode`.
 const EXPLODE_AXES: Record<ViewMode, THREE.Vector3> = {
   standing: new THREE.Vector3(0, 0, 1),
   wallRoom: new THREE.Vector3(1, 0, 0),
+  printLayout: new THREE.Vector3(0, 0, 1),
 };
 
+// Issue #78 AC ("a 'no supports needed' note is visible") reuses the
+// wall-mount preset's own caption element (same `wall-view-caption` testid/
+// class) rather than a new one -- one already-tested "the current view's
+// own note" slot, not a second parallel mechanism.
 const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
   wallRoom: "Bottom flange against the wall -- top cap faces the room",
+  printLayout: "Every part rests flat on the bed -- no supports needed",
 };
 
 /**
@@ -248,6 +279,8 @@ export function CoilViewer({
   overallHeight,
   shapeKind,
   showDimensions = true,
+  bed,
+  onPrintLayoutActiveChange,
 }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -255,7 +288,10 @@ export function CoilViewer({
   const reducedMotion = usePrefersReducedMotion();
   const [viewMode, setViewMode] = useState<ViewMode>("standing");
   const debugFocusInnerEnd = useDebugFocusInnerEnd();
-  const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg), [mountAxisDeg]);
+  useEffect(() => {
+    onPrintLayoutActiveChange?.(viewMode === "printLayout");
+  }, [viewMode, onPrintLayoutActiveChange]);
+  const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg, shapeKind), [mountAxisDeg, shapeKind]);
 
   // Debug close-up on the inner-end keyhole + channel (issue #8 PR review):
   // rotates the rendered geometry about the coil axis so the keyhole's own
@@ -294,10 +330,11 @@ export function CoilViewer({
   // camera preset was last chosen.
   const effectivePreset: PresetId = viewMode === "standing" ? preset : viewMode;
 
-  /** Clicking Front/Iso exits the wall view; clicking "Wall mount" sets the
-   * `viewMode` that rotates the geometry into its as-hung pose. */
+  /** Clicking Front/Iso exits the wall/print-layout view; clicking "Wall
+   * mount" or "Print layout" sets the `viewMode` that swaps in that view's
+   * own geometry. */
   const handlePresetChange = (id: PresetId) => {
-    if (id === "wallRoom") {
+    if (id === "wallRoom" || id === "printLayout") {
       setViewMode(id);
     } else {
       setViewMode("standing");
@@ -331,12 +368,17 @@ export function CoilViewer({
   useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
 
   // The rotation applied to every rendered geometry for the current view
-  // (the wall-mount pose's own geometry rotation, or the inner-end debug
-  // close-up's azimuth spin) -- shared by `viewPartGeometries`/
-  // `viewWireGeometries` below and by DimensionAxes (issue #69), which
-  // carries the identical rotation on its own group so the axes stay on the
-  // geometry they measure.
-  const viewRotation = useMemo(() => viewRotations[viewMode] ?? focusRotation, [viewRotations, viewMode, focusRotation]);
+  // (the wall-mount pose's own geometry rotation, the standing view's own
+  // per-shape front-facing rotation, or the inner-end debug close-up's
+  // azimuth spin) -- shared by `viewPartGeometries`/`viewWireGeometries`
+  // below and by DimensionAxes (issue #69), which carries the identical
+  // rotation on its own group so the axes stay on the geometry they
+  // measure. `focusRotation` wins when active (not `??`'s usual left-to-
+  // right order): the debug close-up (issue #8 PR review) must reproduce
+  // its own existing checked-in screenshots (e2e/inner-end.spec.ts's SQUARE
+  // case) UNCHANGED by issue #79's new standing-view rotation, which it
+  // knows nothing about.
+  const viewRotation = useMemo(() => focusRotation ?? viewRotations[viewMode], [viewRotations, viewMode, focusRotation]);
 
   // Wall-view preset: physically rotated COPIES of every part's geometry (not
   // the base `partGeometries`/`wireGeometries`, which the draft/final swap
@@ -355,8 +397,19 @@ export function CoilViewer({
     return () => viewPartGeometries.forEach(({ geometry }) => geometry.dispose());
   }, [viewPartGeometries, partGeometries]);
 
-  // The dimension axes' box (issue #69), in the parts' local frame.
-  const dimensionBox = useMemo(() => measureDimensionFrame(parts), [parts]);
+  // The dimension axes' box (issue #69), in the parts' local frame. Issue
+  // #79: while STANDING, forced flush with the SAME flat `viewRotations.
+  // standing` (frontFacing.ts) rotates the mesh to face -- see that module's
+  // own doc comment on why an independent area search can disagree with it.
+  // Only while standing: the forced angle is derived assuming a plain Z
+  // rotation (`viewRotations.standing`); the wall-mount pose is a full 3D
+  // basis change (`WALL_VIEW_ROTATION`), so composing the two wouldn't cancel
+  // out the same way -- wallRoom keeps the plain area-search spin, same as
+  // before this issue.
+  const dimensionBox = useMemo(
+    () => measureDimensionFrame(parts, viewMode === "standing" ? frontFacingDimensionSpin(shapeKind) : undefined),
+    [parts, shapeKind, viewMode],
+  );
   const dimensionMatrix = useMemo(() => (viewRotation ? viewRotation.clone().multiply(dimensionBox.spin) : dimensionBox.spin), [viewRotation, dimensionBox]);
 
   const dimensionLabels = useMemo((): DimensionLabels | null => {
@@ -379,6 +432,57 @@ export function CoilViewer({
     if (viewWireGeometries === wireGeometries) return;
     return () => viewWireGeometries.forEach((g) => g.dispose());
   }, [viewWireGeometries, wireGeometries]);
+
+  // Print layout (issue #78): an entirely SEPARATE scene -- every part in
+  // its own print-bed placement (core's `printPlacements`, shared with the
+  // 3MF writer) laid out on a drawn bed rectangle -- not a rotated copy of
+  // the assembled `viewPartGeometries` above (a rotation alone could never
+  // separate the parts onto their own plate positions). Built only while
+  // this view is actually showing; the debug close-up and the wall view
+  // never combine with it (see `handlePresetChange`).
+  const printLayout = useMemo(() => (viewMode === "printLayout" ? buildPrintLayout(parts, bed) : null), [viewMode, parts, bed]);
+  const printLayoutParts = useMemo(() => {
+    if (!printLayout) return null;
+    return printLayout.parts.map(({ part, mesh, box, transform }) => ({ part, geometry: buildCreasedGeometry(mesh), box, transform }));
+  }, [printLayout]);
+  useEffect(() => {
+    if (!printLayoutParts) return;
+    return () => printLayoutParts.forEach(({ geometry }) => geometry.dispose());
+  }, [printLayoutParts]);
+  const printLayoutBedGeometry = useMemo(() => (viewMode === "printLayout" ? buildBedGeometry(bed) : null), [viewMode, bed]);
+  useEffect(() => () => printLayoutBedGeometry?.dispose(), [printLayoutBedGeometry]);
+  // A stable reference (memoized on `printLayoutParts` itself, not rebuilt
+  // every render): PrintLayoutLabels.tsx memoizes its own sprites on this
+  // array's identity, so a fresh array literal here every render would
+  // rebuild (and re-draw) every label's canvas texture every frame.
+  const printLayoutLabelParts = useMemo(() => printLayoutParts?.map(({ part, box }) => ({ name: part.name, box })) ?? null, [printLayoutParts]);
+
+  // Frames the WHOLE bed (not just the parts) AND the labels' own shared
+  // callout row (PrintLayoutLabels.tsx, issue #78 PR review: a fixed margin
+  // past the layout's own Y extent, on EITHER side -- the row can land on
+  // whichever side the camera currently looks from), so neither the drawn
+  // bed rectangle nor a label is ever cropped by the shot.
+  const printLayoutFramingGeometry = useMemo(() => {
+    if (!printLayout || !printLayoutParts) return null;
+    const { bounds } = printLayout;
+    const chunks = printLayoutParts.map(({ geometry }) => (geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array);
+    const labelRowMargin = Math.max(8, 0.1 * bounds.getSize(new THREE.Vector3()).y);
+    const corners: number[] = [];
+    for (const x of [bounds.min.x, bounds.max.x])
+      for (const y of [bounds.min.y - labelRowMargin, bounds.max.y + labelRowMargin])
+        for (const z of [bounds.min.z, bounds.max.z]) corners.push(x, y, z);
+    chunks.push(new Float32Array(corners));
+    const merged = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
+    let at = 0;
+    for (const c of chunks) {
+      merged.set(c, at);
+      at += c.length;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
+    return geometry;
+  }, [printLayout, printLayoutParts]);
+  useEffect(() => () => printLayoutFramingGeometry?.dispose(), [printLayoutFramingGeometry]);
 
   // The exploded-view lift direction: the coil's own axis, wherever the
   // current preset renders it (see EXPLODE_AXES above).
@@ -512,35 +616,49 @@ export function CoilViewer({
         gl={{ alpha: true, antialias: false, preserveDrawingBuffer: true }}
         style={{ width: "100%", height: "100%", background: "transparent" }}
       >
-        {viewPartGeometries.map(({ part, geometry }) =>
-          part.role === "core" ? (
-            <mesh key={part.name} geometry={geometry} />
-          ) : (
-            <ExplodedPart key={part.name} geometry={geometry} offset={explodeOffsets.get(part.name) ?? 0} axis={explodeAxisFor(part.role)} exploded={exploded} reducedMotion={reducedMotion} />
-          ),
+        {printLayoutParts && printLayoutBedGeometry && printLayout && printLayoutLabelParts ? (
+          <>
+            <mesh geometry={printLayoutBedGeometry} />
+            {printLayoutParts.map(({ part, geometry }) => (
+              <mesh key={part.name} geometry={geometry} />
+            ))}
+            <PrintLayoutLabels parts={printLayoutLabelParts} bounds={printLayout.bounds} />
+          </>
+        ) : (
+          <>
+            {viewPartGeometries.map(({ part, geometry }) =>
+              part.role === "core" ? (
+                <mesh key={part.name} geometry={geometry} />
+              ) : (
+                <ExplodedPart key={part.name} geometry={geometry} offset={explodeOffsets.get(part.name) ?? 0} axis={explodeAxisFor(part.role)} exploded={exploded} reducedMotion={reducedMotion} />
+              ),
+            )}
+            {viewWireGeometries.map((g, i) => (
+              <mesh key={i} geometry={g} />
+            ))}
+          </>
         )}
-        {viewWireGeometries.map((g, i) => (
-          <mesh key={i} geometry={g} />
-        ))}
         <LineArtRenderer
-          geometry={focusFramingGeometry ?? framingGeometry}
+          geometry={printLayoutFramingGeometry ?? focusFramingGeometry ?? framingGeometry}
           controlsRef={controlsRef}
           projection={projection}
           preset={effectivePreset}
-          fill={focusFramingGeometry ? FOCUS_FILL : exploded ? EXPLODED_FILL : undefined}
+          fill={printLayoutFramingGeometry ? undefined : focusFramingGeometry ? FOCUS_FILL : exploded ? EXPLODED_FILL : undefined}
           reducedMotion={reducedMotion}
           resolution={resolution}
         />
-        {/* Issue #69: hidden while exploded (or in the inner-end debug
-            close-up) -- they measure the assembled pose. */}
-        {showDimensions && !exploded && !focusFramingGeometry && dimensionLabels && (
+        {/* Issue #69: hidden while exploded, in the inner-end debug close-up,
+            or in the print-layout view (issue #78 AC: hidden, or showing the
+            bed size -- its own caption above already names the bed) -- none
+            of those measure the assembled pose. */}
+        {showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && dimensionLabels && (
           <DimensionAxes box={dimensionBox.box} groundZ={dimensionBox.groundZ} rotation={dimensionMatrix} labels={dimensionLabels} />
         )}
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
       </Canvas>
       {/* The same values as text, for screen readers (the axes' labels are
           drawn inside the canvas). */}
-      {showDimensions && !exploded && !focusFramingGeometry && dimensionLabels && (
+      {showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && dimensionLabels && (
         <ul className="visually-hidden" data-testid="dimensions" aria-label="Overall dimensions">
           <li>
             Width <span data-testid="dimension-width">{dimensionLabels.width}</span>
@@ -551,6 +669,20 @@ export function CoilViewer({
           <li>
             Height <span data-testid="dimension-height">{dimensionLabels.height}</span>
           </li>
+        </ul>
+      )}
+      {/* Issue #78: each part's own EXACT print-bed transform, mirrored as
+          text (like the dimensions list above) both for screen readers and
+          so e2e coverage can confirm it against the 3MF export's own item
+          transform (`printPlacements`, the one function both read) without
+          re-deriving positions from rendered pixels. */}
+      {printLayoutParts && (
+        <ul className="visually-hidden" data-testid="print-layout-parts" aria-label="Parts on the print bed">
+          {printLayoutParts.map(({ part, transform }) => (
+            <li key={part.name} data-testid={`print-layout-part-${part.name}`}>
+              {part.name}: rotateX={transform.rotateX.toFixed(6)}, x={transform.translate[0].toFixed(3)}mm, y={transform.translate[1].toFixed(3)}mm, z={transform.translate[2].toFixed(3)}mm
+            </li>
+          ))}
         </ul>
       )}
       <ViewControls preset={effectivePreset} onPresetChange={handlePresetChange} projection={projection} onProjectionChange={setProjection} />

@@ -847,6 +847,14 @@ header p {
   background: var(--paper);
 }
 
+/* Print layout (issue #78): a flat, wide rectangle standing for the bed
+   seen from above -- visually distinct from front's tall square, iso's
+   rotated one and wall mount's square-plus-bar. */
+.preset-icon-printLayout {
+  width: 16px;
+  height: 8px;
+}
+
 /* Perspective/orthographic toggle: same real-checkbox-behind-a-pictogram
    technique as the eye/lock toggles -- ortho is two same-width bars
    (parallel projection lines never converge); perspective is two
