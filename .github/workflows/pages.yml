@@ -1,8 +1,8 @@
 name: Deploy to GitHub Pages
 
 on:
-  push:
-    branches: [main]
+  # Manual-only for now (Actions > Deploy to GitHub Pages > Run workflow);
+  # push to main doesn't trigger it.
   workflow_dispatch:
 
 permissions:
@@ -36,7 +36,7 @@ jobs:
 
       # Packages dist/ as a deployable artifact. This alone makes no API
       # calls and has no effect on the repo's Pages settings, so it's safe
-      # to run on every push to main even before Pages is enabled.
+      # to run even before Pages is enabled.
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
@@ -47,8 +47,7 @@ jobs:
     # Gate: this job (the only one that actually talks to the Pages API)
     # only runs once a maintainer has both enabled Pages (Settings > Pages >
     # Source: GitHub Actions) and set the PAGES_ENABLED repo variable to
-    # "true" -- see README. Until then this job is skipped, not failed, on
-    # every push and on manual workflow_dispatch runs alike.
+    # "true" -- see README. Until then this job is skipped, not failed.
     if: vars.PAGES_ENABLED == 'true'
     runs-on: ubuntu-latest
     permissions:

@@ -62,7 +62,8 @@ on every later push to that PR). The jobs are:
 
 `.github/workflows/pages.yml` builds the app with the base path GitHub Pages
 needs for a project site (`https://lanwen.github.io/scroll3d/`) and uploads
-it as a Pages artifact on every push to `main`. The actual **deploy** job is
+it as a Pages artifact. It runs only when started manually; push to `main`
+doesn't trigger it. The actual **deploy** job is
 gated behind the `PAGES_ENABLED` repository variable — until that variable
 is set to `true`, the workflow's build step still runs (harmless: it doesn't
 touch any repo/Pages settings) but nothing is ever published, and the
@@ -75,8 +76,9 @@ To turn deploys on:
    the workflow itself never does this).
 2. **Settings → Secrets and variables → Actions → Variables → New repository
    variable**: name `PAGES_ENABLED`, value `true`.
-3. Push to `main`, or run the "Deploy to GitHub Pages" workflow manually
-   (Actions tab → Deploy to GitHub Pages → Run workflow).
+3. Run the "Deploy to GitHub Pages" workflow manually (Actions tab → Deploy
+   to GitHub Pages → Run workflow). To deploy on every push again, add
+   `push: { branches: [main] }` back to its `on:` block.
 
 ### Known issue: WASM compression on GitHub Pages
 
