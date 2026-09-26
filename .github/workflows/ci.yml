@@ -1,12 +1,11 @@
 name: CI
 
 on:
-  # PRs skip CI by default (tests run locally before merge). Add the `run-ci`
+  # CI is off by default (tests run locally before merge); push to main does
+  # not trigger it. Run it manually (workflow_dispatch), or add the `run-ci`
   # label to a PR to opt in; the run then repeats on every later push.
   pull_request:
     types: [opened, synchronize, reopened, labeled]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 concurrency:

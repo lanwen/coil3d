@@ -41,7 +41,8 @@ so a dev server does not need to be running first.
 
 ## CI
 
-`.github/workflows/ci.yml` runs on push to `main` and on manual dispatch.
+`.github/workflows/ci.yml` runs only on manual dispatch (Actions → CI → Run
+workflow); push to `main` doesn't trigger it.
 Pull requests skip it by default. Run `npm test` and `npm run e2e` locally
 before merging, or add the `run-ci` label to a PR to opt in (it then re-runs
 on every later push to that PR). The jobs are:
