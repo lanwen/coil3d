@@ -8,8 +8,7 @@ import { Vector2 } from "three";
  *
  * Output is premultiplied alpha for the transparent canvas: white fill
  * (1,1,1,1) on the model, black ink (0,0,0,coverage) where a line spreads
- * past the silhouette into the background, and (0,0,0,0) elsewhere. The
- * alpha channel is also what click hit-testing reads.
+ * past the silhouette into the background, and (0,0,0,0) elsewhere.
  *
  * The search radius is a compile-time constant (GLSL ES 1.00 loops need
  * constant bounds). The caller clamps thicknessPx below it.

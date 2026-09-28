@@ -18,9 +18,20 @@ export type Projection = "ortho" | "perspective";
 // geometry-change effect below) -- nothing in this app reads it outside
 // e2e/smooth-param-changes.spec.ts, which polls it off `window` the same
 // way any other Playwright check reads app state through the DOM.
+// Test-only instrumentation (issue #84 AC: "a long drag reaches >= 180 deg
+// of azimuth"). `OrbitControls.getAzimuthalAngle()` itself only ever returns
+// a value wrapped to (-pi, pi], which can't tell a Playwright test how FAR a
+// drag actually orbited once it crosses that wrap point -- so this instead
+// accumulates the UNWRAPPED total rotation (see the self-healing block in
+// the render loop below), correcting each frame's raw reading back onto the
+// same continuous number line before adding it to the running total.
+// Nothing in this app reads it outside e2e/line-art.spec.ts, which polls it
+// off `window` the same way e2e/smooth-param-changes.spec.ts already does
+// for __framingTweenCount above.
 declare global {
   interface Window {
     __framingTweenCount?: number;
+    __orbitAzimuthDeg?: number;
   }
 }
 function recordFramingTween() {
@@ -287,11 +298,17 @@ function applyFraming(
 }
 
 /**
- * The direction/up the outgoing camera is CURRENTLY looking from, read off
- * its own live transform (not `settledDirection`/`settledUp`, which only
- * track presets/tweens -- a manual orbit-drag moves the camera without
- * updating those). Used when the projection toggle re-fits the incoming
- * camera to whatever the user is actually looking at right now.
+ * The direction/up `camera` is CURRENTLY looking from, read off its own live
+ * transform. Used both by the projection toggle below (re-fitting the
+ * incoming camera to whatever the OUTGOING one is actually looking at) and,
+ * every idle frame (see the render loop's own self-healing block), to keep
+ * `settledDirection`/`settledUp` themselves in sync with a manual orbit-drag
+ * -- issue #84: without that, any reframe that recomputes a fit from
+ * `settledDirection.current` (a parameter edit's scale tween, toggling
+ * exploded/print-layout view, a resize) would silently snap the camera back
+ * to wherever it was BEFORE the drag, discarding it. Skipped while a preset
+ * transition is actively running (that tween is deliberately driving the
+ * camera itself; see the render loop for the guard).
  */
 function currentOrientationOf(camera: THREE.Camera, target: THREE.Vector3): { direction: THREE.Vector3; up: THREE.Vector3 } {
   const offset = new THREE.Vector3().subVectors(camera.position, target);
@@ -416,6 +433,11 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
   const mountedProjection = useRef(false);
   const mountedPreset = useRef(false);
   const prevProjection = useRef(projection);
+  // Unwrapped azimuth bookkeeping for __orbitAzimuthDeg (see its own doc
+  // comment above) -- `raw` is the last wrapped reading, so the next one can
+  // be corrected back onto the same continuous number line before adding it
+  // to `cumulativeDeg`.
+  const azimuthTracking = useRef<{ raw: number; cumulativeDeg: number } | null>(null);
 
   function aspectOf() {
     return size.width > 0 && size.height > 0 ? size.width / size.height : 1;
@@ -564,40 +586,6 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projection]);
 
-  // --- Hit-testing: read the thicken pass's alpha under the pointer so orbit
-  // only starts on the outlined model, not on the transparent background. ---
-  useEffect(() => {
-    const el = gl.domElement;
-    const pixel = new Uint8Array(4);
-
-    function alphaAt(clientX: number, clientY: number): number {
-      const ratio = linePixelRatio(gl.getPixelRatio());
-      const rect = el.getBoundingClientRect();
-      const px = Math.floor((clientX - rect.left) * ratio);
-      const py = targets.thicken.height - 1 - Math.floor((clientY - rect.top) * ratio);
-      if (px < 0 || py < 0 || px >= targets.thicken.width || py >= targets.thicken.height) return 0;
-      gl.readRenderTargetPixels(targets.thicken, px, py, 1, 1, pixel);
-      return pixel[3];
-    }
-
-    function onPointerDown(e: PointerEvent) {
-      const controls = controlsRef.current;
-      if (controls) controls.enabled = alphaAt(e.clientX, e.clientY) > 0;
-    }
-
-    function onPointerUp() {
-      const controls = controlsRef.current;
-      if (controls) controls.enabled = true;
-    }
-
-    el.addEventListener("pointerdown", onPointerDown, { capture: true });
-    window.addEventListener("pointerup", onPointerUp, { capture: true });
-    return () => {
-      el.removeEventListener("pointerdown", onPointerDown, { capture: true });
-      window.removeEventListener("pointerup", onPointerUp, { capture: true });
-    };
-  }, [gl, controlsRef, targets]);
-
   useFrame(() => {
     // Self-healing orbit target + zoom limits (issue #48): drei's
     // OrbitControls swaps in a fresh THREE.OrbitControls instance (its own
@@ -617,6 +605,35 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
       const fittedDistance = 2 * settledFit.current.r;
       controlsRef.current.minDistance = fittedDistance / ZOOM_LIMIT_MAX;
       controlsRef.current.maxDistance = fittedDistance / ZOOM_LIMIT_MIN;
+
+      // See __orbitAzimuthDeg's own doc comment above.
+      const raw = controlsRef.current.getAzimuthalAngle();
+      const prev = azimuthTracking.current;
+      let delta = prev ? raw - prev.raw : 0;
+      if (delta > Math.PI) delta -= 2 * Math.PI;
+      else if (delta < -Math.PI) delta += 2 * Math.PI;
+      const cumulativeDeg = (prev?.cumulativeDeg ?? 0) + THREE.MathUtils.radToDeg(delta);
+      azimuthTracking.current = { raw, cumulativeDeg };
+      if (typeof window !== "undefined") window.__orbitAzimuthDeg = cumulativeDeg;
+
+      // Issue #84: keep `settledDirection`/`settledUp` following a manual
+      // orbit-drag (see currentOrientationOf's own doc comment) whenever
+      // nothing else is actively driving the camera itself. Skipped during
+      // EITHER tween, not just `orientAnim`: `controls.target` above is only
+      // re-synced to `settledFit.current.center`, which a running
+      // `scaleAnim` hasn't reached yet (it's still easing toward it from
+      // `scaleAnim.from.center`) -- reading direction against that
+      // not-yet-current target here would derive a bogus value from the gap
+      // between the two centers and feed it straight back into the very
+      // `applyFraming` call the scaleAnim block below makes this same
+      // frame. Both tweens already commit the right value to these refs
+      // themselves once they settle (or, for scaleAnim, never touch
+      // direction at all -- it doesn't animate one).
+      if (!orientAnim.current && !scaleAnim.current) {
+        const { direction, up } = currentOrientationOf(activeCamera, controlsRef.current.target);
+        settledDirection.current.copy(direction);
+        settledUp.current.copy(up);
+      }
     }
 
     // Progress a preset's orientation slerp, if one is running.
