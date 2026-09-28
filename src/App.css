@@ -602,23 +602,24 @@ header p {
   margin: 0;
 }
 
-/* Lock toggle: a real checkbox for testability/keyboard use, rendered as a
-   black-and-white padlock pictogram (open = free, closed/solid = locked) --
-   never a raw checkbox square (issue #16 AC). Sits inline on the field's own
-   label row as a `leading` element (issue #16 review), icon-only with an
-   invisible oversized hit target for an easy click/tap. */
-.lock-toggle {
+/* ---------- Pill switch (issue #94) ----------
+   The one shared boolean toggle for the whole app -- a real checkbox
+   (testability/keyboard use) behind a black/white pill: an outlined track
+   plus a round knob that slides between the two ends and carries the
+   state's own digit ("0"/"1") printed on itself. Off = white track, black
+   outline, black knob at the left with a white "0"; on = black track, white
+   knob at the right with a black "1". Used bare (the projection toggle) or
+   with trailing content inside the same `<label>` -- a text label (the eye
+   toggles) or a decorative glyph (the lock toggle) -- see fields.tsx. */
+.switch {
   position: relative;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 18px;
-  flex: none;
+  gap: 6px;
   cursor: pointer;
 }
 
-.lock-toggle-input {
+.switch-input {
   position: absolute;
   inset: -8px;
   opacity: 0;
@@ -626,126 +627,112 @@ header p {
   cursor: pointer;
 }
 
-.lock-icon {
+.switch-track {
   position: relative;
-  width: 20px;
-  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  width: 38px;
+  height: 20px;
   flex: none;
-  /* Purely decorative: the real (invisible) checkbox above/below it in the
-     DOM must always receive the click, regardless of paint order. */
-  pointer-events: none;
-}
-
-.lock-icon-shackle {
-  position: absolute;
-  left: 4px;
-  top: 1px;
-  width: 11px;
-  height: 8px;
-  border: 2px solid var(--ink);
-  border-bottom: none;
-  border-radius: 7px 7px 0 0;
-  transform-origin: left bottom;
-  transform: rotate(-38deg) translateX(-2px);
-  transition: transform 0.15s ease;
-}
-
-.lock-icon-body {
-  position: absolute;
-  left: 1px;
-  bottom: 1px;
-  width: 16px;
-  height: 10px;
+  border: 1.5px solid var(--ink);
+  border-radius: 10px;
   background: var(--paper);
-  border: 2px solid var(--ink);
-  border-radius: 2px;
+  /* Purely decorative: the real (invisible) checkbox above it in the DOM
+     must always receive the click, regardless of paint order. */
+  pointer-events: none;
   transition: background 0.15s ease;
 }
 
-.lock-toggle-input:checked ~ .lock-icon .lock-icon-shackle {
-  transform: none;
+.switch-knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Kanit", "system-ui", -apple-system, "Segoe UI", sans-serif;
+  /* Deliberately not any smaller: below this, this sandbox's software text
+     rasterizer (SwiftShader/headless) prints the digit with visible
+     R/G/B subpixel fringing instead of a clean grayscale glyph -- verified
+     by screenshot at 0.55rem/14px, illegible; fine from 0.6rem/16px up. */
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
-.lock-toggle-input:checked ~ .lock-icon .lock-icon-body {
+.switch-input:checked ~ .switch-track {
   background: var(--ink);
 }
 
-/* Wire visibility toggle (issue #4/#16): same real-checkbox-behind-a-
-   pictogram technique as the lock toggle, here an eye / crossed-out eye. */
-/* Wraps the toggle's own `<label>` and its (i) hint (issue #53) as siblings
-   -- never nested, so tapping the hint button can't also flip the
-   checkbox. */
+.switch-input:checked ~ .switch-track .switch-knob {
+  transform: translateX(17px);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.switch-input:focus-visible ~ .switch-track {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch-track,
+  .switch-knob {
+    transition: none;
+  }
+}
+
+/* The lock toggle's own decorative glyph (issue #94 AC: "the label 'Lock'
+   (or a small padlock glyph beside the switch)") -- static, since the
+   switch's own 0/1 already carries the locked/free state. */
+.lock-glyph {
+  position: relative;
+  width: 14px;
+  height: 13px;
+  flex: none;
+  pointer-events: none;
+}
+
+.lock-glyph-shackle {
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 8px;
+  height: 6px;
+  border: 1.5px solid var(--ink);
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+}
+
+.lock-glyph-body {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 14px;
+  height: 8px;
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+}
+
+/* Wire/dimensions/exploded-view toggles (issue #4/#9/#69): the shared
+   switch plus its own text label. Wraps the toggle's `<label>` and its (i)
+   hint (issue #53) as siblings -- never nested, so tapping the hint button
+   can't also flip the checkbox. */
 .eye-toggle-row {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   position: relative;
-}
-
-.eye-toggle {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
-
-.eye-toggle-input {
-  position: absolute;
-  inset: -6px;
-  opacity: 0;
-  margin: 0;
-  cursor: pointer;
-}
-
-.eye-icon {
-  position: relative;
-  width: 22px;
-  height: 16px;
-  flex: none;
-  pointer-events: none;
-}
-
-.eye-icon-outer {
-  position: absolute;
-  inset: 1px 0;
-  border: 2px solid var(--ink);
-  border-radius: 60% 60% 40% 40% / 70% 70% 30% 30%;
-  background: var(--paper);
-}
-
-.eye-icon-pupil {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 6px;
-  height: 6px;
-  margin: -3px 0 0 -3px;
-  background: var(--ink);
-  border-radius: 50%;
-}
-
-.eye-icon-slash {
-  display: none;
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 50%;
-  height: 2px;
-  background: var(--ink);
-  transform: rotate(-20deg);
-}
-
-.eye-toggle-input:not(:checked) ~ .eye-icon .eye-icon-outer {
-  opacity: 0.4;
-}
-
-.eye-toggle-input:not(:checked) ~ .eye-icon .eye-icon-pupil {
-  display: none;
-}
-
-.eye-toggle-input:not(:checked) ~ .eye-icon .eye-icon-slash {
-  display: block;
 }
 
 .eye-toggle-text {
@@ -855,70 +842,8 @@ header p {
   height: 8px;
 }
 
-/* Perspective/orthographic toggle: same real-checkbox-behind-a-pictogram
-   technique as the eye/lock toggles -- ortho is two same-width bars
-   (parallel projection lines never converge); perspective is two
-   different-width bars joined by slanted sides (a converging frustum). */
-.projection-toggle {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  flex: none;
-  cursor: pointer;
-  background: var(--paper);
-  border: 1.5px solid var(--ink);
-  border-radius: 2px;
-}
-
-.projection-toggle-input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  margin: 0;
-  cursor: pointer;
-}
-
-.projection-icon {
-  position: relative;
-  width: 16px;
-  height: 14px;
-  flex: none;
-  pointer-events: none;
-}
-
-.projection-icon-ortho,
-.projection-icon-persp {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  background: var(--ink);
-}
-
-.projection-icon-ortho {
-  width: 16px;
-  height: 10px;
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
-  transform: translate(-50%, -50%);
-}
-
-.projection-icon-persp {
-  display: none;
-  width: 16px;
-  height: 10px;
-  clip-path: polygon(20% 0, 80% 0, 100% 100%, 0 100%);
-  transform: translate(-50%, -50%);
-}
-
-.projection-toggle-input:checked ~ .projection-icon .projection-icon-ortho {
-  display: none;
-}
-
-.projection-toggle-input:checked ~ .projection-icon .projection-icon-persp {
-  display: block;
-}
+/* The perspective/orthographic toggle (below the preset buttons) is the
+   plain shared `.switch` (issue #94) -- checked = perspective. */
 
 /* ---------- Advanced disclosure ---------- */
 
@@ -1143,51 +1068,71 @@ header p {
     font-size: 1rem;
   }
 
-  .lock-toggle {
-    width: 26px;
+  /* The pill switch (issue #94) grows on mobile, and its already-oversized
+     hit target (`.switch-input`'s negative `inset`) grows with it, keeping
+     the tap target comfortably >= 44px per side (46+2*12 / 24+2*12). */
+  .switch-track {
+    width: 46px;
     height: 24px;
   }
 
-  .lock-toggle-input {
-    inset: -10px;
-  }
-
-  .lock-icon {
-    width: 26px;
-    height: 24px;
-  }
-
-  .lock-icon-shackle {
-    left: 5px;
-    top: 1px;
-    width: 14px;
-    height: 11px;
-    border-width: 2.5px;
-    border-radius: 8px 8px 0 0;
-  }
-
-  .lock-icon-body {
-    left: 2px;
+  .switch-knob {
     width: 20px;
-    height: 13px;
-    border-width: 2.5px;
+    height: 20px;
+    font-size: 0.68rem;
   }
 
-  .eye-icon {
-    width: 28px;
-    height: 20px;
+  .switch-input:checked ~ .switch-track .switch-knob {
+    transform: translateX(21px);
+  }
+
+  .switch-input {
+    inset: -12px;
+  }
+
+  .lock-glyph {
+    width: 20px;
+    height: 18px;
+  }
+
+  .lock-glyph-shackle {
+    left: 4px;
+    width: 11px;
+    height: 8px;
+    border-width: 2px;
+  }
+
+  .lock-glyph-body {
+    width: 20px;
+    height: 11px;
+    border-width: 2px;
   }
 
   .eye-toggle-text {
     font-size: 0.85rem;
   }
 
-  .wire-toggle {
+  /* The bigger mobile pill (above) makes every viewer-overlay toggle box
+     taller than its old icon-only self, so the wire/dimensions/exploded-
+     view boxes (stacked at fixed offsets, see `.wire-toggle` & co. above)
+     all get the same roomier padding here -- not just `.wire-toggle` -- and
+     their stacking offsets grow to match, each still comfortably clear of
+     the next. */
+  .wire-toggle,
+  .dimensions-toggle,
+  .explode-toggle {
     padding: 10px 12px;
   }
 
-  .preset-btn,
-  .projection-toggle {
+  .dimensions-toggle {
+    top: 64px;
+  }
+
+  .explode-toggle {
+    top: 116px;
+  }
+
+  .preset-btn {
     width: 38px;
     height: 38px;
   }
