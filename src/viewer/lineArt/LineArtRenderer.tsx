@@ -647,6 +647,10 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
       if (fit) applyFraming(activeCamera, projection, fit, direction, up, aspectOf(), size, controlsRef.current, passes.thickenPass, gl);
       if (t >= 1) {
         orientAnim.current = null;
+        // A scale tween started alongside (the framing geometry changed with
+        // the preset, issue #86) aimed at the OLD direction's fit; this one
+        // already framed the live geometry from the new direction.
+        scaleAnim.current = null;
         settledDirection.current = direction;
         settledUp.current = up;
         if (fit) settledFit.current = fit;

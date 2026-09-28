@@ -6,15 +6,22 @@
 // flush with the flange's flats (see measureDimensionFrame).
 //
 // Layout (in that box's own frame, inside a group carrying the spin plus
-// the view rotation CoilViewer applies to the part geometries): the two
-// ground axes run along the two bottom box edges that meet at the bottom
-// corner nearest the camera -- their common origin -- and the height axis
-// stands at the far end of whichever of them reads further out to the side
-// on screen. Every one of those edges lies on a box face turned toward the
-// camera, so the model (inside the box) can never hide them, and none of
-// them cuts across the model's silhouette. The corner is re-picked every
-// frame, so orbiting round the back swaps the axes to the new front edges
-// instead of leaving them behind the model. An axis seen nearly end-on is
+// the view rotation CoilViewer applies to the part geometries), issue #86:
+// all three axes start from ONE origin, like a coordinate-axes gizmo. It is
+// a bottom corner of the box, pushed a small gap out from it: of the two
+// corners furthest out to either side on screen (the box's silhouette
+// corners), the one nearest the camera. The height rises straight from it,
+// beside the silhouette's corner edge, so it never crosses the model on
+// screen (the bottom corner nearest the camera outright would, in Iso: its
+// vertical edge runs down the middle of the model's image). Each ground axis
+// runs back along the box's bottom edge from the origin when that edge is
+// on the box's silhouette; the other one would pass behind the model there,
+// so it points outward from the origin instead, away from the box -- in
+// Iso the three axes form the classic tripod. The camera fit reserves room
+// for that outward axis in each preset (dimensionFramePoints). The layout
+// is re-picked every frame, so it follows a free orbit; as the orbit isn't
+// reframed, an outward axis that would run off the canvas switches to the
+// other side when that one fits better. An axis seen nearly end-on is
 // hidden rather than drawn misleadingly short.
 //
 // Rendering: the strokes (lines, tick bars, arrowheads) are flat,
@@ -38,6 +45,10 @@ import { LABEL_FONT_PX, LABEL_PAD_Y_PX, labelTexture, makeLabelSprite, StrokeBui
 // model's own ~1-1.6px pen line (LineArtRenderer's MIN/MAX_LINE_WEIGHT).
 const LINE_PX = 3;
 const EXTENSION_PX = 1.2;
+// Room an outward-pointing axis's end keeps from the canvas edge (for its label).
+const EDGE_ROOM_PX = 40;
+// The dot marking the axes' shared origin.
+const ORIGIN_DOT_PX = 7;
 const TICK_PX = 12;
 const ARROW_LENGTH_PX = 13;
 const ARROW_HALF_WIDTH_PX = 4.5;
@@ -176,18 +187,109 @@ function gapFor(box: THREE.Box3): number {
   return Math.max(MIN_GAP_MM, GAP_FRACTION * Math.max(extent.x, extent.y));
 }
 
+/** The view, in the measured box's own frame: unit vectors toward the camera and along the screen's right and up. */
+export interface AxesView {
+  toward: THREE.Vector3;
+  right: THREE.Vector3;
+  up: THREE.Vector3;
+}
+
+interface Arm {
+  id: AxisId;
+  from: THREE.Vector3;
+  to: THREE.Vector3;
+  /** Ticked where it meets the box (inward), or starting at the origin itself (outward). */
+  outward: boolean;
+}
+
+interface AxesLayout {
+  origin: THREE.Vector3;
+  arms: Arm[];
+}
+
+/**
+ * Where the three axes can go for a view (see the file header): the
+ * origin, a bottom corner of the box pushed `gap` outside it, and each
+ * axis's span. Two layouts, one per side of the model on screen, the
+ * preferred one first.
+ */
+function layoutAxes(box: THREE.Box3, groundZ: number, { toward, right, up }: AxesView): [AxesLayout, AxesLayout] {
+  const gap = gapFor(box);
+  const center = box.getCenter(new THREE.Vector3());
+  const x = (s: number) => (s > 0 ? box.max.x : box.min.x);
+  const y = (s: number) => (s > 0 ? box.max.y : box.min.y);
+  const zg = Math.min(groundZ, box.min.z) - gap;
+  const corner = (sx: number, sy: number) => new THREE.Vector3(x(sx) + sx * gap, y(sy) + sy * gap, zg);
+
+  // Sideways on screen: across the height axis's own on-screen direction
+  // (plain screen x when the height is seen end-on).
+  let hx = up.z;
+  let hy = -right.z;
+  const hl = Math.hypot(hx, hy);
+  [hx, hy] = hl > 1e-6 ? [hx / hl, hy / hl] : [1, 0];
+  // (right.z, up.z) is the height's screen direction; (hx, hy) above is it turned a quarter to the right.
+  const sideways = (p: THREE.Vector3) => {
+    const d = p.clone().sub(center);
+    return d.dot(right) * hx + d.dot(up) * hy;
+  };
+
+  // The origin: of the corners furthest out to either side on screen (the
+  // box's silhouette corners), the one nearest the camera; a tie goes
+  // right, away from the toggles at the viewer's top left.
+  const eps = 1e-3 * box.getSize(new THREE.Vector3()).length();
+  const corners = [-1, 1].flatMap((sx) => [-1, 1].map((sy) => ({ sx, sy, side: sideways(corner(sx, sy)), depth: corner(sx, sy).sub(center).dot(toward) })));
+  const extreme = (sign: number) => {
+    const most = Math.max(...corners.map((c) => sign * c.side));
+    return corners.filter((c) => sign * c.side >= most - eps).reduce((a, b) => (b.depth > a.depth ? b : a));
+  };
+  const rightmost = extreme(1);
+  const leftmost = extreme(-1);
+  const sides = leftmost.depth > rightmost.depth + eps ? [leftmost, rightmost] : [rightmost, leftmost];
+  const above = toward.z >= 0;
+  return [at(sides[0].sx, sides[0].sy), at(sides[1].sx, sides[1].sy)];
+
+  function at(sx: number, sy: number): AxesLayout {
+    const origin = corner(sx, sy);
+
+    // A ground axis runs back along the box's bottom edge from the origin
+    // when that edge is on the box's silhouette: seen from above the ground,
+    // when the side face it bounds is turned toward the camera (from below,
+    // away from it). Otherwise the model would cover it on screen, and it
+    // points outward from the origin instead, away from the box.
+    const width: Arm =
+      toward.y * sy > 0 === above
+        ? { id: "width", from: new THREE.Vector3(x(-sx), origin.y, zg), to: new THREE.Vector3(x(sx), origin.y, zg), outward: false }
+        : { id: "width", from: origin.clone(), to: origin.clone().setX(origin.x + sx * (box.max.x - box.min.x)), outward: true };
+    const depth: Arm =
+      toward.x * sx > 0 === above
+        ? { id: "depth", from: new THREE.Vector3(origin.x, y(-sy), zg), to: new THREE.Vector3(origin.x, y(sy), zg), outward: false }
+        : { id: "depth", from: origin.clone(), to: origin.clone().setY(origin.y + sy * (box.max.y - box.min.y)), outward: true };
+    const height: Arm = { id: "height", from: origin.clone().setZ(box.min.z), to: origin.clone().setZ(box.max.z), outward: false };
+    return { origin, arms: [width, depth, height] };
+  }
+}
+
 /**
  * Extra points (local frame, xyz triples) for the camera fit, so the axes
- * and their labels stay inside the frame: the box grown by room for the
- * axes plus a label beyond them.
+ * and their labels stay inside the frame in `view`: the box grown by room
+ * for the axes plus a label beyond them, and the far end of any axis that
+ * points outward from the origin in that view.
  */
-export function dimensionFramePoints(box: THREE.Box3, groundZ: number): Float32Array {
+export function dimensionFramePoints(box: THREE.Box3, groundZ: number, view: AxesView): Float32Array {
   const gap = gapFor(box);
   const extent = box.getSize(new THREE.Vector3());
   const room = gap + FRAME_LABEL_ROOM * Math.max(extent.x, extent.y, extent.z);
   const zs = [Math.min(groundZ, box.min.z) - room, box.max.z];
   const out: number[] = [];
   for (const x of [box.min.x - room, box.max.x + room]) for (const y of [box.min.y - room, box.max.y + room]) for (const z of zs) out.push(x, y, z);
+  const [{ origin, arms }] = layoutAxes(box, groundZ, view);
+  for (const arm of arms) {
+    if (!arm.outward) continue;
+    // Room past its far end, and on either side of it for its label.
+    const along = arm.to.clone().sub(origin).setLength(room);
+    const across = new THREE.Vector3(along.y, -along.x, 0);
+    for (const p of [arm.to.clone().add(along), arm.to.clone().add(across), arm.to.clone().sub(across), arm.to.clone().setZ(zs[0])]) out.push(p.x, p.y, p.z);
+  }
   return new Float32Array(out);
 }
 
@@ -279,15 +381,6 @@ export function DimensionAxes({ box, groundZ, rotation, labels }: DimensionAxesP
         pixel = (2 * camLocal.distanceTo(center) * Math.tan(THREE.MathUtils.degToRad(c.fov) / 2)) / c.zoom / Math.max(1, size.y);
       }
 
-      const gap = gapFor(box);
-      const sx = view.x >= 0 ? 1 : -1;
-      const sy = view.y >= 0 ? 1 : -1;
-      const x = (s: number) => (s > 0 ? box.max.x : box.min.x);
-      const y = (s: number) => (s > 0 ? box.max.y : box.min.y);
-      const X = (s: number) => x(s) + s * gap;
-      const Y = (s: number) => y(s) + s * gap;
-      const zg = Math.min(groundZ, box.min.z) - gap;
-
       // On-screen position (CSS px, y up) relative to the box centre.
       const right = new THREE.Vector3(1, 0, 0).transformDirection(camera.matrixWorld).transformDirection(inverse);
       const up = new THREE.Vector3(0, 1, 0).transformDirection(camera.matrixWorld).transformDirection(inverse);
@@ -295,36 +388,21 @@ export function DimensionAxes({ box, groundZ, rotation, labels }: DimensionAxesP
         const d = p.clone().sub(center);
         return new THREE.Vector2(d.dot(right) / pixel, d.dot(up) / pixel);
       };
-
-      // The height axis stands at the end of whichever ground axis reads
-      // further out, sideways from the box centre, on screen (ties go right,
-      // away from the toggles at the viewer's top left).
-      const zDir = new THREE.Vector3(0, 0, 1);
-      const zScreen = toScreen(center.clone().add(zDir)).normalize();
-      const sideways = (p: THREE.Vector3) => {
-        const s = toScreen(p);
-        return s.x * zScreen.y - s.y * zScreen.x; // signed distance from the centre's vertical
+      // The preferred layout, unless an axis pointing outward would run
+      // further off the canvas (a free orbit isn't reframed) than the other
+      // side's would.
+      const ndc = new THREE.Vector3();
+      const overflowPx = (p: THREE.Vector3) => {
+        ndc.copy(p).applyMatrix4(group.matrixWorld).project(camera);
+        return Math.max(0, ((Math.abs(ndc.x) + 1) / 2) * size.x - size.x + EDGE_ROOM_PX, ((Math.abs(ndc.y) + 1) / 2) * size.y - size.y + EDGE_ROOM_PX);
       };
-      const endOfWidth = new THREE.Vector3(X(-sx), Y(sy), zg);
-      const endOfDepth = new THREE.Vector3(X(sx), Y(-sy), zg);
-      const dw = sideways(endOfWidth);
-      const dd = sideways(endOfDepth);
-      // A ground axis that reads nearly parallel to the height on screen is
-      // left out below; stand the height at the other axis's end.
-      const alongHeight = (dir: THREE.Vector3) => {
-        const d = toScreen(center.clone().add(dir));
-        const len = d.length();
-        return len > 1e-9 ? Math.abs(d.x * zScreen.y - d.y * zScreen.x) / len < PARALLEL_SIN : false;
-      };
-      const widthParallel = alongHeight(new THREE.Vector3(1, 0, 0));
-      const depthParallel = alongHeight(new THREE.Vector3(0, 1, 0));
-      const atWidthEnd =
-        widthParallel !== depthParallel ? depthParallel : Math.abs(Math.abs(dw) - Math.abs(dd)) < 1 ? dw > dd : Math.abs(dw) > Math.abs(dd);
-      const heightBase = atWidthEnd ? endOfWidth : endOfDepth;
+      const overflow = (l: AxesLayout) => Math.max(0, ...l.arms.filter((a) => a.outward).map((a) => overflowPx(a.to)));
+      const [preferred, other] = layoutAxes(box, groundZ, { toward: view, right, up });
+      const { origin, arms } = overflow(other) + 1 < overflow(preferred) ? other : preferred;
 
       const b = new StrokeBuilder(view, pixel);
       const labelAt = new Map<AxisId, THREE.Vector3>();
-      const origin = new THREE.Vector3(X(sx), Y(sy), zg);
+      const placed: { x0: number; x1: number; y0: number; y1: number }[] = [];
 
       // Seen well enough to draw: not nearly end-on, and long enough on
       // screen for its two arrowheads.
@@ -366,35 +444,47 @@ export function DimensionAxes({ box, groundZ, rotation, labels }: DimensionAxesP
         }
         const s = sizes.get(id) ?? { w: 60, h: LABEL_FONT_PX + 2 * LABEL_PAD_Y_PX };
         const reach = Math.abs(nScreen.x) * (s.w / 2) + Math.abs(nScreen.y) * (s.h / 2) + LABEL_GAP_PX + TICK_PX / 4;
-        labelAt.set(id, mid.addScaledVector(n, reach * pixel));
+        const at = mid.addScaledVector(n, reach * pixel);
+        // Axes sharing an origin can be short enough (a slim coil's
+        // footprint) for their labels to collide: slide this one out along
+        // its axis, away from the origin, until it is clear of the others.
+        const away = to.clone().add(from).multiplyScalar(0.5).sub(origin);
+        if (away.lengthSq() > 1e-12) away.normalize();
+        const rect = () => {
+          const c = toScreen(at);
+          return { x0: c.x - s.w / 2, x1: c.x + s.w / 2, y0: c.y - s.h / 2, y1: c.y + s.h / 2 };
+        };
+        const clashes = () => {
+          const r = rect();
+          return placed.some((o) => r.x0 < o.x1 + LABEL_GAP_PX && o.x0 < r.x1 + LABEL_GAP_PX && r.y0 < o.y1 + LABEL_GAP_PX && o.y0 < r.y1 + LABEL_GAP_PX);
+        };
+        for (let step = 0; step < 100 && clashes(); step++) at.addScaledVector(away, 2 * pixel);
+        placed.push(rect());
+        labelAt.set(id, at);
       };
 
-      // Width (local X) and depth (local Y) from the common origin corner;
-      // height from the flange's underside to the top.
-      const widthFar = new THREE.Vector3(x(-sx), Y(sy), zg);
-      const widthNear = new THREE.Vector3(x(sx), Y(sy), zg);
-      const depthFar = new THREE.Vector3(X(sx), y(-sy), zg);
-      const depthNear = new THREE.Vector3(X(sx), y(sy), zg);
-      const heightBottom = new THREE.Vector3(heightBase.x, heightBase.y, box.min.z);
-      const heightTop = new THREE.Vector3(heightBase.x, heightBase.y, box.max.z);
-      const H = shown(heightBottom, heightTop);
       // A ground axis reading parallel to the height on screen (a square's
-      // depth, seen face-on from above) would pass for a second height:
-      // left out while the height is drawn (the other ground axis still is).
-      const W = shown(widthFar, widthNear) && !(H && widthParallel && !depthParallel);
-      const D = shown(depthFar, depthNear) && !(H && depthParallel && !widthParallel);
-      if (W) dimension("width", widthFar, widthNear);
-      if (D) dimension("depth", depthFar, depthNear);
-      if (H) dimension("height", heightBottom, heightTop);
-      // Thin extension lines join the axes at the corners they share (an
-      // end-on axis's corner coincides with its neighbour's on screen).
-      if (W && (D || !atWidthEnd)) b.segment(widthNear, origin, EXTENSION_PX);
-      if (D && (W || atWidthEnd)) b.segment(depthNear, origin, EXTENSION_PX);
-      if (H) {
-        b.segment(heightBase, heightBottom, EXTENSION_PX);
-        if (atWidthEnd && W) b.segment(widthFar, heightBase, EXTENSION_PX);
-        if (!atWidthEnd && D) b.segment(depthFar, heightBase, EXTENSION_PX);
+      // depth, seen face-on from above) would run along it from the shared
+      // origin and pass for a second height: left out while the height is
+      // drawn.
+      const zScreen = toScreen(center.clone().add(new THREE.Vector3(0, 0, 1))).normalize();
+      const alongHeight = (arm: Arm) => {
+        const d = toScreen(center.clone().add(arm.to).sub(arm.from));
+        const len = d.length();
+        return len > 1e-9 && Math.abs(d.x * zScreen.y - d.y * zScreen.x) / len < PARALLEL_SIN;
+      };
+      const height = arms.find((a) => a.id === "height")!;
+      const H = shown(height.from, height.to);
+      // (The height first: its label keeps its place, the ground axes' move.)
+      for (const arm of [height, ...arms.filter((a) => a !== height)]) {
+        if (!shown(arm.from, arm.to) || (arm !== height && H && alongHeight(arm))) continue;
+        dimension(arm.id, arm.from, arm.to);
+        // A thin extension line joins it to the shared origin, from the
+        // tick where it meets the box (an outward axis starts at the origin).
+        const near = arm.from.distanceToSquared(origin) < arm.to.distanceToSquared(origin) ? arm.from : arm.to;
+        if (near.distanceTo(origin) > 1e-6) b.segment(near, origin, EXTENSION_PX);
       }
+      b.dot(origin, ORIGIN_DOT_PX / 2);
 
       const geometry = strokes.geometry;
       geometry.setAttribute("position", new THREE.Float32BufferAttribute(b.out, 3));

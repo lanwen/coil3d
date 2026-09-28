@@ -9,7 +9,7 @@ import type { CoilMesh, Part, PrintSpec, Resolution, ShapeKind, WireLayerPath } 
 import { DimensionAxes, dimensionFramePoints, measureDimensionFrame, type DimensionLabels } from "./DimensionAxes";
 import { frontFacingDimensionSpin, frontFacingRotation } from "./frontFacing";
 import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
-import { getPreset, type PresetId } from "./lineArt/presets";
+import { getPreset, presetQuaternion, type PresetId } from "./lineArt/presets";
 import { PrintLayoutLabels } from "./PrintLayoutLabels";
 import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
 import { ViewControls } from "./ViewControls";
@@ -527,7 +527,12 @@ export function CoilViewer({
     // Issue #69: room for the dimension axes and their labels (kept even when
     // they are toggled off, so the toggle never zooms the model).
     if (!exploded && dimensionLabels) {
-      const points = dimensionFramePoints(dimensionBox.box, dimensionBox.groundZ);
+      // The preset's camera, in the measured box's own frame (issue #86: an
+      // axis may point outward from the origin, differently per view).
+      const toLocal = dimensionMatrix.clone().invert();
+      const camera = presetQuaternion(effectivePreset);
+      const along = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyQuaternion(camera).transformDirection(toLocal);
+      const points = dimensionFramePoints(dimensionBox.box, dimensionBox.groundZ, { toward: along(0, 0, 1), right: along(1, 0, 0), up: along(0, 1, 0) });
       new THREE.BufferAttribute(points, 3).applyMatrix4(dimensionMatrix);
       chunks.push(points);
     }
@@ -540,7 +545,7 @@ export function CoilViewer({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionBox, dimensionMatrix]);
+  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionBox, dimensionMatrix, effectivePreset]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
   // Debug close-up (continued): a SMALL framing geometry -- just

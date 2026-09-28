@@ -62,6 +62,8 @@ interface Ink {
   inRects: number;
   /** The mask itself, row-major, 1 = ink -- for comparing two views. */
   mask: number[];
+  /** The model's own ink (dark pixels with the axes off), same layout. */
+  modelMask: number[];
   width: number;
   height: number;
 }
@@ -93,12 +95,14 @@ async function dimensionInk(page: Page, rects: Rect[] = []): Promise<Ink> {
       const [pa, pb] = [await decode(a), await decode(b)];
       const { width, height } = pa;
       const mask = new Array<number>(width * height).fill(0);
+      const modelMask = new Array<number>(width * height).fill(0);
       let count = 0;
       let inRects = 0;
       let box: { left: number; top: number; right: number; bottom: number } | null = null;
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
           const i = (y * width + x) * 4;
+          if (pb.data[i + 3] > 128 && pb.data[i] + pb.data[i + 1] + pb.data[i + 2] < 3 * 128) modelMask[y * width + x] = 1;
           const d = Math.abs(pa.data[i] - pb.data[i]) + Math.abs(pa.data[i + 1] - pb.data[i + 1]) + Math.abs(pa.data[i + 2] - pb.data[i + 2]);
           if (d < 120) continue;
           if (x >= ignore.x && x < ignore.x + ignore.width && y >= ignore.y && y < ignore.y + ignore.height) continue;
@@ -108,7 +112,7 @@ async function dimensionInk(page: Page, rects: Rect[] = []): Promise<Ink> {
           if (rects.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)) inRects++;
         }
       }
-      return { count, box, inRects, mask, width, height };
+      return { count, box, inRects, mask, modelMask, width, height };
     },
     { a: withAxes.toString("base64"), b: without.toString("base64"), rects, ignore },
   );
@@ -258,6 +262,57 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     await expect(page.getByTestId("dimensions")).toHaveCount(1);
     expect((await dimensionInk(page)).count).toBeGreaterThan(800);
   });
+
+  // Issue #86: width, depth and height start from ONE origin, like a
+  // coordinate-axes gizmo, and the height rises beside the model, never
+  // across it on screen.
+  for (const [label, hash] of [
+    ["round", ROUND_CAP],
+    ["square", SQUARE],
+    ["triangle", TRIANGLE],
+  ] as const) {
+    test(`${label}, Iso: all three axes start from the height axis's foot, and the height stands clear of the model (issue #86)`, async ({ page }) => {
+      await gotoDesign(page, hash);
+      await showPreset(page, "iso");
+      const ink = await dimensionInk(page);
+      const at = (x: number, y: number) => x >= 0 && y >= 0 && x < ink.width && y < ink.height && ink.mask[y * ink.width + x] === 1;
+      // The height axis: the column with the longest vertical run of ink.
+      let best = { x: 0, top: 0, bottom: 0 };
+      for (let x = 0; x < ink.width; x++) {
+        let start = -1;
+        for (let y = 0; y <= ink.height; y++) {
+          if (y < ink.height && at(x, y)) {
+            if (start < 0) start = y;
+          } else if (start >= 0) {
+            if (y - 1 - start > best.bottom - best.top) best = { x, top: start, bottom: y - 1 };
+            start = -1;
+          }
+        }
+      }
+      expect(best.bottom - best.top, "a vertical height axis").toBeGreaterThan(80);
+      // Both ground axes leave from its foot: ink runs away from it both
+      // down-left and down-right (the Iso tripod), within a short reach.
+      const foot = { x: best.x, y: best.bottom };
+      const inkToward = (side: -1 | 1) => {
+        let n = 0;
+        for (let dx = 30; dx <= 90; dx++) for (let dy = 0; dy <= 70; dy++) if (at(foot.x + side * dx, foot.y + dy)) n++;
+        return n;
+      };
+      expect(inkToward(-1), "a ground axis down-left of the height's foot").toBeGreaterThan(60);
+      expect(inkToward(1), "a ground axis down-right of the height's foot").toBeGreaterThan(60);
+      // The model lies wholly to one side of the height axis, over the rows it spans.
+      let left = 0;
+      let right = 0;
+      for (let y = best.top; y <= best.bottom; y++) {
+        for (let x = 0; x < ink.width; x++) {
+          if (!ink.modelMask[y * ink.width + x] || Math.abs(x - best.x) < 4) continue;
+          if (x < best.x) left++;
+          else right++;
+        }
+      }
+      expect(Math.min(left, right), "model ink on both sides of the height axis").toBeLessThan(20);
+    });
+  }
 
   test("readable at phone width too", async ({ page }) => {
     await page.setViewportSize({ width: 400, height: 800 });
