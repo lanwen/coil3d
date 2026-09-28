@@ -2,8 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 
 // End-to-end checks for issue #3 (docs/research.md §5, §10b): the IKEA
 // line-art look. White fill, a continuous black silhouette plus crease lines,
-// a transparent background, an orthographic camera that frames the model,
-// and hit-testing that only lets orbit start on the model.
+// a transparent background, and an orthographic camera that frames the
+// model. Orbit itself (issue #84: a drag anywhere on the canvas, model or
+// background, rotates the camera -- #3's original alpha hit-test, which
+// only let a drag starting on the model orbit, is gone) is covered below.
 
 const SQUAT = "#v=1&L=1000&d=4&size=40";
 const LONG = "#v=1&L=6000&d=4&size=30";
@@ -50,6 +52,15 @@ async function readRows(page: Page, png: Buffer, rowFractions: number[]): Promis
 
 const differs = (a: Rgb, b: Rgb) => a.some((v, i) => Math.abs(v - b[i]) > 8);
 const luma = (p: Rgb) => 0.3 * p[0] + 0.59 * p[1] + 0.11 * p[2];
+
+// `window.__orbitAzimuthDeg` is declared as an ambient `Window` property only
+// in `src/viewer/lineArt/LineArtRenderer.tsx` (its own test-only
+// instrumentation, see that file's doc comment) -- e2e/ is a separate tsc
+// project (tsconfig.node.json) from src/ (tsconfig.app.json), so that
+// augmentation isn't visible here. This local type stands in for it, the
+// same way smooth-param-changes.spec.ts's `InstrumentedWindow` does for
+// `__framingTweenCount`.
+type InstrumentedWindow = Window & { __orbitAzimuthDeg?: number };
 
 /**
  * Walk one row in from each side to the first pixel that is not the page
@@ -118,9 +129,7 @@ test.describe("IKEA line-art renderer", () => {
     }
   });
 
-  test("orbit only starts when the drag begins on the outlined model, not the transparent background", async ({
-    page,
-  }) => {
+  test("a drag starting on the transparent background orbits the camera (issue #84)", async ({ page }) => {
     await gotoDesign(page, SQUAT);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
     const box = await canvas.boundingBox();
@@ -134,10 +143,17 @@ test.describe("IKEA line-art renderer", () => {
     await page.mouse.move(box.x + box.width - 8, box.y + box.height - 8, { steps: 10 });
     await page.mouse.up();
     await page.waitForTimeout(200);
-    const afterBackgroundDrag = await canvas.screenshot();
-    expect(afterBackgroundDrag.equals(before), "a drag started on the background must not orbit the camera").toBe(
-      true,
-    );
+    const after = await canvas.screenshot();
+    expect(after.equals(before), "a drag started on the background must orbit the camera").toBe(false);
+  });
+
+  test("a drag starting on the outlined model also orbits the camera (issue #84)", async ({ page }) => {
+    await gotoDesign(page, SQUAT);
+    const canvas = page.getByTestId("coil-viewer").locator("canvas");
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("canvas has no bounding box");
+
+    const before = await canvas.screenshot();
 
     // The framed model sits at the canvas centre.
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -145,10 +161,31 @@ test.describe("IKEA line-art renderer", () => {
     await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2 + 60, { steps: 10 });
     await page.mouse.up();
     await page.waitForTimeout(200);
-    const afterModelDrag = await canvas.screenshot();
-    expect(afterModelDrag.equals(afterBackgroundDrag), "a drag started on the model must orbit the camera").toBe(
-      false,
-    );
+    const after = await canvas.screenshot();
+    expect(after.equals(before), "a drag started on the model must orbit the camera").toBe(false);
+  });
+
+  test("a long drag reaches at least 180 degrees of azimuth (issue #84)", async ({ page }) => {
+    await gotoDesign(page, SQUAT);
+    const canvas = page.getByTestId("coil-viewer").locator("canvas");
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("canvas has no bounding box");
+
+    // three's OrbitControls rotates `2 * PI * deltaX / element.clientHeight`
+    // radians of azimuth per horizontal drag pixel (node_modules/three-stdlib/
+    // controls/OrbitControls.js's handleMouseMoveRotate), so a full-height
+    // drag alone already crosses 360 degrees; this asks for 0.6x that (216
+    // degrees) so it comfortably clears the 180-degree bar with margin for
+    // Chromium's synthetic-event rounding, without wrapping all the way
+    // around and back past the same point twice.
+    const before = await page.evaluate(() => (window as unknown as InstrumentedWindow).__orbitAzimuthDeg ?? 0);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + box.height * 0.6, box.y + box.height / 2, { steps: 30 });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+    const after = await page.evaluate(() => (window as unknown as InstrumentedWindow).__orbitAzimuthDeg ?? 0);
+    expect(Math.abs(after - before)).toBeGreaterThanOrEqual(180);
   });
 
   test("reframes the orthographic camera when the canvas is resized", async ({ page }) => {

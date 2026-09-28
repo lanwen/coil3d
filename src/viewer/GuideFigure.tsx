@@ -34,8 +34,8 @@ export interface GuideFigureProps {
  *
  * No `OrbitControls`: `controlsRef` is a plain, never-attached ref.
  * `LineArtRenderer` already null-checks it (used only for reframe-time
- * camera/target sync and pointer-driven hit-testing, neither of which apply
- * to a print illustration), and `CoilScene`'s own auto-fit-to-bounds camera
+ * camera/target sync, which doesn't apply to a print illustration), and
+ * `CoilScene`'s own auto-fit-to-bounds camera
  * logic runs regardless, so every figure is correctly framed on mount with
  * zero interaction. `reducedMotion` is always on (see CoilScene): a static
  * illustration has no transition to skip in the first place.

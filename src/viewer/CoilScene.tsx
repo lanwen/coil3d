@@ -54,9 +54,9 @@ export interface CoilSceneProps {
   preset?: PresetId;
   /** How much of the canvas's tighter axis the fit targets (`LineArtRenderer`'s own `fill`, issue #15) -- the guide asks for a tighter default than the interactive viewer's 0.75 so each step's model reads bigger (issue #17 review: "the model fills ~70% of its figure"). */
   fill?: number;
-  /** Forwarded to LineArtRenderer for reframing/hit-testing; a host with no
-   * OrbitControls (GuideFigure) passes a ref that is simply never attached
-   * to anything -- LineArtRenderer already null-checks it. */
+  /** Forwarded to LineArtRenderer for reframing; a host with no OrbitControls
+   * (GuideFigure) passes a ref that is simply never attached to anything --
+   * LineArtRenderer already null-checks it. */
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
 }
 
