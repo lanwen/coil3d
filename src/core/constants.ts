@@ -33,6 +33,23 @@ export const FINAL_ROWS_PER_PITCH = 8; // mesh rows per helical pitch
 export const DRAFT_COLUMNS = 24;
 export const DRAFT_ROWS_PER_PITCH = 3;
 
+// Corner-arc tessellation floor (issue #85, "rounded corners look
+// faceted/broken"): a plain arc-length-uniform column split (the ONLY
+// scheme before this) gives a rounded square/triangle's corner arcs far
+// fewer columns than their straight sides -- the corner is a much smaller
+// share of the perimeter -- which reads as visibly kinked/faceted up close,
+// especially at DRAFT_COLUMNS. `shapes.ts`'s `outlineColumnParams` floors
+// each corner's own segment count to at least this many per 90 degrees of
+// sweep (scaled up for a triangle's 120-degree corners). FINAL matches the
+// ticket's own acceptance criterion ("e.g. >= 16 per 90 degree corner");
+// DRAFT is half that -- still far smoother than the ~2-3 segments a plain
+// proportional split gave it at DRAFT_COLUMNS, but cheaper, mirroring how
+// DRAFT_ROWS_PER_PITCH is already a fraction of FINAL_ROWS_PER_PITCH rather
+// than matching it outright. Round is unaffected either way (no corner arc
+// of its own -- see `outlineColumnParams`).
+export const FINAL_MIN_CORNER_SEGMENTS_PER_90 = 16;
+export const DRAFT_MIN_CORNER_SEGMENTS_PER_90 = 8;
+
 // The schematic wound-cable centerline (issue #4, wire.ts) gets the same
 // draft/final split: a coarse, cheap sample while the user is still editing,
 // and a dense one once input settles (and always for the on-screen final

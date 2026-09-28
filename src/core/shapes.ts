@@ -185,6 +185,81 @@ export function offsetOutline(o: ShapeOutline, amount: number): ShapeOutline {
   return { n: o.n, apothem: o.apothem + amount, cornerRadius: o.cornerRadius + amount };
 }
 
+/**
+ * Minimum corner-arc segments for a given "segments per 90 degrees of
+ * sweep" density, scaled to `o`'s own actual corner sweep angle (issue #85):
+ * a square's 90-degree corners take the density as-is, but a triangle's
+ * 120-degree corners need proportionally more segments to read equally
+ * smooth. Round has no corner arc of its own (see this file's header, and
+ * `outlineColumnParams` below), so this is never actually consulted for it.
+ */
+export function minCornerSegments(o: ShapeOutline, segmentsPer90Deg: number): number {
+  const sweepDeg = 360 / o.n;
+  return Math.max(1, Math.ceil((segmentsPer90Deg * sweepDeg) / 90));
+}
+
+/**
+ * Adaptive column sampling (issue #85, "rounded corners look faceted"): a
+ * plain arc-length-uniform `t = i / columns` (the scheme every mesh builder
+ * used before this) spreads a fixed column budget across the WHOLE
+ * perimeter in proportion to arc length -- fine for round, whose entire
+ * boundary is one uniform curve, but for a rounded square/triangle the
+ * corner arcs are a much SMALLER share of the perimeter than the straight
+ * sides flanking them (a 60mm rounded square with an 8mm corner radius puts
+ * barely 5 of 96 columns on EACH 90-degree corner), so the corners end up
+ * visibly faceted while the straight sides -- which need no curvature at
+ * all -- get most of the budget. This redistributes `requestedColumns`
+ * instead: each of the outline's `n` (identical, by construction -- a
+ * regular n-gon) corner arcs gets at least `minSegments` columns (see
+ * `minCornerSegments`), and each of its `n` identical straight sides gets
+ * whatever's left, split evenly (still at least 1, so a near-fully-rounded
+ * outline's hairline SHAPE_ROUNDING_EPS side never divides by zero). The
+ * actual column count returned may exceed `requestedColumns` when the floor
+ * forces it to (reported by the caller, not silently absorbed -- mind the
+ * triangle budget).
+ *
+ * Round (or a corner radius clamped to exactly `apothem`, `sideLength`
+ * returns exactly 0 -- see that function) reduces to the OLD plain
+ * arc-length-uniform sampling, unchanged: an already-uniform curve has no
+ * corner/side distinction to redistribute, and this keeps every existing
+ * round golden number (test/golden-round.test.ts) byte-identical.
+ *
+ * Returns arc-length fractions `t` in [0,1), exactly what `pointAt`/
+ * `evalOutline` already consume -- callers just replace `i / columns` with
+ * this array's entries; nothing about the analytic outline/wall-profile
+ * math changes, only WHERE it gets sampled.
+ */
+export function outlineColumnParams(o: ShapeOutline, requestedColumns: number, minSegments: number): number[] {
+  const side = sideLength(o);
+  if (side <= 1e-9) {
+    const ts: number[] = new Array(requestedColumns);
+    for (let i = 0; i < requestedColumns; i++) ts[i] = i / requestedColumns;
+    return ts;
+  }
+
+  const n = o.n;
+  const half = Math.PI / n;
+  const arc = 2 * half * o.cornerRadius; // one corner's own arc length
+  const perimeter = n * (arc + side);
+
+  // A perfectly sharp corner (cornerRadius 0, no arc to approximate) needs
+  // exactly its own vertex, not `minSegments` coincident points.
+  const proportionalCorner = Math.round((requestedColumns * arc) / perimeter);
+  const cornerSegs = arc <= 1e-9 ? 1 : Math.max(minSegments, proportionalCorner, 1);
+
+  const leftover = requestedColumns - n * cornerSegs;
+  const sideSegs = Math.max(1, Math.round(leftover / n));
+
+  const unitLength = arc + side;
+  const ts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const unitStart = i * unitLength;
+    for (let k = 0; k < cornerSegs; k++) ts.push((unitStart + (arc * k) / cornerSegs) / perimeter);
+    for (let k = 0; k < sideSegs; k++) ts.push((unitStart + arc + (side * k) / sideSegs) / perimeter);
+  }
+  return ts;
+}
+
 /** A position on the outline, independent of offset: an arc (even `seg`,
  * corner index seg/2) or a side (odd `seg`, side index (seg-1)/2), plus a
  * local fraction `u` in [0,1]. */

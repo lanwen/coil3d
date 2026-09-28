@@ -9,7 +9,7 @@
 // outer wall, the bore, and the flat annuli at z=0 and z=height are all
 // connected. Fusing the bottom flange (see manifold.ts) only extends it.
 
-import { evalOutline, paramAt, pointAt } from "./shapes";
+import { evalOutline, outlineColumnParams, paramAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
@@ -28,10 +28,12 @@ export interface WallSpec {
   /** The groove fades out over this many turns at each end. */
   taperTurns: number;
   turns: number;
-  /** Columns around the circumference. */
+  /** Columns around the circumference (a requested BUDGET -- see `minCornerSegments`; STEP's own B-spline fit (step/build.ts) reuses this exact number as its own uniform sample count, so it never changes here). */
   columns: number;
   /** Mesh rows per helical pitch (controls groove fidelity). */
   rowsPerPitch: number;
+  /** Issue #85: minimum corner-arc segments (shapes.ts's `minCornerSegments`, already scaled to this outline's own corner sweep) -- `buildWall`/`buildOutlineRing` redistribute `columns` toward corners to reach it, via `outlineColumnParams`. Round ignores this (no corner arc of its own). */
+  minCornerSegments: number;
 }
 
 const smoothstep = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -101,9 +103,16 @@ export function createWallProfile(spec: WallSpec): WallProfile {
 }
 
 export function buildWall(spec: WallSpec): CoilMesh {
-  const { boreOutline, height, marginBottom, marginTop, columns: C, rowsPerPitch } = spec;
+  const { outline, boreOutline, height, marginBottom, marginTop, columns, minCornerSegments, rowsPerPitch } = spec;
   const profile = createWallProfile(spec);
   const { pitch, zStart } = profile;
+
+  // Issue #85: adaptive, corner-favoring column placement, not a plain
+  // `ci / columns` -- see `outlineColumnParams`'s own doc comment. `ts`'s
+  // length is the mesh's REAL column count, which may exceed the
+  // `columns` budget when the corner floor forces it to.
+  const ts = outlineColumnParams(outline, columns, minCornerSegments);
+  const C = ts.length;
 
   const delta = pitch / rowsPerPitch;
   const zLo = marginBottom * 0.5;
@@ -119,9 +128,12 @@ export function buildWall(spec: WallSpec): CoilMesh {
   // Sheared (helical) rows: each column's rows sit at z = zStart + pitch*t +
   // j*delta, so every column samples the groove profile at the same phase.
   // This is what makes the profile exact with no aliasing, and what lets the
-  // t=0/t=1 seam close for free (S1 RESULT.md).
+  // t=0/t=1 seam close for free (S1 RESULT.md). Non-uniform column spacing
+  // (issue #85) doesn't disturb this: each column still samples its own
+  // exact arc-length fraction `t`, just not evenly spaced from its
+  // neighbours.
   for (let ci = 0; ci < C; ci++) {
-    const t = ci / C;
+    const t = ts[ci];
     const idx: number[] = [];
     const zz: number[] = [];
     const push = (z: number) => {
@@ -167,7 +179,7 @@ export function buildWall(spec: WallSpec): CoilMesh {
   const bottomI: number[] = [];
   const topI: number[] = [];
   for (let ci = 0; ci < C; ci++) {
-    const t = ci / C;
+    const t = ts[ci];
     const p = pointAt(boreOutline, t, 0);
     bottomI.push(positions.length / 3);
     positions.push(p.x, p.y, 0);
@@ -197,8 +209,15 @@ export function buildWall(spec: WallSpec): CoilMesh {
  * outline as the wall). Used by manifold.ts to build the bottom flange
  * shaped like the core's own outline, not a bounding circle (issue #6 AC
  * "the flange for non-round shapes should follow the offset outline").
+ *
+ * Issue #85: `columns` is a requested BUDGET, redistributed toward
+ * `outerOutline`'s own corner arcs (`outlineColumnParams`) so they don't
+ * facet -- the ring's real column count (`ts.length`) may exceed it. The
+ * SAME `t` values sample `innerOutline` too (matching the original plain
+ * `ci / columns` scheme's own "same fractional position on both outlines"
+ * approximation -- unchanged here, just no longer evenly spaced).
  */
-export function buildOutlineRing(outerOutline: ShapeOutline, outerOffset: number, innerOutline: ShapeOutline, zLo: number, zHi: number, columns: number): CoilMesh {
+export function buildOutlineRing(outerOutline: ShapeOutline, outerOffset: number, innerOutline: ShapeOutline, zLo: number, zHi: number, columns: number, minCornerSegments: number): CoilMesh {
   const positions: number[] = [];
   const push = (x: number, y: number, z: number): number => {
     const idx = positions.length / 3;
@@ -206,12 +225,13 @@ export function buildOutlineRing(outerOutline: ShapeOutline, outerOffset: number
     return idx;
   };
 
+  const ts = outlineColumnParams(outerOutline, columns, minCornerSegments);
+
   const outerBottom: number[] = [];
   const outerTop: number[] = [];
   const innerBottom: number[] = [];
   const innerTop: number[] = [];
-  for (let ci = 0; ci < columns; ci++) {
-    const t = ci / columns;
+  for (const t of ts) {
     const o = evalOutline(outerOutline, paramAt(outerOutline, 0, t), outerOffset);
     const inner = pointAt(innerOutline, t, 0);
     outerBottom.push(push(o.x, o.y, zLo));
@@ -220,9 +240,10 @@ export function buildOutlineRing(outerOutline: ShapeOutline, outerOffset: number
     innerTop.push(push(inner.x, inner.y, zHi));
   }
 
+  const columnCount = ts.length;
   const indices: number[] = [];
-  for (let ci = 0; ci < columns; ci++) {
-    const cj = (ci + 1) % columns;
+  for (let ci = 0; ci < columnCount; ci++) {
+    const cj = (ci + 1) % columnCount;
     // Outer side wall faces outward.
     indices.push(outerBottom[ci], outerBottom[cj], outerTop[ci]);
     indices.push(outerTop[ci], outerBottom[cj], outerTop[cj]);
