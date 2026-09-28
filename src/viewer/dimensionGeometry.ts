@@ -39,10 +39,13 @@ export interface DimensionAxesGeometry {
 // floored so a tiny coil still gets clear air.
 const GAP_FRACTION = 0.08;
 const MIN_GAP_MM = 4;
-// Room the camera fit reserves past the axes for their labels, as a fraction
-// of the model's largest extent: the labels are a fixed size in pixels, and
-// the frame's own size follows that extent.
+// Room the camera fit reserves around the axes for their ticks and labels,
+// as a fraction of the model's largest extent: those are a fixed size in
+// pixels, and the frame's own size follows that extent.
 const FRAME_LABEL_ROOM = 0.06;
+// Room out past the height axis's top for the viewer's toggles, as a
+// fraction of the footprint's size (see dimensionFramePoints).
+const CONTROLS_ROOM = 0.12;
 
 /** Convex hull of 2D points (Andrew's monotone chain). */
 function hull2d(points: [number, number][]): [number, number][] {
@@ -173,13 +176,20 @@ export function dimensionAxesGeometry(box: THREE.Box3, groundZ: number, isoRight
 
 /**
  * Extra points (the box's frame, xyz triples) for the camera fit, so the
- * axes and their labels stay inside the frame from any direction: the box
- * grown past the axes by room for a label.
+ * axes, their tick bars and labels stay inside the frame from any
+ * direction: room around each axis's ends and the origin, along each axis.
+ * Plus more room out past the height axis's top: the viewer's toggles sit
+ * over the canvas's top left, which is where that top lands in Front (the
+ * origin is the left corner) on a wide model; the room nudges it clear.
  */
-export function dimensionFramePoints({ box, gap, origin }: DimensionAxesGeometry): Float32Array {
+export function dimensionFramePoints({ box, origin, arms }: DimensionAxesGeometry): Float32Array {
   const size = box.getSize(new THREE.Vector3());
-  const room = gap + FRAME_LABEL_ROOM * Math.max(size.x, size.y, size.z);
+  const center = box.getCenter(new THREE.Vector3());
+  const room = FRAME_LABEL_ROOM * Math.max(size.x, size.y, size.z);
   const out: number[] = [];
-  for (const x of [box.min.x - room, box.max.x + room]) for (const y of [box.min.y - room, box.max.y + room]) for (const z of [origin.z - room + gap, box.max.z]) out.push(x, y, z);
+  for (const p of [origin, ...arms.flatMap((a) => [a.from, a.to])])
+    for (const d of [-room, room]) out.push(p.x + d, p.y, p.z, p.x, p.y + d, p.z, p.x, p.y, p.z + d);
+  const controls = CONTROLS_ROOM * Math.max(size.x, size.y);
+  out.push(origin.x + Math.sign(origin.x - center.x) * controls, origin.y + Math.sign(origin.y - center.y) * controls, box.max.z);
   return new Float32Array(out);
 }

@@ -159,20 +159,22 @@ export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
   // render that draws them (scene.onBeforeRender runs before three uploads
   // the geometry; a mesh's own onBeforeRender would be too late for that).
   const scene = useThree((s) => s.scene);
+  const invalidate = useThree((s) => s.invalidate);
   useEffect(() => {
     const { origin, arms } = axes;
-    const center = axes.box.getCenter(new THREE.Vector3());
     const inverse = new THREE.Matrix4();
     const update = (renderer: THREE.WebGLRenderer, camera: THREE.Camera) => {
       inverse.copy(group.matrixWorld).invert();
       const size = renderer.getSize(new THREE.Vector2());
       const target = renderer.getRenderTarget();
       (strokes.material as THREE.ShaderMaterial).uniforms.resolution.value.set(target?.width ?? 1, target?.height ?? 1);
-      // Toward the camera, in the box's frame, and mm per CSS px at the model.
+      // Toward the camera, in the box's frame, and mm per CSS px at a point
+      // (in perspective each axis gets its own, so its ink and label keep
+      // their pixel size wherever it is).
       const view = camera.getWorldDirection(new THREE.Vector3()).negate().transformDirection(inverse);
-      const pixel = pixelSizeAt(camera, center.clone().applyMatrix4(group.matrixWorld), size.y);
+      const pixelAt = (p: THREE.Vector3) => pixelSizeAt(camera, p.clone().applyMatrix4(group.matrixWorld), size.y);
 
-      const b = new StrokeBuilder(view, pixel);
+      const ink: number[] = [];
       const drawn: DimensionAxesProbe["arms"] = [];
       const mvp = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(group.matrixWorld);
       const toCanvas = (p: THREE.Vector3) => {
@@ -181,6 +183,9 @@ export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
       };
 
       for (const { id, from, to } of arms) {
+        const mid = from.clone().add(to).multiplyScalar(0.5);
+        const pixel = pixelAt(mid);
+        const b = new StrokeBuilder(view, pixel);
         const dir = to.clone().sub(from);
         const length = dir.length();
         dir.normalize();
@@ -210,13 +215,16 @@ export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
         b.segment(from, origin, EXTENSION_PX);
 
         const s = sizes.get(id) ?? { w: 60, h: LABEL_FONT_PX + 2 * LABEL_PAD_Y_PX };
-        sprite.position.copy(from).add(to).multiplyScalar(0.5);
+        sprite.position.copy(mid);
         sprite.scale.set(s.w * pixel, s.h * pixel, 1);
         sprite.updateMatrix();
         drawn.push({ id, from: toCanvas(from), to: toCanvas(to) });
+        ink.push(...b.out);
       }
-      b.dot(origin, ORIGIN_DOT_PX / 2);
-      strokes.geometry.setAttribute("position", new THREE.Float32BufferAttribute(b.out, 3));
+      const dot = new StrokeBuilder(view, pixelAt(origin));
+      dot.dot(origin, ORIGIN_DOT_PX / 2);
+      ink.push(...dot.out);
+      strokes.geometry.setAttribute("position", new THREE.Float32BufferAttribute(ink, 3));
 
       window.__dimensionAxes = {
         mvp: mvp.toArray(),
@@ -233,11 +241,14 @@ export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
       const [renderer, , camera] = args;
       if (camera.layers.isEnabled(DIMENSION_LINE_LAYER)) update(renderer, camera);
     };
+    // (The canvas renders on demand: one more frame, so new axes are drawn
+    // even when the frame for the change that brought them has already run.)
+    invalidate();
     return () => {
       scene.onBeforeRender = previous;
       delete window.__dimensionAxes;
     };
-  }, [scene, strokes, sprites, group, axes, sizes]);
+  }, [scene, invalidate, strokes, sprites, group, axes, sizes]);
 
   return <primitive object={group} />;
 }

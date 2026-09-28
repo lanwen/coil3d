@@ -127,10 +127,10 @@ async function dimensionInk(page: Page, rects: Rect[] = []): Promise<Ink> {
 }
 
 /** The overlay controls' boxes, relative to the canvas. */
-async function controlRects(page: Page): Promise<Rect[]> {
+async function controlRects(page: Page, extra: string[] = []): Promise<Rect[]> {
   const canvas = (await page.getByTestId("coil-viewer").locator("canvas").boundingBox())!;
   const rects: Rect[] = [];
-  for (const selector of [".wire-toggle", ".explode-toggle", ".view-controls", ".wall-view-caption"]) {
+  for (const selector of [".wire-toggle", ".explode-toggle", ".view-controls", ".wall-view-caption", ...extra]) {
     for (const el of await page.locator(selector).all()) {
       const box = await el.boundingBox();
       if (box) rects.push({ x: box.x - canvas.x, y: box.y - canvas.y, width: box.width, height: box.height });
@@ -202,6 +202,9 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     ["triangle", TRIANGLE],
   ] as const) {
     test(`${label}: the axes are drawn in the 3D view, inside the frame and clear of the overlay controls, in every view`, async ({ page }) => {
+      // A taller canvas than the default: the model grows wider on it, and
+      // in Front the height axis's top reaches toward the toggles.
+      await page.setViewportSize({ width: 1280, height: 800 });
       await gotoDesign(page, hash);
       for (const preset of PRESETS) {
         await showPreset(page, preset);
@@ -212,6 +215,19 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
         expect(ink.box!.right, preset).toBeLessThan(ink.width - 3);
         expect(ink.box!.bottom, preset).toBeLessThan(ink.height - 3);
         expect(ink.inRects, `${preset}: axes under a control`).toBe(0);
+        // (Ink hidden under a control doesn't show in the diff above: check
+        // the axes' own spans, tick bars included, against every control.)
+        const rects = await controlRects(page, [".dimensions-toggle"]);
+        const probe = (await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes))!;
+        const TICK_HALF = 7;
+        for (const arm of probe.arms) {
+          for (let t = 0; t <= 1; t += 0.01) {
+            const x = arm.from[0] + t * (arm.to[0] - arm.from[0]);
+            const y = arm.from[1] + t * (arm.to[1] - arm.from[1]);
+            const under = rects.some((r) => x > r.x - TICK_HALF && x < r.x + r.width + TICK_HALF && y > r.y - TICK_HALF && y < r.y + r.height + TICK_HALF);
+            expect(under, `${preset}: the ${arm.id} axis runs under a control at (${x.toFixed(0)}, ${y.toFixed(0)})`).toBe(false);
+          }
+        }
       }
     });
   }
