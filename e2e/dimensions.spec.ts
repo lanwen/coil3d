@@ -23,7 +23,18 @@ const PRESETS = ["front", "iso", "wallRoom"] as const;
 // unwrapped orbit azimuth.
 type ProbeWindow = Window & {
   __orbitAzimuthDeg?: number;
-  __dimensionAxes?: { mvp: number[]; canvas: { width: number; height: number }; box: { min: number[]; max: number[] }; gap: number; origin: number[]; arms: { id: string; from: number[]; to: number[] }[] };
+  __dimensionAxes?: {
+    mvp: number[];
+    canvas: { width: number; height: number };
+    box: { min: number[]; max: number[] };
+    gap: number;
+    origin: number[];
+    // `occludedAt` matches DimensionAxes.tsx's own OCCLUSION_PROBE_TS ([0.3,
+    // 0.7]): issue #97 -- the axes now draw nothing where the model hides
+    // them, so the rigidity test below only checks ink where the app itself
+    // says the model doesn't occlude that point.
+    arms: { id: string; from: number[]; to: number[]; occludedAt: boolean[] }[];
+  };
 };
 
 async function gotoDesign(page: Page, hash: string) {
@@ -339,10 +350,19 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
         expect(probe!.arms.length, `step ${step}: every axis drawn`).toBe(3);
         const shot = await canvas.screenshot();
         const samples: number[][] = [];
+        // Issue #97: an occluded sample is expected to have NO ink (the
+        // model hides it instead of showing it grey), so it's excluded from
+        // the "ink along every axis" check below rather than asserted false
+        // outright -- the model's own line-art could coincidentally cross
+        // the exact same pixel, which isn't what this test is about.
+        const visible: boolean[] = [];
         for (const arm of probe!.arms) {
           const [from, to] = expected[arm.id].map(project);
           expect(near(arm.from, from) && near(arm.to, to), `step ${step}: ${arm.id} on its box edge (${arm.from} -> ${arm.to} vs ${from} -> ${to})`).toBe(true);
-          for (const t of [0.3, 0.7]) samples.push([from[0] + t * (to[0] - from[0]), from[1] + t * (to[1] - from[1])]);
+          [0.3, 0.7].forEach((t, i) => {
+            samples.push([from[0] + t * (to[0] - from[0]), from[1] + t * (to[1] - from[1])]);
+            visible.push(!arm.occludedAt[i]);
+          });
         }
         const inked = await page.evaluate(
           async ({ png, samples }) => {
@@ -364,7 +384,10 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
           },
           { png: shot.toString("base64"), samples },
         );
-        expect(inked, `step ${step}: ink along every axis`).toEqual(samples.map(() => true));
+        for (let i = 0; i < inked.length; i++) {
+          if (!visible[i]) continue;
+          expect(inked[i], `step ${step}: ink at the visible sample (${samples[i][0].toFixed(0)}, ${samples[i][1].toFixed(0)})`).toBe(true);
+        }
       }
       await page.mouse.up();
       const turned = (await page.evaluate(() => (window as unknown as ProbeWindow).__orbitAzimuthDeg ?? 0)) - startAzimuth;
