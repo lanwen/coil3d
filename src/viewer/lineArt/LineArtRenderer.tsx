@@ -49,6 +49,11 @@ export const DEFAULT_FILL = 0.75;
 // labels after it.
 export const DIMENSION_LINE_LAYER = 1;
 export const DIMENSION_LABEL_LAYER = 2;
+// The model's depth (the normal+depth pass's depth texture) while the
+// DIMENSION_LINE_LAYER overlay draws, as a shader uniform: the dimension
+// lines are drawn without a depth test and dim themselves where the model
+// hides them (issue #93).
+export const MODEL_DEPTH_UNIFORM: { value: THREE.Texture | null } = { value: null };
 // Line weight (thicken radius, CSS px) scales gently with the model's
 // on-screen diagonal (docs/research.md §10b), clamped so it stays a thin pen
 // line on small canvases and never fuses the groove rings on large ones.
@@ -185,8 +190,8 @@ function fitsNearlyEqual(a: Fit, b: Fit): boolean {
  * perspective camera's frustum must additionally clear whichever vertex
  * sits CLOSEST to the camera (foreshortening makes it project bigger than
  * the flat box alone implies) -- so for "perspective" this also walks every
- * vertex's real view-space depth at the fit's own candidate camera position
- * (distance = 2r, the same convention applyFraming positions the camera at)
+ * vertex's real view-space depth at the fit's own camera position (the
+ * bounds' centre plus 2r along `direction`, exactly where applyFraming puts it)
  * and tracks the largest half-angle any vertex actually needs, guaranteeing
  * nothing clips regardless of the model's own depth extent.
  */
@@ -202,26 +207,32 @@ function computeFit(geometry: THREE.BufferGeometry, direction: THREE.Vector3, up
   const rotation = new THREE.Matrix4().lookAt(direction, new THREE.Vector3(0, 0, 0), up);
   const inverse = rotation.clone().transpose(); // orthonormal: inverse === transpose
   const distance = 2 * sphere.radius; // matches applyFraming's own camera-distance convention
-  const cameraPosition = sphere.center.clone().addScaledVector(direction, distance);
 
   const pos = geometry.getAttribute("position");
   const v = new THREE.Vector3();
   const bounds = new THREE.Box2();
-  let maxTan = 0; // perspective only: largest tan(half-angle) any vertex needs at its own real depth
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i);
     const flat = v.clone().sub(sphere.center).applyMatrix4(inverse);
     bounds.expandByPoint(new THREE.Vector2(flat.x, flat.y));
-
-    if (projection === "perspective") {
-      const view = v.clone().sub(cameraPosition).applyMatrix4(inverse);
-      const depth = -view.z; // the camera looks down its own local -Z
-      if (depth > 1e-6) maxTan = Math.max(maxTan, Math.abs(view.y) / depth, Math.abs(view.x) / (depth * aspect));
-    }
   }
   const mid = bounds.getCenter(new THREE.Vector2());
   const extent = bounds.getSize(new THREE.Vector2());
   const shift = new THREE.Vector3(mid.x, mid.y, 0).applyMatrix4(rotation);
+
+  // Perspective only: the largest tan(half-angle) any vertex needs at its
+  // own real depth, seen from where applyFraming puts the camera (off the
+  // bounds' centre, not the sphere's: a lopsided geometry, like the model
+  // plus its dimension axes on one side, sits off the sphere's centre).
+  let maxTan = 0;
+  if (projection === "perspective") {
+    const cameraPosition = sphere.center.clone().add(shift).addScaledVector(direction, distance);
+    for (let i = 0; i < pos.count; i++) {
+      const view = v.fromBufferAttribute(pos, i).sub(cameraPosition).applyMatrix4(inverse);
+      const depth = -view.z; // the camera looks down its own local -Z
+      if (depth > 1e-6) maxTan = Math.max(maxTan, Math.abs(view.y) / depth, Math.abs(view.x) / (depth * aspect));
+    }
+  }
 
   // Perspective's halfHeight is defined so applyFraming's own
   // `fov = 2*atan(halfHeight/distance)` reproduces `tan(fov/2) = maxTan/fill`
@@ -720,6 +731,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
     const prevAutoClear = gl.autoClear;
     gl.autoClear = false;
     activeCamera.layers.set(DIMENSION_LINE_LAYER);
+    MODEL_DEPTH_UNIFORM.value = targets.normalDepth.depthTexture;
     gl.setRenderTarget(targets.output);
     gl.clearDepth();
     gl.render(scene, activeCamera);

@@ -6,7 +6,8 @@ import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.j
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CAP_THICKNESS, JOINT_ENGAGE_DEPTH, JOINT_TRANSITION_HEIGHT } from "../core";
 import type { CoilMesh, Part, PrintSpec, Resolution, ShapeKind, WireLayerPath } from "../core";
-import { DimensionAxes, dimensionFramePoints, measureDimensionFrame, type DimensionLabels } from "./DimensionAxes";
+import { DimensionAxes, type DimensionLabels } from "./DimensionAxes";
+import { dimensionAxesGeometry, dimensionFramePoints, measureDimensionFrame } from "./dimensionGeometry";
 import { frontFacingDimensionSpin, frontFacingRotation } from "./frontFacing";
 import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
 import { getPreset, presetQuaternion, type PresetId } from "./lineArt/presets";
@@ -411,6 +412,14 @@ export function CoilViewer({
     [parts, shapeKind, viewMode],
   );
   const dimensionMatrix = useMemo(() => (viewRotation ? viewRotation.clone().multiply(dimensionBox.spin) : dimensionBox.spin), [viewRotation, dimensionBox]);
+  // Issue #93: the axes themselves, fixed in that box's frame -- their
+  // origin corner is picked once from the default Iso camera, never per frame.
+  const dimensionAxes = useMemo(() => {
+    const toBox = dimensionMatrix.clone().invert();
+    const iso = presetQuaternion("iso");
+    const along = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyQuaternion(iso).transformDirection(toBox);
+    return dimensionAxesGeometry(dimensionBox.box, dimensionBox.groundZ, along(1, 0, 0), along(0, 0, 1));
+  }, [dimensionBox, dimensionMatrix]);
 
   const dimensionLabels = useMemo((): DimensionLabels | null => {
     if (envelopeWidth === undefined || shapeKind === undefined || dimensionBox.box.isEmpty()) return null;
@@ -527,12 +536,7 @@ export function CoilViewer({
     // Issue #69: room for the dimension axes and their labels (kept even when
     // they are toggled off, so the toggle never zooms the model).
     if (!exploded && dimensionLabels) {
-      // The preset's camera, in the measured box's own frame (issue #86: an
-      // axis may point outward from the origin, differently per view).
-      const toLocal = dimensionMatrix.clone().invert();
-      const camera = presetQuaternion(effectivePreset);
-      const along = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z).applyQuaternion(camera).transformDirection(toLocal);
-      const points = dimensionFramePoints(dimensionBox.box, dimensionBox.groundZ, { toward: along(0, 0, 1), right: along(1, 0, 0), up: along(0, 1, 0) });
+      const points = dimensionFramePoints(dimensionAxes);
       new THREE.BufferAttribute(points, 3).applyMatrix4(dimensionMatrix);
       chunks.push(points);
     }
@@ -545,7 +549,7 @@ export function CoilViewer({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionBox, dimensionMatrix, effectivePreset]);
+  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionAxes, dimensionMatrix]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
   // Debug close-up (continued): a SMALL framing geometry -- just
@@ -657,7 +661,7 @@ export function CoilViewer({
             bed size -- its own caption above already names the bed) -- none
             of those measure the assembled pose. */}
         {showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && dimensionLabels && (
-          <DimensionAxes box={dimensionBox.box} groundZ={dimensionBox.groundZ} rotation={dimensionMatrix} labels={dimensionLabels} />
+          <DimensionAxes axes={dimensionAxes} rotation={dimensionMatrix} labels={dimensionLabels} />
         )}
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
       </Canvas>
