@@ -305,25 +305,19 @@ function expectContinuousJoin(before: Float32Array, after: Float32Array, label: 
 // Bounds (found empirically, see PR #77's description for the full sweep):
 // legitimate bridges never exceed ~15 degrees of sweep beyond the maximum
 // half-turn (180 degrees) an orthocyclic phase shift can ever require
-// (`phaseShiftTurns` caps at exactly half a turn), and never deviate
-// radially by more than ~15% of the bridge's own larger endpoint radius
-// (observed up to ~14.7% for a thin-wire, many-layer, large-core design)
-// -- both WAY under what the regression produced (a ~180-degree accidental
-// EXTRA sweep, i.e. close to 360 total, and a radial dip of ~85% of the
-// endpoint radius, collapsing nearly to the coil's own axis). The radial
-// bound is relative to the bridge's own radius, not an absolute "N x wire
-// diameter": a thin wire on a large core legitimately needs a few mm of
-// slack that would fail a fixed small absolute bound despite being a
-// perfectly ordinary, correctly-behaved bridge (verified separately against
-// several wire diameters and core sizes before picking this bound).
+// (`phaseShiftTurns` caps at exactly half a turn) -- WAY under what the
+// regression produced (a ~180-degree accidental EXTRA sweep, i.e. close to
+// 360 total).
 const MAX_BRIDGE_SWEEP_DEG = 210; // 180 (max possible phase shift) + slack
-const MAX_BRIDGE_RADIAL_DEVIATION_FRACTION = 0.2; // of the bridge's own larger endpoint radius
 
 function radiusAt3(points: Float32Array, i: number): number {
   return Math.hypot(points[i * 3], points[i * 3 + 1]);
 }
+function angleAt(points: Float32Array, i: number): number {
+  return Math.atan2(points[i * 3 + 1], points[i * 3]);
+}
 function angleDegAt(points: Float32Array, i: number): number {
-  return (Math.atan2(points[i * 3 + 1], points[i * 3]) * 180) / Math.PI;
+  return (angleAt(points, i) * 180) / Math.PI;
 }
 
 /** The bridge's own total angular travel around the axis (degrees), unwrapped so a run of samples that individually stay within +-180 degrees of each other doesn't get miscounted at the wrap. */
@@ -346,22 +340,72 @@ function angularSweepDeg(points: Float32Array): number {
   return max - min;
 }
 
-/** Asserts a bridge (a layer transition or the outer lead-out) stays close to its own two endpoints' radii and doesn't sweep an unreasonable amount of angle in between -- see the guard's own doc comment above for why. */
-function expectBridgeHugsTheSurface(bridge: Float32Array, label: string) {
-  const sampleCount = bridge.length / 3;
-  const r0 = radiusAt3(bridge, 0);
-  const rLast = radiusAt3(bridge, sampleCount - 1);
-  const rLo = Math.min(r0, rLast);
-  const rHi = Math.max(r0, rLast);
+// Issue #90: the OLD radial-deviation guard above (a fixed fraction of the
+// bridge's own two endpoint radii, straight-line Cartesian) is exactly the
+// "circle-like" check the issue is about -- it doesn't know a rounded
+// triangle's true boundary swings from `apothem` (a flat side's own
+// midpoint) out to a much bigger circumscribed radius (a corner's own
+// midpoint), so it can't tell a bridge that's correctly HUGGING that real
+// shape apart from one that's incorrectly bulging away from it. Replaced by
+// an outline-aware band -- but NOT a hand-rolled re-derivation of
+// shapes.ts's own `radiusAtAngle` formula: that function's arc-vs-flat-side
+// classification (which GLOBAL angle a ray from the axis subtends) turns out
+// to itself misclassify a point once a corner's `cornerRadius + offset`
+// grows large relative to the shape's own `Rc` (the same failure this issue
+// is about, just relocated into the test's own "expected" oracle instead of
+// the code under test -- a fully independent square-shape re-derivation
+// exposed exactly the same blow-up). The reliable ground truth is instead
+// each REAL, already-solved layer's own sampled centerline
+// (`design()`'s public `wirePaths`, arc-length-parameterised via
+// `pointAt`, never via a global angle): for a given angle, the closest
+// sample on a layer immediately adjacent to the bridge under test tells you
+// where the TRUE offset boundary actually sits there.
 
+/** The sample of `path` whose own angle around the axis is closest to `theta` (wrapping through +-180 degrees) -- `path` is one of `design()`'s own densely-sampled `wirePaths[i].points`, spanning many full turns, so some sample is always close by. */
+function radiusNearAngle(path: Float32Array, theta: number): number {
+  const sampleCount = path.length / 3;
+  const twoPi = 2 * Math.PI;
+  const target = ((theta % twoPi) + twoPi) % twoPi;
+  let bestIndex = 0;
+  let bestDelta = Infinity;
+  for (let i = 0; i < sampleCount; i++) {
+    const a = ((angleAt(path, i) % twoPi) + twoPi) % twoPi;
+    let delta = Math.abs(a - target);
+    if (delta > Math.PI) delta = twoPi - delta;
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      bestIndex = i;
+    }
+  }
+  return radiusAt3(path, bestIndex);
+}
+
+/**
+ * Issue #90 AC: a layer-transition bridge's radial distance from the CORE
+ * OUTLINE at each sample's OWN angle -- not a plain circle -- stays between
+ * the two adjoining (already-solved, real) layers' own offsets, plus at
+ * most half a wire diameter of slack. `before`/`after` are those two real
+ * layers' OWN sampled centerlines (`radiusNearAngle` above), so this needs
+ * no independent re-derivation of the outline's geometry at all.
+ */
+function expectTransitionHugsTheOutline(bridge: Float32Array, before: Float32Array, after: Float32Array, wireDiameter: number, label: string) {
+  const sampleCount = bridge.length / 3;
+  const tolerance = 0.5 * wireDiameter;
   let maxDeviation = 0;
   for (let i = 0; i < sampleCount; i++) {
     const r = radiusAt3(bridge, i);
-    maxDeviation = Math.max(maxDeviation, r - rHi, rLo - r);
+    const theta = angleAt(bridge, i);
+    const rBefore = radiusNearAngle(before, theta);
+    const rAfter = radiusNearAngle(after, theta);
+    const bandLo = Math.min(rBefore, rAfter);
+    const bandHi = Math.max(rBefore, rAfter);
+    maxDeviation = Math.max(maxDeviation, r - bandHi, bandLo - r);
   }
-  expect(maxDeviation / rHi, `${label}: radial deviation as a fraction of its own larger endpoint radius`).toBeLessThan(
-    MAX_BRIDGE_RADIAL_DEVIATION_FRACTION,
-  );
+  expect(maxDeviation, `${label}: radial deviation from the outline-offset band`).toBeLessThanOrEqual(tolerance);
+}
+
+/** Asserts a bridge (a layer transition or the outer lead-out) doesn't sweep an unreasonable amount of angle (issue #77) -- see the guard's own doc comment above for why. */
+function expectBridgeSweepIsBounded(bridge: Float32Array, label: string) {
   expect(angularSweepDeg(bridge), `${label}: angular sweep around the axis`).toBeLessThan(MAX_BRIDGE_SWEEP_DEG);
 }
 
@@ -393,10 +437,11 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
           for (let i = 0; i + 1 < d.wirePaths.length; i++) {
             expectContinuousJoin(d.wirePaths[i].points, d.layerTransitions[i], `layer ${i + 1} -> transition ${i + 1}`);
             expectContinuousJoin(d.layerTransitions[i], d.wirePaths[i + 1].points, `transition ${i + 1} -> layer ${i + 2}`);
-            expectBridgeHugsTheSurface(d.layerTransitions[i], `transition ${i + 1}`);
+            expectBridgeSweepIsBounded(d.layerTransitions[i], `transition ${i + 1}`);
+            expectTransitionHugsTheOutline(d.layerTransitions[i], d.wirePaths[i].points, d.wirePaths[i + 1].points, 3.8, `transition ${i + 1}`);
           }
           expectContinuousJoin(d.wirePaths.at(-1)!.points, d.outerEndLeadOut, "last layer -> outer lead-out");
-          expectBridgeHugsTheSurface(d.outerEndLeadOut, "outer lead-out");
+          expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out");
         });
       }
     }
@@ -414,8 +459,11 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
       }),
     );
     expect(d.layerTransitions.length).toBeGreaterThan(0);
-    for (const [i, t] of d.layerTransitions.entries()) expectBridgeHugsTheSurface(t, `transition ${i + 1}`);
-    expectBridgeHugsTheSurface(d.outerEndLeadOut, "outer lead-out");
+    for (const [i, t] of d.layerTransitions.entries()) {
+      expectBridgeSweepIsBounded(t, `transition ${i + 1}`);
+      expectTransitionHugsTheOutline(t, d.wirePaths[i].points, d.wirePaths[i + 1].points, 1.2, `transition ${i + 1}`);
+    }
+    expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out");
   });
 
   it("the design that originally caught the PR #77 regression (a big rounded-square core, skadis mount, 1 layer) still hugs the surface", async () => {
@@ -439,7 +487,7 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
       }),
     );
     expect(d.layerTransitions).toHaveLength(0); // 1 layer: only the outer lead-out is at risk here
-    expectBridgeHugsTheSurface(d.outerEndLeadOut, "outer lead-out");
+    expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out");
   });
 
   it("the outer-end lead-out reaches the top cap's own rim keyhole position, even when the top cap is off (1 layer)", async () => {

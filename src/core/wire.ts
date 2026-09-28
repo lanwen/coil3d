@@ -42,6 +42,7 @@ import {
 import { clamp01 } from "./capacity";
 import type { XY } from "./innerEnd";
 import { pointAt } from "./shapes";
+import type { ShapeOutline } from "./shapes";
 import { createWallProfile, type WallSpec } from "./wall";
 import type { LayerResult, Resolution } from "./types";
 import type { WireLayerPath } from "./types";
@@ -192,28 +193,16 @@ function hermiteBasis(s: number): [number, number, number, number] {
  * the Cartesian chord length, the standard Hermite tangent-magnitude
  * convention). Converting back to Cartesian (`r*cos(theta), r*sin(theta),
  * z`) reconstructs `p0`/`p1` and their tangent directions EXACTLY (to
- * floating-point precision), for the same reason `hermiteBridge` (the
- * plain-Cartesian version this replaced) did -- but with one crucial
- * difference: `radius(s)` is now interpolated DIRECTLY, so it stays close
- * to `r0`/`r1` throughout, instead of implicitly following the straight
- * Cartesian chord between two points that can sit far apart in angle (up to
- * half a turn, at a full orthocyclic phase shift) -- a chord between two
- * points that far apart around a circle cuts deep into the middle, which
- * made an earlier version of this bridge visibly dip in toward the coil's
- * own axis instead of hugging its surface. `theta(s)` takes the SHORTEST
- * angular path between the two points (at most half a turn either way) --
- * NOT a "always forward, spindle never reverses" rule an earlier version of
- * this function tried to enforce: for a non-round outline, a corner arc's
- * own local centre sits off the global axis (shapes.ts's `evalOutline`), so
- * two samples that share the same winding parameter `t` (a "physically
- * forward" step of essentially zero) can still land at a GLOBAL angle
- * (`atan2`) that drifts slightly BACKWARD -- forcing that case to still go
- * "forward" swept nearly an entire extra turn all the way around the coil,
- * a dramatic, wrong-looking loop for what should be the shortest of hops.
- * The shortest-path rule sidesteps that failure mode entirely, and is
- * indistinguishable from the forward-only rule in the one case that
- * originally motivated it (the layer-to-layer phase shift, capped at half a
- * turn either way by `phaseShiftTurns`).
+ * floating-point precision). `theta(s)` takes the SHORTEST angular path
+ * between the two points (at most half a turn either way) -- see
+ * `outlineHuggingBridge`'s own doc comment for why (the same reasoning
+ * applies here). Used only for the inner-end lead-in's own short, near-t=0
+ * hop (`buildInnerEndLeadIn`): that bridge's start isn't a point this module
+ * can name an exact outline (arc-length parameter, offset) for (see its own
+ * doc comment -- it's a fillet's own tangent point, not a `pointAt` sample),
+ * and it never sweeps more than a few degrees, so a circle-like radius
+ * channel never has room to visibly bulge the way issue #90's layer
+ * transitions did.
  */
 function cylindricalBridge(p0: XYZ, t0: XYZ, p1: XYZ, t1: XYZ, samples: number): Float32Array {
   const chord = Math.hypot(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z) || 1;
@@ -252,6 +241,117 @@ function cylindricalBridge(p0: XYZ, t0: XYZ, p1: XYZ, t1: XYZ, samples: number):
 }
 
 /**
+ * Find the Minkowski offset (relative to `outline`, at a KNOWN, FIXED
+ * arc-length parameter `u`) whose `pointAt(outline, u, offset)` reproduces
+ * `target`'s own distance from the axis -- i.e. solve for `x` in
+ * `|pointAt(outline, u, x)| === |target|`. Safe to bisect (unlike inferring
+ * an offset from a GLOBAL angle -- see `outlineHuggingBridge`'s own doc
+ * comment for why that's unreliable): at a FIXED `u`, `pointAt`'s own family
+ * is exactly `point0(u) + offset * normal(u)` (evalOutline's `r =
+ * cornerRadius + offset` term is the ONLY place `offset` enters, always
+ * scaling the SAME fixed unit normal), so its distance from the axis is a
+ * plain quadratic in `offset`, strictly increasing once `offset` clears
+ * `-(point0(u) . normal(u))` -- comfortably below any offset a real design
+ * ever uses (that dot product is close to the outline's own apothem, since
+ * both vectors point outward from an axis-containing convex shape), so the
+ * lower bound here is nowhere near the turning point.
+ */
+function inferOffsetAtFixedU(outline: ShapeOutline, u: number, target: XY): number {
+  const targetR = Math.hypot(target.x, target.y);
+  let lo = -outline.apothem * 0.9;
+  let hi = outline.apothem * 5 + targetR + 100;
+  for (let i = 0; i < 60; i++) {
+    const mid = (lo + hi) / 2;
+    const p = pointAt(outline, u, mid);
+    const r = Math.hypot(p.x, p.y);
+    if (r < targetR) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * A short ramp between two points that both sit on `outline`'s own
+ * `pointAt(outline, u, offset)` family -- a wound layer's own constant-
+ * offset run, or the outer-end keyhole (`innerEnd.ts`'s `hole` sits on the
+ * outline's own offset boundary at arc-length parameter u=0, see
+ * `layoutInnerEnd`) -- built directly in the outline's OWN (arc-length
+ * parameter `u`, offset) space instead of Cartesian or global-angle/radius
+ * space, reconstructed via `pointAt` at every sample.
+ *
+ * Issue #90: an earlier version of this bridge interpolated a Hermite blend
+ * of RAW Cartesian radius between the two endpoints, which drifts arbitrarily
+ * far from a rounded-triangle (or -square) outline's own true boundary at
+ * whatever angle the bridge sweeps THROUGH in between (its true boundary
+ * distance from the axis swings widely with angle -- apothem at a flat
+ * side's own midpoint vs. the much bigger circumscribed radius at a corner)
+ * -- the reported "loops outward beside the coil" bug. The fix tried first
+ * -- blending each endpoint's own Minkowski offset (inferred from its GLOBAL
+ * angle) and reading `shapes.ts`'s `radiusAtAngle` at the blended offset --
+ * turned out to be unreliable too: `radiusAtAngle`'s arc-vs-flat-side
+ * classification is which GLOBAL angle a ray from the axis subtends, which
+ * can misclassify a point once a corner's own `cornerRadius + offset`
+ * grows large relative to its own `Rc` (verified directly: a rounded square,
+ * apothem=31.45 cornerRadius=14.44+offset=4.2 -- a perfectly ordinary 2-layer
+ * design -- has `radiusAtAngle` return ~24.6mm at the flat side's own
+ * 45-degree midpoint, where the TRUE, arc-length-parameterised boundary
+ * (`pointAt`) sits at ~35.7mm). Building directly in (u, offset) space and
+ * reconstructing with `pointAt` sidesteps that: `pointAt` is exactly how
+ * every OTHER point in this codebase is built (the layers themselves, the
+ * wall, the STEP B-spline fit), so the bridge always sits EXACTLY on some
+ * legitimate offset outline in between too, immune to `radiusAtAngle`'s
+ * domain limits.
+ *
+ * `u(s)` takes the SHORTEST circular path in [0, 1) (mirroring the earlier
+ * version's shortest-GLOBAL-angle rule, for the same reason: `phaseShiftTurns`
+ * caps the layer-to-layer phase shift at half a turn either way, so the
+ * short way around is always the physically correct one). `d(xy)/du` at each
+ * endpoint is estimated via a tiny central finite difference of `pointAt`
+ * itself (never a per-segment analytic derivative of `evalOutline`'s own
+ * arc/side pieces, keeping this a pure caller of the outline's existing
+ * query functions): projecting each endpoint's own REAL Cartesian tangent
+ * onto that direction recovers `du/ds`. `offset(s)` is blended with a ZERO
+ * derivative at both ends (a smoothstep, not a full Hermite, on this one
+ * channel) -- correct, not approximate, because a real wound layer holds its
+ * OWN offset exactly constant along its whole run, so the true curve's own
+ * `d(offset)/ds` at the moment it hands off to a bridge is already zero.
+ */
+function outlineHuggingBridge(outline: ShapeOutline, u0: number, offset0: number, p0: XYZ, t0: XYZ, u1: number, offset1: number, p1: XYZ, t1: XYZ, samples: number): Float32Array {
+  const chord = Math.hypot(p1.x - p0.x, p1.y - p0.y, p1.z - p0.z) || 1;
+
+  const rawDelta = (((u1 - u0) % 1) + 1) % 1; // in [0, 1)
+  const shortestDelta = rawDelta > 0.5 ? rawDelta - 1 : rawDelta;
+  const uEnd = u0 + shortestDelta;
+
+  const EPS = 1e-4;
+  const dxyDu = (u: number, offset: number) => {
+    const a = pointAt(outline, u - EPS, offset);
+    const b = pointAt(outline, u + EPS, offset);
+    return { x: (b.x - a.x) / (2 * EPS), y: (b.y - a.y) / (2 * EPS) };
+  };
+  const projectDuDs = (t: XYZ, d: { x: number; y: number }) => {
+    const mag2 = d.x * d.x + d.y * d.y;
+    return mag2 > 1e-12 ? (t.x * d.x + t.y * d.y) / mag2 : 0;
+  };
+  const duds0 = projectDuDs(t0, dxyDu(u0, offset0));
+  const duds1 = projectDuDs(t1, dxyDu(u1, offset1));
+
+  const points = new Float32Array(samples * 3);
+  for (let i = 0; i < samples; i++) {
+    const s = i / (samples - 1);
+    const [h00, h10, h01, h11] = hermiteBasis(s);
+    const u = h00 * u0 + h10 * duds0 * chord + h01 * uEnd + h11 * duds1 * chord;
+    const offset = h00 * offset0 + h01 * offset1;
+    const z = h00 * p0.z + h10 * t0.z * chord + h01 * p1.z + h11 * t1.z * chord;
+    const p = pointAt(outline, u, offset);
+    points[i * 3] = p.x;
+    points[i * 3 + 1] = p.y;
+    points[i * 3 + 2] = z;
+  }
+  return points;
+}
+
+/**
  * The short ramp bridging the chronological end of one wound layer to the
  * start of the next (issue #68 AC: "smooth layer-to-layer transitions -- a
  * short ramp at the end of each layer up to the next"). Every layer's own
@@ -263,7 +363,8 @@ function cylindricalBridge(p0: XYZ, t0: XYZ, p1: XYZ, t1: XYZ, samples: number):
  * bridge still connects whichever two layers actually ended up adjacent in
  * the array, which is the best a schematic can do for that edge case.
  */
-export function buildLayerTransitions(paths: WireLayerPath[]): Float32Array[] {
+export function buildLayerTransitions(paths: WireLayerPath[], layerResults: LayerResult[], outline: ShapeOutline, windingQuality: number): Float32Array[] {
+  const offsetOf = (layer: number) => layerResults.find((l) => l.layer === layer)?.offset ?? 0;
   const transitions: Float32Array[] = [];
   for (let i = 0; i + 1 < paths.length; i++) {
     const a = paths[i].points;
@@ -276,7 +377,16 @@ export function buildLayerTransitions(paths: WireLayerPath[]): Float32Array[] {
     const t0 = unitTangent(samplePoint(a, aCount - 2), p0);
     const p1 = samplePoint(b, 0);
     const t1 = unitTangent(p1, samplePoint(b, 1));
-    transitions.push(cylindricalBridge(p0, t0, p1, t1, BRIDGE_SAMPLES));
+    // The last sample of `paths[i]` and the first sample of `paths[i + 1]`
+    // both came from `buildWirePaths`'s own `phi = (turns*i)/(sampleCount-1)
+    // + shift` formula (see its doc comment): the LAST sample of a `turns`-
+    // turn layer sits at `phi = turns + shift`, the FIRST at `phi = shift`,
+    // for that layer's own `phaseShiftTurns(layer, windingQuality)` -- the
+    // arc-length parameter `u` is just that `phi` mod 1 (`pointAt` itself
+    // reduces it mod 1 the same way, see `paramAt`).
+    const u0 = ((paths[i].turns + phaseShiftTurns(paths[i].layer, windingQuality)) % 1 + 1) % 1;
+    const u1 = ((phaseShiftTurns(paths[i + 1].layer, windingQuality)) % 1 + 1) % 1;
+    transitions.push(outlineHuggingBridge(outline, u0, offsetOf(paths[i].layer), p0, t0, u1, offsetOf(paths[i + 1].layer), p1, t1, BRIDGE_SAMPLES));
   }
   return transitions;
 }
@@ -297,9 +407,10 @@ export function buildLayerTransitions(paths: WireLayerPath[]): Float32Array[] {
  * bottom's `channelPath`/`buildInnerEndLeadIn` never depends on any OTHER
  * part either.
  */
-export function buildOuterEndLeadOut(paths: WireLayerPath[], hole: XY, topZ: number): Float32Array {
+export function buildOuterEndLeadOut(paths: WireLayerPath[], hole: XY, topZ: number, layerResults: LayerResult[], outline: ShapeOutline, windingQuality: number): Float32Array {
   if (paths.length === 0) return new Float32Array(0);
-  const last = paths[paths.length - 1].points;
+  const lastPath = paths[paths.length - 1];
+  const last = lastPath.points;
   const count = last.length / 3;
   if (count < 2) return new Float32Array(0);
 
@@ -307,7 +418,17 @@ export function buildOuterEndLeadOut(paths: WireLayerPath[], hole: XY, topZ: num
   const t0 = unitTangent(samplePoint(last, count - 2), p0);
   const p1: XYZ = { x: hole.x, y: hole.y, z: topZ };
   const t1: XYZ = { x: 0, y: 0, z: 1 };
-  return cylindricalBridge(p0, t0, p1, t1, BRIDGE_SAMPLES);
+
+  const u0 = ((lastPath.turns + phaseShiftTurns(lastPath.layer, windingQuality)) % 1 + 1) % 1;
+  const offset0 = layerResults.find((l) => l.layer === lastPath.layer)?.offset ?? 0;
+  // The keyhole sits at arc-length parameter u=0 exactly (same t=0 reference
+  // point `innerEnd.ts`'s `layoutInnerEnd` cuts the bottom flange's own
+  // keyhole from -- see this function's own doc comment); its own offset
+  // isn't separately tracked here, so it's recovered from `hole` itself via
+  // `inferOffsetAtFixedU` (safe at a KNOWN, fixed `u`, see that function's
+  // own doc comment).
+  const offset1 = inferOffsetAtFixedU(outline, 0, hole);
+  return outlineHuggingBridge(outline, u0, offset0, p0, t0, 0, offset1, p1, t1, BRIDGE_SAMPLES);
 }
 
 /**
