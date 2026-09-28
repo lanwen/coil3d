@@ -5,7 +5,7 @@
 // a flat side, toward that fixed direction for both n=4 (square: corners on
 // the axes, flats on the diagonals) and n=3 (triangle: neither a corner nor
 // a flat lands on -Y). Seen corner-on, the model's own diamond-oriented
-// footprint no longer lines up with `DimensionAxes.tsx`'s own flush-to-flats
+// footprint no longer lines up with `dimensionGeometry.ts`'s own flush-to-flats
 // box (`measureDimensionFrame`'s `spin`, computed independent of any view),
 // so the "front" camera reads that box on a DIAGONAL -- both ground axes
 // stay visible at once, one of them reading past the model's own silhouette
@@ -54,7 +54,7 @@ export function frontFacingRotation(shapeKind: ShapeKind | undefined): THREE.Mat
 }
 
 /**
- * The angle (radians) to force into `DimensionAxes.tsx`'s own
+ * The angle (radians) to force into `dimensionGeometry.ts`'s own
  * `measureDimensionFrame(parts, forcedSpinRad)`, so its box stays flush with
  * the EXACT SAME flat `frontFacingRotation` just rotated to face the
  * camera -- not a separately, independently re-derived one.

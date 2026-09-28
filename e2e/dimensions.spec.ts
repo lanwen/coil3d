@@ -3,7 +3,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // End-to-end checks for the overall-dimension axes: issue #50's IKEA-style
 // dimensions (values fixed by #63), redrawn by issue #69 as 3D axes inside
 // the scene -- width, depth and height from a common bottom corner of the
-// assembled model's box, rotating with it. Solver/geometry numbers are
+// assembled model's box, fixed on it and rotating with it (issue #93). Solver/geometry numbers are
 // covered by vitest against `design()`; these check the viewer seam: the
 // values (mirrored as screen-reader text, since the labels are drawn in the
 // canvas) agree with the result panel's real numbers, and the axes' own ink
@@ -17,6 +17,14 @@ const ROUND_CAP_OFF = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=o
 const SQUARE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=sq&sq.rc=15";
 const TRIANGLE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=tri&tri.rc=15";
 const PRESETS = ["front", "iso", "wallRoom"] as const;
+
+// The viewer's test-only probes (declared on Window in src/, a separate tsc
+// project): DimensionAxes.tsx's last drawn frame, and LineArtRenderer's
+// unwrapped orbit azimuth.
+type ProbeWindow = Window & {
+  __orbitAzimuthDeg?: number;
+  __dimensionAxes?: { mvp: number[]; canvas: { width: number; height: number }; box: { min: number[]; max: number[] }; gap: number; origin: number[]; arms: { id: string; from: number[]; to: number[] }[] };
+};
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -212,9 +220,10 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     await gotoDesign(page, ROUND_CAP);
     await showPreset(page, "front");
     // In Front the height axis is a vertical line beside the model: the ink
-    // run it leaves across a mid-height row is its stroke width.
+    // run it leaves across a row above its label (centred on it) is its
+    // stroke width.
     const ink = await dimensionInk(page);
-    const y = Math.round(ink.height * 0.45);
+    const y = Math.round(ink.height * 0.3);
     const runs: number[] = [];
     let run = 0;
     for (let x = 0; x < ink.width; x++) {
@@ -263,54 +272,87 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     expect((await dimensionInk(page)).count).toBeGreaterThan(800);
   });
 
-  // Issue #86: width, depth and height start from ONE origin, like a
-  // coordinate-axes gizmo, and the height rises beside the model, never
-  // across it on screen.
+  // Issue #93: the axes are fixed on the model's box -- its front-left-bottom
+  // corner and the three box edges from it -- so a full orbit never moves
+  // them to another corner or side. Each step, the axes' drawn spans (from
+  // the viewer's test probe) must sit where the box's own edges project
+  // under the live camera, and there must be ink there.
   for (const [label, hash] of [
     ["round", ROUND_CAP],
     ["square", SQUARE],
     ["triangle", TRIANGLE],
   ] as const) {
-    test(`${label}, Iso: all three axes start from the height axis's foot, and the height stands clear of the model (issue #86)`, async ({ page }) => {
+    test(`${label}: through a full 360-degree orbit the axes stay on the same box corner and edges (issue #93)`, async ({ page }) => {
       await gotoDesign(page, hash);
       await showPreset(page, "iso");
-      const ink = await dimensionInk(page);
-      const at = (x: number, y: number) => x >= 0 && y >= 0 && x < ink.width && y < ink.height && ink.mask[y * ink.width + x] === 1;
-      // The height axis: the column with the longest vertical run of ink.
-      let best = { x: 0, top: 0, bottom: 0 };
-      for (let x = 0; x < ink.width; x++) {
-        let start = -1;
-        for (let y = 0; y <= ink.height; y++) {
-          if (y < ink.height && at(x, y)) {
-            if (start < 0) start = y;
-          } else if (start >= 0) {
-            if (y - 1 - start > best.bottom - best.top) best = { x, top: start, bottom: y - 1 };
-            start = -1;
-          }
+      const canvas = page.getByTestId("coil-viewer").locator("canvas");
+      const box = (await canvas.boundingBox())!;
+      // OrbitControls turns 2*pi per canvas height of horizontal drag.
+      const STEPS = 24;
+      let x = box.x + 20;
+      const y = box.y + box.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      const startAzimuth = await page.evaluate(() => (window as unknown as ProbeWindow).__orbitAzimuthDeg ?? 0);
+      for (let step = 0; step <= STEPS; step++) {
+        if (step > 0) {
+          x += box.height / STEPS;
+          await page.mouse.move(x, y, { steps: 2 });
+          await page.waitForTimeout(100);
         }
-      }
-      expect(best.bottom - best.top, "a vertical height axis").toBeGreaterThan(80);
-      // Both ground axes leave from its foot: ink runs away from it both
-      // down-left and down-right (the Iso tripod), within a short reach.
-      const foot = { x: best.x, y: best.bottom };
-      const inkToward = (side: -1 | 1) => {
-        let n = 0;
-        for (let dx = 30; dx <= 90; dx++) for (let dy = 0; dy <= 70; dy++) if (at(foot.x + side * dx, foot.y + dy)) n++;
-        return n;
-      };
-      expect(inkToward(-1), "a ground axis down-left of the height's foot").toBeGreaterThan(60);
-      expect(inkToward(1), "a ground axis down-right of the height's foot").toBeGreaterThan(60);
-      // The model lies wholly to one side of the height axis, over the rows it spans.
-      let left = 0;
-      let right = 0;
-      for (let y = best.top; y <= best.bottom; y++) {
-        for (let x = 0; x < ink.width; x++) {
-          if (!ink.modelMask[y * ink.width + x] || Math.abs(x - best.x) < 4) continue;
-          if (x < best.x) left++;
-          else right++;
+        const probe = await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes);
+        expect(probe, "the axes are drawn").toBeTruthy();
+        const { min, max } = probe!.box;
+        const g = probe!.gap;
+        const oz = probe!.origin[2];
+        expect(oz, "the ground axes run below the box").toBeLessThanOrEqual(min[2] - g + 1e-6);
+        expect(probe!.origin, "the origin is the front-left-bottom corner, a gap out").toEqual([min[0] - g, min[1] - g, oz]);
+        const expected: Record<string, [number[], number[]]> = {
+          width: [[min[0], min[1] - g, oz], [max[0], min[1] - g, oz]],
+          depth: [[min[0] - g, min[1], oz], [min[0] - g, max[1], oz]],
+          height: [[min[0] - g, min[1] - g, min[2]], [min[0] - g, min[1] - g, max[2]]],
+        };
+        const project = (p: number[]) => {
+          const m = probe!.mvp;
+          const w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15];
+          const nx = (m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12]) / w;
+          const ny = (m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13]) / w;
+          return [((nx + 1) / 2) * probe!.canvas.width, ((1 - ny) / 2) * probe!.canvas.height];
+        };
+        const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) <= 2;
+        expect(probe!.arms.length, `step ${step}: every axis drawn`).toBe(3);
+        const shot = await canvas.screenshot();
+        const samples: number[][] = [];
+        for (const arm of probe!.arms) {
+          const [from, to] = expected[arm.id].map(project);
+          expect(near(arm.from, from) && near(arm.to, to), `step ${step}: ${arm.id} on its box edge (${arm.from} -> ${arm.to} vs ${from} -> ${to})`).toBe(true);
+          for (const t of [0.3, 0.7]) samples.push([from[0] + t * (to[0] - from[0]), from[1] + t * (to[1] - from[1])]);
         }
+        const inked = await page.evaluate(
+          async ({ png, samples }) => {
+            const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
+            const ctx = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
+            ctx.drawImage(img, 0, 0);
+            const { data, width, height } = ctx.getImageData(0, 0, img.width, img.height);
+            return samples.map(([sx, sy]) => {
+              for (let dy = -3; dy <= 3; dy++)
+                for (let dx = -3; dx <= 3; dx++) {
+                  const px = Math.round(sx) + dx;
+                  const py = Math.round(sy) + dy;
+                  if (px < 0 || py < 0 || px >= width || py >= height) continue;
+                  const i = (py * width + px) * 4;
+                  if (data[i + 3] > 128 && data[i] + data[i + 1] + data[i + 2] < 3 * 200) return true;
+                }
+              return false;
+            });
+          },
+          { png: shot.toString("base64"), samples },
+        );
+        expect(inked, `step ${step}: ink along every axis`).toEqual(samples.map(() => true));
       }
-      expect(Math.min(left, right), "model ink on both sides of the height axis").toBeLessThan(20);
+      await page.mouse.up();
+      const turned = (await page.evaluate(() => (window as unknown as ProbeWindow).__orbitAzimuthDeg ?? 0)) - startAzimuth;
+      expect(Math.abs(turned), "a full orbit").toBeGreaterThanOrEqual(350);
     });
   }
 

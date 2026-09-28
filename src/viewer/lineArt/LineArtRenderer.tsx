@@ -49,6 +49,11 @@ export const DEFAULT_FILL = 0.75;
 // labels after it.
 export const DIMENSION_LINE_LAYER = 1;
 export const DIMENSION_LABEL_LAYER = 2;
+// The model's depth (the normal+depth pass's depth texture) while the
+// DIMENSION_LINE_LAYER overlay draws, as a shader uniform: the dimension
+// lines are drawn without a depth test and dim themselves where the model
+// hides them (issue #93).
+export const MODEL_DEPTH_UNIFORM: { value: THREE.Texture | null } = { value: null };
 // Line weight (thicken radius, CSS px) scales gently with the model's
 // on-screen diagonal (docs/research.md §10b), clamped so it stays a thin pen
 // line on small canvases and never fuses the groove rings on large ones.
@@ -720,6 +725,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
     const prevAutoClear = gl.autoClear;
     gl.autoClear = false;
     activeCamera.layers.set(DIMENSION_LINE_LAYER);
+    MODEL_DEPTH_UNIFORM.value = targets.normalDepth.depthTexture;
     gl.setRenderTarget(targets.output);
     gl.clearDepth();
     gl.render(scene, activeCamera);
