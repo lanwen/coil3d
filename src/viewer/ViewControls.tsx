@@ -14,14 +14,17 @@ export interface ViewControlsProps {
  * Camera-view overlay controls: three preset-view buttons -- Front, Iso and
  * Wall mount (issue #49 trimmed the original issue #15 bar of front/side/
  * top/iso down to just these, folding in the wall-mount preset that used to
- * live behind a separate toggle button) -- and a perspective/orthographic
- * toggle, the latter a boxed, labelled {@link EyeToggle} (issue #94: every
- * boolean toggle in the app, this one included, is now that one shared pill
- * switch -- checked = perspective, unchecked = orthographic -- rather than
- * its own converging/parallel-lines pictogram; issue #94 PR review: unlike
- * the bare switch the other two overlay toggles never had, this one needs
- * its own visible label and hint, since nothing else here hints at what a
- * bare switch would even mean). Purely a view concern:
+ * live behind a separate toggle button) -- and a perspective/isometric
+ * toggle (internally still the `ortho`/`perspective` `Projection` type --
+ * this app only ever frames the orthographic camera from the Iso preset's
+ * angle, which is what makes calling it "isometric" in the UI accurate),
+ * the latter a boxed, labelled {@link EyeToggle} (issue #94: every boolean
+ * toggle in the app, this one included, is now that one shared pill switch
+ * -- checked = perspective, unchecked = isometric -- rather than its own
+ * converging/parallel-lines pictogram; issue #94 PR review: unlike the bare
+ * switch the other two overlay toggles never had, this one needs its own
+ * visible label and hint, since nothing else here hints at what a bare
+ * switch would even mean). Purely a view concern:
  * LineArtRenderer owns the actual camera math this drives (see its
  * `preset`/`projection` props); CoilViewer owns the wall-mount geometry
  * rotation the "Wall mount" preset also triggers (see its `handlePresetChange`).
@@ -50,7 +53,7 @@ export function ViewControls({ preset, onPresetChange, projection, onProjectionC
           label="Perspective"
           checked={projection === "perspective"}
           hint={HINTS.projection}
-          title={projection === "ortho" ? "Switch to perspective" : "Switch to orthographic"}
+          title={projection === "ortho" ? "Switch to perspective" : "Switch to isometric"}
           onChange={(checked) => onProjectionChange(checked ? "perspective" : "ortho")}
         />
       </div>
