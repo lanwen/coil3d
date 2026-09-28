@@ -46,6 +46,8 @@ export const HINTS = {
   wire: "This shows or hides the schematic cable path wound around the core in the 3D view. It does not change the printed design.",
   dimensions: "This shows or hides the overall width, depth and height, in centimetres, drawn around the 3D view. It does not change the printed design.",
   exploded: "This pulls the parts apart in the 3D view so you can see how they fit together. It does not change the printed design.",
+  projection:
+    "This switches the 3D view's camera between orthographic (0: parallel lines never converge, so sizes stay true to scale) and perspective (1: like a real camera, closer parts look bigger). It does not change the printed design.",
   // Result-panel rows (issue #65): the wound cable's own outer size and the
   // flange's two outer-extent rows read as unrelated numbers unless a hint
   // spells out which of them are actually measured the same way.

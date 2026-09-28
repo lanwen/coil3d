@@ -842,8 +842,19 @@ header p {
   height: 8px;
 }
 
-/* The perspective/orthographic toggle (below the preset buttons) is the
-   plain shared `.switch` (issue #94) -- checked = perspective. */
+/* The perspective/orthographic toggle (below the preset buttons): a boxed
+   `EyeToggle` (issue #94 PR review -- a bare switch here had no label, so
+   nothing hinted what it even toggled), the same boxed look as the
+   wire/dimensions/exploded-view toggles (`.wire-toggle` & co. above), minus
+   their `position: absolute` -- this one sits in `.view-controls`'s own
+   flex column instead of being stacked over the canvas. Checked =
+   perspective. */
+.projection-toggle-box {
+  background: var(--paper);
+  padding: 6px 10px;
+  border-radius: 2px;
+  border: 1.5px solid var(--ink);
+}
 
 /* ---------- Advanced disclosure ---------- */
 
@@ -1120,7 +1131,8 @@ header p {
      the next. */
   .wire-toggle,
   .dimensions-toggle,
-  .explode-toggle {
+  .explode-toggle,
+  .projection-toggle-box {
     padding: 10px 12px;
   }
 

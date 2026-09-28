@@ -456,22 +456,29 @@ export function LockStepperField({
 }
 
 /**
- * A view-only visibility toggle (e.g. "show wound cable"/"Dimensions"/
- * "Exploded view" over the viewer): {@link Switch} plus its own trailing
- * text label -- replaces the old eye/crossed-out-eye pictogram (issue #16
- * review; issue #94 folded it into the one shared switch).
+ * A view-only toggle over the viewer (e.g. "show wound cable"/"Dimensions"/
+ * "Exploded view", and the camera's perspective/orthographic mode):
+ * {@link Switch} plus its own trailing text label -- replaces the old eye/
+ * crossed-out-eye pictogram (issue #16 review; issue #94 folded it, and
+ * every other overlay pictogram, into the one shared switch).
  */
 export function EyeToggle({
   testId,
   label,
   checked,
   hint,
+  title,
   onChange,
 }: {
   testId: string;
   label: string;
   checked: boolean;
   hint?: string;
+  /** Overrides the default "Show X"/"Hide X" tooltip -- for a call site
+   * that isn't a plain visibility toggle (issue #94 review: the
+   * perspective/orthographic toggle is a MODE switch, not a show/hide one,
+   * so "Hide perspective" would read wrong). */
+  title?: string;
   onChange: (checked: boolean) => void;
 }) {
   return (
@@ -480,7 +487,7 @@ export function EyeToggle({
         testId={`toggle-${testId}`}
         ariaLabel={label}
         checked={checked}
-        title={checked ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+        title={title ?? (checked ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`)}
         onChange={onChange}
       >
         <span className="eye-toggle-text">{label}</span>

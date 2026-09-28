@@ -1,4 +1,5 @@
-import { Switch } from "../components/fields";
+import { EyeToggle } from "../components/fields";
+import { HINTS } from "../components/hints";
 import { VIEW_PRESETS, type PresetId } from "./lineArt/presets";
 import type { Projection } from "./lineArt/LineArtRenderer";
 
@@ -14,10 +15,13 @@ export interface ViewControlsProps {
  * Wall mount (issue #49 trimmed the original issue #15 bar of front/side/
  * top/iso down to just these, folding in the wall-mount preset that used to
  * live behind a separate toggle button) -- and a perspective/orthographic
- * toggle, the latter the shared {@link Switch} (issue #94: every boolean
- * toggle in the app, this one included, is now that one pill component --
- * checked = perspective, unchecked = orthographic -- rather than its own
- * converging/parallel-lines pictogram). Purely a view concern:
+ * toggle, the latter a boxed, labelled {@link EyeToggle} (issue #94: every
+ * boolean toggle in the app, this one included, is now that one shared pill
+ * switch -- checked = perspective, unchecked = orthographic -- rather than
+ * its own converging/parallel-lines pictogram; issue #94 PR review: unlike
+ * the bare switch the other two overlay toggles never had, this one needs
+ * its own visible label and hint, since nothing else here hints at what a
+ * bare switch would even mean). Purely a view concern:
  * LineArtRenderer owns the actual camera math this drives (see its
  * `preset`/`projection` props); CoilViewer owns the wall-mount geometry
  * rotation the "Wall mount" preset also triggers (see its `handlePresetChange`).
@@ -40,13 +44,16 @@ export function ViewControls({ preset, onPresetChange, projection, onProjectionC
           </button>
         ))}
       </div>
-      <Switch
-        testId="toggle-projection"
-        ariaLabel="Perspective projection"
-        checked={projection === "perspective"}
-        title={projection === "ortho" ? "Switch to perspective" : "Switch to orthographic"}
-        onChange={(checked) => onProjectionChange(checked ? "perspective" : "ortho")}
-      />
+      <div className="projection-toggle-box">
+        <EyeToggle
+          testId="projection"
+          label="Perspective"
+          checked={projection === "perspective"}
+          hint={HINTS.projection}
+          title={projection === "ortho" ? "Switch to perspective" : "Switch to orthographic"}
+          onChange={(checked) => onProjectionChange(checked ? "perspective" : "ortho")}
+        />
+      </div>
     </div>
   );
 }
