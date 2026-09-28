@@ -98,6 +98,16 @@ export class StrokeBuilder {
     this.tri(p3, p2, p4);
   }
 
+  /** Filled disc facing the camera, centred on `at`. */
+  dot(at: THREE.Vector3, radiusPx: number) {
+    const u = this.perp(new THREE.Vector3().crossVectors(this.view, new THREE.Vector3(1, 0, 0)).lengthSq() > 1e-6 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0));
+    const v = new THREE.Vector3().crossVectors(this.view, u);
+    const r = radiusPx * this.pixel;
+    const steps = 16;
+    const rim = (i: number) => at.clone().addScaledVector(u, r * Math.cos((2 * Math.PI * i) / steps)).addScaledVector(v, r * Math.sin((2 * Math.PI * i) / steps));
+    for (let i = 0; i < steps; i++) this.tri(at, rim(i), rim(i + 1));
+  }
+
   /** Filled arrowhead with its tip at `tip`, pointing along `dir` (unit). */
   arrow(tip: THREE.Vector3, dir: THREE.Vector3, lengthPx: number, halfWidthPx: number) {
     const back = tip.clone().addScaledVector(dir, -lengthPx * this.pixel);
