@@ -318,8 +318,8 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // the assembled height of the cap's own mid-thickness. Computed
   // unconditionally, whether or not a top cap is actually built (see
   // wire.ts's `buildOuterEndLeadOut` doc comment).
-  const layerTransitions = buildLayerTransitions(wirePaths);
-  const outerEndLeadOut = buildOuterEndLeadOut(wirePaths, innerEndLayout.hole, solution.height + CAP_THICKNESS / 2);
+  const layerTransitions = buildLayerTransitions(wirePaths, solution.layerResults, outline, spec.windingQuality);
+  const outerEndLeadOut = buildOuterEndLeadOut(wirePaths, innerEndLayout.hole, solution.height + CAP_THICKNESS / 2, solution.layerResults, outline, spec.windingQuality);
 
   // Per-part bed-fit warnings (issue #10 AC): each part in ITS OWN print
   // orientation (printBBox reads printTransform, same as the STL/3MF
