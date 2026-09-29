@@ -23,10 +23,11 @@ import {
   SCREW_MOUNT_UNDERCUT_DEPTH,
   THROUGH_MOUNT_COUNTERBORE_MARGIN,
 } from "../src/core/constants";
-import { layoutKeyholeMount, layoutThroughHoleMount, requiredThroughMountMargin } from "../src/core/mount";
+import { layoutKeyholeMount, layoutThroughHoleMount, requiredFlangeMargin, requiredThroughMountMargin } from "../src/core/mount";
 import { layoutInnerEnd } from "../src/core/innerEnd";
 import { makeOutline, offsetOutline, radiusAtAngle } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
+import { bruteForceRadiusAtAngle, coarseOutlineScan } from "./support/bruteForceRadius";
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {
@@ -367,4 +368,84 @@ describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge, t
       });
     });
   });
+});
+
+// --- Issue #92: large flange margins and large corner radii ("big offsets")
+//
+// The clearance checks above route through `radiusAtAngle` on BOTH sides
+// (the layout functions AND the assertions), so a shared bug in that
+// function couldn't have shown up there -- self-consistent, not
+// independent. This describe instead checks every keyhole/through-hole
+// placement against test/support/bruteForceRadius.ts's own oracle (a direct
+// `pointAt` bisection, sharing none of `radiusAtAngle`'s classification
+// logic) -- AND drives the margin itself through mount.ts's own
+// `requiredFlangeMargin`/`requiredThroughMountMargin` (never a manually
+// chosen value), because that bisection is exactly where issue #92's bug
+// bit in practice: it calls `radiusAtAngle` in its own inner loop, so a
+// wrong classification there converges the search to a WRONG (too small)
+// margin instead of merely reporting a wrong number. Confirmed against this
+// exact test, pre-fix: `sq, cornerRadius=15, size=60, keyholeRotation=0`
+// converged `requiredFlangeMargin` to a margin that, measured against the
+// independent oracle, put the wall-side clearance at -7.76mm (the cut
+// actually broke through the wall's own outer surface) -- not merely
+// "less generous than it could be", a genuine violation of the >= 2mm
+// guarantee. Every combination below passes with the fix; this is the
+// regression guard that a future change to `radiusAtAngle` can't quietly
+// reopen it.
+describe("hard clearance holds through requiredFlangeMargin/requiredThroughMountMargin at large sizes and corner radii (issue #92)", () => {
+  const MIN_CLEARANCE = 2; // mm, same external requirement as the describe above
+  const KINDS = ["sq", "tri"] as const;
+  const SIZES = [30, 60, 100, 200, 400];
+  // Fractions of maxCornerRadius (size/2): spans small, moderate (the
+  // pre-fix failing case, cornerRadius=15 at size=60 is exactly crFrac=0.5),
+  // and near-fully-rounded corners -- the regime where `cornerRadius` grows
+  // large relative to `Rc` (see shapes.ts's `radiusAtAngle` doc comment).
+  const CR_FRACTIONS = [0.1, 0.3, 0.5, 0.7, 0.9, 0.99];
+
+  for (const kind of KINDS) {
+    describe(kind, () => {
+      describe.each(SIZES)("size=%dmm", (size) => {
+        describe.each(CR_FRACTIONS)("cornerRadius=%p * maxCornerRadius", (crFrac) => {
+          const cornerRadius = (size / 2) * crFrac;
+          const outline = makeOutline(kind, size, cornerRadius);
+          const boreOutline = makeOutline(kind, size * 0.7, cornerRadius * 0.7);
+          const wallScan = coarseOutlineScan(outline, 0);
+
+          for (const kr of [0, 45] as const) {
+            it(`keyhole mount, rotation=${kr}`, () => {
+              const margin = requiredFlangeMargin(outline, boreOutline, kr);
+              const layout = layoutKeyholeMount(outline, boreOutline, margin, kr);
+              expect(layout.slots.length).toBeGreaterThan(0); // requiredFlangeMargin's own contract: enough margin to place it
+              const flangeScan = coarseOutlineScan(outline, margin);
+              for (const slot of layout.slots) {
+                for (const p of [slot.head, slot.shankEnd]) {
+                  const r = Math.hypot(p.x, p.y);
+                  const phi = Math.atan2(p.y, p.x);
+                  const wallR = bruteForceRadiusAtAngle(wallScan, outline, 0, phi);
+                  const flangeR = bruteForceRadiusAtAngle(flangeScan, outline, margin, phi);
+                  expect(r - SCREW_MOUNT_HEAD_DIAMETER / 2 - wallR, `wall clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+                  expect(flangeR - (r + SCREW_MOUNT_HEAD_DIAMETER / 2), `flange-edge clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+                }
+              }
+            });
+          }
+
+          it("through-hole mount", () => {
+            const margin = requiredThroughMountMargin(outline, boreOutline, DEFAULT_THROUGH_HOLE_DIAMETER);
+            const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
+            expect(layout.holes.length).toBeGreaterThan(0);
+            const flangeScan = coarseOutlineScan(outline, margin);
+            for (const h of layout.holes) {
+              const r = Math.hypot(h.x, h.y);
+              const phi = Math.atan2(h.y, h.x);
+              const wallR = bruteForceRadiusAtAngle(wallScan, outline, 0, phi);
+              const flangeR = bruteForceRadiusAtAngle(flangeScan, outline, margin, phi);
+              expect(r - layout.counterboreRadius - wallR, `wall clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+              expect(flangeR - (r + layout.counterboreRadius), `flange-edge clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+            }
+          });
+        });
+      });
+    });
+  }
 });
