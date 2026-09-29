@@ -199,55 +199,17 @@ describe("issue #55: the joint collar stays one connected, printable part for ev
   });
 });
 
-describe("top cap rim keyhole (issue #9)", () => {
-  it("removes real material from the plate (the cutout, not a no-op)", async () => {
-    const wireDiameter = 3.8;
-    const tolerance = 0.2;
-    const d = await design(
-      baseSpec({
-        wire: { length: 6000, diameter: wireDiameter, type: "usb" },
-        coreSize: { locked: true, dimension: "outer", value: 60 },
-        height: { locked: true, value: 60 },
-        layers: { locked: true, value: 2 },
-        tolerance,
-      }),
-    );
-    const cap = d.parts.find((p) => p.role === "topCap")!;
-    const actualVolume = await assertManifold(cap.mesh, "keyhole cap");
-
-    // Loose analytic bound (annulus ring + a plain collar cylinder, no
-    // keyhole, no lugs/hooks): the true volume must be measurably smaller,
-    // by roughly the keyhole hole+slit's own volume (a few tens of mm^3),
-    // never by more than a generous multiple of it (which would mean far
-    // too much material vanished -- a sign of a bigger geometry bug).
-    const holeRadius = wireDiameter / 2 + tolerance;
-    const roughKeyholeVolume = Math.PI * holeRadius * holeRadius * 3; // CAP_THICKNESS
-    expect(actualVolume).toBeLessThan(1e9); // sanity: still finite/positive (assertManifold already checks > 0)
-    expect(roughKeyholeVolume).toBeGreaterThan(0);
-  });
-
-  it("scales the hole with wire diameter and tolerance (bigger cable -> bigger cap volume difference is at least non-negative, i.e. never smaller cutout for a fatter cable)", async () => {
-    const specFor = (diameter: number) =>
-      baseSpec({
-        wire: { length: 6000, diameter, type: "usb" },
-        coreSize: { locked: true, dimension: "outer", value: 60 },
-        height: { locked: true, value: 60 },
-        layers: { locked: true, value: 2 },
-      });
-    const thin = await design(specFor(2));
-    const thick = await design(specFor(8));
-    const thinCap = thin.parts.find((p) => p.role === "topCap")!.mesh;
-    const thickCap = thick.parts.find((p) => p.role === "topCap")!.mesh;
-    const thinVolume = await assertManifold(thinCap, "thin keyhole cap");
-    const thickVolume = await assertManifold(thickCap, "thick keyhole cap");
-    // Both are valid, positive-volume manifolds; the exact relationship
-    // between the two total volumes also depends on the (different) solved
-    // envelope, so this only asserts both hole cutters actually ran (no crash,
-    // no zero/negative volume) rather than a specific volume ordering.
-    expect(thinVolume).toBeGreaterThan(0);
-    expect(thickVolume).toBeGreaterThan(0);
-  });
-});
+// Test-audit report, C-A (A1/A2): this describe used to hold two tests here
+// ("removes real material from the plate", "scales the hole with wire
+// diameter and tolerance") that only asserted `assertManifold`'s own
+// manifold/volume>0 check plus a self-computed constant, never anything
+// about the cutout actually being cut or its size tracking wire diameter --
+// see their own comments ("this only asserts ... rather than a specific
+// volume ordering"). Manifoldness on this exact 60/100/2-layer keyhole spec
+// is already covered by the joint x shape sweep above (issue #9, "every part
+// stays a valid, watertight manifold"); the cutout's actual size vs. wire
+// diameter/tolerance is owned by test/innerEnd.test.ts and by e2e
+// top-cap.spec.ts's keyhole close-up screenshot.
 
 describe("exportDesign for a two-part design (issue #9)", () => {
   const twoPartSpec = baseSpec({
@@ -398,17 +360,16 @@ describe("issue #67: the top cap rests on one flat annulus, with nothing below i
     return minZ;
   }
 
-  // AC: "No feature protrudes below that face" -- after `bedRestingTransform`
-  // the global min Z is exactly 0 by construction, so this checks there is
-  // no OTHER vertex meaningfully below 0 (which would be impossible unless
-  // something is numerically inconsistent) as an explicit, direct guard --
-  // not just an inference from the flat-area fraction above.
-  function belowRestingPlane(positions: Float32Array): number {
-    const EPS = 1e-3;
-    let count = 0;
-    for (let i = 2; i < positions.length; i += 3) if (positions[i] < -EPS) count++;
-    return count;
-  }
+  // Test-audit report, C-A (A3): this used to also have a `belowRestingPlane`
+  // helper + `expect(belowRestingPlane(resting.positions)).toBe(0)` alongside
+  // every `flatArea` check below. `bedRestingTransform` (plate.ts) translates
+  // by `-printBBox(part).minZ`, so the resting mesh's global min Z is 0 BY
+  // CONSTRUCTION -- that assertion was a self-comparison against the same
+  // transform under test, not an independent geometry check (its own comment
+  // said a failure was "impossible unless something is numerically
+  // inconsistent"). A real protruding feature is still caught below: it would
+  // become the new min Z and shrink the flat annulus's own area, failing the
+  // `flatArea >= 90%` assertion these tests already make.
 
   describe.each(JOINTS)("joint = %s", (joint) => {
     it.each(SHAPES)("$kind, no label: the flat resting face covers >= 90% of the annulus, nothing protrudes below it", async (shape) => {
@@ -426,7 +387,6 @@ describe("issue #67: the top cap rests on one flat annulus, with nothing below i
       const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
       const minZ = minZOf(resting.positions);
       expect(flatArea(resting, minZ) / annulusArea(d)).toBeGreaterThanOrEqual(0.9);
-      expect(belowRestingPlane(resting.positions)).toBe(0);
     });
 
     it.each(SHAPES)("$kind, with a label: the flat resting face still covers >= 90% of the annulus, nothing protrudes below it", async (shape) => {
@@ -445,7 +405,6 @@ describe("issue #67: the top cap rests on one flat annulus, with nothing below i
       const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
       const minZ = minZOf(resting.positions);
       expect(flatArea(resting, minZ) / annulusArea(d)).toBeGreaterThanOrEqual(0.9);
-      expect(belowRestingPlane(resting.positions)).toBe(0);
     });
   });
 
@@ -467,6 +426,5 @@ describe("issue #67: the top cap rests on one flat annulus, with nothing below i
     const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
     const minZ = minZOf(resting.positions);
     expect(flatArea(resting, minZ) / annulusArea(d)).toBeGreaterThanOrEqual(0.9);
-    expect(belowRestingPlane(resting.positions)).toBe(0);
   });
 });

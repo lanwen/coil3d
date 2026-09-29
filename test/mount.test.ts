@@ -20,11 +20,10 @@ import {
   SCREW_MOUNT_RECESS_DEPTH,
   SCREW_MOUNT_SHANK_DIAMETER,
   SCREW_MOUNT_SLOT_DEPTH,
-  SCREW_MOUNT_TWO_SLOT_ANGLE,
   SCREW_MOUNT_UNDERCUT_DEPTH,
   THROUGH_MOUNT_COUNTERBORE_MARGIN,
 } from "../src/core/constants";
-import { bestAxisDeg, layoutKeyholeMount, layoutThroughHoleMount, requiredThroughMountMargin } from "../src/core/mount";
+import { layoutKeyholeMount, layoutThroughHoleMount, requiredThroughMountMargin } from "../src/core/mount";
 import { layoutInnerEnd } from "../src/core/innerEnd";
 import { makeOutline, offsetOutline, radiusAtAngle } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
@@ -51,40 +50,34 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 // --- Issue #71: keyhole rotation -----------------------------------------
 
 describe("keyhole mount rotation (issue #71)", () => {
-  // A square's own natural axes are 45 degrees apart (corner, then side
-  // midpoint, alternating -- mount.ts's file header); which one wins depends
-  // on both `keyholeRotation` and the 2-slot fan angle together (the search
-  // evaluates each candidate's own FANNED cost, not just its unfanned one --
-  // see `bestAxisDeg`'s doc comment), so this checks the actual 2-slot case
-  // a 100mm square flange uses (>= SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD),
-  // where rotation 0 vs 45 provably land on different axes (verified
-  // empirically against this exact shape, not assumed).
-  it("bestAxisDeg re-centres its search on keyholeRotation instead of literal vertical", () => {
-    const square = makeOutline("sq", 100, 15);
-    const axis0 = bestAxisDeg(square, SCREW_MOUNT_TWO_SLOT_ANGLE, 0);
-    const axis45 = bestAxisDeg(square, SCREW_MOUNT_TWO_SLOT_ANGLE, 45);
-    expect(axis45).not.toBeCloseTo(axis0, 6);
-    // Every result is still one of the shape's own genuine mirror axes
-    // (see candidateAxisDegs's own doc comment) -- both land on a multiple
-    // of 45 degrees for this square.
-    expect(axis0 % 45).toBeCloseTo(0, 6);
-    expect(axis45 % 45).toBeCloseTo(0, 6);
-  });
-
-  it("design()'s mountAxisDeg follows spec.keyholeRotation (0 vs 45 place the 2-slot mount on a different axis), and the mount still fits (still hangs level)", async () => {
+  // Test-audit report, C-B (B1+B2): this describe used to also have a
+  // "bestAxisDeg re-centres its search on keyholeRotation instead of literal
+  // vertical" test that called `bestAxisDeg` directly, and the test below
+  // derived its `expectedAxis` for `layout.axisDeg`/`d.mountAxisDeg` the same
+  // way -- so both checks were really `bestAxisDeg` agreeing with itself.
+  // Moved onto the public `design()` boundary: `layoutKeyholeMount`'s own
+  // axis must equal `design()`'s surfaced `d.mountAxisDeg` (the real
+  // cross-backend contract this repo cares about -- what design() reports
+  // is what the cutters actually use), and the "genuine mirror axis" check
+  // (a square's own natural axes are 45 degrees apart -- mount.ts's file
+  // header) now reads `d.mountAxisDeg` itself, not a value the helper under
+  // test produced.
+  it("design()'s mountAxisDeg follows spec.keyholeRotation (0 vs 45 place the 2-slot mount on a different axis), agrees with layoutKeyholeMount's own axis, and the mount still fits (still hangs level)", async () => {
     const axes: Record<number, number> = {};
     for (const kr of [0, 45] as const) {
       const d = await design(baseSpec({ shape: { kind: "sq", cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 100 }, mount: "keyhole", keyholeRotation: kr }));
       expect(d.warnings.some((w) => /too narrow/i.test(w))).toBe(false);
       const layout = layoutKeyholeMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, kr);
       expect(layout.slots).toHaveLength(2); // this flange is well above the 2-slot threshold, for every rotation
-      // The SAME "does it actually use the 2-slot fan angle" derivation
-      // design.ts/mount.ts themselves use, cross-checked against both the
-      // layout's own reported axis and design()'s surfaced `mountAxisDeg`.
-      const expectedAxis = bestAxisDeg(d.flangeSpec.boreOutline, SCREW_MOUNT_TWO_SLOT_ANGLE, kr);
-      expect(layout.axisDeg).toBeCloseTo(expectedAxis, 6);
-      expect(d.mountAxisDeg).toBeCloseTo(expectedAxis, 6);
-      axes[kr] = expectedAxis;
+      // The real cross-backend contract: design()'s own surfaced axis is
+      // what the mount layout actually used.
+      expect(d.mountAxisDeg).not.toBeUndefined();
+      expect(layout.axisDeg).toBeCloseTo(d.mountAxisDeg!, 6);
+      // Both rotations still land on one of the shape's own genuine mirror
+      // axes (see candidateAxisDegs's own doc comment) -- a multiple of 45
+      // degrees for this square.
+      expect(d.mountAxisDeg! % 45).toBeCloseTo(0, 6);
+      axes[kr] = d.mountAxisDeg!;
 
       // Still hangs level regardless of rotation: each slot's own channel
       // points literally up (mount.ts's WALL_UP convention -- see

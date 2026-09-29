@@ -176,20 +176,17 @@ describe("inner-end fixing: bottom rim keyhole and channel (issue #8)", () => {
     expect(thin - thick).toBeGreaterThan(20); // a few tens of mm^3, comfortably more than mesh noise
   });
 
-  it("the mount's own recess (issue #13) grows the flange thickness further (issue #43), so the channel still reaches its ideal depth", async () => {
-    const none = await design(baseSpec({ mount: "none", coreSize: { locked: true, dimension: "outer", value: 100 }, height: { locked: true, value: 60 } }));
-    const keyhole = await design(baseSpec({ mount: "keyhole", coreSize: { locked: true, dimension: "outer", value: 100 }, height: { locked: true, value: 60 } }));
-    // Issue #43: the flange is now thick enough for the full-depth channel
-    // PLUS the mount's own recess (design.ts), rather than issue #13's
-    // original choice of capping the channel to whatever a fixed
-    // MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT left over -- so the keyhole
-    // design's flange is thicker than "none"'s, but NEITHER design warns
-    // about a shallow channel any more.
-    expect(keyhole.flangeSpec.thickness).toBeGreaterThan(none.flangeSpec.thickness);
-    expect(keyhole.warnings.some((w) => /channel is only .* mm deep/i.test(w))).toBe(false);
-    expect(none.warnings.some((w) => /channel is only .* mm deep/i.test(w))).toBe(false);
-    await assertManifold(keyhole.mesh, "mount + inner-end channel");
-  });
+  // Test-audit report, C-C: this used to also have "the mount's own recess
+  // (issue #13) grows the flange thickness further (issue #43), so the
+  // channel still reaches its ideal depth". Its thickness assertion
+  // (keyhole > none, core=100/height=60) duplicated
+  // test/design.test.ts's own "bumps the flange's thickness and margin (and
+  // warns)..." on the identical spec, and its manifold check on the same
+  // round/100/60/usb keyhole spec duplicated test/geometry.test.ts's issue
+  // #43 single-piece-manifold sweep. The one thing only this test checked --
+  // that the "channel is only ... mm deep" warning must NOT fire, for either
+  // design -- moved into design.test.ts's test alongside those same
+  // assertions.
 
   it("the wound-cable schematic's lead-in starts at the keyhole and ends EXACTLY at layer 1's own first sample (issue #68)", async () => {
     const d = await design(baseSpec());
