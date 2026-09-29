@@ -99,7 +99,13 @@ export function ControlsForm({
   // possibly-drifting copy of that math. Round has no corner radius at all;
   // `solution` is undefined only before the very first solve, when 0 (no
   // floor yet known) is a safe placeholder.
-  const cornerRadiusMin = spec.shape.kind === "round" ? 0 : (solution?.cornerRadiusRange[0] ?? 0);
+  //
+  // PR review: rounded UP (never to the nearest, which could round DOWN
+  // past the true floor) to the field's own 0.5mm step, so the displayed
+  // min-note and the field's own clamped value always agree, and neither
+  // can ever read as below the real, unrounded floor.
+  const cornerRadiusMinRaw = spec.shape.kind === "round" ? 0 : (solution?.cornerRadiusRange[0] ?? 0);
+  const cornerRadiusMin = Math.ceil(cornerRadiusMinRaw / 0.5) * 0.5;
 
   // Issue #105 AC #5: "enabled" tracks whether the user switched the label
   // ON, not whether it currently has text -- an empty label while the
@@ -143,20 +149,26 @@ export function ControlsForm({
   // slider's own minimum follows that (never lets the user drag below a
   // size the solver would just raise anyway); `solution` is undefined only
   // before the very first solve, when 5mm is as good a placeholder as any.
-  const outerSizeMin = spec.shape.kind === "round" ? 5 : Math.max(5, solution?.minOuterSizeForShape ?? 5);
-  // The solver silently raises a LOCKED size below that floor (with its own
-  // warning in the Result panel) -- the input itself still shows the raw
-  // value the user typed (never swapped out from under them mid-edit, which
-  // would fight typing), but this note next to it says plainly what the
-  // real minimum is (issue #105 AC #2: the old "Built at X mm, not Y mm"
-  // wording repeated a rounded number that sometimes printed identically
-  // twice, which read as a bug rather than an explanation -- this shows the
-  // ONE number that matters, the floor itself, never the user's own
-  // already-visible request).
-  const coreSizeRaised =
-    spec.shape.kind !== "round" && spec.coreSize.locked && solution && solution.outerSize > spec.coreSize.value + 0.05
-      ? { built: solution.outerSize }
-      : undefined;
+  //
+  // PR review: rounded to the SAME whole/half-mm precision the field
+  // already shows a free (solver-set) size at (`roundMm`, issue #72 AC) --
+  // matching that existing convention, rather than a stricter ceiling, so
+  // this reads exactly like every other core-size number in the app.
+  // `LockRangeField` clamps the FIELD's own displayed value (and every
+  // edit) to this exact number, so the field can never show a stale/
+  // shared-link request below it -- it always shows the effective size,
+  // matching the note below. (A locked value can, in rare cases, still be a
+  // hair's-width under the solver's own unrounded floor after this rounding
+  // -- the solver's existing "Core size raised from X to Y" warning already
+  // covers that residual, sub-millimetre gap.)
+  const outerSizeMin = spec.shape.kind === "round" ? 5 : roundMm(Math.max(5, solution?.minOuterSizeForShape ?? 5));
+  // A LOCKED size below that floor only reaches the spec via a shared link
+  // predating this clamp (any edit through the UI is clamped immediately,
+  // by `LockRangeField` above) -- this note explains why the field's own
+  // displayed value doesn't match what that link asked for. Both the field
+  // and this note read off the SAME `outerSizeMin`, so they can never
+  // disagree (issue #105 PR review).
+  const coreSizeRaised = spec.shape.kind !== "round" && spec.coreSize.locked && spec.coreSize.value < outerSizeMin - 0.05;
 
   // "Advanced settings" (winding quality, custom bend multiplier, objective)
   // stay collapsed behind a disclosure (issue #16 AC) so the form isn't a
@@ -240,9 +252,14 @@ export function ControlsForm({
             min={cornerRadiusMin}
             max={250}
             step={0.5}
-            value={spec.shape.cornerRadius}
+            // PR review: the FIELD must show the effective (clamped) value,
+            // never a stale/shared-link request below the bend-limit floor
+            // -- `cornerRadiusMin` is already the safe, rounded-UP floor
+            // (never below the true one), so this can't drift from the
+            // min-note's own number below.
+            value={Math.max(cornerRadiusMin, spec.shape.cornerRadius)}
             hint={HINTS.shapeCornerRadius}
-            minNote={cornerRadiusMin > 0.05 ? `Minimum for this cable's bend limit: ${roundMm(cornerRadiusMin)} mm` : undefined}
+            minNote={cornerRadiusMin > 0.05 ? `Minimum for this cable's bend limit: ${cornerRadiusMin} mm` : undefined}
             onChange={setShapeCornerRadius}
           />
         )}
@@ -277,7 +294,7 @@ export function ControlsForm({
         />
         {coreSizeRaised && (
           <p className="field-note" data-testid="core-size-raised-note">
-            Minimum for this {SHAPES[spec.shape.kind].label.toLowerCase()} shape and cable: {roundMm(coreSizeRaised.built)} mm. Your value was raised to it.
+            Minimum for this {SHAPES[spec.shape.kind].label.toLowerCase()} shape and cable: {outerSizeMin} mm. Your value was raised to it.
           </p>
         )}
         <LockRangeField

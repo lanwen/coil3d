@@ -394,6 +394,7 @@ export function LockRangeField({
   step,
   freeValue,
   hint,
+  minNote,
   onChange,
 }: {
   testId: string;
@@ -405,6 +406,7 @@ export function LockRangeField({
   step: number;
   freeValue: number;
   hint?: string;
+  minNote?: string;
   onChange: (lock: Lock<number>) => void;
 }) {
   // Issue #72 AC: "the spec stores rounded values when the user edits" --
@@ -412,22 +414,32 @@ export function LockRangeField({
   // value typed into the paired number input (which, unlike the slider,
   // isn't clamped to `step` by the browser) can never push a long decimal
   // into the spec.
-  const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? lock.value : roundMm(freeValue) } : { locked: false });
+  //
+  // Issue #105 PR review: `Math.max(min, ...)` is the OUTERMOST step in
+  // both the display value and every edit path (toggle-on and typed/dragged
+  // edits), so the field can never show -- or be pushed to -- a number
+  // below `min` (the shape's own bend-limit floor, for the core-size
+  // field). This also covers a shared link whose stored value predates this
+  // clamp: the field always DISPLAYS the effective (clamped) value, never
+  // the raw, too-small stored one, even before the user touches it.
+  const displayValue = lock.locked ? Math.max(min, roundMm(lock.value)) : roundMm(freeValue);
+  const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? Math.max(min, roundMm(lock.value)) : roundMm(freeValue) } : { locked: false });
   const setValue = (value: number) => {
-    if (lock.locked) onChange({ locked: true, value: roundMm(value) });
+    if (lock.locked) onChange({ locked: true, value: Math.max(min, roundMm(value)) });
   };
   return (
     <RangeField
       testId={testId}
       label={label}
       unit={unit}
-      value={lock.locked ? lock.value : roundMm(freeValue)}
+      value={displayValue}
       min={min}
       max={max}
       step={step}
       disabled={!lock.locked}
       leading={<LockToggle testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
       hint={hint}
+      minNote={minNote}
       onChange={setValue}
     />
   );
