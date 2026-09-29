@@ -71,7 +71,13 @@ export default defineConfig({
     toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
   },
   webServer: {
-    command: `npm run build && npm run preview -- --port ${PORT} --strictPort`,
+    // `npm run build` is `tsc -b && vite build`, but typechecking isn't this
+    // job's contract -- `npx tsc -b` already runs as its own, separate proof
+    // step (see the repo's test-audit S3 finding: every e2e run paid for a
+    // redundant typecheck here on top of that). `vite build` alone still
+    // gives the e2e suite the real production bundle, just without paying
+    // for tsc a second time.
+    command: `npx vite build && npx vite preview --port ${PORT} --host 0.0.0.0 --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

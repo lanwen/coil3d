@@ -90,34 +90,13 @@ test("the keyhole-mount core renders, stays manifold end to end, and both STL an
 // mount-side ("what the wall sees") camera view no longer exists in the
 // interactive viewer at all -- it stays available in the assembly guide
 // (`guide/Guide.tsx`'s `StepMountKeyhole`, which never used this viewer's
-// preset bar in the first place). The `?debugAxis=1` screenshot-only debug
-// overlay existed solely to check that now-removed mount-side preset's slot
-// symmetry, so it (and this test) went with it.
-test("the wall-mount preset changes the render and shows its own caption", async ({ page }) => {
-  await page.goto(`/${KEYHOLE_HASH}`);
-  const canvas = page.getByTestId("coil-viewer").locator("canvas");
-  await expect(canvas).toBeVisible();
-  // Wait for the FINAL-resolution mesh before settling: the draft->final
-  // swap (issue #7) is CPU-time-, not wall-clock-bound, so a fixed sleep
-  // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
-  // gotoDesign, issue #61/#62, for the full story).
-  await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(500); // let the pipeline settle a few frames, matching e2e/line-art.spec.ts
-
-  await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);
-  const standing = await canvas.screenshot();
-
-  // Wall mount (the coil as it hangs, flange against the wall, top cap
-  // facing the room).
-  await page.getByTestId("preset-wallRoom").click();
-  await expect(page.getByTestId("wall-view-caption")).toHaveText(/top cap faces the room/i);
-  await page.waitForTimeout(900);
-  const wallRoom = await canvas.screenshot();
-  expect(wallRoom.equals(standing), "the wall-mount preset must change the render").toBe(false);
-
-  await page.getByTestId("preset-iso").click();
-  await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);
-});
+// preset bar in the first place).
+//
+// The wall-mount preset's own render/caption behavior on this identical
+// keyhole hash is covered by e2e/view-controls.spec.ts ("front, iso and
+// wall-mount each render a distinct view" and "the wall-mount preset shows a
+// caption; front/iso don't") and e2e/mount-plate.spec.ts, so it isn't
+// re-asserted here.
 
 // Issue #71 acceptance criteria: a `keyholeRotation` 0/45 option in the
 // UI/hash, with a hint, that follows through to the geometry (and the
@@ -196,6 +175,16 @@ test.describe("through-hole mount (issue #70)", () => {
     await expect(page.getByTestId("input-throughHoleDiameter")).toHaveValue("6");
   });
 
+  // "also works for square and triangle cores" used to live here as a
+  // second `page.goto` inside the same test, one per shape -- but a
+  // hash-only `page.goto` is a same-document navigation, and the app only
+  // reads the hash at mount (App.tsx's `readInitialState`, no `hashchange`/
+  // `popstate` listener), so the second iteration silently kept re-testing
+  // the FIRST shape's already-loaded state. The real per-shape placement
+  // math (one hole per corner) is owned by test/mount.test.ts ("places one
+  // hole per corner for square/triangle", the through-hole mesh genus checks
+  // and the hard-clearance sq/tri matrix); the browser wiring for the
+  // through-hole mount is already covered by the two tests around this one.
   test("the through-hole mount core renders, stays manifold end to end, and both STL and STEP download", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (msg) => {
@@ -221,17 +210,5 @@ test.describe("through-hole mount (issue #70)", () => {
     expect(await step.path()).toBeTruthy();
 
     expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
-  });
-
-  test("also works for square and triangle cores (one hole per corner)", async ({ page }) => {
-    for (const shape of ["sq", "tri"]) {
-      await page.goto(`/${BASE_HASH}&shape=${shape}`);
-      await page.getByTestId("select-mount").selectOption("through");
-      await expect(async () => {
-        expect(decodeHashDoc(page.url()).mount).toBe("through");
-      }).toPass();
-      await expect(page.getByTestId("warnings")).not.toContainText(/too narrow/i);
-      await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
-    }
   });
 });

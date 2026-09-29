@@ -79,10 +79,10 @@ interface Ink {
   box: { left: number; top: number; right: number; bottom: number } | null;
   /** Ink pixels inside any of the given rects. */
   inRects: number;
-  /** The mask itself, row-major, 1 = ink -- for comparing two views. */
-  mask: number[];
-  /** The model's own ink (dark pixels with the axes off), same layout. */
-  modelMask: number[];
+  /** The mask itself, row-major, 1 = ink -- for comparing two views. Only
+   * built when `includeMask` is requested (most callers only need `count`/
+   * `box`/`inRects`, and the mask is a full `width * height` array). */
+  mask: number[] | null;
   width: number;
   height: number;
 }
@@ -90,8 +90,10 @@ interface Ink {
 /** The canvas's pixels that change when the dimension axes are toggled off
  * (the camera stays put), i.e. the axes' own ink, in canvas CSS px. The
  * toggle itself sits over the canvas and changes its own icon, so its box
- * is left out. */
-async function dimensionInk(page: Page, rects: Rect[] = []): Promise<Ink> {
+ * is left out. Pass `includeMask` to also get the full per-pixel mask (only
+ * the "bolder than the model's lines" and "rotate with the model" checks
+ * need it, to compare masks pixel-for-pixel). */
+async function dimensionInk(page: Page, rects: Rect[] = [], includeMask = false): Promise<Ink> {
   const canvas = page.getByTestId("coil-viewer").locator("canvas");
   const canvasBox = (await canvas.boundingBox())!;
   const toggleBox = (await page.locator(".dimensions-toggle").boundingBox())!;
@@ -103,7 +105,7 @@ async function dimensionInk(page: Page, rects: Rect[] = []): Promise<Ink> {
   await page.getByTestId("toggle-dimensions").check();
   await page.waitForTimeout(300);
   return page.evaluate(
-    async ({ a, b, rects, ignore }) => {
+    async ({ a, b, rects, ignore, includeMask }) => {
       const decode = async (b64: string) => {
         const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
         const img = await createImageBitmap(blob, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
@@ -113,27 +115,25 @@ async function dimensionInk(page: Page, rects: Rect[] = []): Promise<Ink> {
       };
       const [pa, pb] = [await decode(a), await decode(b)];
       const { width, height } = pa;
-      const mask = new Array<number>(width * height).fill(0);
-      const modelMask = new Array<number>(width * height).fill(0);
+      const mask = includeMask ? new Array<number>(width * height).fill(0) : null;
       let count = 0;
       let inRects = 0;
       let box: { left: number; top: number; right: number; bottom: number } | null = null;
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
           const i = (y * width + x) * 4;
-          if (pb.data[i + 3] > 128 && pb.data[i] + pb.data[i + 1] + pb.data[i + 2] < 3 * 128) modelMask[y * width + x] = 1;
           const d = Math.abs(pa.data[i] - pb.data[i]) + Math.abs(pa.data[i + 1] - pb.data[i + 1]) + Math.abs(pa.data[i + 2] - pb.data[i + 2]);
           if (d < 120) continue;
           if (x >= ignore.x && x < ignore.x + ignore.width && y >= ignore.y && y < ignore.y + ignore.height) continue;
-          mask[y * width + x] = 1;
+          if (mask) mask[y * width + x] = 1;
           count++;
           box = box ? { left: Math.min(box.left, x), top: Math.min(box.top, y), right: Math.max(box.right, x), bottom: Math.max(box.bottom, y) } : { left: x, top: y, right: x, bottom: y };
           if (rects.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height)) inRects++;
         }
       }
-      return { count, box, inRects, mask, modelMask, width, height };
+      return { count, box, inRects, mask, width, height };
     },
-    { a: withAxes.toString("base64"), b: without.toString("base64"), rects, ignore },
+    { a: withAxes.toString("base64"), b: without.toString("base64"), rects, ignore, includeMask },
   );
 }
 
@@ -249,12 +249,12 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     // In Front the height axis is a vertical line beside the model: the ink
     // run it leaves across a row above its label (centred on it) is its
     // stroke width.
-    const ink = await dimensionInk(page);
+    const ink = await dimensionInk(page, [], true);
     const y = Math.round(ink.height * 0.3);
     const runs: number[] = [];
     let run = 0;
     for (let x = 0; x < ink.width; x++) {
-      if (ink.mask[y * ink.width + x]) run++;
+      if (ink.mask![y * ink.width + x]) run++;
       else if (run) {
         runs.push(run);
         run = 0;
@@ -267,7 +267,7 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
 
   test("the axes rotate with the model: an orbit moves their ink, and they stay drawn", async ({ page }) => {
     await gotoDesign(page, ROUND_CAP);
-    const before = await dimensionInk(page);
+    const before = await dimensionInk(page, [], true);
     const box = (await page.getByTestId("coil-viewer").locator("canvas").boundingBox())!;
     const cx = box.x + box.width / 2;
     const cy = box.y + box.height / 2;
@@ -276,10 +276,10 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     await page.mouse.move(cx + 220, cy + 40, { steps: 8 });
     await page.mouse.up();
     await page.waitForTimeout(400);
-    const after = await dimensionInk(page);
+    const after = await dimensionInk(page, [], true);
     expect(after.count).toBeGreaterThan(800);
     let shared = 0;
-    for (let i = 0; i < before.mask.length; i++) if (before.mask[i] && after.mask[i]) shared++;
+    for (let i = 0; i < before.mask!.length; i++) if (before.mask![i] && after.mask![i]) shared++;
     expect(shared / before.count, "most of the axes' ink moved").toBeLessThan(0.5);
   });
 

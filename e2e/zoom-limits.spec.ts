@@ -49,6 +49,14 @@ const TICKS = 60;
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
+  // Wait for the FINAL-resolution mesh before settling: the draft->final
+  // swap (issue #7) is CPU-time-, not wall-clock-bound, so a fixed sleep
+  // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
+  // gotoDesign, issue #61/#62, for the full story). This suite's baseline
+  // screenshots were always taken against the final mesh; without this wait
+  // a slow/loaded run could take its "before" capture off the draft mesh
+  // instead, which is a determinism risk, not a speed one.
+  await expect(page.getByTestId("download-stl")).toBeEnabled();
   await page.waitForTimeout(1000);
 }
 

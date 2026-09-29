@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 // End-to-end checks for issue #79: the "Front" preset must face a FLAT side
 // for square/triangle cores, not a corner. Before this fix, shapes.ts's own
@@ -12,10 +12,21 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 // are unaffected (vitest coverage is unchanged) -- this is purely a viewer
 // presentation fix (frontFacing.ts), so these checks live at the viewer
 // seam, alongside dimensions.spec.ts's own preset/axis coverage.
+//
+// A numeric "sanity net" alongside these screenshots used to read the
+// `dimension-*` result-panel labels at Front/Iso, but those values come from
+// `measureDimensionFrame(parts, viewMode === "standing" ? ... : undefined)`
+// (CoilViewer.tsx), which depends only on `viewMode` -- Front and Iso are
+// both "standing" -- and never on the actual camera preset. So that check
+// couldn't fail on a #79 regression (a camera facing the wrong direction
+// still reports the same "standing" dimensions); the name "Iso sits 45
+// degrees off" promised a camera-angle check it never made. The real,
+// camera-aware #79 guard is the screenshot baselines below: they capture the
+// actual rendered silhouette under the live Front/Iso camera, which is
+// exactly what regresses if a corner faces the camera again.
 
 const SQUARE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=sq&sq.rc=15";
 const TRIANGLE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=tri&tri.rc=15";
-const ROUND = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on";
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -29,75 +40,7 @@ async function showPreset(page: Page, preset: "front" | "iso" | "wallRoom") {
   await page.waitForTimeout(600);
 }
 
-async function readText(locator: Locator): Promise<string> {
-  return (await locator.textContent()) ?? "";
-}
-
-function toCm(text: string): number {
-  const match = text.match(/(-?\d+(?:\.\d+)?)\s*(mm|cm)/i);
-  if (!match) throw new Error(`unrecognized dimension value: ${text}`);
-  const value = Number(match[1]);
-  return match[2].toLowerCase() === "mm" ? value / 10 : value;
-}
-
-async function dimensionCm(page: Page, which: "width" | "depth" | "height"): Promise<number> {
-  return toCm(await readText(page.getByTestId(`dimension-${which}`)));
-}
-
 test.describe("Front view faces a flat, not a corner (issue #79)", () => {
-  for (const [label, hash] of [
-    ["square", SQUARE],
-    ["triangle", TRIANGLE],
-  ] as const) {
-    test(`${label} core: Front reads a single, bounded width (not a corner-driven mismatch)`, async ({ page }) => {
-      await gotoDesign(page, hash);
-      const acrossFlatsCm = toCm(await readText(page.getByTestId("flange")));
-      const acrossCornersCm = toCm(await readText(page.getByTestId("flange-across-corners")));
-
-      await showPreset(page, "front");
-      const width = await dimensionCm(page, "width");
-      // A square's front elevation IS exactly its across-flats width (two
-      // true opposite flats, one facing the camera, one facing away) --
-      // the tight tolerance dimensions.spec.ts already holds it to. A
-      // triangle has no opposite flat to match squarely against: facing ONE
-      // flat at the camera, its own silhouette width is widened by the TWO
-      // flanking rounded corners bulging past that flat's own straight
-      // edge, so its honest front-elevation width reads wider than the
-      // plain "2x inradius" acrossFlats number -- still real geometry, still
-      // between across-flats and across-corners (this file's own
-      // `front-view-triangle-front.png` baseline is what actually proves the
-      // single-flat presentation; this check is the numeric sanity net
-      // alongside it).
-      if (label === "square") {
-        expect(width).toBeCloseTo(acrossFlatsCm, 1);
-      } else {
-        expect(width).toBeGreaterThan(acrossFlatsCm - 0.15);
-        expect(width).toBeLessThan(acrossCornersCm + 0.15);
-      }
-    });
-
-    test(`${label} core: Iso sits 45 degrees off that same flat (width and depth both read between across-flats and across-corners)`, async ({ page }) => {
-      await gotoDesign(page, hash);
-      const acrossFlatsCm = toCm(await readText(page.getByTestId("flange")));
-      const acrossCornersCm = toCm(await readText(page.getByTestId("flange-across-corners")));
-
-      await showPreset(page, "iso");
-      for (const which of ["width", "depth"] as const) {
-        const cm = await dimensionCm(page, which);
-        expect(cm, which).toBeGreaterThan(acrossFlatsCm - 0.15);
-        expect(cm, which).toBeLessThan(acrossCornersCm + 0.15);
-      }
-    });
-  }
-
-  test("round core: Front is unaffected (still reads the true diameter both ways)", async ({ page }) => {
-    await gotoDesign(page, ROUND);
-    const flangeCm = toCm(await readText(page.getByTestId("flange")));
-    await showPreset(page, "front");
-    expect(await dimensionCm(page, "width")).toBeCloseTo(flangeCm, 1);
-    expect(await dimensionCm(page, "depth")).toBeCloseTo(flangeCm, 1);
-  });
-
   // Checked-in baselines (issue #78/#79 "look at them critically"): the
   // exact regression PR #75's own review screenshot showed -- a byte-level
   // guard against Front silently drifting back to a corner-on presentation.
