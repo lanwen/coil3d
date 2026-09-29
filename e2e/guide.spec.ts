@@ -39,18 +39,24 @@ async function gotoGuide(page: Page, hash: string) {
 }
 
 test.describe("printable assembly guide (issue #17)", () => {
-  test("a shared link with &view=guide opens the guide directly, generated from that design", async ({ page }) => {
-    await gotoGuide(page, ONE_LAYER);
-    await expect(page.getByTestId("guide-step-1")).toContainText("Print the parts");
-  });
-
+  // Also covers: a shared link with &view=guide opens the guide directly,
+  // generated from that design (gotoGuide's own goto IS that direct
+  // `&view=guide` load -- a separate test asserting only guide-step-1's text
+  // duplicated this one's first assertion with no distinct risk); the
+  // unwind-by-rotating tip; and the generic (no mount selected) wall-mount
+  // step wording. All three used to be their own tests, but each loaded this
+  // identical ONE_LAYER design and only read text already covered here, so
+  // they're folded in rather than paying for three more page loads.
   test("a 1-layer design (no top cap) skips the two cap steps: print, thread, wind, mount, unwind", async ({ page }) => {
     await gotoGuide(page, ONE_LAYER);
     await expect(page.getByTestId("guide-step-1")).toContainText("Print the parts");
     await expect(page.getByTestId("guide-step-2")).toContainText("Thread the inner cable end");
     await expect(page.getByTestId("guide-step-3")).toContainText("Wind the cable");
     await expect(page.getByTestId("guide-step-4")).toContainText("Mount on the wall");
+    await expect(page.getByTestId("guide-step-4")).toContainText("mounts are coming soon");
     await expect(page.getByTestId("guide-step-5")).toContainText("Unwinding");
+    await expect(page.getByTestId("guide-step-5")).toContainText(/rotate the coil/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/don't pull the cable/i);
     await expect(page.getByTestId("guide-step-6")).toHaveCount(0);
 
     // One part (no cap) -> exactly one print-orientation figure.
@@ -94,17 +100,6 @@ test.describe("printable assembly guide (issue #17)", () => {
       await expect(page.getByTestId("guide-step-4")).toContainText("glue");
     });
   }
-
-  test("the tip to unwind by rotating the coil, not pulling the cable, is present", async ({ page }) => {
-    await gotoGuide(page, ONE_LAYER);
-    await expect(page.getByTestId("guide-step-5")).toContainText(/rotate the coil/i);
-    await expect(page.getByTestId("guide-step-5")).toContainText(/don't pull the cable/i);
-  });
-
-  test("the wall-mount step is generic with no mount selected", async ({ page }) => {
-    await gotoGuide(page, ONE_LAYER);
-    await expect(page.getByTestId("guide-step-4")).toContainText("mounts are coming soon");
-  });
 
   test("the wall-mount step gives real instructions once the screw-keyhole mount is selected", async ({ page }) => {
     await gotoGuide(page, `${ONE_LAYER}&mount=keyhole`);

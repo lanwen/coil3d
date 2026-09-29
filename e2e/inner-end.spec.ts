@@ -75,19 +75,22 @@ test.describe("bottom rim keyhole + channel close-up (issue #8)", () => {
     expect(withWire.equals(withoutWire), "the wound-cable toggle must change the keyhole close-up").toBe(false);
   });
 
-  test("a heavy-cord design (large channel width relative to the flange) still renders and stays manifold-clean (no console errors)", async ({ page }) => {
+  test("a heavy-cord design (large channel width relative to the flange) still renders and stays manifold-clean (no design error)", async ({ page }) => {
     // A thick, stiff cord: the same class of design that once reproduced a
     // spurious extra genus in the mesh backend (a wide channel reaching
     // past the wall into the bore, see src/core/manifold.ts's
     // `outlineBlocker`) before that clip was added -- kept here as an e2e
-    // guard that the app never surfaces that as a broken render/console
-    // error, on top of test/innerEnd.test.ts's own vitest genus check.
-    const consoleErrors: string[] = [];
-    page.on("console", (msg) => {
-      if (msg.type() === "error") consoleErrors.push(msg.text());
-    });
+    // guard that the app never surfaces that as a broken render, on top of
+    // test/innerEnd.test.ts's own vitest genus check.
+    //
+    // This used to listen for `console.error` instead, but `src` has no
+    // `console.error` call at all -- a thrown `design()` failure is caught
+    // by `useDesignPreview` and rendered as App.tsx's own `data-testid=
+    // design-error` banner, so that check passed for an unrelated reason
+    // (a negative control with no teeth). Asserting the banner itself is
+    // absent is the real, failing-for-the-right-reason check.
     await gotoDesign(page, "#v=1&L=2000&d=8&wt=stiff&lock=outer,ly&size=60&ly=1");
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
-    expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
+    await expect(page.getByTestId("design-error")).toHaveCount(0);
   });
 });

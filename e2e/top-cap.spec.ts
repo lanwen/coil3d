@@ -87,6 +87,10 @@ test.describe("exploded-view animation (issue #9)", () => {
     // only a modest, well-under-2%, slice of the canvas -- a real change,
     // but not one the tolerant comparison is guaranteed to flag as "different".
     expect(exploded.equals(assembled), "exploding must change the render").toBe(false);
+    // The joint=press (default) exploded baseline, once also re-asserted by
+    // the JOINTS loop below with its own real-motion page load -- moved here
+    // since this test already explodes and settles the same design/joint.
+    await expect(canvas).toHaveScreenshot("top-cap-exploded-press.png");
 
     await page.getByTestId("toggle-exploded").uncheck();
     await page.waitForTimeout(1000);
@@ -94,8 +98,13 @@ test.describe("exploded-view animation (issue #9)", () => {
   });
 });
 
-const JOINTS: Array<{ id: "press" | "bayonet" | "snap"; label: string }> = [
-  { id: "press", label: "press" },
+// "press" (the default joint) is covered above: "the exploded-view toggle
+// changes the render..." already exercises the identical design/joint and
+// now asserts both its assembled and exploded baselines, so it isn't
+// repeated here -- press's own "assembled looks identical" baseline
+// (top-cap-assembled-bayonet.png has the same bytes as ...-press.png, since
+// the assembled view hides the joint) still stands on the bayonet entry.
+const JOINTS: Array<{ id: "bayonet" | "snap"; label: string }> = [
   { id: "bayonet", label: "bayonet" },
   { id: "snap", label: "snap" },
 ];
