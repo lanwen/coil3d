@@ -15,7 +15,7 @@
 
 import * as THREE from "three";
 
-export type PresetId = "front" | "iso" | "wallRoom" | "printLayout";
+export type PresetId = "front" | "iso" | "wallRoom" | "mountSide" | "printLayout";
 
 export interface ViewPreset {
   id: PresetId;
@@ -52,6 +52,12 @@ export const VIEW_PRESETS: ViewPreset[] = [
   // `upHint`, since `presetQuaternion`'s `lookAt` can't resolve roll from a
   // hint parallel to a purely-vertical direction -- see this file's own
   // header on the removed "top" preset).
+  // Mount side (issue #106): the wall's own view of the clip mount plate,
+  // face-on, with the SKÅDIS slot grid drawn in -- only offered while a
+  // SKÅDIS plate exists (ViewControls' `showMountSide`). Like wallRoom, a
+  // geometry rotation in CoilViewer (wallRotations.ts's
+  // WALL_MOUNT_VIEW_ROTATION, derived for this same fixed iso camera).
+  { id: "mountSide", label: "Mount side", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
   { id: "printLayout", label: "Print layout", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
 ];
 

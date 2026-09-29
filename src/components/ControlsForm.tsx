@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, Objective, PlateJoint, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
+import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, Objective, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
 import {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
@@ -57,11 +57,6 @@ const MOUNT_OPTIONS: Array<{ id: MountKind; label: string }> = [
   { id: "keyhole", label: "Screw keyhole (wall mount)" },
   { id: "through", label: "Through-holes (screw straight on)" },
   { id: "skadis", label: "IKEA SKÅDIS clip plate" },
-];
-
-const PLATE_JOINT_OPTIONS: Array<{ id: PlateJoint; label: string }> = [
-  { id: "glue", label: "Glue (alignment pegs)" },
-  { id: "snap", label: "Snap tabs" },
 ];
 
 const KEYHOLE_ROTATION_LABELS: Record<KeyholeRotation, string> = {
@@ -134,7 +129,6 @@ export function ControlsForm({
   const wireTypeId = useId();
   const coreSizeDimensionId = useId();
   const mountId = useId();
-  const plateJointId = useId();
   const keyholeRotationId = useId();
   const objectiveId = useId();
   const topCapId = useId();
@@ -332,24 +326,6 @@ export function ControlsForm({
             ))}
           </select>
         </div>
-        {(spec.mount === "skadis" || spec.mount === "opengrid") && (
-          <div className="field">
-            <FieldTop label="Plate joint" hint={HINTS.plateJoint} htmlFor={plateJointId} />
-            <select
-              id={plateJointId}
-              className="field-select"
-              data-testid="select-plateJoint"
-              value={spec.plateJoint}
-              onChange={(e) => onChange({ ...spec, plateJoint: e.target.value as PlateJoint })}
-            >
-              {PLATE_JOINT_OPTIONS.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
         {spec.mount === "keyhole" && (
           <div className="field">
             <FieldTop label="Keyhole rotation" hint={HINTS.keyholeRotation} htmlFor={keyholeRotationId} />

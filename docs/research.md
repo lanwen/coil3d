@@ -211,7 +211,7 @@ before a long print.
 6. **Heavy cords**: a 15 m, 3×1.5 mm² cord weighs about 1.5–2 kg. This affects the mount strength
    (SKÅDIS hooks are rated low), the wall thickness, and the cap joint choice.
 7. *(Multiboard excluded.)*
-8. **Grid pitches** to verify: SKÅDIS ≈ 40 mm staggered slots; openGrid 28 mm.
+8. **Grid pitches** to verify: SKÅDIS: two 40 mm grids offset by (20, 20) mm (checked in §10d); openGrid 28 mm.
 9. **Print orientation hints** for each part in the guide and in the 3MF placement.
 10. **Fit-test coupon** before a long print (see §4).
 11. **Accessibility / mobile**: the controls must work on a phone (~400 px). The 3D view gets a
@@ -318,6 +318,11 @@ It's a full SaaS (Vercel, Liveblocks collab, CQRS, three kernels: brepjs/OCCT ~2
 
 ## 10c. Clip mount plate research (issue #14, 2026-09-24)
 
+> **Partly superseded by §10d (issue #106):** the stagger below was applied
+> to the wrong columns, the clip's barb didn't reach behind a 5 mm board,
+> and the pegs/snap tabs couldn't print without supports. §10d has the
+> checked version.
+
 **SKÅDIS.** IKEA doesn't publish a spec; the numbers below are
 community-measured but corroborated across multiple independent sources
 (PR review round 2 asked for this to be verified properly, not just
@@ -413,6 +418,60 @@ peg/hole, cut or fused exactly flush with its target face, silently failed
 `decompose()`) below roughly 3.3–3.5mm in this setup. Fixed by genuinely
 embedding every such feature past its own attaching face by a fixed margin
 (`MOUNT_PLATE_EMBED`, constants.ts) — see that constant's own doc comment.
+
+## 10d. SKÅDIS fit check (issue #106, 2026-09-29)
+
+User feedback: "the SKÅDIS mount doesn't really change the model in a way
+that's applicable to SKÅDIS". The plate was hidden under the flange in every
+default view, and the geometry had real faults.
+
+**Board facts** (IKEA publishes no spec; community measurements that agree
+across independent sources):
+
+| Fact | Value | Sources |
+|---|---|---|
+| Slot | one vertical stadium per position, nominal 5 x 15 mm, measured as tight as 4.8 x 14.8 mm | [Pegboardly, SKÅDIS Sizes & Dimensions](https://pegboardly.com/skadis/skadis-sizes-and-dimensions); [jbazant/esp8266-binary-clock `case/skadis.scad`](https://github.com/jbazant/esp8266-binary-clock/blob/master/case/skadis.scad) (`SKADIS_HOLE_WIDTH=4.8`, `SKADIS_HOLE_LENGTH=14.8`) |
+| Lattice | two 40 x 40 mm grids offset by (20, 20) mm: columns every 20 mm, slots every 40 mm in a column, neighbouring columns shifted 20 mm vertically. Two slots 40 mm apart in a row are on the SAME grid. | same `.scad` (`SPACING_X=20`, `SPACING_Y=40`, its 3-hook part uses (0, ±20) and (20, 0)); Pegboardly ("two 40 mm grids slid half a step apart") |
+| Board thickness | about 5 mm: 5.1 mm in both [florianfesti/boxes `SkadisSettings`](https://github.com/florianfesti/boxes/blob/master/boxes/walledges.py) and the `.scad` above; hook makers ship variants for ~4.8 mm and 5.0-5.2 mm boards, and some boards are 4 mm | [Printables: Skadis Thickness Testers](https://www.printables.com/model/271676-skadis-thickness-testers), MakerWorld/Printables hook listings |
+
+**What was wrong, and the fix:**
+- **Lattice.** Issue #14 put clip columns at ±40, ±80 mm and shifted every
+  other one by 20 mm vertically. Columns 40 mm apart are on the same grid,
+  so the ±80 columns landed where no slot exists. Now every clip sits on one
+  plain 40 x 40 grid (like skapa's `gw = gh = 40`), with the columns at
+  ±20, ±60 mm so the layout stays mirrored and a 100 mm core still fits 2+
+  columns.
+- **Clip.** skapa's barb (facts only, no licence) widens from 3.7 mm and is
+  flat from 4.3 to 5.9 mm out, so on a 5 mm board it only presses on the
+  slot edge; issue #14 also shifted the whole clip 0.5 mm toward the plate
+  (`MOUNT_PLATE_EMBED`), and its 4.9 mm-wide, 12 mm-tall legs are wider
+  than a 4.8 mm slot and longer than a 14.8 mm stadium's straight part.
+  The new pair: legs 4.4 mm across at rest (1.4 mm thick, 1.6 mm gap to
+  flex), barb retaining face from 5.4 mm out (behind boards up to 5.2 mm),
+  5.8 mm across (0.5 mm past a 4.8 mm slot per side), 45-degree ramps both
+  ways, 11 mm long along WALL_UP. Only the root is embedded into the plate.
+- **Printing.** The plate prints back-face up (clips pointing up), so the
+  pegs/snap tabs on its FRONT face hung below the panel. Both mating faces
+  now carry only blind holes, aligned with two 4.5 mm pieces of 1.75 mm
+  filament, then glued. `pj=snap` links still parse and get the same plate
+  with a warning. Pin holes also move off the inner-end keyhole (one
+  grazing it added a tunnel through the core).
+- **Visibility.** Selecting SKÅDIS switches the viewer to a new "Mount side"
+  view (offered only while a SKÅDIS plate exists): the plate face-on from
+  behind the wall with the slot grid (`Design.pegboard`) drawn in grey. The
+  Wall mount view draws the board's slots behind the coil. The guide gets a
+  "Fit the mount plate" step and a SKÅDIS mount step with the same slot grid.
+
+**How the clip engages** (checked in `test/skadisFit.test.ts` on the real
+plate mesh against a board built only from the facts above, for round,
+square and triangle cores and 4.8 x 14.8 / 5 x 15 slots in 4, 5 and 5.2 mm
+boards): push the plate flat against the board; each leg pair squeezes
+through its slot and the barbs spring out behind the board. Let go and the
+plate drops (about 0.5-0.7 mm) until each leg's bottom corner rests on the
+slot's rounded bottom end, which carries the weight. Seated, nothing touches
+the board; 0.2 mm lower, the clips dig into the slot bottoms; pulled off the
+board, the barbs catch its back face within 0.7 mm of play on the thickest
+board. Still not test-fitted on a physical board.
 
 ## 11. References
 

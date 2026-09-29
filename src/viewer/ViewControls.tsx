@@ -8,6 +8,8 @@ export interface ViewControlsProps {
   onPresetChange: (preset: PresetId) => void;
   projection: Projection;
   onProjectionChange: (projection: Projection) => void;
+  /** Issue #106: offer the "Mount side" preset (only while the design has a SKÅDIS clip plate to show). */
+  showMountSide?: boolean;
 }
 
 /**
@@ -29,11 +31,11 @@ export interface ViewControlsProps {
  * `preset`/`projection` props); CoilViewer owns the wall-mount geometry
  * rotation the "Wall mount" preset also triggers (see its `handlePresetChange`).
  */
-export function ViewControls({ preset, onPresetChange, projection, onProjectionChange }: ViewControlsProps) {
+export function ViewControls({ preset, onPresetChange, projection, onProjectionChange, showMountSide = false }: ViewControlsProps) {
   return (
     <div className="view-controls">
       <div className="preset-group" role="group" aria-label="Camera view">
-        {VIEW_PRESETS.map((p) => (
+        {VIEW_PRESETS.filter((p) => p.id !== "mountSide" || showMountSide).map((p) => (
           <button
             key={p.id}
             type="button"

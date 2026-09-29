@@ -192,6 +192,8 @@ export default function App() {
                 shapeKind={result.spec.shape.kind}
                 bed={result.spec.print}
                 onPrintLayoutActiveChange={setIsPrintLayout}
+                mountKind={result.spec.mount}
+                pegboard={result.pegboard}
               />
             </>
           )}
