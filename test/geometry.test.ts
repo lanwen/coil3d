@@ -91,10 +91,11 @@ describe("design().mesh is a valid, expected manifold", () => {
       // Issue #43: the flange's own thickness is no longer a fixed
       // constant -- it now tracks the cable diameter (see design.ts) -- so
       // this reads the design's own PUBLIC `flangeSpec.thickness`, exactly
-      // like the flange's outer radius just below already reads
-      // `solution.flangeSize` rather than re-deriving it.
+      // like the flange's outer radius just below reads the built flange's
+      // own extent (issue #115: the margin can grow past the solver's
+      // envelope-based `solution.flangeSize`, to fit the inner-end lead-in).
       const flangeThickness = d.flangeSpec.thickness;
-      const flangeOuterRadius = d.solution.flangeSize / 2;
+      const flangeOuterRadius = d.solution.flangeExtent!.acrossCorners / 2;
       const flangeVolume = Math.PI * (flangeOuterRadius ** 2 - boreRadius ** 2) * flangeThickness;
       const analyticVolume = tubeVolume - grooveVolume + flangeVolume;
 
@@ -331,10 +332,11 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
       const perimeter = d.solution.layerResults[0].perimeter; // public API value, not recomputed
       const grooveVolume = grooveArea * perimeter * Math.max(0, turns - taperTurns);
 
-      // The flange's own circumscribed radius equals solution.flangeSize/2
-      // by construction (design.ts's margin computation); recover the
-      // margin from that to get the flange's own outline.
-      const flangeMargin = d.solution.flangeSize / 2 - circumRadius(n, outerApothem, rc);
+      // The flange's own outline is the core's offset by the flange margin
+      // (issue #115: not always solution.flangeSize/2 any more -- the margin
+      // can grow to fit the inner-end lead-in); recover the margin from the
+      // built flange's own across-corners extent.
+      const flangeMargin = d.solution.flangeExtent!.acrossCorners / 2 - circumRadius(n, outerApothem, rc);
       const flangeApothem = outerApothem + flangeMargin;
       const flangeRc = rc + flangeMargin;
       // Issue #43: no longer a fixed constant -- see the round-core test above.

@@ -398,36 +398,42 @@ export interface Design {
    */
   pegboard?: PegboardSection;
   /**
-   * The inner-end lead-in centerline (issue #8): from the bottom flange's
-   * own rim keyhole, through the recessed channel, to where layer 1's own
-   * wound-cable path (`wirePaths[0]`) begins -- xyz per sample, flat at
-   * z=0 (the flange's inner face). A separate field, not a prefix on
-   * `wirePaths[0].points` (see wire.ts's `buildInnerEndLeadIn`), so it never
-   * disturbs that path's own constant-radial-offset/monotonic-z invariants.
-   * Empty when layer 1 has no turns (nothing to lead into).
+   * The inner-end lead-in (issues #8, #115): from the bottom flange's rim
+   * keyhole, along the straight tangential chord and its gentle drop out of
+   * the recessed channel, to layer 1's own first sample (`wirePaths[0]`) --
+   * xyz per sample. Empty when layer 1 has no turns.
    */
   innerEndLeadIn: Float32Array;
   /**
-   * Short Hermite bridges connecting the chronological end of each wound
-   * layer to the start of the next (issue #68): `layerTransitions[i]` joins
-   * `wirePaths[i]` to `wirePaths[i + 1]`, so `wirePaths.length - 1` entries.
-   * Each bridge's own first/last sample is EXACTLY the joined layer's own
-   * endpoint (see wire.ts's `buildLayerTransitions`), so the wound cable
-   * reads as one continuous line across every layer transition, with no
-   * gap and no visible kink. Empty when fewer than 2 layers have turns.
+   * The cable's run from the chronological end of each wound layer to the
+   * start of the next (issues #68, #115): `layerTransitions[i]` joins
+   * `wirePaths[i]` to `wirePaths[i + 1]`, so `wirePaths.length - 1` entries,
+   * each sharing its first/last sample and tangent with the layers it joins.
+   * Empty when fewer than 2 layers have turns.
    */
   layerTransitions: Float32Array[];
   /**
-   * The outer-end lead-out (issue #68, docs/research.md "Wire ends": "Outer
-   * end: keyhole in the top cap rim"): from the chronological end of the
-   * last wound layer (`wirePaths.at(-1)`) to the top cap's own rim keyhole,
-   * in the shared assembly frame -- xyz per sample (see wire.ts's
-   * `buildOuterEndLeadOut`). Computed unconditionally, whether or not the
-   * top cap is actually enabled (exactly like `innerEndLeadIn` never
-   * depends on any other part), so the cable's outer end is always
-   * well-defined. Empty when no layer has any turns.
+   * The outer end (issues #68, #115), from the last wound layer's own end:
+   * with the top cap on, the run up to just under the cap's rim keyhole
+   * (`capKeyhole`); with it off, a straight free tail along the last turn's
+   * tangent. Empty when no layer has any turns.
    */
   outerEndLeadOut: Float32Array;
+  /**
+   * The whole drawn cable as ONE continuous polyline (issue #115):
+   * `innerEndLeadIn`, then each of `wirePaths` with the `layerTransitions`
+   * between them, then `outerEndLeadOut`, joined end to end (each join's
+   * shared sample kept once). G1 throughout, and its curvature stays within
+   * 1/(minimum bend radius). Empty when no layer has any turns.
+   */
+  cablePath: Float32Array;
+  /**
+   * The top cap's rim keyhole (issue #115): cut where the cable's cap
+   * lead-out ends, with its retaining slit opening at the nearest point of
+   * the cap's rim. Undefined when the top cap is off. Not for UI use (the
+   * STEP backend cuts the same keyhole from it).
+   */
+  capKeyhole?: { hole: { x: number; y: number }; edge: { x: number; y: number } };
 }
 
 export type ExportFormat = "stl" | "step" | "3mf";

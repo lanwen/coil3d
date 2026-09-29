@@ -105,6 +105,26 @@ describe("mountPlate.ts layout math (issue #14)", () => {
     const xs = [...new Set(layout.clips.map((c) => Math.round(c.x * 1000) / 1000))].sort((a, b) => a - b);
     expect(xs).toEqual([-20, 20]);
   });
+
+  it("never puts a pin hole INSIDE the inner-end channel, however far it is from the channel's edges (issue #115)", () => {
+    const flange = makeOutline("round", 60, 30);
+    const bore = makeOutline("round", 40, 20);
+    const free = mountPlateLayoutFor("skadis", flange, bore);
+    expect(free.anchors.length).toBe(2);
+    // A wide strip whose edges are far (>3 mm) from the first free pin
+    // position, but which contains it -- the pre-#115 edge-distance check
+    // let that through (a stiff 8 mm cable's channel on a big square core
+    // did exactly this, and the pin hole tunnelled into the channel).
+    const p = free.anchors[0];
+    const strip = [
+      { x: p.x - 50, y: p.y - 5 },
+      { x: p.x + 50, y: p.y - 5 },
+      { x: p.x + 50, y: p.y + 5 },
+      { x: p.x - 50, y: p.y + 5 },
+    ];
+    const avoided = mountPlateLayoutFor("skadis", flange, bore, { hole: { x: 1e9, y: 1e9 }, holeRadius: 0, channelRibbon: strip });
+    for (const a of avoided.anchors) expect(Math.hypot(a.x - p.x, a.y - p.y)).toBeGreaterThan(1);
+  });
 });
 
 describe("design() clip mount plate (issue #14)", () => {

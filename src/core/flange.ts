@@ -30,7 +30,7 @@ import {
   THROUGH_MOUNT_COUNTERBORE_DEPTH,
   WALL_THICKNESS,
 } from "./constants";
-import { idealChannelDepth } from "./innerEnd";
+import { idealChannelDepth, requiredInnerEndMargin, resolveChannelDepth } from "./innerEnd";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -62,6 +62,10 @@ export interface FlangeSizing {
   thickness: number;
   /** The plain envelope-clearance margin, before any mount bump -- design.ts compares against this to decide whether to warn "margin increased ...". */
   baseMargin: number;
+  /** The margin the requested mount alone needs (>= baseMargin). */
+  mountMargin: number;
+  /** The margin the inner-end lead-in alone needs (issue #115). */
+  innerEndMargin: number;
   /** The plain channel-driven thickness, before any mount/plate bump -- design.ts compares against this the same way. */
   channelOnlyThickness: number;
 }
@@ -80,6 +84,8 @@ export function resolveFlangeSizing(
   flangeSizeEnvelope: number,
   wireDiameter: number,
   mount: MountKind,
+  /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`). */
+  leadIn: { tolerance: number; bendRadius: number },
   /** Issue #71: ignored unless `mount === "keyhole"`. */
   keyholeRotation = 0,
   /** Issue #70: ignored unless `mount === "through"`. */
@@ -101,7 +107,7 @@ export function resolveFlangeSizing(
   // mount's own envelope-clearance radius is a few mm more conservative than
   // the bare minimum (that pad), never less, so it's a safe stand-in with no
   // extra plumbing.
-  const margin = wantsKeyhole
+  const mountMargin = wantsKeyhole
     ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline, keyholeRotation))
     : wantsThrough
       ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, flangeSizeEnvelope / 2))
@@ -118,7 +124,12 @@ export function resolveFlangeSizing(
         ? Math.max(channelOnlyThickness, minPlateThickness)
         : channelOnlyThickness;
 
-  return { margin, thickness, baseMargin, channelOnlyThickness };
+  // Issue #115: wide enough for the inner-end lead-in's straight chord to
+  // hold the keyhole past the end of its drop into the channel.
+  const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness, mount));
+  const margin = Math.max(mountMargin, innerEndMargin);
+
+  return { margin, thickness, baseMargin, mountMargin, innerEndMargin, channelOnlyThickness };
 }
 
 /** The flange's real outer extent (types.ts's `FlangeExtent`) at a resolved outline and the real margin `resolveFlangeSizing` returned -- exact, since the flange mesh itself is built from this same offset outline (wall.ts's `buildOutlineRing`). */

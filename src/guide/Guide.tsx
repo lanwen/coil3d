@@ -107,9 +107,21 @@ function StepPrintParts({ design }: { design: Design }) {
   );
 }
 
+/**
+ * Where a cable end is fixed (issue #115: the keyholes sit where the cable's
+ * own path ends, not at a fixed angle): `sample` of the public cable path
+ * `points`, at height `z`; `fallback` when the path is empty.
+ */
+function cableEndAnchor(points: Float32Array, sample: "first" | "last", z: number, fallback: () => THREE.Vector3): THREE.Vector3 {
+  if (points.length < 3) return fallback();
+  const i = sample === "first" ? 0 : points.length - 3;
+  return new THREE.Vector3(points[i], points[i + 1], z);
+}
+
 function StepThreadInnerEnd({ design }: { design: Design }) {
   const core = corePart(design);
-  const anchor = approxRimPoint(core.mesh, 0.1, 1);
+  // The inner-end keyhole, on the flange's inner face (z=0).
+  const anchor = cableEndAnchor(design.innerEndLeadIn, "first", 0, () => approxRimPoint(core.mesh, 0.1, 1));
   return (
     <StepCard n={2} title="Thread the inner cable end">
       <div className="guide-figure-row guide-figure-row--solo">
@@ -216,7 +228,8 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
 
 function StepSecureOuterEnd({ design, n }: { design: Design; n: number }) {
   const cap = capPart(design)!;
-  const anchor = approxRimPoint(cap.mesh, 0.5, 1);
+  // The cap's rim keyhole, on the cap's top face.
+  const anchor = cableEndAnchor(design.outerEndLeadOut, "last", meshBounds(cap.mesh).max.z, () => approxRimPoint(cap.mesh, 0.5, 1));
   return (
     <StepCard n={n} title="Secure the outer end">
       <div className="guide-figure-row guide-figure-row--solo">

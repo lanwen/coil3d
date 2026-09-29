@@ -16,7 +16,7 @@ import { PrintLayoutLabels } from "./PrintLayoutLabels";
 import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
 import { ViewControls } from "./ViewControls";
 import { WALL_MOUNT_VIEW_ROTATION, WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
-import { buildWireGeometries } from "./wireGeometry";
+import { buildCableTube, buildWireGeometries, needsEnvelope } from "./wireGeometry";
 
 // Normals are split where faces meet at more than this angle, so the edge
 // shader sees a hard jump at every real crease (rims, the flange, each groove
@@ -61,8 +61,10 @@ export interface CoilViewerProps {
   innerEndLeadIn?: Float32Array;
   /** `Design.layerTransitions` (issue #68): one short bridging tube per layer-to-layer transition, drawn alongside `wirePaths` so a multi-layer coil reads as ONE continuous cable instead of a fresh start at every layer. Omitted/empty draws none. */
   layerTransitions?: Float32Array[];
-  /** `Design.outerEndLeadOut` (issue #68): from the last wound layer's own end to the top cap's rim keyhole, drawn the same way as `innerEndLeadIn`. Omitted/too short to draw none. */
+  /** `Design.outerEndLeadOut` (issue #68): the cable's outer end (to the top cap's rim keyhole, or a free tail with the cap off), drawn the same way as `innerEndLeadIn`. Omitted/too short to draw none. */
   outerEndLeadOut?: Float32Array;
+  /** `Design.cablePath` (issue #115): the whole cable as one polyline, drawn as ONE tube whenever no layer needs the many-turn envelope (see wireGeometry.ts). */
+  cablePath?: Float32Array;
   /** Cable outer diameter, mm -- sets the drawn wire's tube radius. */
   wireDiameter?: number;
   /** Wire visibility toggle (issue #4), mirrored in the URL hash by the caller. */
@@ -248,21 +250,26 @@ const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
 };
 
 /**
- * Screenshot-only close-up on the bottom flange's own inner-end keyhole +
- * channel (issue #8 PR review), gated behind `?debugFocusInnerEnd=1`
- * (checked once at mount, not reactively -- a screenshot tool, not a user
- * control).
+ * Screenshot-only close-up on one end of the cable: the bottom flange's own
+ * inner-end keyhole + channel (issue #8 PR review), gated behind
+ * `?debugFocusInnerEnd=1`, or the cable's outer end (issue #115: the cap
+ * keyhole, or the free tail with the cap off), behind
+ * `?debugFocusOuterEnd=1` (checked once at mount, not reactively -- a
+ * screenshot tool, not a user control).
  */
-function useDebugFocusInnerEnd(): boolean {
-  const [enabled] = useState(() => {
-    if (typeof window === "undefined") return false;
+function useDebugFocusEnd(): "inner" | "outer" | null {
+  const [end] = useState<"inner" | "outer" | null>(() => {
+    if (typeof window === "undefined") return null;
     try {
-      return new URLSearchParams(window.location.search).get("debugFocusInnerEnd") === "1";
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("debugFocusInnerEnd") === "1") return "inner";
+      if (params.get("debugFocusOuterEnd") === "1") return "outer";
+      return null;
     } catch {
-      return false;
+      return null;
     }
   });
-  return enabled;
+  return end;
 }
 
 /**
@@ -285,6 +292,7 @@ export function CoilViewer({
   innerEndLeadIn,
   layerTransitions,
   outerEndLeadOut,
+  cablePath,
   wireDiameter,
   showWire = true,
   exploded = false,
@@ -303,7 +311,12 @@ export function CoilViewer({
   const prevResolution = useRef<Resolution>(resolution);
   const reducedMotion = usePrefersReducedMotion();
   const [viewMode, setViewMode] = useState<ViewMode>("standing");
-  const debugFocusInnerEnd = useDebugFocusInnerEnd();
+  const debugFocusEnd = useDebugFocusEnd();
+  // The cable end the debug close-up frames (its own samples), and the
+  // sample it turns to face the camera: the keyhole (the lead-in's first)
+  // or the outer end's last.
+  const focusPath = debugFocusEnd === "inner" ? innerEndLeadIn : debugFocusEnd === "outer" ? outerEndLeadOut : undefined;
+  const focusIndex = debugFocusEnd === "outer" && focusPath ? focusPath.length / 3 - 1 : 0;
   useEffect(() => {
     onPrintLayoutActiveChange?.(viewMode === "printLayout");
   }, [viewMode, onPrintLayoutActiveChange]);
@@ -333,11 +346,11 @@ export function CoilViewer({
   // rotation), and only once `innerEndLeadIn` has real samples (empty when
   // layer 1 has no turns -- see wire.ts's own doc comment).
   const focusRotation = useMemo(() => {
-    if (!debugFocusInnerEnd || viewMode !== "standing" || !innerEndLeadIn || innerEndLeadIn.length < 6) return null;
+    if (viewMode !== "standing" || !focusPath || focusPath.length < 6) return null;
     const isoAzimuth = Math.atan2(getPreset("iso").direction.y, getPreset("iso").direction.x);
-    const keyholeAzimuth = Math.atan2(innerEndLeadIn[1], innerEndLeadIn[0]);
+    const keyholeAzimuth = Math.atan2(focusPath[focusIndex * 3 + 1], focusPath[focusIndex * 3]);
     return new THREE.Matrix4().makeRotationZ(isoAzimuth - keyholeAzimuth);
-  }, [debugFocusInnerEnd, viewMode, innerEndLeadIn]);
+  }, [viewMode, focusPath, focusIndex]);
 
   const partGeometries = useMemo(() => parts.map((part) => ({ part, geometry: buildCreasedGeometry(part.mesh) })), [parts]);
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
@@ -381,6 +394,10 @@ export function CoilViewer({
   // hatching the whole coil (see src/viewer/wireGeometry.ts / S3 spike RESULT.md).
   const wireGeometries = useMemo(() => {
     if (!showWire || !wireDiameter) return [];
+    // Issue #115: the whole cable as ONE continuous tube -- no separately
+    // drawn lead-in, transitions or end -- unless some layer has so many
+    // turns it needs the envelope + hints treatment.
+    if (cablePath && cablePath.length >= 6 && !needsEnvelope(wirePaths ?? [])) return [buildCableTube(cablePath, wireDiameter / 2)];
     const paths = wirePaths ? [...wirePaths] : [];
     // The inner-end lead-in (issue #8), every layer-to-layer transition and
     // the outer-end lead-out (issue #68) are drawn as more small paths
@@ -394,7 +411,7 @@ export function CoilViewer({
     if (outerEndLeadOut && outerEndLeadOut.length >= 6) paths.push({ layer: 0, turns: 1, points: outerEndLeadOut });
     if (!paths.length) return [];
     return buildWireGeometries(paths, wireDiameter / 2);
-  }, [showWire, wirePaths, innerEndLeadIn, layerTransitions, outerEndLeadOut, wireDiameter]);
+  }, [showWire, wirePaths, innerEndLeadIn, layerTransitions, outerEndLeadOut, cablePath, wireDiameter]);
   useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
 
   // The rotation applied to every rendered geometry for the current view
@@ -595,22 +612,22 @@ export function CoilViewer({
   // wide enough to cover the ACTUAL (much bigger) rendered model instead of
   // clipping it to this tiny region's own bounding sphere.
   const focusFramingGeometry = useMemo(() => {
-    if (!focusRotation || !innerEndLeadIn || innerEndLeadIn.length < 6) return null;
+    if (!focusRotation || !focusPath || focusPath.length < 6) return null;
     // Rotate the real lead-in points FIRST: the far points below are placed
     // along the camera's own (unrotated) view direction, so they must be
     // anchored to the ALREADY-rotated keyhole position, not rotated a
     // second time themselves (which would misalign them with that
     // direction and corrupt the on-screen fit).
-    const rotatedLeadIn = new Float32Array(innerEndLeadIn.length);
+    const rotatedLeadIn = new Float32Array(focusPath.length);
     const p = new THREE.Vector3();
-    for (let i = 0; i < innerEndLeadIn.length; i += 3) {
-      p.set(innerEndLeadIn[i], innerEndLeadIn[i + 1], innerEndLeadIn[i + 2]).applyMatrix4(focusRotation);
+    for (let i = 0; i < focusPath.length; i += 3) {
+      p.set(focusPath[i], focusPath[i + 1], focusPath[i + 2]).applyMatrix4(focusRotation);
       rotatedLeadIn[i] = p.x;
       rotatedLeadIn[i + 1] = p.y;
       rotatedLeadIn[i + 2] = p.z;
     }
     const isoDirection = getPreset("iso").direction;
-    const anchor = new THREE.Vector3(rotatedLeadIn[0], rotatedLeadIn[1], rotatedLeadIn[2]);
+    const anchor = new THREE.Vector3(rotatedLeadIn[focusIndex * 3], rotatedLeadIn[focusIndex * 3 + 1], rotatedLeadIn[focusIndex * 3 + 2]);
     const FAR_RADIUS = 600; // mm, comfortably past the solver's own SIZE_HI (500mm) upper bound
     const far1 = anchor.clone().addScaledVector(isoDirection, FAR_RADIUS);
     const far2 = anchor.clone().addScaledVector(isoDirection, -FAR_RADIUS);
@@ -620,7 +637,7 @@ export function CoilViewer({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     return geometry;
-  }, [focusRotation, innerEndLeadIn]);
+  }, [focusRotation, focusPath, focusIndex]);
   useEffect(() => () => focusFramingGeometry?.dispose(), [focusFramingGeometry]);
 
   // Draft -> final swap gets a short edge fade (issue #7 AC), matching the

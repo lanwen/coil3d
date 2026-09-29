@@ -48,7 +48,7 @@ import { solve } from "./solve";
 import { bendMultiplierOf } from "./types";
 import type { CoilSpec, Design, Part, Resolution } from "./types";
 import { buildWall } from "./wall";
-import { buildInnerEndLeadIn, buildLayerTransitions, buildOuterEndLeadOut, buildWirePaths } from "./wire";
+import { buildCable } from "./wire";
 
 export async function design(spec: CoilSpec, resolution: Resolution = "final"): Promise<Design> {
   const { solution, warnings } = solve(spec);
@@ -114,22 +114,27 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // for the full derivation, factored out (issue #63) so solve.ts's search
   // can score candidates against these SAME real numbers instead of a
   // cruder envelope-only proxy.
-  const { margin, thickness, baseMargin, channelOnlyThickness } = resolveFlangeSizing(
+  const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
+  const { margin, thickness, baseMargin, mountMargin, innerEndMargin, channelOnlyThickness } = resolveFlangeSizing(
     outline,
     boreOutline,
     solution.flangeSize,
     wireDiameter,
     spec.mount,
+    { tolerance: spec.tolerance, bendRadius },
     spec.keyholeRotation,
     spec.throughHoleDiameter,
   );
-  if (wantsKeyhole && margin > baseMargin) {
+  if (innerEndMargin > mountMargin + 1e-9) {
+    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
+  }
+  if (wantsKeyhole && mountMargin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
   }
   if (wantsKeyhole && thickness > channelOnlyThickness + 1e-9) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
   }
-  if (wantsThrough && margin > baseMargin) {
+  if (wantsThrough && mountMargin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the through-hole mount.`);
   }
   if (wantsThrough && thickness > channelOnlyThickness + 1e-9) {
@@ -164,8 +169,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // below), so it's computed here only to surface its warning, to keep the
   // through-hole mount clear of it, and to build the wound-cable
   // schematic's lead-in (wire.ts).
-  const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
-  const innerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, spec.tolerance, bendRadius);
+  const innerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, spec.tolerance, bendRadius, channelDepth);
   if (innerEndLayout.warning) warnings.push(innerEndLayout.warning);
 
   // Kept (not just its warning) so it can be surfaced on the returned
@@ -257,6 +261,21 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     );
   }
 
+  // The drawn cable (issues #4, #68, #115): one path from the inner-end
+  // keyhole, through every layer and transition, to the outer end -- built
+  // before the top cap, whose rim keyhole is cut where the cable's cap
+  // lead-out ends. The lead-in is `innerEndLayout`'s own, the same layout
+  // the flange's keyhole/channel are cut from.
+  const cable = buildCable(solution.layerResults, wallSpec, spec.windingQuality, resolution, {
+    innerEnd: innerEndLayout,
+    topCapEnabled,
+    height: solution.height,
+    margin,
+    tolerance: spec.tolerance,
+    bendRadius,
+  });
+  warnings.push(...cable.warnings);
+
   const wall = buildWall(wallSpec);
   const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint, innerEndCut, mountPlateCut);
 
@@ -271,7 +290,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (labelWarning) warnings.push(labelWarning);
 
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: flangeSpec, joint: spec.joint, tolerance: spec.tolerance, wireDiameter, label });
+    const capMesh = await buildTopCap({ flange: flangeSpec, joint: spec.joint, tolerance: spec.tolerance, wireDiameter, label, keyhole: cable.capKeyhole });
     // `capMesh` is built in a LOCAL frame (plate z=[0, CAP_THICKNESS], collar
     // reaching down to z=-JOINT_ENGAGE_DEPTH); translating by `height` lands
     // it in the shared assembly frame, flush against the wall's top rim.
@@ -313,23 +332,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   }
 
   const mesh = parts[0].mesh;
-  const wirePaths = buildWirePaths(solution.layerResults, wallSpec, spec.windingQuality, resolution);
-  // Issue #8: the wound-cable schematic's lead-in, from the SAME channel
-  // path just cut into the flange -- never a re-derivation, so the drawn
-  // cable can't show it entering the groove anywhere but where it was
-  // actually cut. Kept as its own field, not folded into `wirePaths[0]`
-  // (see buildInnerEndLeadIn's own doc comment for why).
-  const innerEndLeadIn = buildInnerEndLeadIn(innerEndLayout.channelPath, wirePaths[0]);
-  // Issue #68: bridge every layer-to-layer transition, then lead the last
-  // layer's own end out to the top cap's rim keyhole -- same (x, y) as the
-  // bottom flange's own keyhole (`innerEndLayout.hole`, both derived from
-  // the identical outline/margin/wireDiameter/tolerance at t=0), sitting at
-  // the assembled height of the cap's own mid-thickness. Computed
-  // unconditionally, whether or not a top cap is actually built (see
-  // wire.ts's `buildOuterEndLeadOut` doc comment).
-  const layerTransitions = buildLayerTransitions(wirePaths, solution.layerResults, outline, spec.windingQuality);
-  const outerEndLeadOut = buildOuterEndLeadOut(wirePaths, innerEndLayout.hole, solution.height + CAP_THICKNESS / 2, solution.layerResults, outline, spec.windingQuality);
-
   // Per-part bed-fit warnings (issue #10 AC): each part in ITS OWN print
   // orientation (printBBox reads printTransform, same as the STL/3MF
   // exporters) against the user's bed size. No auto-rotation-to-fit is
@@ -366,7 +368,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     parts,
     mesh,
     resolution,
-    wirePaths,
+    wirePaths: cable.wirePaths,
     wallSpec,
     flangeSpec,
     mountAxisDeg: mountLayout?.axisDeg ?? mountPlateLayout?.axisDeg,
@@ -374,9 +376,11 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       spec.mount === "skadis" && mountPlateLayout && parts.some((p) => p.role === "mountPlate")
         ? skadisBoard(mountPlateLayout, thickness, circumscribedRadius(outline, margin) + 25)
         : undefined,
-    innerEndLeadIn,
-    layerTransitions,
-    outerEndLeadOut,
+    innerEndLeadIn: cable.innerEndLeadIn,
+    layerTransitions: cable.layerTransitions,
+    outerEndLeadOut: cable.outerEndLeadOut,
+    cablePath: cable.cablePath,
+    capKeyhole: cable.capKeyhole,
   };
 }
 
