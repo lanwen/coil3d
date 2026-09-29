@@ -140,7 +140,6 @@ test.describe("rim keyhole close-up (issue #9)", () => {
       await page.mouse.wheel(0, -120);
       await page.waitForTimeout(50);
     }
-    await page.waitForTimeout(300);
     await expect(canvas).toHaveScreenshot("top-cap-keyhole-closeup.png");
   });
 });
