@@ -89,6 +89,12 @@ export function Section({ title, children }: { title: string; children: ReactNod
  * A custom range slider synced with a number input and a unit suffix (issue
  * #16 AC). The number input keeps the field's stable `input-${testId}`
  * testid; the slider is a purely visual companion.
+ *
+ * Issue #105 AC #1: a `disabled` field (a locked/free dimension currently
+ * left free, so the solver -- not the user -- sets it) hides the slider
+ * entirely rather than showing an inert one; the number input alone (itself
+ * `:disabled`, so it reads as plainly non-interactive) is "only the value,
+ * read-only". A locked field keeps the slider, exactly as before.
  */
 export function RangeField({
   testId,
@@ -105,6 +111,10 @@ export function RangeField({
   leading,
   /** Plain-English explanation shown by an (i) button next to the label (issue #53). */
   hint,
+  /** A short plain-English note about this field's own floor (issue #105 AC
+   * #4: the corner radius's bend-limit minimum) shown right under the
+   * slider -- omitted when there's nothing special to say about `min`. */
+  minNote,
   onChange,
 }: {
   testId: string;
@@ -117,6 +127,7 @@ export function RangeField({
   disabled?: boolean;
   leading?: ReactNode;
   hint?: string;
+  minNote?: string;
   onChange: (value: number) => void;
 }) {
   const numberId = useId();
@@ -149,17 +160,23 @@ export function RangeField({
           {unit && <span className="field-unit">{unit}</span>}
         </span>
       </div>
-      <input
-        type="range"
-        className="field-slider"
-        aria-label={label}
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        disabled={disabled}
-        onChange={handleRange}
-      />
+      {!disabled && (
+        <input
+          type="range"
+          className="field-slider"
+          aria-label={label}
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={handleRange}
+        />
+      )}
+      {minNote && (
+        <p className="field-note" data-testid={`${testId}-min-note`}>
+          {minNote}
+        </p>
+      )}
     </div>
   );
 }
@@ -377,6 +394,7 @@ export function LockRangeField({
   step,
   freeValue,
   hint,
+  minNote,
   onChange,
 }: {
   testId: string;
@@ -388,6 +406,7 @@ export function LockRangeField({
   step: number;
   freeValue: number;
   hint?: string;
+  minNote?: string;
   onChange: (lock: Lock<number>) => void;
 }) {
   // Issue #72 AC: "the spec stores rounded values when the user edits" --
@@ -395,22 +414,32 @@ export function LockRangeField({
   // value typed into the paired number input (which, unlike the slider,
   // isn't clamped to `step` by the browser) can never push a long decimal
   // into the spec.
-  const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? lock.value : roundMm(freeValue) } : { locked: false });
+  //
+  // Issue #105 PR review: `Math.max(min, ...)` is the OUTERMOST step in
+  // both the display value and every edit path (toggle-on and typed/dragged
+  // edits), so the field can never show -- or be pushed to -- a number
+  // below `min` (the shape's own bend-limit floor, for the core-size
+  // field). This also covers a shared link whose stored value predates this
+  // clamp: the field always DISPLAYS the effective (clamped) value, never
+  // the raw, too-small stored one, even before the user touches it.
+  const displayValue = lock.locked ? Math.max(min, roundMm(lock.value)) : roundMm(freeValue);
+  const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? Math.max(min, roundMm(lock.value)) : roundMm(freeValue) } : { locked: false });
   const setValue = (value: number) => {
-    if (lock.locked) onChange({ locked: true, value: roundMm(value) });
+    if (lock.locked) onChange({ locked: true, value: Math.max(min, roundMm(value)) });
   };
   return (
     <RangeField
       testId={testId}
       label={label}
       unit={unit}
-      value={lock.locked ? lock.value : roundMm(freeValue)}
+      value={displayValue}
       min={min}
       max={max}
       step={step}
       disabled={!lock.locked}
       leading={<LockToggle testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
       hint={hint}
+      minNote={minNote}
       onChange={setValue}
     />
   );

@@ -288,7 +288,7 @@ function finishSolution(
     warnings.push(`Envelope footprint is ${env.toFixed(0)} mm -- check this fits your print bed.`);
   }
   if (Math.abs(deltaPct) > 10) {
-    warnings.push(`Resulting capacity is ${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(1)}% vs. the target cable length.`);
+    warnings.push(`Resulting capacity is ${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(0)}% vs. the target cable length.`);
   }
   // Capacity range too wide (issue #23): "ok" only means the CHOSEN winding
   // quality covers the target -- a design can still leave a loose/stacked
@@ -388,7 +388,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
     rawSpec.wire.length > MAX_WIRE_LENGTH ? { ...rawSpec, wire: { ...rawSpec.wire, length: MAX_WIRE_LENGTH } } : rawSpec;
   if (rawSpec.wire.length > MAX_WIRE_LENGTH) {
     warnings.push(
-      `Cable length ${rawSpec.wire.length} mm exceeds the supported maximum of ${MAX_WIRE_LENGTH} mm (15 m) and was rejected; capped at ${MAX_WIRE_LENGTH} mm.`,
+      `Cable length ${rawSpec.wire.length.toFixed(1)} mm exceeds the supported maximum of ${MAX_WIRE_LENGTH} mm (15 m) and was rejected; capped at ${MAX_WIRE_LENGTH} mm.`,
     );
   }
 
@@ -462,8 +462,8 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
         status: "over-constrained",
         message:
           computed > target
-            ? `Fully constrained geometry overshoots capacity by ${deltaPct.toFixed(1)}% -- the cable will be loose. Release the outer size, height, or layers lock to let the solver fix this.`
-            : `Fully constrained geometry falls short of capacity by ${Math.abs(deltaPct).toFixed(1)}% -- the cable will not fit. Release the outer size, height, or layers lock to let the solver fix this.`,
+            ? `Fully constrained geometry overshoots capacity by ${deltaPct.toFixed(0)}% -- the cable will be loose. Release the outer size, height, or layers lock to let the solver fix this.`
+            : `Fully constrained geometry falls short of capacity by ${Math.abs(deltaPct).toFixed(0)}% -- the cable will not fit. Release the outer size, height, or layers lock to let the solver fix this.`,
       };
     }
   } else if (freeCount === 1) {
@@ -490,7 +490,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
         freeCount,
         freeVariables: freeVars,
         status: "infeasible",
-        message: `The target cable length is unreachable within practical bounds even with this dimension maxed out (falls short by ${Math.abs(deltaPct).toFixed(1)}%). Lock a shorter target or free another dimension.`,
+        message: `The target cable length is unreachable within practical bounds even with this dimension maxed out (falls short by ${Math.abs(deltaPct).toFixed(0)}%). Lock a shorter target or free another dimension.`,
       };
     } else if (atLowBound && deltaPct > OVERSHOOT_INFEASIBLE_PCT) {
       diagnosis = {
@@ -498,8 +498,8 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
         freeVariables: freeVars,
         status: "infeasible",
         message: sizeFree
-          ? `The minimum feasible outer size (${sizeLo.toFixed(1)} mm, set by the bend limit) already overshoots the target length by ${deltaPct.toFixed(1)}%. The core cannot be made smaller.`
-          : `The minimum feasible value already overshoots the target length by ${deltaPct.toFixed(1)}%. The core cannot be made smaller.`,
+          ? `The minimum feasible outer size (${sizeLo.toFixed(1)} mm, set by the bend limit) already overshoots the target length by ${deltaPct.toFixed(0)}%. The core cannot be made smaller.`
+          : `The minimum feasible value already overshoots the target length by ${deltaPct.toFixed(0)}%. The core cannot be made smaller.`,
       };
     } else {
       diagnosis = {
@@ -551,7 +551,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
         freeCount,
         freeVariables: freeVars,
         status: "infeasible",
-        message: `Two free dimensions: no sampled combination reaches the target length within practical bounds (the best falls short by ${shortfallPct.toFixed(1)}%). Free the third dimension or shorten the target.`,
+        message: `Two free dimensions: no sampled combination reaches the target length within practical bounds (the best falls short by ${shortfallPct.toFixed(0)}%). Free the third dimension or shorten the target.`,
       };
     } else {
       const pickBest = (o: Objective) => {
@@ -616,7 +616,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
         freeCount,
         freeVariables: freeVars,
         status: "infeasible",
-        message: `All three dimensions are free, but even the best sampled combination (up to ${PRACTICAL_LAYERS_HI} layers) falls short of the target length by ${shortfallPct.toFixed(1)}%. Increase the practical bounds or shorten the target.`,
+        message: `All three dimensions are free, but even the best sampled combination (up to ${PRACTICAL_LAYERS_HI} layers) falls short of the target length by ${shortfallPct.toFixed(0)}%. Increase the practical bounds or shorten the target.`,
       };
     } else {
       feasiblePerLayer.sort((a, b) => a.score - b.score);

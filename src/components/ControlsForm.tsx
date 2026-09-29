@@ -15,7 +15,7 @@ import {
   TOLERANCE_MIN,
   WIRE_TYPE_PRESETS,
 } from "../core";
-import { FieldTop, LockRangeField, LockStepperField, RangeField, Section, TextField, cmToMm, mmToCm, roundMm } from "./fields";
+import { FieldTop, LockRangeField, LockStepperField, RangeField, Section, Switch, TextField, cmToMm, mmToCm, roundMm } from "./fields";
 import { HINTS } from "./hints";
 import { ShapePicker } from "./ShapePicker";
 
@@ -93,12 +93,39 @@ export function ControlsForm({
     onChange({ ...spec, coreSize: { locked: true, dimension, value: spec.coreSize.value } });
   };
 
+  // Issue #105 AC #4: the corner radius's own bend-limit floor for the
+  // CURRENT shape/cable -- `solve.ts`'s `bendCornerRadiusFloor`, surfaced on
+  // `Solution.cornerRadiusRange[0]` so the UI never derives its own,
+  // possibly-drifting copy of that math. Round has no corner radius at all;
+  // `solution` is undefined only before the very first solve, when 0 (no
+  // floor yet known) is a safe placeholder.
+  //
+  // PR review: rounded UP (never to the nearest, which could round DOWN
+  // past the true floor) to the field's own 0.5mm step, so the displayed
+  // min-note and the field's own clamped value always agree, and neither
+  // can ever read as below the real, unrounded floor.
+  const cornerRadiusMinRaw = spec.shape.kind === "round" ? 0 : (solution?.cornerRadiusRange[0] ?? 0);
+  const cornerRadiusMin = Math.ceil(cornerRadiusMinRaw / 0.5) * 0.5;
+
+  // Issue #105 AC #5: "enabled" tracks whether the user switched the label
+  // ON, not whether it currently has text -- an empty label while the
+  // switch is on must stay revealed, not snap shut. `spec.label` is only
+  // ever `undefined` (never `""`) while the switch is off: the switch's own
+  // onChange below is the one place that clears it back to `undefined`.
+  const labelEnabled = spec.label !== undefined;
+  const setLabelEnabled = (checked: boolean) => onChange({ ...spec, label: checked ? (spec.label ?? "") : undefined });
+
   const setShapeKind = (kind: ShapeKind) => {
     onChange({ ...spec, shape: kind === "round" ? { kind } : { kind, cornerRadius: DEFAULT_CORNER_RADIUS } });
   };
   const setShapeCornerRadius = (cornerRadius: number) => {
     if (spec.shape.kind === "round") return;
-    onChange({ ...spec, shape: { kind: spec.shape.kind, cornerRadius } });
+    // Issue #105 AC #4: never let a manual edit (slider drag OR typed
+    // number) push the corner radius below this cable's own bend-limit
+    // floor -- `solution.cornerRadiusRange[0]` is that exact floor for the
+    // CURRENT shape/cable (solve.ts's `bendCornerRadiusFloor`), so this
+    // can't drift from what the solver would clamp to anyway.
+    onChange({ ...spec, shape: { kind: spec.shape.kind, cornerRadius: Math.max(cornerRadiusMin, cornerRadius) } });
   };
 
   // Ids for the plain `<select>` fields below, so each one's `FieldTop`
@@ -122,16 +149,26 @@ export function ControlsForm({
   // slider's own minimum follows that (never lets the user drag below a
   // size the solver would just raise anyway); `solution` is undefined only
   // before the very first solve, when 5mm is as good a placeholder as any.
-  const outerSizeMin = spec.shape.kind === "round" ? 5 : Math.max(5, solution?.minOuterSizeForShape ?? 5);
-  // The solver silently raises a LOCKED size below that floor (with its own
-  // warning in the Result panel) -- the input itself still shows the raw
-  // value the user typed (never swapped out from under them mid-edit, which
-  // would fight typing), but this note next to it says plainly that the
-  // built core is actually bigger, and why.
-  const coreSizeRaised =
-    spec.shape.kind !== "round" && spec.coreSize.locked && solution && solution.outerSize > spec.coreSize.value + 0.05
-      ? { requested: spec.coreSize.value, built: solution.outerSize }
-      : undefined;
+  //
+  // PR review: rounded to the SAME whole/half-mm precision the field
+  // already shows a free (solver-set) size at (`roundMm`, issue #72 AC) --
+  // matching that existing convention, rather than a stricter ceiling, so
+  // this reads exactly like every other core-size number in the app.
+  // `LockRangeField` clamps the FIELD's own displayed value (and every
+  // edit) to this exact number, so the field can never show a stale/
+  // shared-link request below it -- it always shows the effective size,
+  // matching the note below. (A locked value can, in rare cases, still be a
+  // hair's-width under the solver's own unrounded floor after this rounding
+  // -- the solver's existing "Core size raised from X to Y" warning already
+  // covers that residual, sub-millimetre gap.)
+  const outerSizeMin = spec.shape.kind === "round" ? 5 : roundMm(Math.max(5, solution?.minOuterSizeForShape ?? 5));
+  // A LOCKED size below that floor only reaches the spec via a shared link
+  // predating this clamp (any edit through the UI is clamped immediately,
+  // by `LockRangeField` above) -- this note explains why the field's own
+  // displayed value doesn't match what that link asked for. Both the field
+  // and this note read off the SAME `outerSizeMin`, so they can never
+  // disagree (issue #105 PR review).
+  const coreSizeRaised = spec.shape.kind !== "round" && spec.coreSize.locked && spec.coreSize.value < outerSizeMin - 0.05;
 
   // "Advanced settings" (winding quality, custom bend multiplier, objective)
   // stay collapsed behind a disclosure (issue #16 AC) so the form isn't a
@@ -185,6 +222,24 @@ export function ControlsForm({
             ))}
           </select>
         </div>
+        {/* Issue #105 AC #6: the custom bend multiplier lives directly under
+            "Cable type" (not tucked away in "Advanced settings") and only
+            when it's actually read (wire.type === "custom", see
+            `bendMultiplierOf`) -- every other cable type has this baked into
+            its own preset, so the field would be inert noise otherwise. */}
+        {spec.wire.type === "custom" && (
+          <RangeField
+            testId="customMultiplier"
+            label="Custom bend multiplier"
+            unit="x diameter"
+            min={0.5}
+            max={50}
+            step={0.5}
+            value={spec.wire.customBendMultiplier ?? DEFAULT_CUSTOM_BEND_MULTIPLIER}
+            hint={HINTS.customMultiplier}
+            onChange={(v) => setWire({ customBendMultiplier: v })}
+          />
+        )}
       </Section>
 
       <Section title="Shape">
@@ -194,11 +249,17 @@ export function ControlsForm({
             testId="shapeCornerRadius"
             label="Corner radius"
             unit="mm"
-            min={0}
+            min={cornerRadiusMin}
             max={250}
             step={0.5}
-            value={spec.shape.cornerRadius}
+            // PR review: the FIELD must show the effective (clamped) value,
+            // never a stale/shared-link request below the bend-limit floor
+            // -- `cornerRadiusMin` is already the safe, rounded-UP floor
+            // (never below the true one), so this can't drift from the
+            // min-note's own number below.
+            value={Math.max(cornerRadiusMin, spec.shape.cornerRadius)}
             hint={HINTS.shapeCornerRadius}
+            minNote={cornerRadiusMin > 0.05 ? `Minimum for this cable's bend limit: ${cornerRadiusMin} mm` : undefined}
             onChange={setShapeCornerRadius}
           />
         )}
@@ -233,8 +294,7 @@ export function ControlsForm({
         />
         {coreSizeRaised && (
           <p className="field-note" data-testid="core-size-raised-note">
-            Built at {roundMm(coreSizeRaised.built)} mm, not {roundMm(coreSizeRaised.requested)} mm: a {SHAPES[spec.shape.kind].label.toLowerCase()} core needs
-            this much room for this cable's rounded corners.
+            Minimum for this {SHAPES[spec.shape.kind].label.toLowerCase()} shape and cable: {outerSizeMin} mm. Your value was raised to it.
           </p>
         )}
         <LockRangeField
@@ -337,19 +397,6 @@ export function ControlsForm({
             hint={HINTS.windingQuality}
             onChange={(v) => onChange({ ...spec, windingQuality: v })}
           />
-          {spec.wire.type === "custom" && (
-            <RangeField
-              testId="customMultiplier"
-              label="Custom bend multiplier"
-              unit="x diameter"
-              min={0.5}
-              max={50}
-              step={0.5}
-              value={spec.wire.customBendMultiplier ?? DEFAULT_CUSTOM_BEND_MULTIPLIER}
-              hint={HINTS.customMultiplier}
-              onChange={(v) => setWire({ customBendMultiplier: v })}
-            />
-          )}
           {showObjective && (
             <div className="field">
               <FieldTop label={`Objective (${freeCount} free dimensions)`} hint={HINTS.objective} htmlFor={objectiveId} />
@@ -400,15 +447,30 @@ export function ControlsForm({
           hint={HINTS.tolerance}
           onChange={(v) => onChange({ ...spec, tolerance: v })}
         />
-        <TextField
-          testId="label"
-          label="Label (engraved on the top cap)"
-          placeholder="e.g. USB-C 2m"
-          maxLength={LABEL_MAX_LENGTH}
-          value={spec.label ?? ""}
-          hint={HINTS.label}
-          onChange={(v) => onChange({ ...spec, label: v })}
-        />
+        <div className="field">
+          <div className="field-top">
+            <FieldTop label="Label (engraved on the top cap)" hint={HINTS.label} />
+            <Switch testId="label-enabled" ariaLabel="Engrave a label on the top cap" checked={labelEnabled} onChange={setLabelEnabled} />
+          </div>
+        </div>
+        {/* Issue #105 AC #5: off by default, and the text input stays
+            collapsed until switched on -- `labelEnabled` reads "the user
+            turned this on", not "there's text in it" (an empty label while
+            the switch is on is still a deliberate, revealed field, not a
+            reason to re-collapse it). Switching off clears the label back
+            to `undefined`, which `toHash` already omits from the URL (see
+            hash.ts's `if (spec.label) doc.label = ...`), so "clears the
+            hash" falls out of the existing encode rule for free. */}
+        {labelEnabled && (
+          <TextField
+            testId="label"
+            label="Label text"
+            placeholder="e.g. USB-C 2m"
+            maxLength={LABEL_MAX_LENGTH}
+            value={spec.label ?? ""}
+            onChange={(v) => onChange({ ...spec, label: v })}
+          />
+        )}
       </Section>
 
       <Section title="Print bed">
