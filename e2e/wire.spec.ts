@@ -90,12 +90,10 @@ test.describe("wound-cable schematic (issue #4)", () => {
     await expect(canvas).toHaveScreenshot("wire-toggle-on.png");
 
     await page.getByTestId("toggle-wire").uncheck();
-    await page.waitForTimeout(300);
     await expect(canvas, "unchecking the toggle must change the render").not.toHaveScreenshot("wire-toggle-on.png");
     await expect(async () => expect(decodeHashDoc(page.url()).ui).toEqual({ wire: false })).toPass();
 
     await page.getByTestId("toggle-wire").check();
-    await page.waitForTimeout(300);
     await expect(canvas, "re-checking the toggle must restore the original render").toHaveScreenshot(
       "wire-toggle-on.png",
     );
@@ -109,7 +107,6 @@ test.describe("wound-cable schematic (issue #4)", () => {
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
     await expect(canvas).toHaveScreenshot("wire-toggle-off-from-link.png");
     await page.getByTestId("toggle-wire").check();
-    await page.waitForTimeout(300);
     await expect(canvas).not.toHaveScreenshot("wire-toggle-off-from-link.png");
   });
 

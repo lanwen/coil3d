@@ -158,7 +158,6 @@ test.describe("mount plate screenshots (issue #14)", () => {
       await page.mouse.wheel(0, -120);
       await page.waitForTimeout(50);
     }
-    await page.waitForTimeout(300);
     await expect(canvas).toHaveScreenshot("mount-plate-closeup.png");
   });
 });

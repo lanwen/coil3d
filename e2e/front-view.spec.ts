@@ -32,12 +32,10 @@ async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(500);
 }
 
 async function showPreset(page: Page, preset: "front" | "iso" | "wallRoom") {
   await page.getByTestId(`preset-${preset}`).click();
-  await page.waitForTimeout(600);
 }
 
 test.describe("Front view faces a flat, not a corner (issue #79)", () => {

@@ -36,7 +36,6 @@ async function gotoDesign(page: Page, hash: string) {
   // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
   // gotoDesign, issue #61/#62, for the full story).
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(800);
 }
 
 test.describe("bottom rim keyhole + channel close-up (issue #8)", () => {
@@ -48,7 +47,6 @@ test.describe("bottom rim keyhole + channel close-up (issue #8)", () => {
     const withWire = await canvas.screenshot();
 
     await page.getByTestId("toggle-wire").uncheck();
-    await page.waitForTimeout(300);
     await expect(canvas).toHaveScreenshot("inner-end-round-keyhole-nowire.png");
     const withoutWire = await canvas.screenshot();
 
@@ -68,7 +66,6 @@ test.describe("bottom rim keyhole + channel close-up (issue #8)", () => {
     const withWire = await canvas.screenshot();
 
     await page.getByTestId("toggle-wire").uncheck();
-    await page.waitForTimeout(300);
     await expect(canvas).toHaveScreenshot("inner-end-square-keyhole-nowire.png");
     const withoutWire = await canvas.screenshot();
 
