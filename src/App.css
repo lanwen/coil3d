@@ -834,6 +834,37 @@ header p {
   background: var(--paper);
 }
 
+/* Mount side (issue #106): the flange face seen from the wall, with two
+   short vertical bars inside it for the clips in their slots. */
+.preset-icon-mountSide {
+  position: relative;
+  width: 14px;
+  height: 14px;
+}
+
+.preset-icon-mountSide::before,
+.preset-icon-mountSide::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  width: 2px;
+  height: 6px;
+  background: var(--ink);
+}
+
+.preset-icon-mountSide::before {
+  left: 2px;
+}
+
+.preset-icon-mountSide::after {
+  right: 2px;
+}
+
+.preset-btn.active .preset-icon-mountSide::before,
+.preset-btn.active .preset-icon-mountSide::after {
+  background: var(--paper);
+}
+
 /* Print layout (issue #78): a flat, wide rectangle standing for the bed
    seen from above -- visually distinct from front's tall square, iso's
    rotated one and wall mount's square-plus-bar. */

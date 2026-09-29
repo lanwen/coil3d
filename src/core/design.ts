@@ -24,9 +24,6 @@ import {
   CAP_THICKNESS,
   GROOVE_DEPTH_FACTOR,
   MARGIN,
-  OPENGRID_PITCH,
-  SKADIS_PITCH,
-  SKADIS_ROW_STAGGER,
   FINAL_ROWS_PER_PITCH,
   FINAL_COLUMNS,
   FINAL_MIN_CORNER_SEGMENTS_PER_90,
@@ -43,9 +40,9 @@ import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerE
 import { printBBox } from "./plate";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import type { MountLayout } from "./mount";
-import { layoutMountPlate, openGridClipHalfExtents, skadisClipHalfExtents } from "./mountPlate";
+import { mountPlateLayoutFor, skadisBoard } from "./mountPlate";
 import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
-import { makeOutline, minCornerSegments, offsetOutline } from "./shapes";
+import { circumscribedRadius, makeOutline, minCornerSegments, offsetOutline } from "./shapes";
 import { resolveLabel } from "./label";
 import { solve } from "./solve";
 import { bendMultiplierOf } from "./types";
@@ -106,7 +103,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // Issue #14: skadis/opengrid don't cut anything into the flange's own
   // OUTLINE (unlike keyhole) -- the separate mount plate's footprint
   // shrinks to fit whatever margin the flange already has (mountPlate.ts's
-  // `layoutMountPlate` insets it) -- but its alignment pegs/snap tabs still
+  // `layoutMountPlate` insets it) -- but its filament-pin holes still
   // need the flange to be a bit THICKER, exactly like the keyhole mount.
   const mountKindForPlate = spec.mount === "skadis" || spec.mount === "opengrid" ? spec.mount : undefined;
 
@@ -123,7 +120,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     solution.flangeSize,
     wireDiameter,
     spec.mount,
-    spec.plateJoint,
     spec.keyholeRotation,
     spec.throughHoleDiameter,
   );
@@ -211,21 +207,19 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // matching manifold.ts's own `buildOutlineRing(flange.outline,
   // flange.margin, ...)` call), so the layout and the actual cut geometry
   // can never disagree on where the flange's edge is.
-  let mountPlateLayout: ReturnType<typeof layoutMountPlate> | undefined;
+  let mountPlateLayout: ReturnType<typeof mountPlateLayoutFor> | undefined;
   if (mountKindForPlate) {
-    const flangeOutline = offsetOutline(outline, margin);
-    const pitch = mountKindForPlate === "skadis" ? SKADIS_PITCH : OPENGRID_PITCH;
-    const { halfSide, halfUp } = mountKindForPlate === "skadis" ? skadisClipHalfExtents() : openGridClipHalfExtents();
-    // The real, staggered grid (constants.ts's SKADIS_ROW_STAGGER) is only
-    // confirmed for SKÅDIS; openGrid's own stagger (if any) isn't verified,
-    // so it gets a plain, unstaggered grid for now.
-    const columnStagger = mountKindForPlate === "skadis" ? SKADIS_ROW_STAGGER : 0;
-    mountPlateLayout = layoutMountPlate(flangeOutline, boreOutline, pitch, halfSide, halfUp, columnStagger);
+    mountPlateLayout = mountPlateLayoutFor(mountKindForPlate, offsetOutline(outline, margin), boreOutline, innerEndLayout);
     if (mountPlateLayout.warning) warnings.push(mountPlateLayout.warning);
+    // Issue #106: snap tabs on the plate's front face would print hanging
+    // in mid-air (the plate prints back-face up, the flange face-down), so
+    // every plate now uses the filament-pin + glue joint. Old links that
+    // still ask for "snap" get it, with this notice.
+    if (spec.plateJoint === "snap") warnings.push("Snap tabs can't print without supports, so the mount plate uses two filament pins and glue instead.");
   }
   const mountPlateCut: MountPlateFlangeCut | undefined =
     mountPlateLayout && mountPlateLayout.clips.length > 0 && mountPlateLayout.anchors.length > 0
-      ? { anchors: mountPlateLayout.anchors, plateJoint: spec.plateJoint, tolerance: spec.tolerance }
+      ? { anchors: mountPlateLayout.anchors, tolerance: spec.tolerance }
       : undefined;
 
   // Top cap (issue #9): `solution.topCapEnabled` (solve.ts) already resolved
@@ -305,15 +299,14 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     const plateMesh = await buildMountPlate({
       layout: mountPlateLayout,
       mountKind: mountKindForPlate,
-      plateJoint: spec.plateJoint,
       tolerance: spec.tolerance,
       flangeThickness: thickness,
       columns,
       minCornerSegments: cornerSegs,
     });
     // Print orientation: flip 180 deg about X so the clips (pointing away
-    // from the core in the assembled frame) print pointing UP with no
-    // overhang -- `bedRestingTransform` (plate.ts) recomputes the exact Z
+    // from the core in the assembled frame) print pointing UP, on the
+    // plate's flat front face (only pin HOLES there, issue #106) -- `bedRestingTransform` (plate.ts) recomputes the exact Z
     // offset that actually rests it on the bed, so the translate here only
     // needs to supply the rotation.
     parts.push({ name: "mount-plate", role: "mountPlate", mesh: plateMesh, printTransform: { rotateX: Math.PI, translate: [0, 0, 0] } });
@@ -377,6 +370,10 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     wallSpec,
     flangeSpec,
     mountAxisDeg: mountLayout?.axisDeg ?? mountPlateLayout?.axisDeg,
+    pegboard:
+      spec.mount === "skadis" && mountPlateLayout && parts.some((p) => p.role === "mountPlate")
+        ? skadisBoard(mountPlateLayout, thickness, circumscribedRadius(outline, margin) + 25)
+        : undefined,
     innerEndLeadIn,
     layerTransitions,
     outerEndLeadOut,

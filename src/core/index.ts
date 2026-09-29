@@ -32,6 +32,7 @@ export type {
   Objective,
   Part,
   PartRole,
+  PegboardSection,
   PlateJoint,
   PrintSpec,
   Resolution,

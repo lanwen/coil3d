@@ -172,6 +172,12 @@
   stroke-dasharray: 5 4;
 }
 
+.guide-overlay-slot {
+  fill: none;
+  stroke: #666;
+  stroke-width: 1.5;
+}
+
 .guide-overlay-wall-hatch {
   stroke: var(--ink);
   stroke-width: 1.5;

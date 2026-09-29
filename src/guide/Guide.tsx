@@ -24,12 +24,12 @@ import { GuideFigure } from "../viewer/GuideFigure";
 import { EXPLODE_GAP } from "../viewer/CoilScene";
 import { partInPrintPose } from "./printOrientation";
 import { approxRimPoint, computeGuideFit, explodedParts, meshBounds, partsBounds, projectToFigure } from "./projection";
-import { CircleMark, ClickMark, CornerInset, Figure, InsetMark, PolylineArrow, StraightArrow, TwistMark, WallPlane, WallQuad, type Pt } from "./overlays";
+import { CircleMark, ClickMark, CornerInset, Figure, InsetMark, PolylineArrow, SlotOutlines, StraightArrow, TwistMark, WallPlane, WallQuad, type Pt } from "./overlays";
 import { rotateParts, rotatePoint, wallMountRotation, wallRoomRotation } from "./wallView";
 import { ClickIcon, GlueDropIcon, KeyholeIcon, NoPullIcon, NoSupportsIcon, PressIcon, RotateIcon, ScrewdriverIcon, TwistIcon, WallMountIcon, WindIcon } from "./pictograms";
 import "./guide.css";
 
-const PART_LABELS: Record<string, string> = { core: "Core", "top-cap": "Top cap" };
+const PART_LABELS: Record<string, string> = { core: "Core", "top-cap": "Top cap", "mount-plate": "Mount plate" };
 
 function partLabel(part: Part): string {
   return PART_LABELS[part.name] ?? part.name;
@@ -40,7 +40,11 @@ function corePart(design: Design): Part {
 }
 
 function capPart(design: Design): Part | undefined {
-  return design.parts.find((p) => p.role !== "core");
+  return design.parts.find((p) => p.role === "topCap");
+}
+
+function platePart(design: Design): Part | undefined {
+  return design.parts.find((p) => p.role === "mountPlate");
 }
 
 /** The mesh's own X/Y center at a given Z -- a plain bounding-box read (public `CoilMesh` data only), used to anchor an arrow at "the core's top rim, on axis" or "the cap's underside, on axis" without needing any core-internal outline data. */
@@ -170,7 +174,9 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
   const joint = design.spec.joint;
   const JointIcon = JOINT_ICON[joint];
 
-  const posedForAlign = explodedParts(design.parts, true, EXPLODE_GAP);
+  // The mount plate sits UNDER the flange: lifting it with the cap would push it up through the core (issue #106).
+  const capParts = design.parts.filter((p) => p.role !== "mountPlate");
+  const posedForAlign = explodedParts(capParts, true, EXPLODE_GAP);
   const posedCap = posedForAlign.find((p) => p.role !== "core")!;
   const capBottomExploded = centerAtZ(posedCap.mesh, meshBounds(posedCap.mesh).min.z);
   const coreTop = centerAtZ(core.mesh, meshBounds(core.mesh).max.z);
@@ -181,7 +187,7 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
       <div className="guide-figure-row">
         <figure className="guide-part">
           <Figure
-            parts={design.parts}
+            parts={capParts}
             exploded
             testId="guide-cap-exploded"
             renderOverlay={(fit) => <StraightArrow from={projectToFigure(fit, capBottomExploded)} to={projectToFigure(fit, coreTop)} />}
@@ -190,7 +196,7 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
         </figure>
         <figure className="guide-part">
           <Figure
-            parts={design.parts}
+            parts={capParts}
             testId="guide-cap-assembled"
             renderOverlay={(fit) => {
               const at = projectToFigure(fit, seam);
@@ -241,7 +247,7 @@ function mountLine(mount: MountKind): string {
     case "through":
       return "Drive a screw straight through each hole, into the wall -- reachable through the open bore or around the winding, no sliding needed.";
     case "skadis":
-      return "Glue or snap the mount plate onto the flange, then press its clips onto your SKÅDIS board.";
+      return "Line the clips up with the board's slots and press the plate flat until the clips click behind the board, then let it drop onto the slot bottoms.";
     // "none" (and "opengrid", not reachable -- see this function's own doc comment).
     default:
       return "Fix the flange to the wall your own way -- mounts are coming soon.";
@@ -384,8 +390,81 @@ function StepMountKeyhole({ design, n }: { design: Design; n: number }) {
   );
 }
 
+/** The mount plate lowered below the flange (the guide's own "exploded" pose for it: `explodedParts` lifts every non-core part UP, which for this part, under the flange, would push it through the core). */
+function loweredPlate(plate: Part, gap: number): Part {
+  const { min, max } = meshBounds(plate.mesh);
+  const offset = max.z - min.z + gap;
+  const positions = new Float32Array(plate.mesh.positions);
+  for (let i = 2; i < positions.length; i += 3) positions[i] -= offset;
+  return { ...plate, mesh: { positions, indices: plate.mesh.indices } };
+}
+
+/** Issue #106: glue the SKÅDIS plate onto the flange, on two filament pins (constants.ts's MOUNT_PLATE_PIN_*: 1.75 mm filament, 4.5 mm long). */
+function StepFitPlate({ design, n }: { design: Design; n: number }) {
+  const core = corePart(design);
+  const plate = platePart(design)!;
+  const lowered = loweredPlate(plate, EXPLODE_GAP);
+  const from = centerAtZ(lowered.mesh, meshBounds(lowered.mesh).max.z);
+  const to = centerAtZ(core.mesh, meshBounds(core.mesh).min.z);
+  return (
+    <StepCard n={n} title="Fit the mount plate">
+      <div className="guide-figure-row guide-figure-row--solo">
+        <Figure parts={[core, lowered]} testId="guide-fit-plate" renderOverlay={(fit) => <StraightArrow from={projectToFigure(fit, from)} to={projectToFigure(fit, to)} />} />
+      </div>
+      <Callout icons={[<PressIcon key="press" label="Press the plate on" />, <GlueDropIcon key="glue" label="Permanent: add glue" />]}>
+        Cut two 4.5 mm pieces of 1.75 mm filament and push them into the plate's two holes. Add glue, then press the plate onto the flange, pins into its holes.
+      </Callout>
+    </StepCard>
+  );
+}
+
+/**
+ * Issue #106: the SKÅDIS clip plate. Main figure: the mount side, face-on
+ * (the same `wallMountRotation` as the keyhole step's inset), with the
+ * board's slot grid (`Design.pegboard`, drawn on its back plane, nearer this
+ * camera than anything but the clip barbs) outlined over it -- every clip
+ * sits in a slot. The inset shows the coil hung on the wall, room side.
+ */
+function StepMountSkadis({ design, n }: { design: Design; n: number }) {
+  const board = design.pegboard!;
+  const mountRotation = wallMountRotation(design.mountAxisDeg);
+  const mountParts = rotateParts(design.parts, mountRotation);
+  const roomParts = rotateParts(design.parts, wallRoomRotation(design.mountAxisDeg));
+  const a = (board.axisDeg * Math.PI) / 180;
+  const up = { x: Math.sin(a), y: Math.cos(a) };
+  const side = { x: Math.cos(a), y: -Math.sin(a) };
+  const r = board.slotWidth / 2;
+  const h = board.slotLength / 2 - r;
+  const z = board.frontZ - board.thickness;
+  const outline: Array<[number, number]> = [];
+  for (let i = 0; i <= 12; i++) outline.push([r * Math.cos((Math.PI * i) / 12), h + r * Math.sin((Math.PI * i) / 12)]);
+  for (let i = 0; i <= 12; i++) outline.push([r * Math.cos(Math.PI + (Math.PI * i) / 12), -h + r * Math.sin(Math.PI + (Math.PI * i) / 12)]);
+  return (
+    <StepCard n={n} title="Mount on the SKÅDIS board">
+      <div className="guide-figure-row guide-figure-row--solo">
+        <Figure
+          parts={mountParts}
+          testId="guide-mount"
+          renderOverlay={(fit) => (
+            <SlotOutlines
+              slots={board.slots.map((c) =>
+                outline.map(([s, u]) => projectToFigure(fit, rotatePoint(new THREE.Vector3(c.x + s * side.x + u * up.x, c.y + s * side.y + u * up.y, z), mountRotation))),
+              )}
+            />
+          )}
+        />
+        <CornerInset>
+          <GuideFigure parts={roomParts} preset="iso" fill={0.7} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
+        </CornerInset>
+      </div>
+      <Callout icons={<WallMountIcon label="Mount on the SKÅDIS board" />}>{mountLine("skadis")}</Callout>
+    </StepCard>
+  );
+}
+
 function StepMount({ design, n }: { design: Design; n: number }) {
   if (design.spec.mount === "keyhole") return <StepMountKeyhole design={design} n={n} />;
+  if (design.spec.mount === "skadis" && design.pegboard) return <StepMountSkadis design={design} n={n} />;
   return <StepMountGeneric design={design} n={n} />;
 }
 
@@ -428,8 +507,11 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
   // Steps 1-3 (print/thread/wind) always run; the two cap steps only exist
   // when this design has a top cap, so every step after them renumbers down
   // by 2 when it doesn't (a design with no cap never has a "step 5" gap).
-  const mountN = topCapEnabled ? 6 : 4;
-  const unwindN = topCapEnabled ? 7 : 5;
+  // Issue #106: a SKÅDIS plate gets its own "fit the plate" step first.
+  const hasPlate = !!platePart(design) && !!design.pegboard;
+  const plateN = topCapEnabled ? 6 : 4;
+  const mountN = plateN + (hasPlate ? 1 : 0);
+  const unwindN = mountN + 1;
   return (
     // data-resolution mirrors ResultPanel's finalReady gate (issue #7):
     // the guide is generated straight from whatever `design` App currently
@@ -454,6 +536,7 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
       <StepWind design={design} />
       {topCapEnabled && <StepFitCap design={design} n={4} />}
       {topCapEnabled && <StepSecureOuterEnd design={design} n={5} />}
+      {hasPlate && <StepFitPlate design={design} n={plateN} />}
       <StepMount design={design} n={mountN} />
       <StepUnwind design={design} n={unwindN} />
     </div>

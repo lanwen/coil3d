@@ -5,16 +5,17 @@ import * as THREE from "three";
 import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CAP_THICKNESS, JOINT_ENGAGE_DEPTH, JOINT_TRANSITION_HEIGHT } from "../core";
-import type { CoilMesh, Part, PrintSpec, Resolution, ShapeKind, WireLayerPath } from "../core";
+import type { CoilMesh, MountKind, Part, PegboardSection, PrintSpec, Resolution, ShapeKind, WireLayerPath } from "../core";
 import { DimensionAxes, type DimensionLabels } from "./DimensionAxes";
 import { dimensionAxesGeometry, dimensionFramePoints, measureDimensionFrame } from "./dimensionGeometry";
 import { frontFacingDimensionSpin, frontFacingRotation } from "./frontFacing";
 import { LineArtRenderer, type Projection } from "./lineArt/LineArtRenderer";
 import { getPreset, presetQuaternion, type PresetId } from "./lineArt/presets";
+import { PegboardSlots } from "./PegboardSlots";
 import { PrintLayoutLabels } from "./PrintLayoutLabels";
 import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
 import { ViewControls } from "./ViewControls";
-import { WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
+import { WALL_MOUNT_VIEW_ROTATION, WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
 import { buildWireGeometries } from "./wireGeometry";
 
 // Normals are split where faces meet at more than this angle, so the edge
@@ -91,6 +92,10 @@ export interface CoilViewerProps {
    * without touching `showWire`/`showDimensions` themselves (so whatever
    * the user had them set to is exactly what shows again once they leave). */
   onPrintLayoutActiveChange?: (active: boolean) => void;
+  /** `Design.spec.mount`: switching it TO "skadis" (not a page load that starts there) swaps in the mount-side view once, so the new plate and its clips are actually seen (issue #106). */
+  mountKind?: MountKind;
+  /** `Design.pegboard` (issue #106): the SKÅDIS slot grid the mount-side view draws against the clips; undefined hides that view. */
+  pegboard?: PegboardSection;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -197,7 +202,10 @@ function ExplodedPart({
 // are rotated the identical way, so the wire never visually separates from
 // its coil when the preset is toggled.
 
-type ViewMode = "standing" | "wallRoom" | "printLayout";
+// Issue #106 adds "mountSide": the wall's own face-on view of the clip
+// mount plate (`WALL_MOUNT_VIEW_ROTATION`, the same one the guide's mount
+// insets use), with the SKÅDIS slot grid (`PegboardSlots`) drawn in.
+type ViewMode = "standing" | "wallRoom" | "mountSide" | "printLayout";
 
 // Issue #79: "standing" now also carries a per-shape presentation rotation
 // (frontFacing.ts) so Front (and Iso, 45 degrees off it) face a flat side
@@ -209,6 +217,7 @@ function buildViewRotations(mountAxisDeg: number | undefined, shapeKind: ShapeKi
   return {
     standing: frontFacingRotation(shapeKind),
     wallRoom: withMountAxisCorrection(WALL_VIEW_ROTATION, mountAxisDeg),
+    mountSide: withMountAxisCorrection(WALL_MOUNT_VIEW_ROTATION, mountAxisDeg),
     printLayout: null,
   };
 }
@@ -222,6 +231,9 @@ function buildViewRotations(mountAxisDeg: number | undefined, shapeKind: ShapeKi
 const EXPLODE_AXES: Record<ViewMode, THREE.Vector3> = {
   standing: new THREE.Vector3(0, 0, 1),
   wallRoom: new THREE.Vector3(1, 0, 0),
+  // WALL_MOUNT_VIEW_ROTATION's own image of local +Z (the camera's forward);
+  // its mountAxisDeg correction spins about local Z, so never moves it.
+  mountSide: new THREE.Vector3(0, 0, 1).applyMatrix4(WALL_MOUNT_VIEW_ROTATION),
   printLayout: new THREE.Vector3(0, 0, 1),
 };
 
@@ -231,6 +243,7 @@ const EXPLODE_AXES: Record<ViewMode, THREE.Vector3> = {
 // own note" slot, not a second parallel mechanism.
 const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
   wallRoom: "Bottom flange against the wall -- top cap faces the room",
+  mountSide: "Seen from behind the wall -- each clip in its SKÅDIS slot (grey)",
   printLayout: "Every part rests flat on the bed -- no supports needed",
 };
 
@@ -282,6 +295,8 @@ export function CoilViewer({
   showDimensions = true,
   bed,
   onPrintLayoutActiveChange,
+  mountKind,
+  pegboard,
 }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -293,6 +308,20 @@ export function CoilViewer({
     onPrintLayoutActiveChange?.(viewMode === "printLayout");
   }, [viewMode, onPrintLayoutActiveChange]);
   const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg, shapeKind), [mountAxisDeg, shapeKind]);
+
+  // Issue #106: a SKÅDIS plate sits behind the flange, where neither the Iso
+  // nor the Wall mount camera ever looks -- so selecting it (a change of
+  // mount, not a link that already had it) jumps to the mount-side view
+  // once. The view goes away again with the plate.
+  const prevMountKind = useRef<MountKind | undefined>(mountKind);
+  useEffect(() => {
+    const prev = prevMountKind.current;
+    prevMountKind.current = mountKind;
+    if (prev !== mountKind && mountKind === "skadis" && pegboard) setViewMode("mountSide");
+  }, [mountKind, pegboard]);
+  useEffect(() => {
+    if (!pegboard) setViewMode((mode) => (mode === "mountSide" ? "standing" : mode));
+  }, [pegboard]);
 
   // Debug close-up on the inner-end keyhole + channel (issue #8 PR review):
   // rotates the rendered geometry about the coil axis so the keyhole's own
@@ -335,7 +364,7 @@ export function CoilViewer({
    * mount" or "Print layout" sets the `viewMode` that swaps in that view's
    * own geometry. */
   const handlePresetChange = (id: PresetId) => {
-    if (id === "wallRoom" || id === "printLayout") {
+    if (id === "wallRoom" || id === "mountSide" || id === "printLayout") {
       setViewMode(id);
     } else {
       setViewMode("standing");
@@ -535,7 +564,7 @@ export function CoilViewer({
     });
     // Issue #69: room for the dimension axes and their labels (kept even when
     // they are toggled off, so the toggle never zooms the model).
-    if (!exploded && dimensionLabels) {
+    if (!exploded && dimensionLabels && viewMode !== "mountSide") {
       const points = dimensionFramePoints(dimensionAxes);
       new THREE.BufferAttribute(points, 3).applyMatrix4(dimensionMatrix);
       chunks.push(points);
@@ -549,7 +578,7 @@ export function CoilViewer({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionAxes, dimensionMatrix]);
+  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionAxes, dimensionMatrix, viewMode]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
   // Debug close-up (continued): a SMALL framing geometry -- just
@@ -645,6 +674,9 @@ export function CoilViewer({
             {viewWireGeometries.map((g, i) => (
               <mesh key={i} geometry={g} />
             ))}
+            {(viewMode === "mountSide" || viewMode === "wallRoom") && pegboard && !exploded && (
+              <PegboardSlots board={pegboard} rotation={viewRotation} face={viewMode === "mountSide" ? "back" : "front"} />
+            )}
           </>
         )}
         <LineArtRenderer
@@ -660,14 +692,15 @@ export function CoilViewer({
             or in the print-layout view (issue #78 AC: hidden, or showing the
             bed size -- its own caption above already names the bed) -- none
             of those measure the assembled pose. */}
-        {showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && dimensionLabels && (
+        {showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && viewMode !== "mountSide" && dimensionLabels && (
           <DimensionAxes axes={dimensionAxes} rotation={dimensionMatrix} labels={dimensionLabels} roundGroundLabel={shapeKind === "round"} />
+
         )}
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
       </Canvas>
       {/* The same values as text, for screen readers (the axes' labels are
           drawn inside the canvas). */}
-      {showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && dimensionLabels && (
+      {showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && viewMode !== "mountSide" && dimensionLabels && (
         <ul className="visually-hidden" data-testid="dimensions" aria-label="Overall dimensions">
           <li>
             Width <span data-testid="dimension-width">{dimensionLabels.width}</span>
@@ -694,7 +727,7 @@ export function CoilViewer({
           ))}
         </ul>
       )}
-      <ViewControls preset={effectivePreset} onPresetChange={handlePresetChange} projection={projection} onProjectionChange={setProjection} />
+      <ViewControls preset={effectivePreset} onPresetChange={handlePresetChange} projection={projection} onProjectionChange={setProjection} showMountSide={!!pegboard} />
     </div>
   );
 }

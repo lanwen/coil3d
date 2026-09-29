@@ -285,6 +285,17 @@ export function CornerInset({ children, corner = "bottom-right", size = INSET_SI
   );
 }
 
+/** SKÅDIS slot outlines (issue #106): each slot's outline, already projected (`projectToFigure`) point by point, as a thin grey closed path -- drawn over a mount-side figure so the clips show inside their slots. */
+export function SlotOutlines({ slots }: { slots: Pt[][] }) {
+  return (
+    <g className="guide-overlay-slots">
+      {slots.map((pts, i) => (
+        <polygon key={i} className="guide-overlay-slot" points={pts.map((p) => `${toVb(p).x},${toVb(p).y}`).join(" ")} />
+      ))}
+    </g>
+  );
+}
+
 /** A dashed circle mark inside a `CornerInset`, positioned by plain CSS percentage (not the main figure's fixed-aspect SVG viewBox: a `CornerInset` is a 1:1 square, so a percentage position needs no aspect conversion at all). */
 export function InsetMark({ at }: { at: Pt }) {
   return <div className="guide-inset-mark" style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }} />;

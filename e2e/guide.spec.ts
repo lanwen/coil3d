@@ -33,7 +33,7 @@ async function gotoGuide(page: Page, hash: string) {
   // #61/#62, for the full story; Guide.tsx exposes the same signal here as
   // `data-resolution` since the design view's own `download-stl` isn't in
   // the DOM while viewing the guide).
-  await expect(page.getByTestId("guide-view")).toHaveAttribute("data-resolution", "final");
+  await expect(page.getByTestId("guide-view")).toHaveAttribute("data-resolution", "final", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
 }
 
 test.describe("printable assembly guide (issue #17)", () => {
@@ -109,11 +109,20 @@ test.describe("printable assembly guide (issue #17)", () => {
   // wording too, not the generic "coming soon" fallback meant only for
   // "none" (and "opengrid", which isn't reachable -- see mountLine's own
   // doc comment in Guide.tsx).
-  test("the wall-mount step gives real instructions once the SKÅDIS clip mount is selected", async ({ page }) => {
+  // Issue #106: the plate gets its own "fit the plate" step (filament pins +
+  // glue), then the mount step shows the clips face-on against the drawn
+  // SKÅDIS slot grid.
+  test("the SKÅDIS clip mount gets a fit-the-plate step, then a mount step with the clips in the board's slots", async ({ page }) => {
     await gotoGuide(page, `${ONE_LAYER}&mount=skadis`);
     await expect(page.getByTestId("guide-step-4")).toContainText(/mount plate/i);
-    await expect(page.getByTestId("guide-step-4")).toContainText(/SK.DIS/i);
-    await expect(page.getByTestId("guide-step-4")).not.toContainText("coming soon");
+    await expect(page.getByTestId("guide-step-4")).toContainText(/1\.75 mm filament/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/SK.DIS/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/slots/i);
+    await expect(page.getByTestId("guide-step-5")).not.toContainText("coming soon");
+    await expect(page.getByTestId("guide-step-5").locator(".guide-overlay-slot").first()).toBeVisible();
+    await expect(page.getByTestId("guide-step-6")).toContainText(/unwind/i);
+    await expect(page.getByTestId("guide-step-4")).toHaveScreenshot("guide-skadis-fit-plate.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+    await expect(page.getByTestId("guide-step-5")).toHaveScreenshot("guide-skadis-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
   });
 
   // Issue #70 landed the through-hole mount after this guide shipped, the

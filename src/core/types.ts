@@ -102,11 +102,11 @@ export type KeyholeRotation = 0 | 45;
 
 /**
  * How the clip mount plate (issue #14, `mount: "skadis" | "opengrid"`)
- * attaches to the flange: `"glue"` -- a flat mating face with small
- * alignment pegs into shallow holes in the flange, permanent once glued;
- * `"snap"` -- printable cantilever snap tabs into matching pockets in the
- * flange, no glue needed. Ignored (unread) when `mount` is `"none"` or
- * `"keyhole"`.
+ * attaches to the flange. `"glue"`: matching blind holes in the plate and
+ * the flange, aligned with two short pieces of 1.75 mm filament, then glued.
+ * `"snap"` (issue #14's printable snap tabs) is kept only so old links still
+ * parse: tabs on the plate's front face can't print without supports, so
+ * design() builds the glue joint for it too, with a warning (issue #106).
  */
 export type PlateJoint = "glue" | "snap";
 
@@ -336,6 +336,20 @@ export interface Part {
   printTransform: RigidTransform;
 }
 
+/** A section of SKÅDIS board, placed where the clip mount plate hangs on it (issue #106, `Design.pegboard`). */
+export interface PegboardSection {
+  /** Slot centres, in the flange plane (the same (x, y) frame as every part's mesh). */
+  slots: Array<{ x: number; y: number }>;
+  slotWidth: number;
+  /** End to end, along the slot's own axis. */
+  slotLength: number;
+  thickness: number;
+  /** The board's front face (against the plate's back face), in the assembly frame's z; the board extends toward more-negative z by `thickness`. */
+  frontZ: number;
+  /** Every slot runs along up = (sin, cos) of this angle (the plate layout's `axisDeg`, the same as `Design.mountAxisDeg`). */
+  axisDeg: number;
+}
+
 /** The solved coil, ready to render or export. */
 export interface Design {
   spec: CoilSpec;
@@ -375,6 +389,14 @@ export interface Design {
    * than the design's own local frame.
    */
   mountAxisDeg?: number;
+  /**
+   * Issue #106: the SKÅDIS board section the clip mount plate hangs on,
+   * with the clips seated in their slots (slot centres in the flange plane,
+   * the board's front face against the plate's back face) -- for drawing
+   * the slot grid against the clips. Undefined unless `spec.mount` is
+   * `"skadis"` and a plate was built.
+   */
+  pegboard?: PegboardSection;
   /**
    * The inner-end lead-in centerline (issue #8): from the bottom flange's
    * own rim keyhole, through the recessed channel, to where layer 1's own
