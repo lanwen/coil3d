@@ -37,6 +37,11 @@ interface LabelRect {
 // unwrapped orbit azimuth.
 type ProbeWindow = Window & {
   __orbitAzimuthDeg?: number;
+  // LineArtRenderer.tsx's own test-only seam (issue #110): rotates the live
+  // camera by this many degrees around the orbit target, without simulating
+  // a pointer drag. The drag path itself (does a drag actually orbit the
+  // camera) is covered by e2e/line-art.spec.ts's issue #84 tests.
+  __orbitByDeg?: (deltaDeg: number) => void;
   __dimensionAxes?: {
     mvp: number[];
     canvas: { width: number; height: number };
@@ -333,19 +338,44 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
       await gotoDesign(page, hash);
       await showPreset(page, "iso");
       const canvas = page.getByTestId("coil-viewer").locator("canvas");
-      const box = (await canvas.boundingBox())!;
-      // OrbitControls turns 2*pi per canvas height of horizontal drag.
+      // Issue #110: this used to drive the orbit with 24 simulated
+      // `page.mouse.move` drag steps, each followed by a full canvas
+      // screenshot + pixel diff -- 20-29s per shape, right at the suite's
+      // 30s timeout. The drag path itself (does dragging actually orbit the
+      // camera) is already covered by e2e/line-art.spec.ts's issue #84
+      // tests, so this test now drives the SAME 24 steps of a full orbit
+      // through LineArtRenderer's `__orbitByDeg` test hook instead, and
+      // reads the projected endpoints off the `__dimensionAxes` probe rather
+      // than screenshotting every step.
       const STEPS = 24;
-      let x = box.x + 20;
-      const y = box.y + box.height / 2;
-      await page.mouse.move(x, y);
-      await page.mouse.down();
+      const STEP_DEG = 360 / STEPS;
+      // The box/gap/origin -> expected-pixel-position check below is pure
+      // arithmetic on the probe's own numbers (no screenshot needed), so it
+      // alone still catches an anchor-point regression -- e.g. the "shifted
+      // 25mm" mutation -- at EVERY one of the 25 steps, same rigidity
+      // coverage as before. Ink is only confirming something is actually
+      // DRAWN where the numbers say, which doesn't need checking at every
+      // angle: a handful of representative points around the circle is
+      // enough, so only these steps pay for a screenshot.
+      const INK_STEPS = new Set([0, 6, 12, 18, 24]);
       const startAzimuth = await page.evaluate(() => (window as unknown as ProbeWindow).__orbitAzimuthDeg ?? 0);
       for (let step = 0; step <= STEPS; step++) {
         if (step > 0) {
-          x += box.height / STEPS;
-          await page.mouse.move(x, y, { steps: 2 });
-          await page.waitForTimeout(100);
+          // The canvas renders on demand (see LineArtRenderer's own doc
+          // comment): __orbitByDeg's `invalidate()` schedules a render, but
+          // doesn't wait for it, so the probe would still read the PREVIOUS
+          // angle without this. Two rAFs (not one): r3f's own render call is
+          // already scheduled by the time this runs, but a demand-mode
+          // canvas may take a frame to actually settle before the probe's
+          // `scene.onBeforeRender` hook fires with the new camera.
+          await page.evaluate(
+            (deg) =>
+              new Promise<void>((resolve) => {
+                (window as unknown as ProbeWindow).__orbitByDeg?.(deg);
+                requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+              }),
+            STEP_DEG,
+          );
         }
         const probe = await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes);
         expect(probe, "the axes are drawn").toBeTruthy();
@@ -368,7 +398,6 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
         };
         const near = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1]) <= 2;
         expect(probe!.arms.length, `step ${step}: every axis drawn`).toBe(3);
-        const shot = await canvas.screenshot();
         const samples: number[][] = [];
         // Issue #97: an occluded sample is expected to have NO ink (the
         // model hides it instead of showing it grey), so it's excluded from
@@ -384,6 +413,13 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
             visible.push(!arm.occludedAt[i]);
           });
         }
+        if (!INK_STEPS.has(step)) continue;
+        // Settle a beat before the pixels are actually read, same as every
+        // other ink check in this file (dimensionInk's own toggles wait
+        // 300ms) -- the rAF wait above only guarantees the PROBE'S numbers
+        // are current, not that the compositor has painted them yet.
+        await page.waitForTimeout(100);
+        const shot = await canvas.screenshot();
         const inked = await page.evaluate(
           async ({ png, samples }) => {
             const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${png}`)).blob());
@@ -409,7 +445,6 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
           expect(inked[i], `step ${step}: ink at the visible sample (${samples[i][0].toFixed(0)}, ${samples[i][1].toFixed(0)})`).toBe(true);
         }
       }
-      await page.mouse.up();
       const turned = (await page.evaluate(() => (window as unknown as ProbeWindow).__orbitAzimuthDeg ?? 0)) - startAzimuth;
       expect(Math.abs(turned), "a full orbit").toBeGreaterThanOrEqual(350);
     });
