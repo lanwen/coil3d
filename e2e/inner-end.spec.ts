@@ -2,12 +2,12 @@ import { expect, test, type Page } from "@playwright/test";
 
 // End-to-end checks for issue #8 (bottom rim keyhole and inner channel):
 // docs/research.md "Wire ends" -- "keyhole in the bottom flange rim at the
-// groove start, with a recessed radial channel on the flange's inner face
+// groove start, with a recessed channel on the flange's inner face
 // so layers don't wind over a bump". Solver/geometry/manifold checks
 // themselves live in test/innerEnd.test.ts against the public `design()`
 // interface; these check the actual render: the feature is visible, and
 // the wound-cable toggle visibly changes it (the schematic's lead-in runs
-// from the keyhole through the channel, wire.ts's `buildInnerEndLeadIn`).
+// from the keyhole through the channel, innerEnd.ts's `leadIn`).
 //
 // Close-up framing: `?debugFocusInnerEnd=1` (CoilViewer.tsx, mirroring the
 // existing `?debugAxis=1` screenshot-only debug convention) rotates the
@@ -50,7 +50,7 @@ test.describe("bottom rim keyhole + channel close-up (issue #8)", () => {
     await expect(canvas).toHaveScreenshot("inner-end-round-keyhole-nowire.png");
     const withoutWire = await canvas.screenshot();
 
-    // The lead-in (wire.ts's buildInnerEndLeadIn) draws a real, additional
+    // The lead-in (innerEnd.ts's leadIn) draws a real, additional
     // line from the keyhole into the channel only when the cable is shown;
     // an exact byte comparison (not the tolerant toHaveScreenshot diff)
     // proves the toggle actually changes THIS close-up, not just the coil

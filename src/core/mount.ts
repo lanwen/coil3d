@@ -442,10 +442,13 @@ export function requiredThroughMountMargin(
 /** Point-to-closed-polygon minimum distance (mm) -- used to keep a through-hole clear of the inner-end cable channel's own cut footprint (issue #70 AC: "clear of ... the inner-end channel"). */
 function distanceToClosedPolygon(px: number, py: number, points: XY[]): number {
   let best = Infinity;
+  let inside = false;
   const n = points.length;
   for (let i = 0; i < n; i++) {
     const a = points[i];
     const b = points[(i + 1) % n];
+    // Issue #115: inside the polygon counts as distance 0 (see mountPlate.ts's `distanceToPolygon`).
+    if (a.y > py !== b.y > py && px < a.x + ((py - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const len2 = dx * dx + dy * dy;
@@ -453,7 +456,7 @@ function distanceToClosedPolygon(px: number, py: number, points: XY[]): number {
     const d = Math.hypot(px - (a.x + t * dx), py - (a.y + t * dy));
     if (d < best) best = d;
   }
-  return best;
+  return inside ? 0 : best;
 }
 
 /**

@@ -143,7 +143,7 @@ describe("design().wirePaths (issue #4)", () => {
     expect(r2 - r1).toBeCloseTo(d.solution.layerResults[1].offset - d.solution.layerResults[0].offset, 3);
 
     // Issue #68: layer 2 is TRAVERSE-wound -- it descends instead of
-    // climbing (see wire.ts's `buildWirePaths` doc comment), so its own
+    // climbing (see wire.ts's `layerRun`), so its own
     // chronological END (its last sample, not its first) is the one that
     // sits right next to layer 1's own start, one phase-shift's worth of
     // pitch away. At quality=1 the ideal half-pitch shift applies (docs/
@@ -285,7 +285,7 @@ function expectContinuousJoin(before: Float32Array, after: Float32Array, label: 
 
 // Guards against a specific PR #77 review bug class: `layerTransitions`/
 // `outerEndLeadOut` are Hermite curves built in cylindrical (radius, angle,
-// height) coordinates around the coil axis (wire.ts's `cylindricalBridge`).
+// height) coordinates around the coil axis (the pre-#115 wire.ts's `cylindricalBridge`).
 // `expectContinuousJoin` above only checks the two exact ENDPOINTS -- gap and
 // tangent direction are satisfied there by construction, no matter what the
 // curve does in BETWEEN them. The bug this catches lived entirely in that
@@ -302,13 +302,17 @@ function expectContinuousJoin(before: Float32Array, after: Float32Array, label: 
 // screenshots and diffing against `origin/main`, not by any vitest check --
 // this is that missing check.
 //
-// Bounds (found empirically, see PR #77's description for the full sweep):
-// legitimate bridges never exceed ~15 degrees of sweep beyond the maximum
-// half-turn (180 degrees) an orthocyclic phase shift can ever require
-// (`phaseShiftTurns` caps at exactly half a turn) -- WAY under what the
-// regression produced (a ~180-degree accidental EXTRA sweep, i.e. close to
-// 360 total).
-const MAX_BRIDGE_SWEEP_DEG = 210; // 180 (max possible phase shift) + slack
+// Issue #115 changed what a legitimate bridge looks like: a transition (or
+// the cap lead-out) is now deliberately as long as it has to be to stay
+// within the cable's bend radius -- wire.ts searches up to 1.5 turns for a
+// transition and 4 turns for the cap lead-out (a tall coil with an even
+// layer count climbs its whole height to the cap) -- and it always advances
+// FORWARD around the axis, the way the core turns (the old fixed-phase
+// layer starts made a transition turn back on itself, the hook this issue
+// reports). So the guard is now: never backwards, and never more than the
+// search allows (an accidental extra loop would exceed it).
+const MAX_TRANSITION_SWEEP_DEG = 1.5 * 360 + 30;
+const MAX_LEAD_OUT_SWEEP_DEG = 4 * 360 + 30;
 
 function radiusAt3(points: Float32Array, i: number): number {
   return Math.hypot(points[i * 3], points[i * 3 + 1]);
@@ -404,9 +408,22 @@ function expectTransitionHugsTheOutline(bridge: Float32Array, before: Float32Arr
   expect(maxDeviation, `${label}: radial deviation from the outline-offset band`).toBeLessThanOrEqual(tolerance);
 }
 
-/** Asserts a bridge (a layer transition or the outer lead-out) doesn't sweep an unreasonable amount of angle (issue #77) -- see the guard's own doc comment above for why. */
-function expectBridgeSweepIsBounded(bridge: Float32Array, label: string) {
-  expect(angularSweepDeg(bridge), `${label}: angular sweep around the axis`).toBeLessThan(MAX_BRIDGE_SWEEP_DEG);
+/** The most any step between consecutive samples goes BACKWARDS around the axis (degrees; 0 when it only ever advances). */
+function largestBackwardStepDeg(points: Float32Array): number {
+  let worst = 0;
+  for (let i = 1; i < points.length / 3; i++) {
+    let delta = angleDegAt(points, i) - angleDegAt(points, i - 1);
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    worst = Math.max(worst, -delta);
+  }
+  return worst;
+}
+
+/** Asserts a bridge (a layer transition or the outer lead-out) only advances around the axis, and not by more than wire.ts's own search allows (issues #77, #115) -- see the guard's own doc comment above. */
+function expectBridgeSweepIsBounded(bridge: Float32Array, label: string, maxSweepDeg = MAX_TRANSITION_SWEEP_DEG) {
+  expect(largestBackwardStepDeg(bridge), `${label}: turns back around the axis`).toBeLessThan(1e-3);
+  expect(angularSweepDeg(bridge), `${label}: angular sweep around the axis`).toBeLessThan(maxSweepDeg);
 }
 
 describe("design() is one continuous cable, inner end to outer end (issue #68)", () => {
@@ -441,7 +458,7 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
             expectTransitionHugsTheOutline(d.layerTransitions[i], d.wirePaths[i].points, d.wirePaths[i + 1].points, 3.8, `transition ${i + 1}`);
           }
           expectContinuousJoin(d.wirePaths.at(-1)!.points, d.outerEndLeadOut, "last layer -> outer lead-out");
-          expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out");
+          expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out", MAX_LEAD_OUT_SWEEP_DEG);
         });
       }
     }
@@ -463,13 +480,13 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
       expectBridgeSweepIsBounded(t, `transition ${i + 1}`);
       expectTransitionHugsTheOutline(t, d.wirePaths[i].points, d.wirePaths[i + 1].points, 1.2, `transition ${i + 1}`);
     }
-    expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out");
+    expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out", MAX_LEAD_OUT_SWEEP_DEG);
   });
 
   it("the design that originally caught the PR #77 regression (a big rounded-square core, skadis mount, 1 layer) still hugs the surface", async () => {
     // This is what the almost-360-degree-loop bug looked like in practice:
     // a single-layer square core with a large, off-centre-cornered outline
-    // (see wire.ts's `cylindricalBridge` doc comment), where the outer
+    // (the pre-#115 wire.ts's `cylindricalBridge`), where the outer
     // lead-out's own two endpoints sit at a GLOBAL angle that drifts
     // slightly "backward" despite representing essentially zero true
     // winding progress -- forcing "always forward" swept the bridge almost
@@ -487,33 +504,63 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
       }),
     );
     expect(d.layerTransitions).toHaveLength(0); // 1 layer: only the outer lead-out is at risk here
-    expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out");
+    expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out", MAX_LEAD_OUT_SWEEP_DEG);
   });
 
-  it("the outer-end lead-out reaches the top cap's own rim keyhole position, even when the top cap is off (1 layer)", async () => {
-    const d = await design(
-      baseSpec({
-        wire: { length: 3000, diameter: 3.8, type: "usb" },
-        coreSize: { locked: true, dimension: "outer", value: 30 },
-        height: { locked: true, value: 40 },
-        layers: { locked: true, value: 1 },
-        topCap: "auto",
-      }),
-    );
-    expect(d.parts.some((p) => p.role === "topCap")).toBe(false); // auto: off for a single layer
-    expect(d.outerEndLeadOut.length).toBeGreaterThanOrEqual(6);
+  it("with the top cap off, the cable leaves the last turn along a straight tangential tail (issue #115)", async () => {
+    for (const layers of [1, 2]) {
+      const d = await design(
+        baseSpec({
+          wire: { length: 3000, diameter: 3.8, type: "usb" },
+          coreSize: { locked: true, dimension: "outer", value: 30 },
+          height: { locked: true, value: 40 },
+          layers: { locked: true, value: layers },
+          topCap: "off",
+        }),
+      );
+      expect(d.parts.some((p) => p.role === "topCap")).toBe(false);
+      expect(d.capKeyhole).toBeUndefined();
+      const tail = d.outerEndLeadOut;
+      const n = tail.length / 3;
+      expect(n).toBeGreaterThanOrEqual(2);
+      // Straight: every sample on the line through the first two.
+      const dir = unitVector(pointAt3(tail, 0), pointAt3(tail, 1));
+      for (let i = 2; i < n; i++) {
+        expect(angleBetweenDeg(dir, unitVector(pointAt3(tail, 0), pointAt3(tail, i))), `layers=${layers}: sample ${i} off the straight tail`).toBeLessThan(0.01);
+      }
+      // Tangential: it continues the last turn's own direction (no upward
+      // stub toward a cap keyhole that isn't there).
+      const last = d.wirePaths.at(-1)!.points;
+      const lastCount = last.length / 3;
+      expect(angleBetweenDeg(unitVector(pointAt3(last, lastCount - 2), pointAt3(last, lastCount - 1)), dir)).toBeLessThan(2);
+      expect(Math.abs(dir[2])).toBeLessThan(0.1);
+      // Long enough to read as a free cable end.
+      expect(distance(pointAt3(tail, 0), pointAt3(tail, n - 1))).toBeGreaterThanOrEqual(20);
+    }
+  });
 
-    const n = d.outerEndLeadOut.length / 3;
-    const lastX = d.outerEndLeadOut[(n - 1) * 3];
-    const lastY = d.outerEndLeadOut[(n - 1) * 3 + 1];
-    const lastZ = d.outerEndLeadOut[(n - 1) * 3 + 2];
-    // Same (x, y) as the bottom flange's own keyhole (both are the SAME
-    // outline/margin/wireDiameter/tolerance formula at t=0, see
-    // wire.ts's `buildOuterEndLeadOut` doc comment), well above the core's
-    // own top rim.
-    expect(lastX).toBeCloseTo(d.innerEndLeadIn[0], 3);
-    expect(lastY).toBeCloseTo(d.innerEndLeadIn[1], 3);
-    expect(lastZ).toBeGreaterThan(d.solution.height);
+  it("with the top cap on, the cable ends just under the cap's rim keyhole, which sits inside the cap's footprint (issue #115)", async () => {
+    for (const layers of [2, 3]) {
+      const d = await design(
+        baseSpec({
+          wire: { length: 3000, diameter: 3.8, type: "usb" },
+          coreSize: { locked: true, dimension: "outer", value: 30 },
+          height: { locked: true, value: 40 },
+          layers: { locked: true, value: layers },
+          topCap: "on",
+        }),
+      );
+      expect(d.capKeyhole).toBeDefined();
+      const out = d.outerEndLeadOut;
+      const end = pointAt3(out, out.length / 3 - 1);
+      expect(end[0]).toBeCloseTo(d.capKeyhole!.hole.x, 4);
+      expect(end[1]).toBeCloseTo(d.capKeyhole!.hole.y, 4);
+      // Its top touches the cap's underside (z = height in the assembly frame).
+      expect(end[2] + 3.8 / 2).toBeCloseTo(d.solution.height, 4);
+      // The keyhole is inside the cap's footprint, a skin short of its rim.
+      const holeRadius = 3.8 / 2 + d.spec.tolerance;
+      expect(Math.hypot(d.capKeyhole!.hole.x, d.capKeyhole!.hole.y)).toBeLessThanOrEqual(d.solution.flangeExtent!.acrossFlats / 2 - holeRadius - 1 + 1e-6);
+    }
   });
 
   it("has no layer transitions for a single-layer design, and both lead-in/lead-out are still present", async () => {

@@ -16,7 +16,7 @@ wound wire will look, and exports print-ready STL / 3MF / STEP. The URL encodes 
 | Solver model | Wire length + diameter are always inputs. Every other dimension can be **locked or free**; solver fills free ones, reports over/under-constrained. |
 | Winding | Helical. Groove guides **layer 1 only**; higher layers nest in valleys (orthocyclic). |
 | Core | A **tube**: hollow and open, and the center stores the inner connector. The user can lock either the **inner diameter** (bore) or the **outer diameter** (winding surface); wall thickness links the two. |
-| Wire ends | **v1: no connector pocket; both connectors dangle outside.** Inner end: **keyhole in the bottom flange rim** at the groove start, with a recessed radial channel on the flange's inner face so layers don't wind over a bump. Outer end: **keyhole in the top cap rim**. v2: a clip on the cable to stop it unwinding. |
+| Wire ends | **v1: no connector pocket; both connectors dangle outside.** Inner end: **keyhole in the bottom flange rim**, on the straight line the cable leaves the groove start along (issue #115: a tangential chord, so the cable never bends tighter than its bend radius), with a straight recessed channel on the flange's inner face so layers don't wind over a bump; the flange margin grows if the chord needs more room. Outer end: **keyhole in the top cap rim**, where the cable's run up from the last layer ends; with no top cap, the cable leaves the last turn as a straight tangential tail. v2: a clip on the cable to stop it unwinding. |
 | Connector sizes | **Not modelled in v1** (connectors dangle). The presets (USB-A/C, Lightning, 3.5 mm, Schuko straight/angled) come back when a pocket or clip needs them. |
 | Caps / parts | **The bottom flange is always present and printed as one piece with the core** (flat on the bed, core upright); it carries the mount. **Top cap separate**, auto-enabled when layers > 1, and the user can override. Flange size = final outer envelope + margin. **Clip mounts (SKÅDIS/openGrid) are a separate mount plate** glued or snapped onto the flange's outer face, so the core prints without supports. The screw keyhole is recessed straight into the flange; the through-hole mount cuts straight through it instead. Parts: core, plus top cap and mount plate as needed (max 3). |
 | Cap joint | Permanent after assembly. Options: press-fit, bayonet/twist-lock, snap clips (glue-friendly). |
@@ -103,7 +103,7 @@ needs an objective, e.g. "minimize outer envelope" or "target aspect ratio". Sho
 **Constraints the solver must enforce / warn about**
 - `r_c ≥ MBR = multiplier × d`, applied to the *innermost* layer (outer layers only get rounder).
 - ~~Connector pocket fit~~: not in v1 (connectors dangle), so the bend limit alone sets the minimum core size.
-- The path from the bottom rim keyhole through the radial channel to the groove start must respect the bend radius.
+- The path from the bottom rim keyhole through the channel to the groove start must respect the bend radius (issue #115: so must the whole drawn cable, layer transitions and outer end included).
 - The label only renders if its bounding box fits the top cap annulus.
 - Flange ≥ outermost layer + margin (≥ 1 d).
 - Bed-size check per part.
@@ -204,7 +204,7 @@ before a long print.
    A spool that rotates while unwinding adds no twist. With permanent caps and a wall mount, decide
    whether the coil **rotates on its mount** (axle / spindle mount) or is only "storage".
 2. *(Obsolete for v1: no connector pocket.)*
-3. **The start of the winding** (bottom rim keyhole → radial channel → groove start) is a bend-radius hotspot, and without the channel it makes a bump under the layers. Model it as a tangent ramp.
+3. **The start of the winding** (bottom rim keyhole → channel → groove start) is a bend-radius hotspot, and without the channel it makes a bump under the layers. Model it as a tangent ramp.
 4. *(Resolved: round wire only.)*
 5. **Wire measurement uncertainty**: users measure with calipers. The ±0.2 mm error compounds over
    many turns, so show a capacity range, not a single number.

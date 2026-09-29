@@ -71,6 +71,13 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // design.ts) so the wound cable's first turn lies flush instead of
     // riding over a bump, which adds real, intentional material of its own
     // (a thicker flange), not a regression this guard is meant to catch.
-    expect(meshVolume(d.mesh)).toBeCloseTo(31705.93202629695, 3);
+    //
+    // Issue #115 bumped it UP again from 31705.93202629695: the inner cable
+    // end now leaves the groove start along a straight tangential chord
+    // that must hold the keyhole past the end of its bend-radius-limited
+    // drop into the channel, which needs a wider flange margin here (6.7 mm
+    // -> 10.2 mm for this 3.8 mm USB cable's 15.2 mm bend radius) -- real,
+    // intentional material, with its own "Flange margin increased" warning.
+    expect(meshVolume(d.mesh)).toBeCloseTo(36108.31213927501, 3);
   });
 });
