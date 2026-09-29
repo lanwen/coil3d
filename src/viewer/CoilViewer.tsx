@@ -661,7 +661,7 @@ export function CoilViewer({
             bed size -- its own caption above already names the bed) -- none
             of those measure the assembled pose. */}
         {showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && dimensionLabels && (
-          <DimensionAxes axes={dimensionAxes} rotation={dimensionMatrix} labels={dimensionLabels} />
+          <DimensionAxes axes={dimensionAxes} rotation={dimensionMatrix} labels={dimensionLabels} roundGroundLabel={shapeKind === "round"} />
         )}
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
       </Canvas>

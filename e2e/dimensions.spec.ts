@@ -16,7 +16,21 @@ const ROUND_CAP = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on";
 const ROUND_CAP_OFF = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=off";
 const SQUARE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=sq&sq.rc=15";
 const TRIANGLE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=tri&tri.rc=15";
+// A slim, tall coil -- the same proportions as e2e/wire.spec.ts's own
+// MANY_TURN fixture (Ø 2.4 cm x 26.1 cm), which is where issue #99 was
+// spotted: width and depth start from the same origin corner, so a small
+// footprint under a tall body is exactly where their labels can collide.
+const SLIM_ROUND = "#v=1&L=15000&d=0.5&size=15";
+const SLIM_SQUARE = "#v=1&L=15000&d=0.5&size=15&shape=sq&sq.rc=3";
+const SLIM_TRIANGLE = "#v=1&L=15000&d=0.5&size=15&shape=tri&tri.rc=3";
 const PRESETS = ["front", "iso", "wallRoom"] as const;
+
+interface LabelRect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
 
 // The viewer's test-only probes (declared on Window in src/, a separate tsc
 // project): DimensionAxes.tsx's last drawn frame, and LineArtRenderer's
@@ -32,10 +46,16 @@ type ProbeWindow = Window & {
     // `occludedAt` matches DimensionAxes.tsx's own OCCLUSION_PROBE_TS ([0.3,
     // 0.7]): issue #97 -- the axes now draw nothing where the model hides
     // them, so the rigidity test below only checks ink where the app itself
-    // says the model doesn't occlude that point.
-    arms: { id: string; from: number[]; to: number[]; occludedAt: boolean[] }[];
+    // says the model doesn't occlude that point. `labelRect` is the drawn
+    // label's own canvas-space bounding box (issue #99), or null while it's
+    // hidden (occluded, foreshortened, or -- round shapes -- merged away).
+    arms: { id: string; from: number[]; to: number[]; occludedAt: boolean[]; labelRect: LabelRect | null }[];
   };
 };
+
+function rectsOverlap(a: LabelRect, b: LabelRect): boolean {
+  return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+}
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -403,6 +423,51 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     expect(ink.box!.left).toBeGreaterThan(2);
     expect(ink.box!.right).toBeLessThan(ink.width - 3);
     expect(ink.inRects).toBe(0);
+  });
+
+  // Issue #99: on a slim, tall coil the width and depth axes -- sharing the
+  // same origin corner -- can otherwise draw their labels on top of each
+  // other, and (round only) on top of one another's IDENTICAL text ("Ø ..."
+  // twice, the same number). Checked against the probe's own `labelRect`
+  // (each label's canvas-space bounding box) rather than pixels: exact and
+  // immune to font/AA noise, and distinguishes "hidden" (null, e.g.
+  // occluded or foreshortened -- unrelated to this issue) from "drawn".
+  test.describe("the width/depth labels never collide on a slim coil (issue #99)", () => {
+    test("round: only a single Ø label is ever drawn, never both at once", async ({ page }) => {
+      await gotoDesign(page, SLIM_ROUND);
+      await expect(page.getByTestId("dimension-width")).toHaveText(/^Ø/);
+      await expect(page.getByTestId("dimension-depth")).toHaveText(/^Ø/);
+      let sawOne = false;
+      for (const preset of PRESETS) {
+        await showPreset(page, preset);
+        const probe = (await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes))!;
+        // Foreshortened past MIN_AXIS_PX (DimensionAxes.tsx), an axis isn't
+        // drawn AT ALL (no entry in `arms`), same as an occluded/merged
+        // label -- both just mean "nothing to see here".
+        const width = probe.arms.find((a) => a.id === "width")?.labelRect ?? null;
+        const depth = probe.arms.find((a) => a.id === "depth")?.labelRect ?? null;
+        expect(width && depth, `${preset}: width AND depth both drawn (should be at most one)`).toBeFalsy();
+        if (width || depth) sawOne = true;
+      }
+      expect(sawOne, "at least one Ø label is drawn somewhere").toBe(true);
+    });
+
+    for (const [label, hash] of [
+      ["square", SLIM_SQUARE],
+      ["triangle", SLIM_TRIANGLE],
+    ] as const) {
+      test(`${label}: the width and depth labels never overlap, whenever both are drawn`, async ({ page }) => {
+        await gotoDesign(page, hash);
+        for (const preset of PRESETS) {
+          await showPreset(page, preset);
+          const probe = (await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes))!;
+          const width = probe.arms.find((a) => a.id === "width")?.labelRect ?? null;
+          const depth = probe.arms.find((a) => a.id === "depth")?.labelRect ?? null;
+          if (!width || !depth) continue; // one is hidden (occluded/foreshortened/not drawn) -- nothing to collide
+          expect(rectsOverlap(width, depth), `${preset}: width/depth labels overlap (${JSON.stringify({ width, depth })})`).toBe(false);
+        }
+      });
+    }
   });
 });
 

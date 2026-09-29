@@ -22,6 +22,16 @@
 // geometry, since a sprite has no fragment-shader depth test of its own) is
 // hidden the same way (issue #97). An axis seen nearly end-on is hidden
 // rather than drawn misleadingly short.
+//
+// Width and depth share the origin corner, so on a slim coil (small
+// footprint, tall body) their labels can otherwise land on top of each
+// other -- issue #99. A round core's width and depth are the same number by
+// construction (both the flange diameter), so `roundGroundLabel` draws just
+// one of them (whichever anchor isn't occluded) instead of a literal
+// duplicate; every other shape keeps both, and if they'd still collide on
+// screen, depth's label is slid further out along its OWN axis, past the
+// collision, until it clears -- never off of it, and never merely centred
+// differently.
 
 import { useEffect, useMemo } from "react";
 import { useThree } from "@react-three/fiber";
@@ -55,6 +65,13 @@ const HIDDEN_DEPTH_BIAS = 1e-5;
 // its own length, so a point sitting exactly on the model's surface (e.g. a
 // flush flange) doesn't falsely self-occlude.
 const ANCHOR_OCCLUSION_BIAS = 1e-4;
+// Issue #99: width and depth share the origin corner, so on a slim coil
+// their labels can collide on screen. The clearance kept once resolved, and
+// how many times the (fast, screen-space) resolve step is retried -- each
+// pass re-measures the actual overlap, so a couple of passes comfortably
+// converge without needing an exact closed-form solve.
+const LABEL_COLLISION_MARGIN_PX = 4;
+const LABEL_COLLISION_ITERATIONS = 6;
 
 export type DimensionLabels = Record<AxisId, string>;
 
@@ -64,6 +81,14 @@ export interface DimensionAxesProps {
   /** That frame to world: CoilViewer's view rotation times measureDimensionFrame's spin. */
   rotation: THREE.Matrix4;
   labels: DimensionLabels;
+  /** True for a round core (CoilViewer's own `shapeKind === "round"`): width
+   * and depth are the same number by construction there (both the flange
+   * diameter), so only one "Ø ..." label is drawn instead of a literal
+   * on-screen duplicate (issue #99). A square/triangle coil can ALSO have
+   * width === depth as plain text (e.g. an exactly-square footprint), but
+   * that's not this case -- those two still get their own labels, just
+   * pushed apart if they'd collide. */
+  roundGroundLabel: boolean;
 }
 
 // The `t` fractions along each drawn arm (from -> to) that the probe reports
@@ -84,8 +109,11 @@ export interface DimensionAxesProbe {
   gap: number;
   origin: number[];
   /** Each drawn axis's span in canvas CSS px (y down), plus whether the
-   * model occludes it at each of `OCCLUSION_PROBE_TS` (same order). */
-  arms: { id: AxisId; from: number[]; to: number[]; occludedAt: boolean[] }[];
+   * model occludes it at each of `OCCLUSION_PROBE_TS` (same order), and its
+   * label's own canvas-space bounding box (issue #99), or null while that
+   * label is hidden (occluded, foreshortened, or -- round shapes, via
+   * `roundGroundLabel` -- merged away). */
+  arms: { id: AxisId; from: number[]; to: number[]; occludedAt: boolean[]; labelRect: { left: number; top: number; right: number; bottom: number } | null }[];
 }
 
 declare global {
@@ -94,7 +122,7 @@ declare global {
   }
 }
 
-export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
+export function DimensionAxes({ axes, rotation, labels, roundGroundLabel }: DimensionAxesProps) {
   const group = useMemo(() => {
     const g = new THREE.Group();
     g.matrixAutoUpdate = false;
@@ -219,11 +247,31 @@ export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
       const worldOf = (p: THREE.Vector3) => p.clone().applyMatrix4(group.matrixWorld);
 
       const ink: number[] = [];
-      const drawn: DimensionAxesProbe["arms"] = [];
+      const drawn: { id: AxisId; from: number[]; to: number[]; occludedAt: boolean[] }[] = [];
       const mvp = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(group.matrixWorld);
       const toCanvas = (p: THREE.Vector3) => {
         const ndc = p.clone().applyMatrix4(mvp);
         return [((ndc.x + 1) / 2) * size.x, ((1 - ndc.y) / 2) * size.y];
+      };
+
+      // Issue #99: width and depth are placed together, once both are known
+      // (a slim coil's ground-axis labels can otherwise collide near the
+      // shared origin corner) -- collected here as the loop below reaches
+      // them, instead of being placed inline like height is.
+      const groundCandidates: { id: "width" | "depth"; mid: THREE.Vector3; dir: THREE.Vector3; pixel: number; length: number; occluded: boolean; s: { w: number; h: number } }[] = [];
+      const labelRects = new Map<AxisId, { left: number; top: number; right: number; bottom: number } | null>();
+      const place = (id: AxisId, mid: THREE.Vector3, pixel: number, s: { w: number; h: number }, visible: boolean) => {
+        const sprite = sprites[id];
+        sprite.visible = visible;
+        sprite.position.copy(mid);
+        sprite.scale.set(s.w * pixel, s.h * pixel, 1);
+        sprite.updateMatrix();
+        if (!visible) {
+          labelRects.set(id, null);
+          return;
+        }
+        const [cx, cy] = toCanvas(mid);
+        labelRects.set(id, { left: cx - s.w / 2, top: cy - s.h / 2, right: cx + s.w / 2, bottom: cy + s.h / 2 });
       };
 
       for (const { id, from, to } of arms) {
@@ -235,12 +283,12 @@ export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
         dir.normalize();
         const sin = new THREE.Vector3().crossVectors(dir, view).length(); // of the angle to the view ray
         const onScreenPx = (length * sin) / pixel;
-        const sprite = sprites[id];
         // Nearly end-on: the whole axis is hidden (not just its label), same
         // as before #97 -- unrelated to occlusion, so this doesn't touch the
         // ink-discard shader at all.
         if (sin < FORESHORTEN_MIN || onScreenPx < MIN_AXIS_PX) {
-          sprite.visible = false;
+          sprites[id].visible = false;
+          labelRects.set(id, null);
           continue;
         }
 
@@ -266,16 +314,79 @@ export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
         // The ink itself is drawn regardless (the shader discards whichever
         // fragments the model hides); only the LABEL is hidden outright when
         // its anchor -- the axis's own midpoint -- is occluded (issue #97:
-        // "never float over the model").
+        // "never float over the model"). Width/depth are placed together
+        // below once both are known (issue #99); height has no partner to
+        // collide with, so it's placed here, same as before.
         const s = sizes.get(id) ?? { w: 60, h: LABEL_FONT_PX + 2 * LABEL_PAD_Y_PX };
-        sprite.visible = !occluded(worldOf(mid), cameraWorldPos);
-        sprite.position.copy(mid);
-        sprite.scale.set(s.w * pixel, s.h * pixel, 1);
-        sprite.updateMatrix();
+        const isOccluded = occluded(worldOf(mid), cameraWorldPos);
+        if (id === "height") place(id, mid, pixel, s, !isOccluded);
+        else groundCandidates.push({ id, mid, dir: dir.clone(), pixel, length, occluded: isOccluded, s });
         const occludedAt = OCCLUSION_PROBE_TS.map((t) => occluded(worldOf(from.clone().lerp(to, t)), cameraWorldPos));
         drawn.push({ id, from: toCanvas(from), to: toCanvas(to), occludedAt });
         ink.push(...b.out);
       }
+
+      // Issue #99: width and depth share the origin corner, so their labels
+      // can collide on a slim coil, and a round shape's width and depth are
+      // numerically identical (the same "Ø ..." text) -- showing both would
+      // be a literal duplicate. Resolved here, once both candidates (or
+      // however many survived the per-axis foreshorten/min-length check
+      // above) are known.
+      if (groundCandidates.length === 1) {
+        const c = groundCandidates[0];
+        place(c.id, c.mid, c.pixel, c.s, !c.occluded);
+      } else if (groundCandidates.length === 2) {
+        const [wArm, dArm] = groundCandidates;
+        if (roundGroundLabel) {
+          // Round: one label suffices -- prefer width, falling back to depth
+          // only if width's own anchor happens to be the occluded one.
+          place(wArm.id, wArm.mid, wArm.pixel, wArm.s, !wArm.occluded);
+          place(dArm.id, dArm.mid, dArm.pixel, dArm.s, wArm.occluded && !dArm.occluded);
+        } else {
+          let dMid = dArm.mid.clone();
+          let dPixel = dArm.pixel;
+          const maxOffset = dArm.length * 3; // a sane cap, not a real limit
+          let offset = 0;
+          if (!wArm.occluded && !dArm.occluded) {
+            const rectOf = (mid: THREE.Vector3, s: { w: number; h: number }) => {
+              const [cx, cy] = toCanvas(mid);
+              return { left: cx - s.w / 2, right: cx + s.w / 2, top: cy - s.h / 2, bottom: cy + s.h / 2 };
+            };
+            for (let i = 0; i < LABEL_COLLISION_ITERATIONS && offset < maxOffset; i++) {
+              const wRect = rectOf(wArm.mid, wArm.s);
+              const dRect = rectOf(dMid, dArm.s);
+              const overlapX = Math.min(wRect.right, dRect.right) - Math.max(wRect.left, dRect.left);
+              const overlapY = Math.min(wRect.bottom, dRect.bottom) - Math.max(wRect.top, dRect.top);
+              if (overlapX <= 0 || overlapY <= 0) break;
+              // The smaller overlap is cheaper to clear: push depth's centre
+              // away from width's along that one screen axis.
+              const push: [number, number] =
+                overlapX < overlapY
+                  ? [Math.sign((dRect.left + dRect.right) / 2 - (wRect.left + wRect.right) / 2 || 1) * (overlapX + LABEL_COLLISION_MARGIN_PX), 0]
+                  : [0, Math.sign((dRect.top + dRect.bottom) / 2 - (wRect.top + wRect.bottom) / 2 || 1) * (overlapY + LABEL_COLLISION_MARGIN_PX)];
+              // How far depth's label actually moves on screen per mm slid
+              // along its OWN axis, right here -- a local, numerical rate
+              // (an exact closed form would fight the camera's projection),
+              // used to convert the screen-space push above into a step
+              // along that axis; a few passes (the loop) converge on it.
+              const probeDelta = Math.max(dPixel, 1e-6) * 10;
+              const [cx0, cy0] = toCanvas(dMid);
+              const [cx1, cy1] = toCanvas(dMid.clone().addScaledVector(dArm.dir, probeDelta));
+              const rate: [number, number] = [(cx1 - cx0) / probeDelta, (cy1 - cy0) / probeDelta];
+              const rateSq = rate[0] * rate[0] + rate[1] * rate[1];
+              if (rateSq < 1e-9) break;
+              const step = Math.abs((push[0] * rate[0] + push[1] * rate[1]) / rateSq);
+              if (step < 1e-6) break;
+              dMid = dMid.addScaledVector(dArm.dir, step);
+              dPixel = pixelAt(dMid);
+              offset += step;
+            }
+          }
+          place(wArm.id, wArm.mid, wArm.pixel, wArm.s, !wArm.occluded);
+          place(dArm.id, dMid, dPixel, dArm.s, !dArm.occluded);
+        }
+      }
+
       const dot = new StrokeBuilder(view, pixelAt(origin));
       dot.dot(origin, ORIGIN_DOT_PX / 2);
       ink.push(...dot.out);
@@ -287,7 +398,7 @@ export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
         box: { min: axes.box.min.toArray(), max: axes.box.max.toArray() },
         gap: axes.gap,
         origin: origin.toArray(),
-        arms: drawn,
+        arms: drawn.map((d) => ({ ...d, labelRect: labelRects.get(d.id) ?? null })),
       };
     };
     const previous = scene.onBeforeRender;
@@ -303,7 +414,7 @@ export function DimensionAxes({ axes, rotation, labels }: DimensionAxesProps) {
       scene.onBeforeRender = previous;
       delete window.__dimensionAxes;
     };
-  }, [scene, invalidate, strokes, sprites, group, axes, sizes, raycaster]);
+  }, [scene, invalidate, strokes, sprites, group, axes, sizes, raycaster, labels, roundGroundLabel]);
 
   return <primitive object={group} />;
 }
