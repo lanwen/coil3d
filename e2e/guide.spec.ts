@@ -34,8 +34,6 @@ async function gotoGuide(page: Page, hash: string) {
   // `data-resolution` since the design view's own `download-stl` isn't in
   // the DOM while viewing the guide).
   await expect(page.getByTestId("guide-view")).toHaveAttribute("data-resolution", "final");
-  // Let every guide figure's own WebGL canvas render at least one settled frame.
-  await page.waitForTimeout(1000);
 }
 
 test.describe("printable assembly guide (issue #17)", () => {
@@ -242,7 +240,6 @@ test.describe("printable assembly guide (issue #17)", () => {
       test.slow();
       await gotoGuide(page, TWO_LAYER_CAP);
       await page.emulateMedia({ media: "print" });
-      await page.waitForTimeout(300);
       await expect(page).toHaveScreenshot("guide-print-media.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
   });
