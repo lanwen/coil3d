@@ -519,7 +519,7 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
         }),
       );
       expect(d.parts.some((p) => p.role === "topCap")).toBe(false);
-      expect(d.capKeyhole).toBeUndefined();
+      expect(d.capClip).toBeUndefined();
       const tail = d.outerEndLeadOut;
       const n = tail.length / 3;
       expect(n).toBeGreaterThanOrEqual(2);
@@ -539,7 +539,7 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
     }
   });
 
-  it("with the top cap on, the cable ends just under the cap's rim keyhole, which sits inside the cap's footprint (issue #115)", async () => {
+  it("with the top cap on, the cable runs level just under the cap, through the cap's clip inside its footprint, and out past the rim (issue #117)", async () => {
     for (const layers of [2, 3]) {
       const d = await design(
         baseSpec({
@@ -550,16 +550,24 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
           topCap: "on",
         }),
       );
-      expect(d.capKeyhole).toBeDefined();
+      expect(d.capClip).toBeDefined();
       const out = d.outerEndLeadOut;
-      const end = pointAt3(out, out.length / 3 - 1);
-      expect(end[0]).toBeCloseTo(d.capKeyhole!.hole.x, 4);
-      expect(end[1]).toBeCloseTo(d.capKeyhole!.hole.y, 4);
-      // Its top touches the cap's underside (z = height in the assembly frame).
-      expect(end[2] + 3.8 / 2).toBeCloseTo(d.solution.height, 4);
-      // The keyhole is inside the cap's footprint, a skin short of its rim.
-      const holeRadius = 3.8 / 2 + d.spec.tolerance;
-      expect(Math.hypot(d.capKeyhole!.hole.x, d.capKeyhole!.hole.y)).toBeLessThanOrEqual(d.solution.flangeExtent!.acrossFlats / 2 - holeRadius - 1 + 1e-6);
+      const n = out.length / 3;
+      const path = d.capClip!.path;
+      // The lead-out's last samples ARE the clip's path, level, the cable's
+      // top a hair under the cap's underside (z = height, assembly frame).
+      for (let i = 0; i < path.length; i++) {
+        const p = pointAt3(out, n - path.length + i);
+        expect(p[0]).toBeCloseTo(path[i].x, 4);
+        expect(p[1]).toBeCloseTo(path[i].y, 4);
+        expect(p[2] + 3.8 / 2).toBeCloseTo(d.solution.height - 0.1, 4);
+      }
+      // The clip itself (its block) sits inside the cap's footprint...
+      const rimRadius = d.solution.flangeExtent!.acrossFlats / 2;
+      for (const ring of d.capClip!.block.rings) for (const q of ring) expect(Math.hypot(q.x, q.y)).toBeLessThan(rimRadius);
+      // ...and the cable's free end is outside it.
+      const end = pointAt3(out, n - 1);
+      expect(Math.hypot(end[0], end[1])).toBeGreaterThan(rimRadius + 5);
     }
   });
 

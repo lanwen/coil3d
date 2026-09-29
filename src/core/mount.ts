@@ -486,7 +486,7 @@ export function layoutThroughHoleMount(
   _boreOutline: ShapeOutline,
   margin: number,
   holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
-  innerEndChannel: { hole: XY; holeRadius: number; channelRibbon: XY[] },
+  innerEndChannel: { channelRibbon: XY[] },
   envelopeRadius = 0,
 ): ThroughMountLayout {
   const holeRadius = holeDiameter / 2;
@@ -498,7 +498,6 @@ export function layoutThroughHoleMount(
 
   const clearOfChannel = (x: number, y: number): boolean => {
     const requiredClearance = counterboreRadius + THROUGH_MOUNT_EDGE_MARGIN;
-    if (Math.hypot(x - innerEndChannel.hole.x, y - innerEndChannel.hole.y) < requiredClearance + innerEndChannel.holeRadius) return false;
     return innerEndChannel.channelRibbon.length < 3 || distanceToClosedPolygon(x, y, innerEndChannel.channelRibbon) >= requiredClearance;
   };
 

@@ -115,18 +115,21 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // can score candidates against these SAME real numbers instead of a
   // cruder envelope-only proxy.
   const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
-  const { margin, thickness, baseMargin, mountMargin, innerEndMargin, channelOnlyThickness } = resolveFlangeSizing(
+  const { margin, thickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, channelOnlyThickness } = resolveFlangeSizing(
     outline,
     boreOutline,
     solution.flangeSize,
     wireDiameter,
     spec.mount,
-    { tolerance: spec.tolerance, bendRadius },
+    { tolerance: spec.tolerance, bendRadius, topCap: solution.topCapEnabled },
     spec.keyholeRotation,
     spec.throughHoleDiameter,
   );
-  if (innerEndMargin > mountMargin + 1e-9) {
+  if (innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= capClipMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
+  }
+  if (capClipMargin > Math.max(mountMargin, innerEndMargin) + 1e-9) {
+    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm so the top cap's cable clip fits outside the wound cable.`);
   }
   if (wantsKeyhole && mountMargin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
@@ -158,8 +161,8 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     );
   }
 
-  // Inner-end fixing (issue #8): the bottom flange's own rim keyhole for the
-  // inner cable end, plus the recessed channel leading it to the groove
+  // Inner-end fixing (issues #8, #117): the bottom flange's recessed channel
+  // and cable clip for the inner cable end, leading it to the groove
   // start -- always present, unlike the (optional) mount. Computed BEFORE
   // the mount layouts below (issue #70's through-hole mount needs this
   // SAME real channel footprint to keep its own holes clear of it).
@@ -261,11 +264,11 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     );
   }
 
-  // The drawn cable (issues #4, #68, #115): one path from the inner-end
-  // keyhole, through every layer and transition, to the outer end -- built
-  // before the top cap, whose rim keyhole is cut where the cable's cap
+  // The drawn cable (issues #4, #68, #115, #117): one path from the inner
+  // end's clip, through every layer and transition, to the outer end --
+  // built before the top cap, whose clip is laid out where the cable's cap
   // lead-out ends. The lead-in is `innerEndLayout`'s own, the same layout
-  // the flange's keyhole/channel are cut from.
+  // the flange's channel and clip are cut from.
   const cable = buildCable(solution.layerResults, wallSpec, spec.windingQuality, resolution, {
     innerEnd: innerEndLayout,
     topCapEnabled,
@@ -290,7 +293,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (labelWarning) warnings.push(labelWarning);
 
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: flangeSpec, joint: spec.joint, tolerance: spec.tolerance, wireDiameter, label, keyhole: cable.capKeyhole });
+    const capMesh = await buildTopCap({ flange: flangeSpec, joint: spec.joint, tolerance: spec.tolerance, label, clip: cable.capClip });
     // `capMesh` is built in a LOCAL frame (plate z=[0, CAP_THICKNESS], collar
     // reaching down to z=-JOINT_ENGAGE_DEPTH); translating by `height` lands
     // it in the shared assembly frame, flush against the wall's top rim.
@@ -377,10 +380,11 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
         ? skadisBoard(mountPlateLayout, thickness, circumscribedRadius(outline, margin) + 25)
         : undefined,
     innerEndLeadIn: cable.innerEndLeadIn,
+    innerEndClip: innerEndLayout.clip,
     layerTransitions: cable.layerTransitions,
     outerEndLeadOut: cable.outerEndLeadOut,
     cablePath: cable.cablePath,
-    capKeyhole: cable.capKeyhole,
+    capClip: cable.capClip,
   };
 }
 

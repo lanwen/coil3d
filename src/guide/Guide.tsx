@@ -107,27 +107,17 @@ function StepPrintParts({ design }: { design: Design }) {
   );
 }
 
-/**
- * Where a cable end is fixed (issue #115: the keyholes sit where the cable's
- * own path ends, not at a fixed angle): `sample` of the public cable path
- * `points`, at height `z`; `fallback` when the path is empty.
- */
-function cableEndAnchor(points: Float32Array, sample: "first" | "last", z: number, fallback: () => THREE.Vector3): THREE.Vector3 {
-  if (points.length < 3) return fallback();
-  const i = sample === "first" ? 0 : points.length - 3;
-  return new THREE.Vector3(points[i], points[i + 1], z);
-}
-
 function StepThreadInnerEnd({ design }: { design: Design }) {
   const core = corePart(design);
-  // The inner-end keyhole, on the flange's inner face (z=0).
-  const anchor = cableEndAnchor(design.innerEndLeadIn, "first", 0, () => approxRimPoint(core.mesh, 0.1, 1));
+  // The inner end's clip (issue #117), on the flange's inner face (z=0).
+  const clip = design.innerEndClip;
+  const anchor = design.innerEndLeadIn.length >= 3 ? new THREE.Vector3((clip.from.x + clip.to.x) / 2, (clip.from.y + clip.to.y) / 2, 0) : approxRimPoint(core.mesh, 0.1, 1);
   return (
-    <StepCard n={2} title="Thread the inner cable end">
+    <StepCard n={2} title="Clip in the inner cable end">
       <div className="guide-figure-row guide-figure-row--solo">
         <Figure parts={[core]} testId="guide-thread-inner" zoomInsetAt={anchor} />
       </div>
-      <Callout icons={<KeyholeIcon label="Thread the cable through the base" />}>Feed the inner end in at the groove's start.</Callout>
+      <Callout icons={<KeyholeIcon label="Press the cable into the clip at the base's rim" />}>Press the inner end into the clip at the rim, then lay it along the channel to the groove's start.</Callout>
     </StepCard>
   );
 }
@@ -228,14 +218,16 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
 
 function StepSecureOuterEnd({ design, n }: { design: Design; n: number }) {
   const cap = capPart(design)!;
-  // The cap's rim keyhole, on the cap's top face.
-  const anchor = cableEndAnchor(design.outerEndLeadOut, "last", meshBounds(cap.mesh).max.z, () => approxRimPoint(cap.mesh, 0.5, 1));
+  // The cap's clip (issue #117) hangs under its rim; marked on the rim from above.
+  const clip = design.capClip?.path;
+  const mid = clip ? clip[Math.floor(clip.length / 4)] : undefined;
+  const anchor = mid ? new THREE.Vector3(mid.x, mid.y, meshBounds(cap.mesh).max.z) : approxRimPoint(cap.mesh, 0.5, 1);
   return (
     <StepCard n={n} title="Secure the outer end">
       <div className="guide-figure-row guide-figure-row--solo">
         <Figure parts={design.parts} testId="guide-secure-outer" zoomInsetAt={anchor} />
       </div>
-      <Callout icons={<KeyholeIcon label="Secure the cable in the cap's rim keyhole" />}>Secure the outer end in the cap's rim keyhole.</Callout>
+      <Callout icons={<KeyholeIcon label="Press the cable into the clip under the cap's rim" />}>Press the outer end into the clip under the cap's rim.</Callout>
     </StepCard>
   );
 }

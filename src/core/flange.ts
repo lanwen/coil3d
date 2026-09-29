@@ -30,7 +30,7 @@ import {
   THROUGH_MOUNT_COUNTERBORE_DEPTH,
   WALL_THICKNESS,
 } from "./constants";
-import { idealChannelDepth, requiredInnerEndMargin, resolveChannelDepth } from "./innerEnd";
+import { idealChannelDepth, requiredCapClipMargin, requiredInnerEndMargin, resolveChannelDepth } from "./innerEnd";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -66,6 +66,8 @@ export interface FlangeSizing {
   mountMargin: number;
   /** The margin the inner-end lead-in alone needs (issue #115). */
   innerEndMargin: number;
+  /** The margin the top cap's cable clip alone needs (issue #117): 0 with the cap off. */
+  capClipMargin: number;
   /** The plain channel-driven thickness, before any mount/plate bump -- design.ts compares against this the same way. */
   channelOnlyThickness: number;
 }
@@ -84,8 +86,8 @@ export function resolveFlangeSizing(
   flangeSizeEnvelope: number,
   wireDiameter: number,
   mount: MountKind,
-  /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`). */
-  leadIn: { tolerance: number; bendRadius: number },
+  /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`); issue #117: with the top cap on, its cable clip needs room between the wound cable and the rim (`requiredCapClipMargin`). */
+  leadIn: { tolerance: number; bendRadius: number; topCap?: boolean },
   /** Issue #71: ignored unless `mount === "keyhole"`. */
   keyholeRotation = 0,
   /** Issue #70: ignored unless `mount === "through"`. */
@@ -125,11 +127,15 @@ export function resolveFlangeSizing(
         : channelOnlyThickness;
 
   // Issue #115: wide enough for the inner-end lead-in's straight chord to
-  // hold the keyhole past the end of its drop into the channel.
+  // hold the clip past the end of its drop into the channel.
   const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness, mount));
-  const margin = Math.max(mountMargin, innerEndMargin);
+  // Issue #117: the cap's clip hangs between the outermost layer (the
+  // envelope, FLANGE_MARGIN inside `flangeSizeEnvelope`) and the rim.
+  const envelopeOffset = flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0);
+  const capClipMargin = leadIn.topCap ? requiredCapClipMargin(envelopeOffset, wireDiameter, leadIn.tolerance) : 0;
+  const margin = Math.max(mountMargin, innerEndMargin, capClipMargin);
 
-  return { margin, thickness, baseMargin, mountMargin, innerEndMargin, channelOnlyThickness };
+  return { margin, thickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, channelOnlyThickness };
 }
 
 /** The flange's real outer extent (types.ts's `FlangeExtent`) at a resolved outline and the real margin `resolveFlangeSizing` returned -- exact, since the flange mesh itself is built from this same offset outline (wall.ts's `buildOutlineRing`). */
