@@ -122,7 +122,7 @@ describe("mountPlate.ts layout math (issue #14)", () => {
       { x: p.x + 50, y: p.y + 5 },
       { x: p.x - 50, y: p.y + 5 },
     ];
-    const avoided = mountPlateLayoutFor("skadis", flange, bore, { hole: { x: 1e9, y: 1e9 }, holeRadius: 0, channelRibbon: strip });
+    const avoided = mountPlateLayoutFor("skadis", flange, bore, { channelRibbon: strip });
     for (const a of avoided.anchors) expect(Math.hypot(a.x - p.x, a.y - p.y)).toBeGreaterThan(1);
   });
 });

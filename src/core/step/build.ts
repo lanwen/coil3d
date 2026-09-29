@@ -27,7 +27,6 @@ import {
   JOINT_ENGAGE_DEPTH,
   JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
-  KEYHOLE_SLIT_FRACTION,
   LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
   MOUNT_PLATE_PIN_DIAMETER,
@@ -49,12 +48,13 @@ import {
   SNAP_RIDGE_THICKNESS,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
+  INNER_CHANNEL_WALL_GUARD,
 } from "../constants";
 import { jointGeometry } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
-import { defaultCapKeyhole, layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
-import type { InnerEndLayout, XY } from "../innerEnd";
+import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
+import type { InnerEndLayout, SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "../mount";
 import type { KeyholeSlot, ThroughHole } from "../mount";
@@ -233,9 +233,24 @@ const MIN_V_SAMPLES = 40;
 // the original 1% now that the STEP wall ALSO clears the corner segment
 // floor (reusing the mesh's own sample placement, not just a bigger
 // uniform NU), so both backends are accurate and agree well within it.
-const VOLUME_TOLERANCE = 0.01;
+// Issue #117: 1.5%. A rounded-square fixture (60 mm, 15 mm corners, one
+// layer; test/step-single-part.test.ts) already sat at 0.99% on main --
+// measured, the STEP tube itself comes out ~180 mm^3 (0.9%) under the mesh
+// wall, and its fuse with the flange loses another ~150 mm^3 (the fitted
+// wall reaches a hair below z=0) -- and #117's smaller inner-end cut (no
+// through-keyhole) tipped it just over 1%. That wall-fit gap predates this
+// issue and is left for its own ticket; the silent boolean failure this
+// check exists to catch is now also caught directly (`checkedCut`).
+const VOLUME_TOLERANCE = 0.015;
+/** Fuzzy values (mm) `checkedCut` tries in turn: all far below print resolution, enough for OCCT to resolve the swept cutters' small facets. */
+const FUZZY_CUTS = [1e-4, 1e-3, 1e-2];
 
 let oc: OpenCascadeInstance | undefined;
+/** The kernel, once `getOC` has loaded it (every builder below runs after `buildStep` awaited it). */
+function getOCSync(): OpenCascadeInstance {
+  if (!oc) throw new Error("STEP export: OpenCascade is not loaded yet");
+  return oc;
+}
 async function getOC(): Promise<OpenCascadeInstance> {
   if (!oc) {
     oc = await initOpenCascade();
@@ -338,15 +353,17 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
   const flange = flangeOuter.cut(flangeInner);
 
-  let coreSolid = tube.fuse(flange);
-
-  // Issue #8: the bottom flange's own rim keyhole + recessed inner channel,
-  // mirroring manifold.ts's `buildInnerEndCutter` primitive-for-primitive
-  // (same `layoutInnerEnd` call, same `resolveChannelDepth`), so the mesh and
-  // STEP backends can never drift on where the keyhole/channel actually sit.
+  // Issues #8, #117: the bottom flange's own recessed channel + cable clip,
+  // mirroring manifold.ts's `buildInnerEndCutter` (same `layoutInnerEnd`
+  // call, same `resolveChannelDepth`, lofted through the SAME rings), so the
+  // mesh and STEP backends can never drift on where the channel/clip sit.
   // Kept (not just consumed for its own cutter): issue #70's through-hole
   // mount checks the SAME real, computed channel footprint, never a
-  // re-derivation.
+  // re-derivation. Cut from the flange BEFORE it's fused to the wall: the
+  // cutter is already clipped clear of the wall (so the result is the same
+  // as the mesh backend's cut of the fused core), and OCCT then never has to
+  // test the channel's many faces against the wall's big B-spline surface --
+  // cutting the fused core instead made the whole export several times slower.
   const innerEndCutter = buildInnerEndCutterSolid(
     flangeSpec.outline,
     flangeSpec.margin,
@@ -356,7 +373,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     design.spec.tolerance,
     bendMultiplierOf(design.spec.wire) * design.spec.wire.diameter,
   );
-  coreSolid = coreSolid.cut(innerEndCutter.cutter);
+  let coreSolid = tube.fuse(checkedCut(kernel, flange, innerEndCutter.cutter));
 
   // Issue #9: bayonet/snap cut a mating groove/relief into the core's own
   // top rim; press engages the bore's existing surface directly (no
@@ -448,6 +465,39 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+/**
+ * `shape` minus `tool`, straight through OCCT's boolean builder with a small
+ * fuzzy value (a larger one if that fails), failing loudly instead of
+ * silently returning `shape` unchanged. Issue #117's swept cutters (hundreds
+ * of small planar faces): without a fuzzy value OCCT sometimes cut nothing
+ * at all, reporting no error (replicad's own `cut` would pass that straight
+ * on) -- so a cut that removes no volume counts as a failure too.
+ */
+function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D): R.Shape3D {
+  const before = R.measureVolume(shape);
+  for (const fuzzy of FUZZY_CUTS) {
+    const args = new kernel.NCollection_List_TopoDS_Shape();
+    args.Append(shape.wrapped);
+    const tools = new kernel.NCollection_List_TopoDS_Shape();
+    tools.Append(tool.wrapped);
+    const op = new kernel.BRepAlgoAPI_Cut();
+    try {
+      op.SetArguments(args);
+      op.SetTools(tools);
+      op.SetFuzzyValue(fuzzy);
+      op.Build(new kernel.Message_ProgressRange());
+      if (op.HasErrors()) continue;
+      const result = R.cast(op.Shape()) as R.Shape3D;
+      if (R.measureVolume(result) < before - 1e-6) return result;
+    } finally {
+      op.delete();
+      args.delete();
+      tools.delete();
+    }
+  }
+  throw new Error("STEP export: a boolean cut failed (it removed nothing)");
+}
+
 /** Validate one part's solid: manifold-valid, exactly one solid, and its volume matches the part's own mesh within tolerance. Throws with a descriptive message otherwise. */
 function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Design["mesh"], name: string): void {
   const analyzer = new kernel.BRepCheck_Analyzer(solid.wrapped, true, false, false);
@@ -461,7 +511,7 @@ function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Desi
     throw new Error(
       `STEP export failed validation for part "${name}": valid=${valid} solids=${solidCount} ` +
         `step volume=${stepVolume.toFixed(1)} mesh volume=${expectedVolume.toFixed(1)} ` +
-        `(${(volumeError * 100).toFixed(2)}% off, tolerance ${(VOLUME_TOLERANCE * 100).toFixed(0)}%)`,
+        `(${(volumeError * 100).toFixed(2)}% off, tolerance ${(VOLUME_TOLERANCE * 100).toFixed(1)}%)`,
     );
   }
 }
@@ -502,59 +552,33 @@ function unionAtAngles(build: (angleDeg: number) => R.Shape3D, count: number): R
   return result!;
 }
 
-/** The rim keyhole cutter (mirrors manifold.ts's `buildKeyholeCutter`): a round hole sized to the cable, connected to the cap's nearest outer edge by a narrower retaining slit, where the cable's cap lead-out ends (`Design.capKeyhole`). */
-function buildKeyholeSolid(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, at?: { hole: XY; edge: XY }): R.Shape3D {
-  const holeRadius = wireDiameter / 2 + tolerance;
-  const slitWidth = wireDiameter * KEYHOLE_SLIT_FRACTION + tolerance;
-  const skin = 1;
-  const { hole: c, edge } = at ?? defaultCapKeyhole(outline, margin, holeRadius, skin);
-  const cx = c.x;
-  const cy = c.y;
-  const h = CAP_THICKNESS + 2;
-  const zLo = -1;
-
-  const hole = R.makeCylinder(holeRadius, h, [cx, cy, zLo]);
-  const slitLen = Math.hypot(edge.x - cx, edge.y - cy) + 1;
-  const angleDeg = (Math.atan2(edge.y - cy, edge.x - cx) * 180) / Math.PI;
-  const slit = R.makeBox([0, -slitWidth / 2, zLo], [slitLen, slitWidth / 2, zLo + h])
-    .rotate(angleDeg, [0, 0, 0], [0, 0, 1])
-    .translate([cx, cy, 0]);
-  return hole.fuse(slit);
-}
-
 /**
- * The channel trench cutter solid: `innerEnd.ts`'s `channelRibbon` (a single
- * flat 2D polygon tracing the whole trench outline, computed ANALYTICALLY --
- * see its own doc comment for why), extruded ONCE -- mirrors manifold.ts's
- * `channelCutter`. An earlier version built this from a chain of
- * cylinders+boxes `fuse()`d one at a time (the standard "stroke a polyline"
- * technique); that sequential-fuse chain was found to occasionally produce
- * an invalid BRep (`BRepCheck_Analyzer` false) here even though the
- * equivalent manifold-3d boolean chain stayed valid, so both backends now
- * extrude one shared polygon instead (also guaranteeing they extrude the
- * exact same shape). Mirrors `labelLoopSolid`'s own `makePolygon` + `Sketch`
- * + `extrude` pattern. Returns `undefined` for a degenerate (near-zero-area)
- * ribbon -- see `channelRibbon`'s own doc comment.
+ * One of innerEnd.ts's swept solids (the channel/clip cutter and the cap
+ * clip's block and bore) as a polyhedral solid: exactly the triangles
+ * manifold.ts's `sweepMesh` meshes from the same rings (each end capped by
+ * one planar face), so the two backends cut the identical shape. (A ruled
+ * loft through the same rings gave the same shape but made the export
+ * several times slower.)
  */
-function channelCutterSolid(ribbon: XY[], zLo: number, zHi: number): R.Shape3D | undefined {
-  if (ribbon.length < 3) return undefined;
-  const face = R.makePolygon(ribbon.map(({ x, y }): [number, number, number] => [x, y, zLo]));
-  const sketch = new R.Sketch(face.outerWire(), { defaultOrigin: [0, 0, zLo], defaultDirection: [0, 0, 1] });
-  return sketch.extrude(zHi - zLo);
+function sweepSolidStep(sweep: SweepSolid): R.Shape3D {
+  const pt = (p: { x: number; y: number; z: number }): [number, number, number] => [p.x, p.y, p.z];
+  const { rings } = sweep;
+  const m = rings[0].length;
+  const faces: R.Face[] = [R.makePolygon(rings[0].map(pt)), R.makePolygon(rings[rings.length - 1].map(pt))];
+  for (let i = 0; i + 1 < rings.length; i++) {
+    for (let j = 0; j < m; j++) {
+      const [a, b, c, d] = [rings[i][j], rings[i][(j + 1) % m], rings[i + 1][j], rings[i + 1][(j + 1) % m]];
+      faces.push(R.makePolygon([pt(a), pt(b), pt(d)]), R.makePolygon([pt(a), pt(d), pt(c)]));
+    }
+  }
+  return R.makeSolid(faces);
 }
 
 /**
- * The bottom flange's own inner-end fixing (issue #8): the rim keyhole (same
- * hole+narrower-retaining-slit shape as `buildKeyholeSolid`'s top-cap
- * keyhole, but cut all the way THROUGH the flange's full thickness) unioned
- * with the recessed channel trench (clipped to stay outside the wall's own
- * outline via `outlineSolid` -- see manifold.ts's `outlineBlocker` for why:
- * the channel's own width can exceed WALL_THICKNESS for a heavy cord, and
- * without this clip it reaches past the wall into the bore's own void,
- * adding a genus the part shouldn't have), mirroring manifold.ts's
- * `buildInnerEndCutter` primitive-for-primitive from the SAME `layoutInnerEnd`
- * call, so the two backends can never disagree on where the keyhole/channel
- * actually sit.
+ * The bottom flange's own inner-end fixing (issues #8, #117): the channel +
+ * clip swept along the cable, clipped to stay outside the wall's own outline
+ * (see manifold.ts's `outlineBlocker` for why), mirroring manifold.ts's
+ * `buildInnerEndCutter` from the SAME `layoutInnerEnd` call and rings.
  */
 function buildInnerEndCutterSolid(
   outline: ShapeOutline,
@@ -566,37 +590,13 @@ function buildInnerEndCutterSolid(
   bendRadius: number,
 ): { cutter: R.Shape3D; layout: InnerEndLayout } {
   const layout: InnerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, tolerance, bendRadius, channelDepth);
-  const { hole, edge, holeRadius, slitWidth, channelRibbon } = layout;
-
-  const throughH = flangeThickness + 2;
-  const throughZLo = -flangeThickness - 1;
-  const holeSolid = R.makeCylinder(holeRadius, throughH, [hole.x, hole.y, throughZLo]);
-  const dx = edge.x - hole.x;
-  const dy = edge.y - hole.y;
-  const len = Math.hypot(dx, dy);
-  let keyhole = holeSolid;
-  if (len > 1e-6) {
-    const slitLen = len + 1;
-    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-    const slit = R.makeBox([0, -slitWidth / 2, throughZLo], [slitLen, slitWidth / 2, throughZLo + throughH])
-      .rotate(angleDeg, [0, 0, 0], [0, 0, 1])
-      .translate([hole.x, hole.y, 0]);
-    keyhole = holeSolid.fuse(slit);
-  }
-
-  const rawChannel = channelCutterSolid(channelRibbon, -channelDepth, 1);
-  if (!rawChannel) return { cutter: keyhole, layout };
-  // Offset outward by WELD_OVERLAP: the ribbon's own closing edge at the
-  // groove end sits EXACTLY on the wall's true outline by construction (see
-  // innerEnd.ts), so clipping against that same outline unmodified is
-  // another razor-thin, exactly-coincident seam -- the same boolean
-  // robustness landmine this codebase already works around elsewhere (see
-  // manifold.ts's own `collarBase`/WELD_OVERLAP comments). A genuine
-  // volumetric overlap cuts a hair more than strictly necessary, but stays
-  // well inside the STEP/mesh volume-match tolerance.
-  const blocker = outlineSolid(offsetOutline(outline, WELD_OVERLAP), channelDepth + 3, -channelDepth - 1);
-  const channel = rawChannel.cut(blocker);
-  return { cutter: keyhole.fuse(channel), layout };
+  const raw = sweepSolidStep(layout.channel);
+  const top = Math.max(...layout.channel.rings.flat().map((p) => p.z)) + 1;
+  // Offset outward by INNER_CHANNEL_WALL_GUARD, exactly like manifold.ts's
+  // blocker: clipping against the wall's exact outline would risk a
+  // razor-thin, exactly-coincident seam.
+  const blocker = outlineSolid(offsetOutline(outline, INNER_CHANNEL_WALL_GUARD), top + flangeThickness + 1, -flangeThickness - 1);
+  return { cutter: raw.cut(blocker), layout };
 }
 
 /**
@@ -684,7 +684,7 @@ async function buildLabelCutterSolid(label: ResolvedLabel): Promise<R.Shape3D | 
   return cutter;
 }
 
-/** Build the top cap solid (plate + engagement collar for the chosen joint + rim keyhole + engraved label), directly in the shared assembly frame -- see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin. */
+/** Build the top cap solid (plate + engagement collar for the chosen joint + cable clip + engraved label), directly in the shared assembly frame -- see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin. */
 async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
   const outerOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
@@ -718,8 +718,10 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
     collar = withBarb.cut(slots);
   }
 
-  const keyhole = buildKeyholeSolid(flangeSpec.outline, flangeSpec.margin, spec.wire.diameter, spec.tolerance, design.capKeyhole);
-  let assembled = plate.fuse(collar).cut(keyhole);
+  let assembled = plate.fuse(collar);
+  // Issue #117: the cable clip under the rim (mirrors manifold.ts's
+  // `buildTopCap`, lofted through the same `Design.capClip` rings).
+  if (design.capClip) assembled = checkedCut(getOCSync(), assembled.fuse(sweepSolidStep(design.capClip.block)), sweepSolidStep(design.capClip.bore));
 
   // Mirrors design.ts's own call: the SAME `resolveLabel` the mesh backend
   // uses, against the SAME outline/boreOutline/margin, so the two backends

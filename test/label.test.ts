@@ -41,8 +41,10 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 const ROOMY_CAP = baseSpec();
 // The same footprint as issue #9's own two-part fixture: a bigger core but
 // only 2 layers, so the flange barely grows past the core outline -- too
-// narrow an annulus for ANY legible-height label.
-const TIGHT_CAP = baseSpec({ coreSize: { locked: true, dimension: "outer", value: 60 }, height: { locked: true, value: 60 }, layers: { locked: true, value: 2 } });
+// narrow an annulus for ANY legible-height label. (A thin 2.5 mm cable since
+// issue #117: the cap's cable clip widens the margin for a 3.8 mm one, and
+// then this label would fit.)
+const TIGHT_CAP = baseSpec({ wire: { length: 6000, diameter: 2.5, type: "flex" }, coreSize: { locked: true, dimension: "outer", value: 60 }, height: { locked: true, value: 60 }, layers: { locked: true, value: 2 } });
 
 async function assertManifold(mesh: { positions: Float32Array; indices: Uint32Array }, label: string) {
   const wasm = await Module();

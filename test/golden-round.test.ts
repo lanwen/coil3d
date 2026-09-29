@@ -78,6 +78,12 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // drop into the channel, which needs a wider flange margin here (6.7 mm
     // -> 10.2 mm for this 3.8 mm USB cable's 15.2 mm bend radius) -- real,
     // intentional material, with its own "Flange margin increased" warning.
-    expect(meshVolume(d.mesh)).toBeCloseTo(36108.31213927501, 3);
+    //
+    // Issue #117 bumped it UP again from 36108.31213927501: the keyhole became
+    // a clip along the cable whose lips must sit past the end of the drop and
+    // a wall inside the rim, so the margin grows again (10.2 mm -> 11.8 mm),
+    // and the swept round channel no longer cuts a through-hole -- real,
+    // intentional material, with the same warning.
+    expect(meshVolume(d.mesh)).toBeCloseTo(38287.458428563026, 3);
   });
 });

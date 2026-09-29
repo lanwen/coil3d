@@ -26,8 +26,9 @@
 //     lengthened until its curvature passes (CABLE_BEND_CHECK);
 //   - the inner-end lead-in is innerEnd.ts's tangential chord;
 //   - the outer end: with the top cap on, a blend (searched the same way)
-//     to just under the cap's rim keyhole, which is cut where that blend
-//     ends; with the cap off, a straight tail along the last turn's tangent.
+//     to just under the cap, then on through the cap's clip (issue #117,
+//     laid out where that blend ends) and out past the rim; with the cap
+//     off, a straight tail along the last turn's tangent.
 
 import {
   CABLE_BEND_CHECK,
@@ -40,9 +41,9 @@ import {
   FINAL_WIRE_MIN_SAMPLES_PER_TURN,
 } from "./constants";
 import { clamp01 } from "./capacity";
-import { bump, KEYHOLE_SKIN } from "./innerEnd";
-import type { InnerEndLayout, XY } from "./innerEnd";
-import { offsetPerimeter, outlineOffsetAt, pointAt } from "./shapes";
+import { bump, capCableZ, capClipOffset, layoutCapClip } from "./innerEnd";
+import type { CapClipLayout, InnerEndLayout } from "./innerEnd";
+import { offsetPerimeter, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { createWallProfile, type WallSpec } from "./wall";
 import type { LayerResult, Resolution, WireLayerPath } from "./types";
@@ -257,15 +258,11 @@ export interface WoundCable {
   outerEndLeadOut: Float32Array;
   /** Everything above joined end to end, inner fix point to outer end. */
   cablePath: Float32Array;
-  /** The top cap's rim keyhole (where the cap lead-out ends), undefined with the cap off. */
-  capKeyhole?: { hole: XY; edge: XY };
+  /** The top cap's cable clip (where the cap lead-out ends), undefined with the cap off. */
+  capClip?: CapClipLayout;
   warnings: string[];
 }
 
-function lastPoint(points: Float32Array): [number, number, number] {
-  const n = points.length;
-  return [points[n - 3], points[n - 2], points[n - 1]];
-}
 function nthFromEnd(points: Float32Array, k: number): [number, number, number] {
   const n = points.length - 3 * (k + 1);
   return [points[n], points[n + 1], points[n + 2]];
@@ -345,7 +342,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
   const uEnd = last.start + last.turns;
   const zEnd = last.z(last.turns);
   let outerEndLeadOut: Float32Array;
-  let capKeyhole: WoundCable["capKeyhole"];
+  let capClip: CapClipLayout | undefined;
 
   if (!ends.topCapEnabled) {
     // A free straight tail along the last turn's own tangent.
@@ -366,13 +363,13 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
       outerEndLeadOut[i * 3 + 2] = zEnd + (tz / len) * s;
     }
   } else {
-    // To just under the cap's rim keyhole, arriving level along the
-    // outline. The keyhole's radial offset is the old t=0 keyhole's
-    // (inset from the cap rim); its angle is wherever this blend ends.
+    // To just under the cap, arriving level along the outline at the cap
+    // clip's offset (inside the rim, clear of the wound cable -- innerEnd.ts's
+    // `capClipOffset`); the clip then runs on from wherever this blend ends,
+    // and the cable leaves through it past the rim (`layoutCapClip`).
     const d = wallSpec.wireDiameter;
-    const holeRadius = d / 2 + ends.tolerance;
-    const oKey = ends.margin - holeRadius - KEYHOLE_SKIN;
-    const zKey = ends.height - d / 2;
+    const oKey = capClipOffset(ends.margin, d, ends.tolerance);
+    const zKey = ends.height + capCableZ(d);
     const o0 = last.offset;
     const climbsAll = last.slope < 0; // ends at the bottom: climb the whole height outside the last layer
     const oOut = o0 + d; // hug the outside of the last layer while climbing
@@ -387,11 +384,10 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
       limit,
       LEAD_OUT_TURNS_MAX,
     );
-    if (!found.ok) warnings.push(`The cable's run up to the top cap's keyhole bends tighter than its ${ends.bendRadius.toFixed(1)} mm bend radius.`);
-    outerEndLeadOut = found.points;
-    const [hx, hy] = lastPoint(outerEndLeadOut);
-    const at = outlineOffsetAt(outline, hx, hy);
-    capKeyhole = { hole: { x: hx, y: hy }, edge: { x: hx + at.nx * (ends.margin - at.offset), y: hy + at.ny * (ends.margin - at.offset) } };
+    if (!found.ok) warnings.push(`The cable's run up to the top cap's clip bends tighter than its ${ends.bendRadius.toFixed(1)} mm bend radius.`);
+    capClip = layoutCapClip(outline, ends.margin, d, ends.tolerance, ends.bendRadius, uEnd + found.turns);
+    const through = capClip.path.flatMap((p) => [p.x, p.y, zKey]);
+    outerEndLeadOut = joinPieces([found.points, new Float32Array(through)]);
   }
 
   const pieces: Float32Array[] = [innerEndLeadIn];
@@ -401,5 +397,5 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
   });
   pieces.push(outerEndLeadOut);
 
-  return { wirePaths, innerEndLeadIn, layerTransitions, outerEndLeadOut, cablePath: joinPieces(pieces), capKeyhole, warnings };
+  return { wirePaths, innerEndLeadIn, layerTransitions, outerEndLeadOut, cablePath: joinPieces(pieces), capClip, warnings };
 }

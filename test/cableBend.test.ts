@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilSpec, Design, MountKind, ShapeSpec, WireTypeId } from "../src/core";
 import { bendMultiplierOf } from "../src/core/types";
+import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
+import { outlineOffsetAt } from "../src/core/shapes";
+import { CABLE_CLIP_DEPTH_SLACK } from "../src/core/constants";
 
 // Issue #115: the WHOLE drawn cable -- inner-end lead-in, every wound layer,
 // every layer-to-layer transition and the outer end -- is one smooth path
@@ -88,6 +91,48 @@ function expectWithinBendLimit(points: Float32Array, mbr: number, label: string)
   expect(w.k * mbr, `${label}: sharpest bend at ${where}`).toBeLessThanOrEqual(1.05);
 }
 
+/**
+ * Issue #117: the fix points. The cable is clipped along its own direction
+ * and leaves the part through the rim with no extra bend: from the clip to
+ * its free end past the rim it runs level (no turn up or down into a hole)
+ * and within the bend radius -- at the inner end through the flange clip,
+ * at the outer end (cap on) through the cap's clip.
+ */
+function expectFixPointsWithinBendLimit(d: Design, mbr: number, label: string) {
+  const bendRadius = mbr;
+  const layout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness, d.spec.mount));
+  const lead = d.innerEndLeadIn;
+  // From the free end up to the clip's far end (the one nearer the groove).
+  const tail = layout.leadIn[0];
+  const reach = Math.hypot(layout.clip.from.x - tail.x, layout.clip.from.y - tail.y);
+  const segment: number[] = [];
+  for (let i = 0; i < lead.length; i += 3) {
+    if (Math.hypot(lead[i] - tail.x, lead[i + 1] - tail.y) > reach) break;
+    segment.push(lead[i], lead[i + 1], lead[i + 2]);
+  }
+  const fix = new Float32Array(segment);
+  expect(fix.length / 3, `${label}: inner fix-point segment samples`).toBeGreaterThanOrEqual(4);
+  // Level from the clip's rim end out (the lips may start while the cable
+  // settles the last CABLE_CLIP_DEPTH_SLACK into the channel).
+  const level = Math.hypot(layout.clip.to.x - tail.x, layout.clip.to.y - tail.y);
+  for (let i = 2; i < fix.length; i += 3) {
+    const along = Math.hypot(fix[i - 2] - tail.x, fix[i - 1] - tail.y);
+    if (along <= level) expect(fix[i], `${label}: the inner end leaves level through the clip and the rim`).toBeCloseTo(fix[2], 6);
+    else expect(fix[i] - fix[2], `${label}: nearly level through the rest of the clip`).toBeLessThanOrEqual(CABLE_CLIP_DEPTH_SLACK + 1e-6);
+  }
+  expect(outlineOffsetAt(d.flangeSpec.outline, fix[0], fix[1]).offset, `${label}: the inner end leaves past the rim`).toBeGreaterThan(d.flangeSpec.margin);
+  expectWithinBendLimit(fix, mbr, `${label}: inner fix point`);
+
+  if (d.capClip) {
+    const out = d.outerEndLeadOut;
+    const n = d.capClip.path.length;
+    const capSegment = out.slice(out.length - 3 * n);
+    for (let i = 2; i < capSegment.length; i += 3) expect(capSegment[i], `${label}: the outer end runs level through the cap clip and out`).toBeCloseTo(capSegment[2], 6);
+    // With the lead-out's last sample before it, so the join is covered too.
+    expectWithinBendLimit(out.slice(out.length - 3 * (n + 1)), mbr, `${label}: cap fix point`);
+  }
+}
+
 const SHAPES: ShapeSpec[] = [{ kind: "round" }, { kind: "sq", cornerRadius: 10 }, { kind: "tri", cornerRadius: 10 }];
 const TYPES: Array<{ type: WireTypeId; diameter: number }> = [
   { type: "usb", diameter: 3.8 },
@@ -109,6 +154,7 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
     );
     expectWithinBendLimit(joinedPieces(d), 36, "repro joined pieces");
     expectWithinBendLimit(d.cablePath, 36, "repro cablePath");
+    expectFixPointsWithinBendLimit(d, 36, "repro");
   });
 
   let caseIndex = 0;
@@ -129,6 +175,8 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
             expect(joined.length).toBe(d.cablePath.length);
             expectWithinBendLimit(d.cablePath, mbr, "cablePath");
             expect(maxGap(d.cablePath), "cablePath: largest step between samples").toBeLessThan(5);
+            expectFixPointsWithinBendLimit(d, mbr, "fix points");
+            expect(d.capClip !== undefined, "a cap clip exactly when the cap is on").toBe(d.parts.some((p) => p.role === "topCap"));
           });
         }
       }
