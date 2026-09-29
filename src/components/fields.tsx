@@ -276,35 +276,97 @@ export function StepperField({
 }
 
 /**
- * The lock toggle: a real checkbox (so Playwright's check()/uncheck()/
- * toBeChecked() keep working unchanged) styled entirely via CSS as a black
- * and white padlock pictogram -- open when free, closed (solid) when locked
- * -- never a raw square checkbox (issue #16 AC). Rendered as a `leading`
- * element inline on the field's own label row (issue #16 review: a lock on
- * a row of its own, above the field, left it ambiguous which field it
- * controlled), with an explicit "Lock {label}" accessible name since the
- * visible row carries the pictogram only, no text.
+ * The one shared boolean toggle for the whole app (issue #94): a real
+ * checkbox (so Playwright's check()/uncheck()/toBeChecked() keep working
+ * unchanged, and keyboard Space/Enter work for free) wearing `role="switch"`
+ * plus an explicit `aria-checked` -- overriding the implicit checkbox role,
+ * since this reads to assistive tech as an on/off switch, not a checkbox in
+ * a list. Painted as a black/white pill: an outlined track plus a round
+ * knob that slides between the two ends and carries the state's own digit
+ * ("0"/"1") printed on itself in whichever ink is legible against its own
+ * fill -- so the digit is never printed on the track, where it would be
+ * covered by the very knob sliding over it (issue #94: "the knob slides...
+ * showing '0' on the off side and '1' on the on side"). Off = white track,
+ * black outline, black knob at the left carrying a white "0"; on = black
+ * track, white knob at the right carrying a black "1". Replaces the old
+ * per-purpose eye/padlock/projection pictograms (issue #16/#15): every
+ * boolean toggle in the app now shares this one component, with only its
+ * accessible name and any trailing label/glyph differing per call site.
+ *
+ * The input's hit target is deliberately oversized past the visible pill
+ * (`.switch-input`'s negative `inset` in App.css) -- comfortably >= 44px on
+ * mobile widths -- rather than growing the pill itself to a clumsy size.
+ * The knob's slide is a plain CSS transition, skipped under
+ * `prefers-reduced-motion: reduce` (App.css) so it's instant there instead
+ * of animated, matching every other transition in the app.
  */
-function LockCheckbox({ testId, label, checked, onChange }: { testId: string; label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+export function Switch({
+  testId,
+  ariaLabel,
+  checked,
+  title,
+  onChange,
+  children,
+}: {
+  testId: string;
+  ariaLabel: string;
+  checked: boolean;
+  title?: string;
+  onChange: (checked: boolean) => void;
+  /** Optional trailing content (a text label, a decorative glyph) rendered
+   * inside the same `<label>` as the input, so clicking it toggles the
+   * switch too -- exactly like the pill itself. */
+  children?: ReactNode;
+}) {
   return (
-    <label className="lock-toggle" title={checked ? `Locked -- click to let ${label} be solved` : `Free -- click to lock ${label}`}>
+    <label className="switch" title={title}>
       <input
         type="checkbox"
-        className="lock-toggle-input"
-        data-testid={`lock-${testId}`}
-        aria-label={`Lock ${label}`}
+        role="switch"
+        className="switch-input"
+        data-testid={testId}
+        aria-label={ariaLabel}
+        aria-checked={checked}
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
-      <span className="lock-icon" aria-hidden="true">
-        <span className="lock-icon-shackle" />
-        <span className="lock-icon-body" />
+      <span className="switch-track" aria-hidden="true">
+        <span className="switch-knob">{checked ? "1" : "0"}</span>
       </span>
+      {children}
     </label>
   );
 }
 
-/** A lockable numeric range field: pairs {@link LockCheckbox} with {@link RangeField}. */
+/**
+ * The lock toggle: {@link Switch} plus a small static padlock glyph beside
+ * it (issue #94 AC: "the label 'Lock' (or a small padlock glyph beside the
+ * switch)") -- the glyph is purely decorative context (the switch's own 0/1
+ * already carries the actual state), so it never reflects locked/free
+ * itself. Rendered as a `leading` element inline on the field's own label
+ * row (issue #16 review: a lock on a row of its own, above the field, left
+ * it ambiguous which field it controlled), with an explicit "Lock {label}"
+ * accessible name since the visible row carries the switch and glyph only,
+ * no text.
+ */
+function LockToggle({ testId, label, checked, onChange }: { testId: string; label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <Switch
+      testId={`lock-${testId}`}
+      ariaLabel={`Lock ${label}`}
+      checked={checked}
+      title={checked ? `Locked -- click to let ${label} be solved` : `Free -- click to lock ${label}`}
+      onChange={onChange}
+    >
+      <span className="lock-glyph" aria-hidden="true">
+        <span className="lock-glyph-shackle" />
+        <span className="lock-glyph-body" />
+      </span>
+    </Switch>
+  );
+}
+
+/** A lockable numeric range field: pairs {@link LockToggle} with {@link RangeField}. */
 export function LockRangeField({
   testId,
   label,
@@ -347,14 +409,14 @@ export function LockRangeField({
       max={max}
       step={step}
       disabled={!lock.locked}
-      leading={<LockCheckbox testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
+      leading={<LockToggle testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
       hint={hint}
       onChange={setValue}
     />
   );
 }
 
-/** A lockable integer stepper field: pairs {@link LockCheckbox} with {@link StepperField}. */
+/** A lockable integer stepper field: pairs {@link LockToggle} with {@link StepperField}. */
 export function LockStepperField({
   testId,
   label,
@@ -386,7 +448,7 @@ export function LockStepperField({
       min={min}
       max={max}
       disabled={!lock.locked}
-      leading={<LockCheckbox testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
+      leading={<LockToggle testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
       hint={hint}
       onChange={setValue}
     />
@@ -394,41 +456,42 @@ export function LockStepperField({
 }
 
 /**
- * A view-only visibility toggle (currently: "show wound cable" over the
- * viewer), styled the same way as the lock toggle -- a real checkbox behind
- * a black/white pictogram, here an eye / crossed-out eye -- never a raw
- * checkbox (issue #16 review).
+ * A view-only toggle over the viewer (e.g. "show wound cable"/"Dimensions"/
+ * "Exploded view", and the camera's perspective/orthographic mode):
+ * {@link Switch} plus its own trailing text label -- replaces the old eye/
+ * crossed-out-eye pictogram (issue #16 review; issue #94 folded it, and
+ * every other overlay pictogram, into the one shared switch).
  */
 export function EyeToggle({
   testId,
   label,
   checked,
   hint,
+  title,
   onChange,
 }: {
   testId: string;
   label: string;
   checked: boolean;
   hint?: string;
+  /** Overrides the default "Show X"/"Hide X" tooltip -- for a call site
+   * that isn't a plain visibility toggle (issue #94 review: the
+   * perspective/orthographic toggle is a MODE switch, not a show/hide one,
+   * so "Hide perspective" would read wrong). */
+  title?: string;
   onChange: (checked: boolean) => void;
 }) {
   return (
     <span className="eye-toggle-row">
-      <label className="eye-toggle" title={checked ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}>
-        <input
-          type="checkbox"
-          className="eye-toggle-input"
-          data-testid={`toggle-${testId}`}
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-        <span className="eye-icon" aria-hidden="true">
-          <span className="eye-icon-outer" />
-          <span className="eye-icon-pupil" />
-          <span className="eye-icon-slash" />
-        </span>
+      <Switch
+        testId={`toggle-${testId}`}
+        ariaLabel={label}
+        checked={checked}
+        title={title ?? (checked ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`)}
+        onChange={onChange}
+      >
         <span className="eye-toggle-text">{label}</span>
-      </label>
+      </Switch>
       {hint && <Hint text={hint} />}
     </span>
   );
