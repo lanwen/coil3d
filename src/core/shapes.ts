@@ -343,6 +343,54 @@ export function paramAt(o: ShapeOutline, offset: number, t: number): OutlinePara
   return { seg: 2 * o.n - 1, u: 1 };
 }
 
+/**
+ * True arc-length fraction, measured at a DIFFERENT reference `offset`, of
+ * the same geometric point `pointAt(o, t, ...)` places at arc-length
+ * fraction `t` on the winding surface itself (offset 0) -- issue #103,
+ * "groove rings pinch together near a corner/side transition".
+ *
+ * `t` is defined once and for all as an arc-length fraction of the outline
+ * AT OFFSET 0 (`paramAt(o, 0, t)`, `pointAt`'s own doc comment) -- exactly
+ * right for PLACING a point (columns should be spread evenly across the
+ * winding surface's own perimeter), but wrong wherever `t` gets reused
+ * directly as a HELIX PHASE (`wall.ts`'s `z = zStart + pitch*t`): a corner's
+ * own arc length changes under a nonzero offset (Steiner: `arc(offset) =
+ * 2*(pi/n)*(cornerRadius+offset)`, see `offsetPerimeter`), while a straight
+ * side's doesn't (`sideLength` is offset-invariant). So the SAME `dt` sweeps
+ * LESS real distance at the groove floor's own (negative, inward) offset
+ * than it does at offset 0 -- but only on the corner arcs, never the flat
+ * sides -- and a helix phased by raw `t` still advances z by the same
+ * `pitch*dt` regardless of which one it's crossing, so it runs locally
+ * steeper (in real arc length) exactly where it crosses a corner, bunching
+ * consecutive rings together there. (Measured: ~6.5% local pitch distortion
+ * at a rounded triangle/square's own default corner radius and groove
+ * depth, well past the ticket's 2% floor; round is untouched -- an offset
+ * rescales every one of its "corners" identically, so it's a constant
+ * global rescale of `t`, invisible since it's the same all the way round.)
+ *
+ * The fix: re-derive the SAME (seg, u) breakdown `paramAt(o, 0, t)` already
+ * computes (an angle-only quantity -- see its own doc comment, unaffected by
+ * offset), then re-accumulate arc length up to that (seg, u) using `offset`'s
+ * OWN corner-arc length instead of offset 0's. Reduces to `t` unchanged for
+ * round and for any fully-rounded outline (`side <= 0`, same fast path
+ * `paramAt`/`outlineColumnParams` already use) -- offset cancels out of the
+ * fraction identically for every corner, see file header.
+ *
+ * `wall.ts`'s `createWallProfile` uses this (offset = -grooveDepth, the
+ * groove floor's own outline) to re-phase the helix by the arc length of the
+ * surface the wire actually sits in, not the un-grooved winding surface's.
+ */
+export function arcLengthFractionAt(o: ShapeOutline, offset: number, t: number): number {
+  const side = sideLength(o);
+  if (side <= 1e-9) return (((t % 1) + 1) % 1); // fully rounded (incl. round itself): offset cancels, see header
+  const arc = ((2 * Math.PI) / o.n) * (o.cornerRadius + offset);
+  const perimeter = o.n * (arc + side);
+  const p = paramAt(o, 0, t);
+  const i = p.seg >> 1;
+  const s = i * (arc + side) + ((p.seg & 1) === 0 ? p.u * arc : arc + p.u * side);
+  return s / perimeter;
+}
+
 /** The point + normal at arc-length fraction t (reference offset 0) and the
  * given (possibly different) offset -- the one function wall.ts's helix and
  * step/build.ts's B-spline fit both sample.
