@@ -79,7 +79,7 @@ import type { InnerEndLayout, XY } from "./innerEnd";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
-import { circumscribedRadius, offsetOutline, pointAt } from "./shapes";
+import { circumscribedRadius, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh, JointKind, MountKind, PlateJoint } from "./types";
 
@@ -105,6 +105,8 @@ export interface FlangeSpec {
   thickness: number;
   /** Columns around the circumference (mirrors WallSpec.columns). */
   columns: number;
+  /** Issue #85: minimum corner-arc segments (mirrors WallSpec.minCornerSegments) -- see shapes.ts's `outlineColumnParams`. */
+  minCornerSegments: number;
   /** Screw-keyhole wall mount (issue #13): cut into the flange's outer (wall-facing, z=-thickness) face when `"keyhole"`. See mount.ts. */
   mount: MountKind;
   /** Issue #71: prefers a different one of the shape's own natural axes for the keyhole mount's own `bestAxisDeg` search, 0 or 45 degrees off literal vertical (`KEYHOLE_ROTATION_OPTIONS`; 90 is not offered -- see that constant's own doc comment). Ignored (and may be omitted) when `mount !== "keyhole"`. */
@@ -181,11 +183,18 @@ function unionAtAngles(track: <T extends { delete(): void }>(m: T) => T, build: 
  * are convex and share the same corner arrangement, so their hull is exactly
  * the ruled frustum between them, with no shortcut through the middle.
  */
-function collarBase(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, collarOutline: ShapeOutline, weldOutline: ShapeOutline, segments: number): Manifold {
+function collarBase(
+  wasm: ManifoldToplevel,
+  track: <T extends { delete(): void }>(m: T) => T,
+  collarOutline: ShapeOutline,
+  weldOutline: ShapeOutline,
+  segments: number,
+  minCornerSegments: number,
+): Manifold {
   const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT;
-  const straight = track(outlinePrismSolid(wasm, collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH, segments));
-  const bottomPts: [number, number, number][] = outlinePolygon(collarOutline, segments).map(([x, y]) => [x, y, -JOINT_TRANSITION_HEIGHT]);
-  const topPts: [number, number, number][] = outlinePolygon(weldOutline, segments).map(([x, y]) => [x, y, 0]);
+  const straight = track(outlinePrismSolid(wasm, collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH, segments, minCornerSegments));
+  const bottomPts: [number, number, number][] = outlinePolygon(collarOutline, segments, minCornerSegments).map(([x, y]) => [x, y, -JOINT_TRANSITION_HEIGHT]);
+  const topPts: [number, number, number][] = outlinePolygon(weldOutline, segments, minCornerSegments).map(([x, y]) => [x, y, 0]);
   const transition = track(wasm.Manifold.hull([...bottomPts, ...topPts]));
   return track(straight.add(transition));
 }
@@ -500,7 +509,7 @@ export async function fuseFlange(
       throw new Error(`Wall mesh is not a valid manifold: ${wallManifold.status()}`);
     }
 
-    const ringMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, -flange.thickness, 0, flange.columns);
+    const ringMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, -flange.thickness, 0, flange.columns, flange.minCornerSegments);
     const ringManifold = track(new Manifold(new Mesh({ numProp: 3, vertProperties: ringMesh.positions, triVerts: ringMesh.indices })));
     if (ringManifold.status() !== "NoError") {
       throw new Error(`Flange mesh is not a valid manifold: ${ringManifold.status()}`);
@@ -615,7 +624,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
 
   try {
     const { flange, joint, tolerance, wireDiameter, label } = spec;
-    const plateMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, 0, CAP_THICKNESS, flange.columns);
+    const plateMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, 0, CAP_THICKNESS, flange.columns, flange.minCornerSegments);
     const plate = track(new Manifold(new Mesh({ numProp: 3, vertProperties: plateMesh.positions, triVerts: plateMesh.indices })));
     if (plate.status() !== "NoError") {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
@@ -626,9 +635,9 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
 
     let collar: Manifold;
     if (joint === "press") {
-      collar = collarBase(wasm, track, collarOutline, weldOutline, segments);
+      collar = collarBase(wasm, track, collarOutline, weldOutline, segments, flange.minCornerSegments);
     } else if (joint === "bayonet") {
-      const base = collarBase(wasm, track, collarOutline, weldOutline, segments);
+      const base = collarBase(wasm, track, collarOutline, weldOutline, segments, flange.minCornerSegments);
       const grooveZLo = -BAYONET_LEAD - BAYONET_GROOVE_HEIGHT;
       const grooveZHi = -BAYONET_LEAD;
       // Already tracked (unionAtAngles tracks its own final reduce step).
@@ -638,7 +647,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       // snap: a collar with a barb band at its tip (deepest point, LOCAL
       // z=[-JOINT_ENGAGE_DEPTH, -JOINT_ENGAGE_DEPTH+SNAP_BARB_HEIGHT]) and 3
       // axial relief slots cutting it into cantilever fingers.
-      const base = collarBase(wasm, track, collarOutline, weldOutline, segments);
+      const base = collarBase(wasm, track, collarOutline, weldOutline, segments, flange.minCornerSegments);
       const barbR = collarRadius + SNAP_BARB;
       const barb = track(Manifold.cylinder(SNAP_BARB_HEIGHT, barbR, barbR, segments, false).translate([0, 0, -JOINT_ENGAGE_DEPTH]));
       const withBarb = track(base.add(barb));
@@ -746,19 +755,24 @@ function buildKeyholeCutter(wasm: ManifoldToplevel, outline: ShapeOutline, margi
 // this mirrors `radialBox`'s own "rotate a canonical primitive, don't
 // hand-rotate its vertices" pattern above.
 
-/** A closed 2D polygon sampling `outline`'s own boundary (offset 0) -- the mount plate panel has NO bore (unlike the wall/flange's ring, `buildOutlineRing`), so a plain `CrossSection` extrude is enough. */
-function outlinePolygon(outline: ShapeOutline, columns: number): [number, number][] {
-  const pts: [number, number][] = [];
-  for (let ci = 0; ci < columns; ci++) {
-    const p = pointAt(outline, ci / columns, 0);
-    pts.push([p.x, p.y]);
-  }
-  return pts;
+/**
+ * A closed 2D polygon sampling `outline`'s own boundary (offset 0) -- the
+ * mount plate panel has NO bore (unlike the wall/flange's ring,
+ * `buildOutlineRing`), so a plain `CrossSection` extrude is enough. Issue
+ * #85: `columns` is a requested budget, redistributed toward corner arcs
+ * (`outlineColumnParams`) instead of a plain `ci / columns`.
+ */
+function outlinePolygon(outline: ShapeOutline, columns: number, minCornerSegments: number): [number, number][] {
+  const ts = outlineColumnParams(outline, columns, minCornerSegments);
+  return ts.map((t) => {
+    const p = pointAt(outline, t, 0);
+    return [p.x, p.y] as [number, number];
+  });
 }
 
 /** A solid prism of `outline`'s own footprint, extruded from `zBase` up by `height`. */
-function outlinePrismSolid(wasm: ManifoldToplevel, outline: ShapeOutline, height: number, zBase: number, columns: number): Manifold {
-  const poly = outlinePolygon(outline, columns);
+function outlinePrismSolid(wasm: ManifoldToplevel, outline: ShapeOutline, height: number, zBase: number, columns: number, minCornerSegments: number): Manifold {
+  const poly = outlinePolygon(outline, columns, minCornerSegments);
   return new wasm.CrossSection([poly], "NonZero").extrude(height).translate([0, 0, zBase]);
 }
 
@@ -896,6 +910,8 @@ export interface MountPlateSpec {
   flangeThickness: number;
   /** Columns to sample the plate's own outline at (mirrors `FlangeSpec.columns`). */
   columns: number;
+  /** Issue #85: minimum corner-arc segments (mirrors `FlangeSpec.minCornerSegments`). */
+  minCornerSegments: number;
 }
 
 /**
@@ -917,11 +933,11 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { layout, mountKind, plateJoint, columns, flangeThickness } = spec;
+    const { layout, mountKind, plateJoint, columns, minCornerSegments, flangeThickness } = spec;
     const backZ = -flangeThickness - MOUNT_PLATE_THICKNESS; // the plate's own back (clip-bearing) face
     const frontZ = -flangeThickness; // the plate's own front (flange-mating) face
 
-    let plate = track(outlinePrismSolid(wasm, layout.outline, MOUNT_PLATE_THICKNESS, backZ, columns));
+    let plate = track(outlinePrismSolid(wasm, layout.outline, MOUNT_PLATE_THICKNESS, backZ, columns, minCornerSegments));
     if (plate.status() !== "NoError") {
       throw new Error(`Mount plate panel mesh is not a valid manifold: ${plate.status()}`);
     }

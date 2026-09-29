@@ -29,8 +29,10 @@ import {
   SKADIS_ROW_STAGGER,
   FINAL_ROWS_PER_PITCH,
   FINAL_COLUMNS,
+  FINAL_MIN_CORNER_SEGMENTS_PER_90,
   DRAFT_ROWS_PER_PITCH,
   DRAFT_COLUMNS,
+  DRAFT_MIN_CORNER_SEGMENTS_PER_90,
   TAPER_TURNS,
   CLEARANCE,
   WALL_THICKNESS,
@@ -43,7 +45,7 @@ import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import type { MountLayout } from "./mount";
 import { layoutMountPlate, openGridClipHalfExtents, skadisClipHalfExtents } from "./mountPlate";
 import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
-import { makeOutline, offsetOutline } from "./shapes";
+import { makeOutline, minCornerSegments, offsetOutline } from "./shapes";
 import { resolveLabel } from "./label";
 import { solve } from "./solve";
 import { bendMultiplierOf } from "./types";
@@ -57,6 +59,17 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const rowsPerPitch = resolution === "draft" ? DRAFT_ROWS_PER_PITCH : FINAL_ROWS_PER_PITCH;
 
   const outline = makeOutline(spec.shape.kind, solution.outerSize, solution.cornerRadius);
+
+  // Issue #85 ("rounded corners look faceted"): the minimum corner-arc
+  // segment count every mesh builder below redistributes `columns` toward
+  // (shapes.ts's `outlineColumnParams`), scaled to THIS outline's own
+  // corner sweep (sq/tri share it -- `n`, hence the sweep angle, is
+  // unaffected by any inward/outward offset, so the same floor is correct
+  // for the bore, the flange/cap's own offset-out outline, and the mount
+  // plate's offset-in one below). Round ignores it entirely (no corner arc
+  // of its own).
+  const cornerSegPer90 = resolution === "draft" ? DRAFT_MIN_CORNER_SEGMENTS_PER_90 : FINAL_MIN_CORNER_SEGMENTS_PER_90;
+  const cornerSegs = minCornerSegments(outline, cornerSegPer90);
 
   // The bore is a TRUE inward offset of the wall's own outline by the wall
   // thickness (issue #6 AC: "the triangle wall is computed from the true
@@ -85,6 +98,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     taperTurns: TAPER_TURNS,
     turns: layer1Turns,
     columns,
+    minCornerSegments: cornerSegs,
     rowsPerPitch,
   };
   const wantsKeyhole = spec.mount === "keyhole";
@@ -185,6 +199,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     margin,
     thickness,
     columns,
+    minCornerSegments: cornerSegs,
     mount: spec.mount,
     keyholeRotation: spec.keyholeRotation,
     throughHoleDiameter: spec.throughHoleDiameter,
@@ -294,6 +309,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       tolerance: spec.tolerance,
       flangeThickness: thickness,
       columns,
+      minCornerSegments: cornerSegs,
     });
     // Print orientation: flip 180 deg about X so the clips (pointing away
     // from the core in the assembled frame) print pointing UP with no

@@ -72,7 +72,7 @@ import { layoutKeyholeMount, layoutThroughHoleMount } from "../mount";
 import type { KeyholeSlot, ThroughHole } from "../mount";
 import { layoutMountPlate, openGridClipHalfExtents, skadisClipHalfExtents } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
-import { circumscribedRadius, offsetOutline, pointAt, polygonVertex } from "../shapes";
+import { circumscribedRadius, offsetOutline, outlineColumnParams, pointAt, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
 import type { Design, PlateJoint } from "../types";
@@ -212,13 +212,36 @@ function throughHoleCutterSolid(hole: ThroughHole, holeRadius: number, counterbo
 }
 
 // S2 RESULT.md: ~20 V-samples per helical pitch keeps the max fitting
-// deviation under 0.1 mm; NU reuses the mesh's own column count so the two
-// backends sample the identical grid resolution around the circumference.
+// deviation under 0.1 mm; NU starts from the mesh's own column BUDGET so the
+// two backends sample comparable grid resolution around the circumference.
+//
+// Issue #85 PR review round 2: the wall's own B-spline surface was still
+// sampling a plain, evenly-spaced `i / NU` across the WHOLE perimeter
+// (round 1 of this PR left it alone, reasoning the flange/cap's EXACT
+// replicad `customCorner` fillets covered "the STEP corners" -- true for
+// THEM, but not for the wall's own swept surface, still built from this
+// sampled grid; a real miss, caught in review). Fixed by reusing the mesh
+// backend's own adaptive, corner-favoring samples (shapes.ts's
+// `outlineColumnParams`) here too -- a UNIFORMLY larger NU (tried first)
+// technically also reaches the same per-corner segment floor, but for a
+// shape whose corner is a small share of the perimeter that meant a much
+// bigger NU than the mesh ever needs, and OCCT's own boolean ops against
+// the resulting surface scale with NU badly enough that it blew well past
+// a 2x build-time budget (a shape needing 4x the column count took 3.3x as
+// long to build, not the ~1.4x a shape needing only a modest bump did).
+// `bspfit.ts`'s `fitPeriodicUClampedV` now fits a genuinely NON-uniform
+// periodic cubic B-spline (the general Cox-de-Boor collocation, not just
+// the uniform case's textbook 1/6-4/6-1/6 shortcut) to make this safe --
+// see that function's own doc comment.
 const V_SAMPLES_PER_PITCH = 20;
 const MIN_V_SAMPLES = 40;
 // S2 RESULT.md saw <0.03% volume error for this approach; 1% leaves margin
 // for coarser grids while still catching the silent boolean failures OCCT
-// is prone to on B-spline walls.
+// is prone to on B-spline walls. Issue #85 PR review round 2: briefly
+// bumped to 2% in round 1 to paper over a mesh/STEP volume gap; back to
+// the original 1% now that the STEP wall ALSO clears the corner segment
+// floor (reusing the mesh's own sample placement, not just a bigger
+// uniform NU), so both backends are accurate and agree well within it.
 const VOLUME_TOLERANCE = 0.01;
 
 let oc: OpenCascadeInstance | undefined;
@@ -234,27 +257,45 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const kernel = await getOC();
   const { wallSpec, flangeSpec } = design;
   const profile = createWallProfile(wallSpec);
-  const { height, columns: NU, boreOutline } = wallSpec;
+  const { height, columns, minCornerSegments, outline, boreOutline } = wallSpec;
+  // Issue #85 PR review round 2: the SAME adaptive, corner-favoring sample
+  // placement the mesh backend uses (shapes.ts's `outlineColumnParams`),
+  // not a uniformly-raised NU -- a sq/tri corner arc that's a small share
+  // of the perimeter would otherwise need a MUCH bigger NU than the mesh
+  // ever does to reach the same per-corner segment floor, and OCCT's own
+  // boolean ops (the bore cut, the flange fuse) scale with NU badly enough
+  // that this blew well past a 2x build-time budget when tried (see
+  // `bspfit.ts`'s own comment on `fitPeriodicUClampedV`). `ts.length` is
+  // usually just `columns` unchanged (round always; sq/tri whenever the
+  // corner floor's own share already fits the existing budget -- only a
+  // shape needing MORE columns than the budget for its corners alone grows
+  // NU at all, exactly like the mesh backend's own `buildWall`).
+  const ts = outlineColumnParams(outline, columns, minCornerSegments);
+  const NU = ts.length;
 
   const NV = Math.max(MIN_V_SAMPLES, Math.round(V_SAMPLES_PER_PITCH * wallSpec.turns) + 1);
   const dz = 1e-4;
   const tangent = (z0: number, z1: number) => (i: number): Vec3 => {
-    const t = i / NU;
+    const t = ts[i];
     const a = profile.point(t, z0);
     const b = profile.point(t, z1);
     return a.map((v, c) => ((b[c] - v) / (z1 - z0)) * height) as Vec3;
   };
-  const fit = fitPeriodicUClampedV(
-    NU,
-    NV,
-    (i, j) => profile.point(i / NU, (j * height) / (NV - 1)),
-    tangent(0, dz),
-    tangent(height - dz, height),
-  );
+  const fit = fitPeriodicUClampedV(ts, NV, (i, j) => profile.point(ts[i], (j * height) / (NV - 1)), tangent(0, dz), tangent(height - dz, height));
 
   // OCCT wants the periodic pole index shifted by NU-1 relative to the
   // textbook (C[i-1]+4C[i]+C[i+1])/6 layout (empirically determined in the
-  // S2 spike).
+  // S2 spike) -- applied to the POLES only, `uKnots` unchanged. Issue #85 PR
+  // review round 2 (tried and reverted): rotating `uKnots` by the same
+  // amount, reasoning a non-uniform `ts` isn't rotation-invariant the way
+  // the old plain `i / NU` was, seemed plausible but was wrong -- it paired
+  // each rotated pole with the WRONG knot span and threw the surface's own
+  // volume off by ~5%. Empirically, OCCT's own pole/knot association for a
+  // periodic surface evidently isn't "pole i sits at knot i" (which would
+  // need the rotation); leaving `uKnots` exactly as `fitPeriodicUClampedV`
+  // returns it -- unrotated, in `ts`'s own natural order -- and shifting
+  // ONLY the poles (exactly as the original, round-only code already did)
+  // is what's actually correct, uniform or not.
   const SHIFT = NU - 1;
   const poles = new kernel.NCollection_Array2_gp_Pnt(1, NU, 1, fit.nvp);
   for (let i = 0; i < NU; i++) {
