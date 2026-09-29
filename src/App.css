@@ -120,6 +120,17 @@ header p {
   position: relative;
 }
 
+/* No border box (issue #104: "remove the surrounding border boxes...
+   keep a subtle background only if legibility over the model needs it") --
+   these three sit directly over the 3D canvas, whose colour varies with
+   whatever's rendered underneath, so they keep a background for legibility,
+   just no border. Deliberately OPAQUE, not translucent: this also sits
+   directly over the model's own dimension-axis labels/lines (issue #69),
+   and a translucent backdrop let that ink show through and visually clash
+   with the toggle's own text -- caught by dimensions.spec.ts's "readable at
+   phone width too" (its `inRects` check), which an earlier translucent
+   version of this rule failed. A solid backdrop fully covers whatever the
+   canvas drew underneath, exactly like the border box it replaces did. */
 .wire-toggle,
 .dimensions-toggle,
 .explode-toggle {
@@ -127,9 +138,8 @@ header p {
   left: 12px;
   z-index: 1;
   background: var(--paper);
-  padding: 6px 10px;
-  border-radius: 2px;
-  border: 1.5px solid var(--ink);
+  padding: 5px 8px;
+  border-radius: 4px;
 }
 
 .wire-toggle {
@@ -602,15 +612,27 @@ header p {
   margin: 0;
 }
 
-/* ---------- Pill switch (issue #94) ----------
+/* ---------- Pill switch (issue #94, revised by #104) ----------
    The one shared boolean toggle for the whole app -- a real checkbox
    (testability/keyboard use) behind a black/white pill: an outlined track
-   plus a round knob that slides between the two ends and carries the
-   state's own digit ("0"/"1") printed on itself. Off = white track, black
-   outline, black knob at the left with a white "0"; on = black track, white
-   knob at the right with a black "1". Used bare (the projection toggle) or
-   with trailing content inside the same `<label>` -- a text label (the eye
-   toggles) or a decorative glyph (the lock toggle) -- see fields.tsx. */
+   plus a PLAIN round knob (no text on it any more) that slides between the
+   two ends, and the state's own indicator ("0"/"I", or a caller-supplied
+   icon) printed in the track's own FREE space -- the half the knob ISN'T
+   currently covering -- rather than on the knob itself (issue #104: the
+   digit used to ride the knob, which read worse at a glance and would have
+   been lost entirely once the knob became a plain circle). Off = white
+   track, black outline, black knob at the left, black "0" in the free right
+   side; on = black track, white knob at the right, white "I" in the free
+   left side. Used bare (`showState={false}`, the two-sided perspective
+   toggle) or with trailing content inside the same `<label>` -- a text
+   label (the eye toggles) -- see fields.tsx.
+
+   The knob is vertically centred with `top: 50%` + `translateY(-50%)`
+   rather than a hardcoded pixel inset (issue #104: a fixed `top: 1px` left
+   it 1px off-centre -- the border-box track's content height doesn't
+   divide evenly by the knob's -- and would have needed re-tuning by hand at
+   every size; the percentage form is exactly centred at ANY track/knob
+   size, desktop or the larger mobile pill below, for free). */
 .switch {
   position: relative;
   display: inline-flex;
@@ -645,16 +667,51 @@ header p {
 
 .switch-knob {
   position: absolute;
-  top: 1px;
+  top: 50%;
   left: 1px;
   width: 16px;
   height: 16px;
   border-radius: 50%;
   background: var(--ink);
-  color: var(--paper);
+  transform: translateY(-50%);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.switch-input:checked ~ .switch-track {
+  background: var(--ink);
+}
+
+.switch-input:checked ~ .switch-track .switch-knob {
+  transform: translateX(17px) translateY(-50%);
+  background: var(--paper);
+}
+
+.switch-input:focus-visible ~ .switch-track {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* The state indicator itself (issue #104): a fixed-width zone sized to
+   exactly match the knob's own travel (the track's inner width minus the
+   knob and its 1px margins), pinned to whichever side the knob ISN'T
+   currently on, so it's always drawn in free space and never covered by
+   the knob sliding over it. Both zones are always in the DOM (so the
+   swap is a plain opacity/color cross-fade, not a content swap of
+   differently-sized nodes); only the active one is visible. Off (knob
+   left): `.switch-state-off` (right zone) shows, in ink -- it sits on the
+   track's white "off" background. On (knob right): `.switch-state-on`
+   (left zone) shows, in paper -- it sits on the track's black "on"
+   background instead. */
+.switch-state {
+  position: absolute;
+  top: 50%;
+  width: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
+  transform: translateY(-50%);
   font-family: "Kanit", "system-ui", -apple-system, "Segoe UI", sans-serif;
   /* Deliberately not any smaller: below this, this sandbox's software text
      rasterizer (SwiftShader/headless) prints the digit with visible
@@ -663,65 +720,86 @@ header p {
   font-size: 0.62rem;
   font-weight: 700;
   line-height: 1;
+  color: var(--ink);
+  opacity: 0;
   transition:
-    transform 0.15s ease,
-    background 0.15s ease,
+    opacity 0.15s ease,
     color 0.15s ease;
 }
 
-.switch-input:checked ~ .switch-track {
-  background: var(--ink);
+.switch-state-off {
+  right: 0;
+  opacity: 1;
 }
 
-.switch-input:checked ~ .switch-track .switch-knob {
-  transform: translateX(17px);
-  background: var(--paper);
-  color: var(--ink);
+.switch-state-on {
+  left: 0;
 }
 
-.switch-input:focus-visible ~ .switch-track {
-  outline: 2px solid var(--ink);
-  outline-offset: 2px;
+.switch-input:checked ~ .switch-track .switch-state-off {
+  opacity: 0;
 }
 
+.switch-input:checked ~ .switch-track .switch-state-on {
+  opacity: 1;
+  color: var(--paper);
+}
+
+/* Must come AFTER every rule above that sets a `transition` on these three
+   selectors (issue #104 fix): equal specificity (one plain class each)
+   means source order breaks the tie, so a copy of this block placed
+   EARLIER in the file -- before `.switch-state`'s own `transition:
+   opacity .15s, color .15s` -- was silently overridden by it, leaving the
+   state indicator's cross-fade animated even under reduced motion (caught
+   by e2e/switch.spec.ts: checking a lock toggle and reading its icon right
+   back needed an unwanted ~150ms wait to see the new one). */
 @media (prefers-reduced-motion: reduce) {
   .switch-track,
-  .switch-knob {
+  .switch-knob,
+  .switch-state {
     transition: none;
   }
 }
 
-/* The lock toggle's own decorative glyph (issue #94 AC: "the label 'Lock'
-   (or a small padlock glyph beside the switch)") -- static, since the
-   switch's own 0/1 already carries the locked/free state. */
-.lock-glyph {
+/* The lock toggle's open/closed padlock icon (issue #104), shown in the
+   switch's own track via `offContent`/`onContent` instead of a separate
+   static glyph beside it -- see fields.tsx's `LockIcon`. Uses `currentColor`
+   throughout so it inherits `.switch-state`'s own ink/paper cross-fade
+   (dark strokes on the white "free" side, light strokes on the black
+   "locked" side). Closed (locked): shackle upright, straddling the body.
+   Open (free): shackle rotated aside, out from over the body. */
+.lock-icon {
   position: relative;
-  width: 14px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
   flex: none;
-  pointer-events: none;
 }
 
-.lock-glyph-shackle {
+.lock-icon-shackle {
   position: absolute;
-  left: 3px;
+  left: 2px;
   top: 0;
-  width: 8px;
-  height: 6px;
-  border: 1.5px solid var(--ink);
+  width: 7px;
+  height: 5px;
+  border: 1.3px solid currentColor;
   border-bottom: none;
-  border-radius: 5px 5px 0 0;
+  border-radius: 4px 4px 0 0;
+  transform-origin: 1px 5px;
+  transition: transform 0.15s ease;
 }
 
-.lock-glyph-body {
+.lock-icon-open .lock-icon-shackle {
+  transform: rotate(-40deg);
+}
+
+.lock-icon-body {
   position: absolute;
   left: 0;
   bottom: 0;
-  width: 14px;
-  height: 8px;
-  background: var(--paper);
-  border: 1.5px solid var(--ink);
-  border-radius: 2px;
+  width: 11px;
+  height: 6px;
+  border: 1.3px solid currentColor;
+  border-radius: 1.5px;
 }
 
 /* Wire/dimensions/exploded-view toggles (issue #4/#9/#69): the shared
@@ -740,6 +818,30 @@ header p {
   font-weight: 600;
   color: var(--ink);
   pointer-events: none;
+}
+
+/* The perspective/isometric toggle's two side labels (issue #104): flanking
+   the track instead of a single trailing label, so both named modes are
+   always visible -- whichever is currently active is drawn in full ink, the
+   other muted, echoing the same on/off emphasis the eye-toggle text (above)
+   gives its own single label. */
+.two-sided-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.two-sided-toggle-text {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  pointer-events: none;
+  transition: color 0.15s ease;
+}
+
+.two-sided-toggle-text-active {
+  color: var(--ink);
 }
 
 /* ---------- Camera view controls (issue #15) ---------- */
@@ -873,18 +975,19 @@ header p {
   height: 8px;
 }
 
-/* The perspective/orthographic toggle (below the preset buttons): a boxed
-   `EyeToggle` (issue #94 PR review -- a bare switch here had no label, so
-   nothing hinted what it even toggled), the same boxed look as the
-   wire/dimensions/exploded-view toggles (`.wire-toggle` & co. above), minus
+/* The perspective/isometric toggle (below the preset buttons): a
+   `TwoSidedToggle` (issue #104: promoted from a plain `EyeToggle` -- see
+   ViewControls.tsx) over the same opaque, borderless backdrop as the
+   wire/dimensions/exploded-view toggles (`.wire-toggle` & co. above -- see
+   its own comment for why opaque, not translucent; issue #104 also dropped
+   this one's border, "the other overlay controls" in the same AC), minus
    their `position: absolute` -- this one sits in `.view-controls`'s own
    flex column instead of being stacked over the canvas. Checked =
    perspective. */
 .projection-toggle-box {
   background: var(--paper);
-  padding: 6px 10px;
-  border-radius: 2px;
-  border: 1.5px solid var(--ink);
+  padding: 5px 10px;
+  border-radius: 4px;
 }
 
 /* ---------- Advanced disclosure ---------- */
@@ -1112,7 +1215,11 @@ header p {
 
   /* The pill switch (issue #94) grows on mobile, and its already-oversized
      hit target (`.switch-input`'s negative `inset`) grows with it, keeping
-     the tap target comfortably >= 44px per side (46+2*12 / 24+2*12). */
+     the tap target comfortably >= 44px per side (46+2*12 / 24+2*12). The
+     knob stays vertically centred for free (base rule's `top: 50%` +
+     `translateY(-50%)` -- issue #104); only its horizontal travel
+     (`translateX`) needs re-tuning here, and it must repeat the same
+     `translateY(-50%)` since this overrides the whole `transform` value. */
   .switch-track {
     width: 46px;
     height: 24px;
@@ -1121,36 +1228,49 @@ header p {
   .switch-knob {
     width: 20px;
     height: 20px;
-    font-size: 0.68rem;
   }
 
   .switch-input:checked ~ .switch-track .switch-knob {
-    transform: translateX(21px);
+    transform: translateX(21px) translateY(-50%);
   }
 
   .switch-input {
     inset: -12px;
   }
 
-  .lock-glyph {
-    width: 20px;
-    height: 18px;
+  /* The state-indicator zone (issue #104) grows to match the bigger mobile
+     knob's own travel (46px track, 20px knob -> a 22px free zone either
+     side, vs. 18px at desktop -- see App.css's `.switch-state` comment for
+     how that width is derived). */
+  .switch-state {
+    width: 22px;
+    font-size: 0.68rem;
   }
 
-  .lock-glyph-shackle {
-    left: 4px;
-    width: 11px;
+  .lock-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .lock-icon-shackle {
+    left: 3px;
+    width: 10px;
+    height: 7px;
+    border-width: 2px;
+    transform-origin: 1.5px 7px;
+  }
+
+  .lock-icon-body {
+    width: 15px;
     height: 8px;
     border-width: 2px;
   }
 
-  .lock-glyph-body {
-    width: 20px;
-    height: 11px;
-    border-width: 2px;
+  .eye-toggle-text {
+    font-size: 0.85rem;
   }
 
-  .eye-toggle-text {
+  .two-sided-toggle-text {
     font-size: 0.85rem;
   }
 
