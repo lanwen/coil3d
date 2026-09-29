@@ -166,8 +166,9 @@ export function partsBounds(parts: Part[]): THREE.Box3 {
  * A schematic anchor point for a rim feature (a keyhole, the groove's
  * start) that the guide has no exact coordinates for -- `Design.wallSpec`/
  * `flangeSpec` are core internals, documented "not for UI use"
- * (core/types.ts), so this never reads them. Every such feature sits, by
- * construction, at arc-length t=0 (shapes.ts's own convention), which is
+ * (core/types.ts), so this never reads them. Such a feature sits (or, for
+ * the rim keyholes before issue #115, sat -- the guide now reads those from
+ * the public cable path's own ends instead) at arc-length t=0, which is
  * the local +X direction (`sign=1`) or -X (`sign=-1`) -- so the mesh's own
  * vertex furthest along that axis, within a thin Z band at `heightFrac` of
  * the mesh's own height, sits AT or right next to the real feature: close

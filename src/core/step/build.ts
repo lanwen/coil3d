@@ -53,14 +53,14 @@ import {
 import { jointGeometry } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
-import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
+import { defaultCapKeyhole, layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
 import type { InnerEndLayout, XY } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "../mount";
 import type { KeyholeSlot, ThroughHole } from "../mount";
 import { mountPlateLayoutFor as layoutFor } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
-import { circumscribedRadius, offsetOutline, outlineColumnParams, pointAt, polygonVertex } from "../shapes";
+import { circumscribedRadius, offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
 import type { Design } from "../types";
@@ -69,7 +69,14 @@ import { bendMultiplierOf } from "../types";
 /** Recompute mountPlate.ts's layout from `design.flangeSpec`/`design.spec` (mirrors this file's own `layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin)` re-derivation for the keyhole mount): the STEP backend never stores its own copy, so it can't drift from the mesh backend's. */
 function mountPlateLayoutFor(design: Design): MountPlateLayout {
   const { flangeSpec, spec } = design;
-  const innerEnd = layoutInnerEnd(flangeSpec.outline, flangeSpec.margin, spec.wire.diameter, spec.tolerance, bendMultiplierOf(spec.wire) * spec.wire.diameter);
+  const innerEnd = layoutInnerEnd(
+    flangeSpec.outline,
+    flangeSpec.margin,
+    spec.wire.diameter,
+    spec.tolerance,
+    bendMultiplierOf(spec.wire) * spec.wire.diameter,
+    resolveChannelDepth(spec.wire.diameter, flangeSpec.thickness, flangeSpec.mount),
+  );
   return layoutFor(spec.mount as "skadis" | "opengrid", offsetOutline(flangeSpec.outline, flangeSpec.margin), flangeSpec.boreOutline, innerEnd);
 }
 
@@ -495,20 +502,20 @@ function unionAtAngles(build: (angleDeg: number) => R.Shape3D, count: number): R
   return result!;
 }
 
-/** The rim keyhole cutter (mirrors manifold.ts's `buildKeyholeCutter`): a round hole sized to the cable, connected to the cap's true outer edge by a narrower retaining slit, at arc-length t=0. */
-function buildKeyholeSolid(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number): R.Shape3D {
+/** The rim keyhole cutter (mirrors manifold.ts's `buildKeyholeCutter`): a round hole sized to the cable, connected to the cap's nearest outer edge by a narrower retaining slit, where the cable's cap lead-out ends (`Design.capKeyhole`). */
+function buildKeyholeSolid(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, at?: { hole: XY; edge: XY }): R.Shape3D {
   const holeRadius = wireDiameter / 2 + tolerance;
   const slitWidth = wireDiameter * KEYHOLE_SLIT_FRACTION + tolerance;
   const skin = 1;
-  const edge = pointAt(outline, 0, margin);
-  const cx = edge.x - edge.nx * (holeRadius + skin);
-  const cy = edge.y - edge.ny * (holeRadius + skin);
+  const { hole: c, edge } = at ?? defaultCapKeyhole(outline, margin, holeRadius, skin);
+  const cx = c.x;
+  const cy = c.y;
   const h = CAP_THICKNESS + 2;
   const zLo = -1;
 
   const hole = R.makeCylinder(holeRadius, h, [cx, cy, zLo]);
-  const slitLen = Math.hypot(edge.x - cx, edge.y - cy) + skin + 1;
-  const angleDeg = (Math.atan2(edge.ny, edge.nx) * 180) / Math.PI;
+  const slitLen = Math.hypot(edge.x - cx, edge.y - cy) + 1;
+  const angleDeg = (Math.atan2(edge.y - cy, edge.x - cx) * 180) / Math.PI;
   const slit = R.makeBox([0, -slitWidth / 2, zLo], [slitLen, slitWidth / 2, zLo + h])
     .rotate(angleDeg, [0, 0, 0], [0, 0, 1])
     .translate([cx, cy, 0]);
@@ -558,7 +565,7 @@ function buildInnerEndCutterSolid(
   tolerance: number,
   bendRadius: number,
 ): { cutter: R.Shape3D; layout: InnerEndLayout } {
-  const layout: InnerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, tolerance, bendRadius);
+  const layout: InnerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, tolerance, bendRadius, channelDepth);
   const { hole, edge, holeRadius, slitWidth, channelRibbon } = layout;
 
   const throughH = flangeThickness + 2;
@@ -711,7 +718,7 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
     collar = withBarb.cut(slots);
   }
 
-  const keyhole = buildKeyholeSolid(flangeSpec.outline, flangeSpec.margin, spec.wire.diameter, spec.tolerance);
+  const keyhole = buildKeyholeSolid(flangeSpec.outline, flangeSpec.margin, spec.wire.diameter, spec.tolerance, design.capKeyhole);
   let assembled = plate.fuse(collar).cut(keyhole);
 
   // Mirrors design.ts's own call: the SAME `resolveLabel` the mesh backend

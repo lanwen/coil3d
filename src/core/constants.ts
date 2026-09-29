@@ -128,14 +128,31 @@ export const KEYHOLE_SLIT_FRACTION = 0.6;
 // shape as the top cap's KEYHOLE_SLIT_FRACTION keyhole, but cut all the way
 // through the flange's full thickness -- there's no separate "outer face"
 // the way the top cap's room-facing face is, see src/core/innerEnd.ts) plus
-// a recessed radial channel on the flange's inner (winding-side, z=0) face
+// a recessed channel (a straight tangential chord since issue #115) on the flange's inner (winding-side, z=0) face
 // leading from that keyhole to the wall's own groove start.
 /** Channel depth = this factor * wire diameter -- deep enough that the wound cable's first turn lies flush with the surrounding flange face (unlike the wall's own groove, which only needs GROOVE_DEPTH_FACTOR: later turns there nest into the groove's OWN profile, but here later turns pass straight over a flat annulus, so no bump can be tolerated). */
 export const INNER_CHANNEL_DEPTH_FACTOR = 1.0;
 /** Flange material required BELOW the channel's own recess (cut from the inner/z=0 face), stacked on top of whatever the screw-keyhole mount's own pocket (cut from the outer/wall face) also needs -- mirrors SCREW_MOUNT_MIN_SHELF's role for that pocket. */
 export const INNER_CHANNEL_MIN_SHELF = 1.5; // mm
-/** Straight-line segments approximating the channel's tangent-fillet arc into the groove -- plenty smooth at FDM/screenshot scale (mirrors LABEL_CURVE_SEGMENTS' role for glyph curves). */
-export const INNER_CHANNEL_ARC_SEGMENTS = 8;
+/** Flange material left between the channel's side and the wall's own outer surface, mm -- so the cable lies in a full-width trench instead of one the wall half-covers. */
+export const INNER_CHANNEL_WALL_SKIN = 0.4; // mm
+
+// Issue #115: the whole drawn cable -- inner-end lead-in, layers, layer
+// transitions, outer end -- stays within the cable's minimum bend radius
+// (MBR = bend multiplier * diameter). The lead-in is laid out analytically
+// against a slightly tighter budget; the transitions and the cap lead-out
+// are searched (lengthened until they pass) against the check factor, a
+// hair above 1 because a wound layer on a core sized exactly at the bend
+// limit already bends at 1/MBR, and any blend leaving it adds a little.
+/** Curvature budget for the inner-end lead-in, as a fraction of 1/MBR. */
+export const CABLE_BEND_BUDGET = 0.97;
+/** Largest curvature (times MBR) a layer transition or cap lead-out may reach, measured on its own samples. */
+export const CABLE_BEND_CHECK = 1.03;
+/** Sample spacing along the lead-in, transitions and outer end, mm. */
+export const CABLE_BRIDGE_STEP = 0.5; // mm
+/** Cap off: the free straight tail the cable leaves the last turn along, as a multiple of the wire diameter (at least CABLE_TAIL_MIN). */
+export const CABLE_TAIL_FACTOR = 6;
+export const CABLE_TAIL_MIN = 20; // mm
 
 // Print bed (issue #10, docs/research.md §1 "Print"/"bed size"). A generic
 // 256x256x256 mm build volume (e.g. Bambu X1C/P1S, Prusa MK4) is a sensible

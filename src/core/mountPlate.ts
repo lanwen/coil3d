@@ -105,16 +105,21 @@ const ANCHOR_KEEP_OUT = 3;
 /** Distance from `p` to the nearest edge of a closed polygon. */
 function distanceToPolygon(p: { x: number; y: number }, points: Array<{ x: number; y: number }>): number {
   let best = Infinity;
+  let inside = false;
   for (let i = 0; i < points.length; i++) {
     const a = points[i];
     const b = points[(i + 1) % points.length];
+    // Issue #115: a point INSIDE the polygon is at distance 0, not at its
+    // distance to the nearest edge (the inner-end channel is now a long,
+    // wide strip that a pin can land in the middle of).
+    if (a.y > p.y !== b.y > p.y && p.x < a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const len2 = dx * dx + dy * dy;
     const t = len2 > 1e-12 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
     best = Math.min(best, Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)));
   }
-  return best;
+  return inside ? 0 : best;
 }
 
 /** Every boundary point of `outline` (offset 0), projected into (up, side) via `basisFor(axisDeg)` -- the shared sample set `rowExtent`/`halfWidthAtUp` both scan. */

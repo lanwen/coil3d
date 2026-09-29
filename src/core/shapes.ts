@@ -429,3 +429,52 @@ export function polygonVertex(o: ShapeOutline, i: number): [number, number] {
   const theta = (2 * Math.PI * i) / o.n;
   return [Rv * Math.cos(theta), Rv * Math.sin(theta)];
 }
+
+/**
+ * How far the point (x, y) sits outside `o`'s own offset-0 outline (negative
+ * inside), plus the outward normal at the nearest outline point -- the
+ * inverse of `pointAt`'s offset term. Every outline here is the set of
+ * points within `cornerRadius + offset` of the corner-centre polygon (radius
+ * `Rc`, corner `i` at angle `2*pi*i/n`, see `evalOutline`), so this is just
+ * the distance to that convex polygon minus `cornerRadius`. Round's polygon
+ * collapses to the origin. Used by innerEnd.ts/wire.ts to place the rim
+ * keyholes on a cable's own tangent line (issue #115).
+ */
+export function outlineOffsetAt(o: ShapeOutline, x: number, y: number): { offset: number; nx: number; ny: number } {
+  const n = o.n;
+  const Rc = (o.apothem - o.cornerRadius) / Math.cos(Math.PI / n);
+  let bestD = Infinity;
+  let qx = 0;
+  let qy = 0;
+  let inside = true;
+  for (let i = 0; i < n; i++) {
+    const a0 = (2 * Math.PI * i) / n;
+    const a1 = (2 * Math.PI * (i + 1)) / n;
+    const ax = Rc * Math.cos(a0);
+    const ay = Rc * Math.sin(a0);
+    const ex = Rc * Math.cos(a1) - ax;
+    const ey = Rc * Math.sin(a1) - ay;
+    const len2 = ex * ex + ey * ey;
+    if (ex * (y - ay) - ey * (x - ax) < 0) inside = false;
+    const f = len2 > 1e-18 ? Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / len2)) : 0;
+    const px = ax + f * ex;
+    const py = ay + f * ey;
+    const dist = Math.hypot(x - px, y - py);
+    if (dist < bestD) {
+      bestD = dist;
+      qx = px;
+      qy = py;
+    }
+  }
+  if (Rc < 1e-9) inside = false;
+  const dx = x - qx;
+  const dy = y - qy;
+  const len = Math.hypot(dx, dy);
+  if (inside || len < 1e-12) {
+    // Inside the corner-centre polygon (deep inside the core): not a case
+    // the keyholes ever hit; report the plain radial direction.
+    const r = Math.hypot(x, y) || 1;
+    return { offset: -bestD - o.cornerRadius, nx: x / r, ny: y / r };
+  }
+  return { offset: len - o.cornerRadius, nx: dx / len, ny: dy / len };
+}

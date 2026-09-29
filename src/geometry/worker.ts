@@ -48,6 +48,8 @@ scope.onmessage = (ev) => {
         // #68) are typed arrays too.
         ...d.layerTransitions.map((t) => t.buffer),
         d.outerEndLeadOut.buffer,
+        // The whole cable as one polyline (issue #115).
+        d.cablePath.buffer,
       ]),
     (err: unknown) => scope.postMessage({ id, ok: false, error: err instanceof Error ? err.message : String(err) }),
   );

@@ -65,7 +65,7 @@ import { jointGeometry } from "./joints";
 import { getLabelFont, labelLoops } from "./label";
 import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
-import { layoutInnerEnd } from "./innerEnd";
+import { defaultCapKeyhole, layoutInnerEnd } from "./innerEnd";
 import type { InnerEndLayout, XY } from "./innerEnd";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import type { KeyholeSlot, ThroughHole } from "./mount";
@@ -120,7 +120,7 @@ export interface CoreJointCut {
 /**
  * What `fuseFlange` needs to cut the bottom-flange inner-end fixing (issue
  * #8): the rim keyhole for the inner cable end, through the flange's full
- * thickness, plus a recessed radial channel from that keyhole to the wall's
+ * thickness, plus a recessed channel (straight along the cable's tangent chord, issue #115) from that keyhole toward the wall's
  * own groove start on the flange's inner (z=0) face. Always present (unlike
  * the mount, this isn't user-optional -- every core has a bottom flange and
  * every bottom flange gets this feature), so design.ts always passes one.
@@ -128,7 +128,7 @@ export interface CoreJointCut {
 export interface InnerEndCut {
   wireDiameter: number;
   tolerance: number;
-  /** The wire's own minimum bend radius (bendMultiplier * wireDiameter, see types.ts's `bendMultiplierOf`); the channel's fillet uses as much of this as the flange margin allows, see innerEnd.ts. */
+  /** The wire's own minimum bend radius (bendMultiplier * wireDiameter, see types.ts's `bendMultiplierOf`); innerEnd.ts sizes the lead-in's chord and drop from it. */
   bendRadius: number;
   /** Depth of the channel recess below the flange's inner (z=0) face, mm. */
   channelDepth: number;
@@ -442,7 +442,7 @@ function buildInnerEndCutter(
   cut: InnerEndCut,
 ): { cutter: Manifold; layout: InnerEndLayout } {
   const { Manifold } = wasm;
-  const layout = layoutInnerEnd(outline, margin, cut.wireDiameter, cut.tolerance, cut.bendRadius);
+  const layout = layoutInnerEnd(outline, margin, cut.wireDiameter, cut.tolerance, cut.bendRadius, cut.channelDepth);
   const { hole, edge, holeRadius, slitWidth, channelRibbon } = layout;
 
   const throughH = cut.flangeThickness + 2;
@@ -593,6 +593,8 @@ export interface TopCapSpec {
   wireDiameter: number;
   /** Engraved label text (issue #12), already fit-checked by `label.ts`'s `resolveLabel` -- undefined means no label to cut. */
   label?: ResolvedLabel;
+  /** The rim keyhole's hole centre and slit end (issue #115: where the cable's cap lead-out ends, `Design.capKeyhole`). Omitted: the t=0 point, as before. */
+  keyhole?: { hole: XY; edge: XY };
 }
 
 /**
@@ -613,7 +615,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, tolerance, wireDiameter, label } = spec;
+    const { flange, joint, tolerance, wireDiameter, label, keyhole } = spec;
     const plateMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, 0, CAP_THICKNESS, flange.columns, flange.minCornerSegments);
     const plate = track(new Manifold(new Mesh({ numProp: 3, vertProperties: plateMesh.positions, triVerts: plateMesh.indices })));
     if (plate.status() !== "NoError") {
@@ -651,7 +653,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       collar = track(withBarb.subtract(slots));
     }
 
-    const keyholeCutter = track(buildKeyholeCutter(wasm, flange.outline, flange.margin, wireDiameter, tolerance));
+    const keyholeCutter = track(buildKeyholeCutter(wasm, flange.outline, flange.margin, wireDiameter, tolerance, keyhole));
     let assembled = track(track(plate.add(collar)).subtract(keyholeCutter));
 
     if (label) {
@@ -696,24 +698,24 @@ async function buildLabelCutter(wasm: ManifoldToplevel, label: ResolvedLabel): P
 /**
  * A through-cut keyhole in the cap's rim for the outer cable end (ticket:
  * "sized from the cable diameter plus tolerance"): a round hole sized to
- * the cable, set just inside the cap's true outer edge at arc-length t=0
- * (the same reference point every other outline sample uses), connected to
- * that edge by a narrower retaining slit.
+ * the cable, set just inside the cap's true outer edge where the cable's cap
+ * lead-out ends (`at`, issue #115; arc-length t=0 when omitted), connected
+ * to the nearest point of that edge by a narrower retaining slit.
  */
-function buildKeyholeCutter(wasm: ManifoldToplevel, outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number): Manifold {
+function buildKeyholeCutter(wasm: ManifoldToplevel, outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, at?: { hole: XY; edge: XY }): Manifold {
   const { Manifold } = wasm;
   const holeRadius = wireDiameter / 2 + tolerance;
   const slitWidth = wireDiameter * KEYHOLE_SLIT_FRACTION + tolerance;
   const skin = 1; // mm of rim material left outside the hole
-  const edge = pointAt(outline, 0, margin); // true outer surface point + outward normal at t=0
-  const cx = edge.x - edge.nx * (holeRadius + skin);
-  const cy = edge.y - edge.ny * (holeRadius + skin);
+  const { hole: c, edge } = at ?? defaultCapKeyhole(outline, margin, holeRadius, skin);
+  const cx = c.x;
+  const cy = c.y;
   const h = CAP_THICKNESS + 2;
   const zLo = -1;
 
   const hole = Manifold.cylinder(h, holeRadius, holeRadius, 32, false).translate([cx, cy, zLo]);
-  const slitLen = Math.hypot(edge.x - cx, edge.y - cy) + skin + 1;
-  const angleDeg = (Math.atan2(edge.ny, edge.nx) * 180) / Math.PI;
+  const slitLen = Math.hypot(edge.x - cx, edge.y - cy) + 1;
+  const angleDeg = (Math.atan2(edge.y - cy, edge.x - cx) * 180) / Math.PI;
   const slit = Manifold.cube([slitLen, slitWidth, h], true)
     .translate([slitLen / 2, 0, 0])
     .rotate([0, 0, angleDeg])

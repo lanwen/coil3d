@@ -68,6 +68,19 @@ export interface WallProfile {
   phaseFraction(t: number): number;
 }
 
+/**
+ * The height layer 1's helix starts at (`WallProfile.zStart`): the bottom
+ * margin plus how far the groove circle reaches below its own centre line.
+ * Split out so innerEnd.ts can aim the inner-end lead-in at the same point
+ * without a whole `WallSpec` (issue #115).
+ */
+export function grooveStartHeight(wireDiameter: number, clearance: number, grooveDepth: number, marginBottom: number): number {
+  const rho = wireDiameter / 2 + clearance / 2;
+  const c = rho - grooveDepth;
+  const halfDown = c >= rho ? 0 : Math.sqrt(Math.max(0, rho * rho - c * c));
+  return marginBottom + halfDown;
+}
+
 export function createWallProfile(spec: WallSpec): WallProfile {
   const { outline, wireDiameter: d, clearance, grooveDepth: g, marginBottom, taperTurns: tau, turns } = spec;
 
@@ -84,8 +97,7 @@ export function createWallProfile(spec: WallSpec): WallProfile {
     if (dz > dz45) return f45 + (dz - dz45);
     return Math.abs(dz) >= rho ? 1e9 : c - Math.sqrt(rho * rho - dz * dz);
   };
-  const halfDown = c >= rho ? 0 : Math.sqrt(Math.max(0, rho * rho - c * c));
-  const zStart = marginBottom + halfDown;
+  const zStart = grooveStartHeight(d, clearance, g, marginBottom);
   const taper = (phi: number) => smoothstep(phi / tau) * smoothstep((turns - phi) / tau);
 
   // Issue #103: the helix's own phase, re-derived from the GROOVE FLOOR's

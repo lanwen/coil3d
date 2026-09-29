@@ -145,6 +145,16 @@ function hintTubes(path: WireLayerPath, hintRadius: number): THREE.BufferGeometr
   return tubes;
 }
 
+/** True when some layer has too many turns for a full tube (see TURNS_FOR_ENVELOPE). */
+export function needsEnvelope(wirePaths: WireLayerPath[]): boolean {
+  return wirePaths.some((p) => p.turns > TURNS_FOR_ENVELOPE);
+}
+
+/** The whole cable (`Design.cablePath`, issue #115) as one continuous tube. */
+export function buildCableTube(cablePath: Float32Array, wireRadius: number): THREE.BufferGeometry {
+  return fullTube({ layer: 0, turns: 1, points: cablePath }, wireRadius);
+}
+
 /**
  * Build one merged BufferGeometry per layer. Below TURNS_FOR_ENVELOPE turns
  * this is the full wound tube; above it, an envelope shell plus a few hint
