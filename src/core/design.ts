@@ -355,11 +355,14 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     const partHeight = box.maxZ - box.minZ;
     if (footprintX > spec.print.bedX || footprintY > spec.print.bedY) {
       warnings.push(
-        `Part "${part.name}" footprint (${footprintX.toFixed(1)} x ${footprintY.toFixed(1)} mm) doesn't fit the ${spec.print.bedX} x ${spec.print.bedY} mm bed.`,
+        // Issue #105 AC #3: `bedX/Y/Z` come straight from the user's own
+        // number input (no `step`-style rounding on typed values, unlike
+        // the slider), so an unrounded request must still print rounded here.
+        `Part "${part.name}" footprint (${footprintX.toFixed(1)} x ${footprintY.toFixed(1)} mm) doesn't fit the ${spec.print.bedX.toFixed(1)} x ${spec.print.bedY.toFixed(1)} mm bed.`,
       );
     }
     if (partHeight > spec.print.bedZ) {
-      warnings.push(`Part "${part.name}" height (${partHeight.toFixed(1)} mm) is taller than the ${spec.print.bedZ} mm bed.`);
+      warnings.push(`Part "${part.name}" height (${partHeight.toFixed(1)} mm) is taller than the ${spec.print.bedZ.toFixed(1)} mm bed.`);
     }
   }
 

@@ -50,8 +50,14 @@ async function zoomOnCapFace(page: Page) {
 }
 
 test.describe("top cap label controls (issue #12)", () => {
-  test("the label field reflects the hash on load, and reloading after typing reproduces it", async ({ page }) => {
+  test("the label switch is off by default; switching it on reveals the text field, and reloading after typing reproduces both", async ({ page }) => {
     await gotoDesign(page, ROOMY_ROUND);
+    // Issue #105 AC #5: off by default, and the text field stays hidden
+    // until switched on.
+    await expect(page.getByTestId("label-enabled")).not.toBeChecked();
+    await expect(page.getByTestId("input-label")).toHaveCount(0);
+
+    await page.getByTestId("label-enabled").check();
     await expect(page.getByTestId("input-label")).toHaveValue("");
 
     const input = page.getByTestId("input-label");
@@ -61,7 +67,20 @@ test.describe("top cap label controls (issue #12)", () => {
 
     await page.reload();
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
+    // A non-empty label in the hash auto-enables the switch and reveals the field.
+    await expect(page.getByTestId("label-enabled")).toBeChecked();
     await expect(page.getByTestId("input-label")).toHaveValue("USB-C 2m");
+  });
+
+  test("switching the label off clears the text and hides the field from the hash", async ({ page }) => {
+    await gotoDesign(page, `${ROOMY_ROUND}&label=USB-C%202m`);
+    await expect(page.getByTestId("label-enabled")).toBeChecked();
+    await expect(page.getByTestId("input-label")).toHaveValue("USB-C 2m");
+    expect(decodeHashDoc(page.url()).label).toBe("USB-C 2m");
+
+    await page.getByTestId("label-enabled").uncheck();
+    await expect(page.getByTestId("input-label")).toHaveCount(0);
+    await expect(async () => expect(decodeHashDoc(page.url()).label).toBeUndefined()).toPass();
   });
 
   test("a label that fits shows no fit warning", async ({ page }) => {

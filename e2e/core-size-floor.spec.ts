@@ -22,16 +22,19 @@ test("a locked size below the shape's minimum keeps showing the user's own reque
   // The editable input never gets silently rewritten out from under the user.
   await expect(page.getByTestId("input-outer")).toHaveValue("20");
 
-  // The effective (raised) size is shown plainly, in mm, and it's bigger
-  // than what was requested.
+  // The effective (raised) minimum is shown plainly, in mm, as the ONE
+  // number that matters (issue #105 AC #2: the old "Built at X mm, not Y
+  // mm" wording repeated a rounded number, sometimes identically twice,
+  // which read as a bug rather than an explanation) -- and it's bigger than
+  // what was requested (20mm).
   const note = page.getByTestId("core-size-raised-note");
   await expect(note).toBeVisible();
-  await expect(note).toContainText("Built at");
-  await expect(note).toContainText("not 20");
+  await expect(note).toContainText("Minimum for this");
+  await expect(note).toContainText("raised to it");
 
   const noteText = await note.textContent();
-  const builtMatch = noteText?.match(/Built at ([\d.]+) mm/);
-  expect(builtMatch, `expected a "Built at <n> mm" prefix, got: ${noteText}`).not.toBeNull();
+  const builtMatch = noteText?.match(/Minimum for this .*?: ([\d.]+) mm/);
+  expect(builtMatch, `expected a "Minimum for this ...: <n> mm" prefix, got: ${noteText}`).not.toBeNull();
   expect(Number(builtMatch![1])).toBeGreaterThan(20);
 
   // The Result panel's own "Outer size" row agrees with the note (both read

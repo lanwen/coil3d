@@ -89,6 +89,12 @@ export function Section({ title, children }: { title: string; children: ReactNod
  * A custom range slider synced with a number input and a unit suffix (issue
  * #16 AC). The number input keeps the field's stable `input-${testId}`
  * testid; the slider is a purely visual companion.
+ *
+ * Issue #105 AC #1: a `disabled` field (a locked/free dimension currently
+ * left free, so the solver -- not the user -- sets it) hides the slider
+ * entirely rather than showing an inert one; the number input alone (itself
+ * `:disabled`, so it reads as plainly non-interactive) is "only the value,
+ * read-only". A locked field keeps the slider, exactly as before.
  */
 export function RangeField({
   testId,
@@ -105,6 +111,10 @@ export function RangeField({
   leading,
   /** Plain-English explanation shown by an (i) button next to the label (issue #53). */
   hint,
+  /** A short plain-English note about this field's own floor (issue #105 AC
+   * #4: the corner radius's bend-limit minimum) shown right under the
+   * slider -- omitted when there's nothing special to say about `min`. */
+  minNote,
   onChange,
 }: {
   testId: string;
@@ -117,6 +127,7 @@ export function RangeField({
   disabled?: boolean;
   leading?: ReactNode;
   hint?: string;
+  minNote?: string;
   onChange: (value: number) => void;
 }) {
   const numberId = useId();
@@ -149,17 +160,23 @@ export function RangeField({
           {unit && <span className="field-unit">{unit}</span>}
         </span>
       </div>
-      <input
-        type="range"
-        className="field-slider"
-        aria-label={label}
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        disabled={disabled}
-        onChange={handleRange}
-      />
+      {!disabled && (
+        <input
+          type="range"
+          className="field-slider"
+          aria-label={label}
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={handleRange}
+        />
+      )}
+      {minNote && (
+        <p className="field-note" data-testid={`${testId}-min-note`}>
+          {minNote}
+        </p>
+      )}
     </div>
   );
 }

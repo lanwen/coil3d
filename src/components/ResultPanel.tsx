@@ -91,7 +91,7 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
       <Row
         testId={`${prefix}capacity-vs-target`}
         label="Capacity vs. target"
-        value={`${mmToCm(solution.totalWireLength).toFixed(1)} cm (${solution.lengthDeltaPct >= 0 ? "+" : ""}${solution.lengthDeltaPct.toFixed(1)}%)`}
+        value={`${mmToCm(solution.totalWireLength).toFixed(1)} cm (${solution.lengthDeltaPct >= 0 ? "+" : ""}${solution.lengthDeltaPct.toFixed(0)}%)`}
       />
       <Row
         testId={`${prefix}capacity-range`}
