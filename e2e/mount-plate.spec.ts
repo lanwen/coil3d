@@ -13,6 +13,7 @@ import { decodeHashDoc } from "./hashDoc";
 // KEYHOLE_HASH convention for the same reason.
 const SKADIS_ROUND = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis";
 const SKADIS_SQUARE = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&shape=sq&sq.rc=15&mount=skadis";
+const SKADIS_TRIANGLE = "#v=1&L=2000&d=3.8&lock=outer,ly&size=120&h=60&shape=tri&tri.rc=15&mount=skadis";
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -40,21 +41,31 @@ test.describe("mount plate controls (issue #14)", () => {
     await expect(page.getByTestId("select-mount")).toHaveValue("none");
   });
 
-  test("switching to skadis reveals the plate-joint field, updates the hash, and reproduces on reload", async ({ page }) => {
+  test("switching to skadis adds the plate, jumps to the mount-side view once, and reproduces on reload (issue #106)", async ({ page }) => {
     await gotoDesign(page, "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60");
+    await expect(page.getByTestId("preset-mountSide")).toHaveCount(0); // no plate, no mount-side view
     await page.getByTestId("select-mount").selectOption("skadis");
     await expect(async () => expect(decodeHashDoc(page.url()).mount).toBe("skadis")).toPass();
-    await expect(page.getByTestId("select-plateJoint")).toBeVisible();
-    await expect(page.getByTestId("select-plateJoint")).toHaveValue("glue");
     await expect(page.getByTestId("mount")).toContainText(/SK.DIS/i);
     await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
+    // The plate sits behind the flange, where Iso never looks: selecting it shows it.
+    await expect(page.getByTestId("preset-mountSide")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("wall-view-caption")).toHaveText(/SK.DIS slot/i);
+    // The plate joint is always pins + glue now (snap tabs couldn't print without supports).
+    await expect(page.getByTestId("select-plateJoint")).toHaveCount(0);
 
-    await page.getByTestId("select-plateJoint").selectOption("snap");
-    await expect(async () => expect(decodeHashDoc(page.url()).pj).toBe("snap")).toPass();
-
+    // A link that already has the plate opens in the usual Iso view, with the mount-side view one click away.
     await page.reload();
     await expect(page.getByTestId("select-mount")).toHaveValue("skadis");
-    await expect(page.getByTestId("select-plateJoint")).toHaveValue("snap");
+    await expect(page.getByTestId("preset-iso")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("preset-mountSide")).toBeVisible();
+  });
+
+  test("an old snap-tab link still opens, builds the pin + glue plate and says so", async ({ page }) => {
+    await gotoDesign(page, `#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis&pj=snap`);
+    await expect(page.getByTestId("hash-notice")).toHaveCount(0);
+    await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
+    await expect(page.getByTestId("warnings")).toContainText(/snap tabs can't print without supports/i);
   });
 
   test("a small core warns and keeps a single part (no mount plate fits)", async ({ page }) => {
@@ -104,14 +115,11 @@ test.describe("mount plate render, exports and manifold end-to-end (issue #14)",
 });
 
 test.describe("mount plate screenshots (issue #14)", () => {
-  // Issue #49 trimmed the interactive viewer's view controls down to just
-  // Front, Iso and one "Wall mount" preset (the hung, room-side view) --
-  // the mount-side ("what the wall sees") camera view this suite used to
-  // reach via `toggle-wall-view` clicked twice no longer exists in the
-  // interactive viewer at all (it stays available in the assembly guide,
-  // which never used this viewer's preset bar). The mount-side-specific
-  // screenshot/caption assertions below were dropped along with it -- see
-  // the PR description's "Known issues" for the resulting coverage gap.
+  // Issue #49 trimmed the interactive viewer's view controls down to Front,
+  // Iso and one "Wall mount" preset (the hung, room-side view); issue #106
+  // brings back a "Mount side" preset ("what the wall sees", with the
+  // SKÅDIS slot grid drawn in), offered only while a SKÅDIS plate exists.
+  // The room-side wall view draws the board's slots around the coil too.
   for (const { label, hash } of [
     { label: "round", hash: SKADIS_ROUND },
     { label: "square", hash: SKADIS_SQUARE },
@@ -126,6 +134,19 @@ test.describe("mount plate screenshots (issue #14)", () => {
       const wallRoom = await canvas.screenshot();
       expect(wallRoom.equals(standing), "the wall-mount preset must change the render").toBe(false);
       await expect(canvas).toHaveScreenshot(`mount-plate-wallroom-${label}.png`);
+    });
+  }
+
+  for (const { label, hash } of [
+    { label: "round", hash: SKADIS_ROUND },
+    { label: "square", hash: SKADIS_SQUARE },
+    { label: "triangle", hash: SKADIS_TRIANGLE },
+  ]) {
+    test(`${label} core: the mount-side view shows every clip in a drawn SKÅDIS slot (issue #106)`, async ({ page }) => {
+      await gotoDesign(page, hash);
+      await page.getByTestId("preset-mountSide").click();
+      await expect(page.getByTestId("wall-view-caption")).toHaveText(/SK.DIS slot/i);
+      await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot(`mount-plate-mountside-${label}.png`);
     });
   }
 

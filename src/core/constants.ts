@@ -320,7 +320,7 @@ export const THROUGH_MOUNT_ENVELOPE_MARGIN = 2; // mm
 export const THROUGH_MOUNT_ROUND_HOLE_COUNTS = [4, 3] as const;
 
 // Clip mount plate (issue #14, docs/research.md §10b "SKÅDIS clip" +
-// PR research): a SEPARATE part that glues or snaps onto the bottom
+// PR research): a SEPARATE part that glues (on filament pins) onto the bottom
 // flange's outer (wall-facing) face -- see mountPlate.ts. Its own footprint
 // is a uniform inward offset of the flange's outline (offsetOutline, always
 // strictly inside it -- AC "the plate must fit inside the flange outline").
@@ -328,7 +328,7 @@ export const MOUNT_PLATE_THICKNESS = 3; // mm, the flat panel itself
 /** How far inside the flange's own outer edge the plate's footprint sits. */
 export const MOUNT_PLATE_EDGE_MARGIN = 3; // mm
 
-/** SKÅDIS pegboard hole grid pitch, both directions (docs/research.md §10b, from skapa: "on a 40x40mm grid"). */
+/** SKÅDIS: the spacing between clip positions on ONE of the board's two interleaved 40 mm grids (see "SKÅDIS board facts" below). */
 export const SKADIS_PITCH = 40; // mm
 /**
  * openGrid's own grid pitch -- verified against openGrid's own docs
@@ -347,82 +347,68 @@ export const MOUNT_PLATE_MAX_PER_SIDE = 4;
 /** At least this many clip columns must fit for the plate to be worth printing (issue #14 AC: "warn if the flange is too small for at least 2 clips"). */
 export const MOUNT_PLATE_MIN_CLIPS = 2;
 
-// SKÅDIS board and clip geometry (issue #14 PR review round 2). IKEA doesn't
-// publish these as a spec; the numbers below are community-measured but
-// corroborated across multiple independent sources:
-// - Slot: a single VERTICAL obround (stadium) slot per hole position, about
-//   5mm wide x 15mm tall, with roughly 2.5mm rounded ends -- Pegboardly
-//   ("SKÅDIS Sizes & Dimensions", pegboardly.com/skadis/skadis-sizes-and-dimensions)
-//   and Thingiverse thing:4939659 ("IKEA Skadis-like Hole Dimension").
-// - Grid: 40mm pitch, and the grid is STAGGERED -- every other column is
-//   offset 20mm vertically from its neighbours (two interleaved 40mm grids,
-//   half a step apart), per the same sources plus multiple SKÅDIS-accessory
-//   generator listings on MakerWorld/Printables. SKADIS_ROW_STAGGER below.
-// Still flagged in docs/research.md §11 "Values still to verify": these are
-// community measurements, not an official spec, and this project has not
-// printed and test-fitted a clip on a real board.
-export const SKADIS_SLOT_WIDTH = 5; // mm
-export const SKADIS_SLOT_HEIGHT = 15; // mm
-export const SKADIS_SLOT_END_RADIUS = 2.5; // mm
+// SKÅDIS board facts (issue #106, docs/research.md §10d, with sources).
+// IKEA publishes no spec; these are community measurements, cross-checked
+// across several independent generators/libraries:
+// - Slot: one VERTICAL stadium slot per position, nominally 5 x 15 mm
+//   (Pegboardly "SKÅDIS Sizes & Dimensions"); measured as tight as
+//   4.8 x 14.8 mm (jbazant/esp8266-binary-clock skadis.scad).
+// - Lattice: two 40 x 40 mm grids offset by (20, 20) mm -- i.e. columns
+//   every 20 mm, each column's slots every 40 mm, neighbouring columns
+//   shifted 20 mm vertically (same .scad: X spacing 20, Y spacing 40;
+//   Sinclair Studios: "two diagonally overlaid grids"). Slot centres are
+//   (20a, 20b) mm with a + b even. Two positions 40 mm apart in the same row
+//   or column are on the SAME grid (not staggered against each other).
+// - Board thickness: about 5 mm; 5.1 mm in florianfesti/boxes'
+//   SkadisSettings and the .scad above, some boards 4.0-4.8 mm, black
+//   boards up to 5.2 mm (Printables/MakerWorld hook listings).
+export const SKADIS_SLOT_WIDTH = 5; // mm, nominal
+export const SKADIS_SLOT_LENGTH = 15; // mm, nominal, end to end (full-radius ends)
+/** The tightest measured slot (see above): the clip's clearance is designed against this, so it also fits a nominal 5 x 15 slot. */
+export const SKADIS_SLOT_WIDTH_MIN = 4.8; // mm
+export const SKADIS_SLOT_LENGTH_MIN = 14.8; // mm
+/** Lattice step between neighbouring columns (and the vertical shift between them). */
+export const SKADIS_LATTICE_STEP = 20; // mm
+export const SKADIS_BOARD_THICKNESS = 5; // mm, nominal
+/** The thickest board the clip's barb still hooks behind (black boards). */
+export const SKADIS_BOARD_THICKNESS_MAX = 5.2; // mm
 
 /**
- * SKÅDIS clip hook (docs/research.md §10b, and the profile itself confirmed
- * against skapa's own source -- github.com/nmattia/skapa,
- * `src/model/manifold.ts`, read for its measurements/placement math only,
- * NOT copied; skapa has no licence, and its own review note already says
- * "reimplement the technique, don't copy files"). A 2D polygon in mm, in a
- * LOCAL (side, reach) plane: `side` is ONE leg's sideways offset from the
- * pair's own centreline (mirrored to `-side` for the second leg, forming one
- * symmetric, spring-loaded pair per grid position -- research.md's "extruded
- * 12mm and mirrored" refers to this pairing, not a mirror along the slot's
- * own length); `reach` is protrusion distance from the plate's back
- * (clip-bearing) face, outward into the slot. The pair's combined rest span
- * (2 x the profile's own max `side`, about 6.1mm) is slightly WIDER than
- * `SKADIS_SLOT_WIDTH`: both legs flex inward to pass through the slot
- * opening, then spring back out once through, so the barb (the bulge
- * between reach 3.7-5.9) catches behind the board and resists being pulled
- * back out -- a spring/expanding clip, not a gravity-engaged hook (unlike
- * the screw-keyhole mount, docs/research.md "Mounting"). Extruded along the
- * THIRD axis -- WALL_UP itself -- by SKADIS_CLIP_HEIGHT, per skapa's own
- * placement math (`CLIP_HEIGHT` runs along the board's vertical axis there
- * too): a PREVIOUS version of this file had `side` and WALL_UP swapped
- * (issue #14 PR review round 2 caught this from the mount-side screenshot:
- * each clip rendered as a wide horizontal bar instead of a tall vertical
- * one), which this comment and `skadisClipHalfExtents` are both now correct
- * against.
+ * SKÅDIS clip (issue #106 redesign of the issue #14 clip): ONE LEG of a
+ * mirrored, spring-loaded pair, as a closed 2D polygon in mm in the
+ * (side, reach) plane -- `side` is the leg's sideways offset from the pair's
+ * centreline (the second leg is the mirror image, `-side`), `reach` is the
+ * distance out from the plate's back face, through the board. Extruded
+ * along WALL_UP by SKADIS_CLIP_HEIGHT. The same technique as skapa's clip
+ * (github.com/nmattia/skapa, facts only -- no licence, not copied), but
+ * with its own dimensions, checked against a real-size board section in
+ * test/mountPlate.test.ts:
+ * - Legs 2 x 4.4 mm wide at rest (0.2 mm clearance per side in the
+ *   tightest 4.8 mm slot), 1.4 mm thick, 1.6 mm gap between them to flex in.
+ * - The barb's retaining face starts at reach 5.4, so it sits BEHIND the
+ *   board for anything up to SKADIS_BOARD_THICKNESS_MAX (+0.2 mm): the
+ *   barb (5.8 mm across, 0.5 mm wider than the slot per side) springs out
+ *   behind the board and resists pulling the plate off. (skapa's barb
+ *   starts at 4.3, so on a 5 mm board it only ever presses on the slot
+ *   edge.)
+ * - Every face is vertical or a 45-degree slope, with the plate printed
+ *   back-face up (clips pointing up, design.ts's printTransform), so it
+ *   prints without supports.
+ * The first and last points sit at reach 0 (the plate's back face); the
+ * builders push them MOUNT_PLATE_EMBED into the panel, so the barb stays
+ * measured from the face itself.
  */
 export const SKADIS_CLIP_PROFILE: ReadonlyArray<readonly [number, number]> = [
-  [0.95, 0],
-  [2.45, 0],
-  [2.45, 3.7],
-  [3.05, 4.3],
-  [3.05, 5.9],
-  [2.45, 6.5],
-  [0.95, 6.5],
+  [0.8, 0],
+  [2.2, 0],
+  [2.2, 5.4],
+  [2.9, 6.1],
+  [2.9, 7.1],
+  [2.2, 7.8],
+  [0.8, 7.8],
 ];
-/**
- * The same profile with its far (tip) corner -- the short flat "ceiling"
- * between [2.45,6.5] and [0.95,6.5] -- chamfered away into one continuous 45
- * degree taper. Used for every row except the LOWEST one (issue #14 AC:
- * "chamfer the lower rows at 45"; skapa's own code chamfers every row except
- * its first/lowest, `j=0` in its own vertical grid indexing -- see the file
- * header). The lowest row's own tip stays fully exposed with nothing else of
- * the plate below it once printed, so it alone can keep the small flat
- * bridge; every row above it has this flat step chamfered away so nothing
- * depends on a short unsupported bridge printing cleanly.
- */
-export const SKADIS_CLIP_PROFILE_CHAMFERED: ReadonlyArray<readonly [number, number]> = [
-  [0.95, 0],
-  [2.45, 0],
-  [2.45, 3.7],
-  [3.05, 4.3],
-  [3.05, 5.9],
-  [0.95, 6.5],
-];
-/** The extrusion length along WALL_UP (research.md: "extruded 12mm") -- see SKADIS_CLIP_PROFILE's own doc comment for why this runs along `up`, not `side`. */
-export const SKADIS_CLIP_HEIGHT = 12; // mm
-/** Vertical offset between adjacent columns on the real, staggered SKÅDIS grid (see this file's own "SKÅDIS board and clip geometry" note above). */
-export const SKADIS_ROW_STAGGER = 20; // mm
+/** The clip's length along WALL_UP: short enough that the 4.4 mm-wide legs clear the rounded ends of the tightest 14.8 mm slot, with about 0.9 mm left to drop into the seated position. */
+export const SKADIS_CLIP_HEIGHT = 11; // mm
 
 /**
  * openGrid connector placeholder (issue #14): a simple push-fit peg sized
@@ -435,21 +421,17 @@ export const SKADIS_ROW_STAGGER = 20; // mm
 export const OPENGRID_PLACEHOLDER_PEG_SIZE = 14; // mm square, comfortably inside a 28mm cell
 export const OPENGRID_PLACEHOLDER_PEG_REACH = 5; // mm, protrusion from the plate's back face
 
-/** Alignment pegs (glue joint, issue #14 AC: "small alignment pegs into shallow holes in the flange"). */
-export const MOUNT_PLATE_PEG_RADIUS = 2; // mm
-export const MOUNT_PLATE_PEG_HEIGHT = 2; // mm, protrusion from the plate's front (flange-facing) face
-export const MOUNT_PLATE_PEG_HOLE_CLEARANCE = 0.15; // mm, added to the peg radius for the flange's blind hole
-export const MOUNT_PLATE_PEG_HOLE_DEPTH = 2.4; // mm, slightly deeper than the peg so it always bottoms out on the flat, not the peg tip
-
-/** Simple printable snap tabs (snap joint, issue #14 AC: "simple printable snap tabs"): a cantilever finger with a barb, mirroring joints.ts's SNAP_* numbers but for a flat mating face rather than a radial collar. */
-export const MOUNT_PLATE_SNAP_TAB_WIDTH = 6; // mm, tangential width of the finger
-export const MOUNT_PLATE_SNAP_TAB_THICKNESS = 1.6; // mm, finger thickness before the barb
-export const MOUNT_PLATE_SNAP_TAB_REACH = 3; // mm, how far the finger protrudes from the plate's front face
-export const MOUNT_PLATE_SNAP_BARB = 0.6; // mm, how far the barb protrudes past the finger's own face on each side
-export const MOUNT_PLATE_SNAP_GAP = 0.25; // mm, flex clearance so the finger always enters freely
-export const MOUNT_PLATE_SNAP_POCKET_DEPTH = 3.4; // mm, depth of the flange's blind pocket -- deeper than MOUNT_PLATE_SNAP_TAB_REACH so the finger seats on the barb, never bottoms out on its own tip; still comfortably less than MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT, so it never breaks through
-/** Axial band, right at the pocket's mouth, narrow enough to clear only the finger's own shaft (not its wider barb) -- the retaining "ridge" the barb springs behind once inserted. */
-export const MOUNT_PLATE_SNAP_RIDGE_BAND = 1; // mm
+/**
+ * Plate-to-flange joint (issue #106): the plate prints back-face up and the
+ * core prints flange-down, so neither mating face can carry a protrusion
+ * without supports. Both get matching blind holes instead, aligned with two
+ * short pieces of 1.75 mm filament used as dowel pins, then glued.
+ */
+export const MOUNT_PLATE_PIN_DIAMETER = 1.75; // mm, standard filament
+export const MOUNT_PLATE_PIN_HOLE_CLEARANCE = 0.1; // mm, added to the pin radius (plus half the fit tolerance)
+export const MOUNT_PLATE_PIN_HOLE_DEPTH = 2.4; // mm, in the flange and in the 3 mm plate alike
+/** Pin length to cut: both holes' depth less a little, so the faces close. */
+export const MOUNT_PLATE_PIN_LENGTH = 4.5; // mm
 
 /**
  * How far every clip/peg/tab/cutter genuinely EMBEDS past the flat face it
@@ -471,6 +453,5 @@ export const MOUNT_PLATE_EMBED = 0.5; // mm
 
 /** Minimum flange material left ABOVE an anchor cut (mirrors SCREW_MOUNT_MIN_SHELF): the load-bearing "roof" between the cut and the wound-cable side. */
 export const MOUNT_PLATE_ANCHOR_MIN_SHELF = 1.5; // mm
-/** design.ts bumps FLANGE_THICKNESS up to (at least) these, and warns, whenever mount is "skadis"/"opengrid" -- mirrors MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT. */
-export const MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE = MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_ANCHOR_MIN_SHELF;
-export const MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE = MOUNT_PLATE_SNAP_POCKET_DEPTH + MOUNT_PLATE_ANCHOR_MIN_SHELF;
+/** design.ts bumps FLANGE_THICKNESS up to (at least) this, and warns, whenever mount is "skadis"/"opengrid" -- mirrors MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT. */
+export const MIN_FLANGE_THICKNESS_FOR_PLATE = MOUNT_PLATE_PIN_HOLE_DEPTH + MOUNT_PLATE_ANCHOR_MIN_SHELF;

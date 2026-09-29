@@ -23,9 +23,8 @@ import {
   INNER_CHANNEL_MIN_SHELF,
   MIN_BORE_CORNER_RADIUS,
   MIN_BORE_RADIUS,
-  MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE,
+  MIN_FLANGE_THICKNESS_FOR_PLATE,
   MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
-  MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE,
   MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT,
   SCREW_MOUNT_RECESS_DEPTH,
   THROUGH_MOUNT_COUNTERBORE_DEPTH,
@@ -35,7 +34,7 @@ import { idealChannelDepth } from "./innerEnd";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
 import type { ShapeOutline } from "./shapes";
-import type { FlangeExtent, MountKind, PlateJoint } from "./types";
+import type { FlangeExtent, MountKind } from "./types";
 
 /**
  * The bore outline for a given wall outline: a TRUE inward offset by the
@@ -81,7 +80,6 @@ export function resolveFlangeSizing(
   flangeSizeEnvelope: number,
   wireDiameter: number,
   mount: MountKind,
-  plateJoint: PlateJoint,
   /** Issue #71: ignored unless `mount === "keyhole"`. */
   keyholeRotation = 0,
   /** Issue #70: ignored unless `mount === "through"`. */
@@ -109,7 +107,7 @@ export function resolveFlangeSizing(
       ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, flangeSizeEnvelope / 2))
       : baseMargin;
 
-  const minPlateThickness = mountKindForPlate ? (plateJoint === "snap" ? MIN_FLANGE_THICKNESS_FOR_SNAP_PLATE : MIN_FLANGE_THICKNESS_FOR_GLUE_PLATE) : 0;
+  const minPlateThickness = mountKindForPlate ? MIN_FLANGE_THICKNESS_FOR_PLATE : 0;
   const idealDepth = idealChannelDepth(wireDiameter);
   const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealDepth + INNER_CHANNEL_MIN_SHELF);
   const thickness = wantsKeyhole
