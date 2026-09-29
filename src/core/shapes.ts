@@ -158,12 +158,44 @@ export function circumscribedRadius(o: ShapeOutline, offset: number): number {
  * exact angle(s) it actually places a slot at, instead of assuming the
  * worst case (a sharp corner) everywhere regardless of where the slot
  * really sits (issue #13 PR review).
+ *
+ * Issue #92: an earlier version drew the arc-vs-flat-side cutoff at
+ * `asin(cornerRadius/Rc)` -- the half-angle (from the centre) of the cone
+ * inside which a ray merely INTERSECTS the corner arc's own full circle.
+ * That is not the same angle as the arc's actual tangent point with the
+ * flat side (where the arc's own sweep, `psi` in `evalOutline`, ends), and
+ * the two only coincide as `cornerRadius -> 0`: the asin cutoff grows
+ * unboundedly wider than the true tangent-point angle as `cornerRadius`
+ * grows relative to `Rc` (it even saturates at a fixed 90 degrees once
+ * `cornerRadius >= Rc`, via the `Math.min(1, ...)` clamp, regardless of `n`),
+ * so once an offset made `cornerRadius` large enough it swallowed angles that
+ * are genuinely on the flat side into the corner-arc branch, returning that
+ * arc's own (smaller, wrong) ray/circle intersection instead of the flat
+ * side's true, larger boundary distance -- reproduced exactly by wire.ts's
+ * `outlineHuggingBridge` doc comment (a rounded square, apothem=31.45,
+ * cornerRadius=14.44, offset=4.2, misclassifying the flat side's own
+ * 45-degree midpoint: ~24.6mm returned vs. ~35.7mm true).
+ *
+ * The fix: the tangent point is exactly `evalOutline`'s own arc endpoint,
+ * `psi = th +- half` (this corner's centre direction `th`, swept by the full
+ * corner half-angle `half = pi/n`) at radius `o.cornerRadius` from that arc's
+ * own centre (Rc, 0) in the corner-local frame -- i.e. the fixed point `(Rc +
+ * cornerRadius*cos(half), cornerRadius*sin(half))`. Its OWN angle as seen
+ * from the shape's centre, `atan2(cornerRadius*sin(half), Rc +
+ * cornerRadius*cos(half))`, is the true cutoff: it's always < `half` (so it
+ * never swallows the whole side even as `cornerRadius -> Infinity` -- a
+ * ratio of `sin`/`(Rc/cornerRadius + cos)` that itself tends to `tan(half)`
+ * in that limit, i.e. the cutoff angle tends to `half` itself, matching the
+ * fully-rounded limit where the flat side's own length -- offset-invariant,
+ * see `sideLength` -- shrinks to an ever-thinner sliver of the angular range
+ * but never truly zero for a finite `cornerRadius`), and it needs no
+ * `Math.min` clamp the old cutoff did.
  */
 export function radiusAtAngle(o: ShapeOutline, phi: number): number {
   if (o.cornerRadius === o.apothem) return o.apothem; // round: no bulge anywhere
   const half = Math.PI / o.n;
   const Rc = (o.apothem - o.cornerRadius) / Math.cos(half);
-  const cornerHalfAngle = Math.asin(Math.min(1, o.cornerRadius / Rc));
+  const cornerHalfAngle = Math.atan2(o.cornerRadius * Math.sin(half), Rc + o.cornerRadius * Math.cos(half));
   const step = (2 * Math.PI) / o.n;
   const nearestI = Math.round(phi / step);
   const delta = phi - nearestI * step;
