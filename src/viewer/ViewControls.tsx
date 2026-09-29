@@ -1,4 +1,4 @@
-import { EyeToggle } from "../components/fields";
+import { TwoSidedToggle } from "../components/fields";
 import { HINTS } from "../components/hints";
 import { VIEW_PRESETS, type PresetId } from "./lineArt/presets";
 import type { Projection } from "./lineArt/LineArtRenderer";
@@ -20,13 +20,15 @@ export interface ViewControlsProps {
  * toggle (internally still the `ortho`/`perspective` `Projection` type --
  * this app only ever frames the orthographic camera from the Iso preset's
  * angle, which is what makes calling it "isometric" in the UI accurate),
- * the latter a boxed, labelled {@link EyeToggle} (issue #94: every boolean
- * toggle in the app, this one included, is now that one shared pill switch
- * -- checked = perspective, unchecked = isometric -- rather than its own
- * converging/parallel-lines pictogram; issue #94 PR review: unlike the bare
- * switch the other two overlay toggles never had, this one needs its own
- * visible label and hint, since nothing else here hints at what a bare
- * switch would even mean). Purely a view concern:
+ * the latter a boxed {@link TwoSidedToggle} (issue #94: every boolean toggle
+ * in the app, this one included, is built on the one shared pill switch --
+ * checked = perspective, unchecked = isometric -- rather than its own
+ * converging/parallel-lines pictogram; issue #104: promoted from a plain
+ * {@link EyeToggle} labelled just "Perspective" to a two-sided toggle
+ * labelled "Isometric"/"Perspective" on either side of the track, since this
+ * switches between two named modes rather than showing/hiding something,
+ * and reviewers found the single trailing label didn't say what the OFF
+ * state even was). Purely a view concern:
  * LineArtRenderer owns the actual camera math this drives (see its
  * `preset`/`projection` props); CoilViewer owns the wall-mount geometry
  * rotation the "Wall mount" preset also triggers (see its `handlePresetChange`).
@@ -50,9 +52,11 @@ export function ViewControls({ preset, onPresetChange, projection, onProjectionC
         ))}
       </div>
       <div className="projection-toggle-box">
-        <EyeToggle
+        <TwoSidedToggle
           testId="projection"
-          label="Perspective"
+          leftLabel="Isometric"
+          rightLabel="Perspective"
+          ariaLabel="Isometric / Perspective"
           checked={projection === "perspective"}
           hint={HINTS.projection}
           title={projection === "ortho" ? "Switch to perspective" : "Switch to isometric"}

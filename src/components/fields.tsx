@@ -293,22 +293,31 @@ export function StepperField({
 }
 
 /**
- * The one shared boolean toggle for the whole app (issue #94): a real
- * checkbox (so Playwright's check()/uncheck()/toBeChecked() keep working
- * unchanged, and keyboard Space/Enter work for free) wearing `role="switch"`
- * plus an explicit `aria-checked` -- overriding the implicit checkbox role,
- * since this reads to assistive tech as an on/off switch, not a checkbox in
- * a list. Painted as a black/white pill: an outlined track plus a round
- * knob that slides between the two ends and carries the state's own digit
- * ("0"/"1") printed on itself in whichever ink is legible against its own
- * fill -- so the digit is never printed on the track, where it would be
- * covered by the very knob sliding over it (issue #94: "the knob slides...
- * showing '0' on the off side and '1' on the on side"). Off = white track,
- * black outline, black knob at the left carrying a white "0"; on = black
- * track, white knob at the right carrying a black "1". Replaces the old
- * per-purpose eye/padlock/projection pictograms (issue #16/#15): every
- * boolean toggle in the app now shares this one component, with only its
- * accessible name and any trailing label/glyph differing per call site.
+ * The one shared boolean toggle for the whole app (issue #94, revised by
+ * #104): a real checkbox (so Playwright's check()/uncheck()/toBeChecked()
+ * keep working unchanged, and keyboard Space/Enter work for free) wearing
+ * `role="switch"` plus an explicit `aria-checked` -- overriding the
+ * implicit checkbox role, since this reads to assistive tech as an on/off
+ * switch, not a checkbox in a list. Painted as a black/white pill: an
+ * outlined track plus a plain round knob that slides between the two ends,
+ * vertically centred in the track at every size (`top: 50%` + `translateY(
+ * -50%)`, not a hardcoded pixel inset -- issue #104: an earlier fixed
+ * `top: 1px` left it 1px off-centre, since the border-box track's content
+ * height doesn't divide evenly by the knob's). The state indicator now
+ * lives in the track's own FREE space instead of on the knob (issue #104
+ * review of #94: it used to ride the knob itself, which meant restyling it
+ * as a plain circle would have lost the indicator entirely, and reviewers
+ * found the digit-on-the-knob layout harder to read at a glance than
+ * digit-in-the-empty-track): off = white track, black outline, knob at the
+ * left, "0" in the free right side; on = black track, white knob at the
+ * right, "I" in the free left side. `showState` turns the indicator off
+ * entirely (the perspective toggle, whose own two side labels already say
+ * what each state means); `offContent`/`onContent` swap the default "0"/"I"
+ * digits for something else (the lock toggle's open/closed padlock icon).
+ * Replaces the old per-purpose eye/padlock/projection pictograms (issue
+ * #16/#15): every boolean toggle in the app shares this one component, with
+ * only its accessible name, its state content and any trailing label
+ * differing per call site.
  *
  * The input's hit target is deliberately oversized past the visible pill
  * (`.switch-input`'s negative `inset` in App.css) -- comfortably >= 44px on
@@ -323,6 +332,9 @@ export function Switch({
   checked,
   title,
   onChange,
+  showState = true,
+  offContent = "0",
+  onContent = "I",
   children,
 }: {
   testId: string;
@@ -330,9 +342,18 @@ export function Switch({
   checked: boolean;
   title?: string;
   onChange: (checked: boolean) => void;
-  /** Optional trailing content (a text label, a decorative glyph) rendered
-   * inside the same `<label>` as the input, so clicking it toggles the
-   * switch too -- exactly like the pill itself. */
+  /** False hides the track's state indicator entirely (issue #104: the
+   * two-sided perspective toggle, whose own side labels already say what
+   * each state means, so a redundant "0"/"I" inside would be noise). */
+  showState?: boolean;
+  /** Content shown in the track's free space when off/on (issue #104),
+   * defaulting to the "0"/"I" state digits. Ignored when `showState` is
+   * false. */
+  offContent?: ReactNode;
+  onContent?: ReactNode;
+  /** Optional trailing content (a text label) rendered inside the same
+   * `<label>` as the input, so clicking it toggles the switch too --
+   * exactly like the pill itself. */
   children?: ReactNode;
 }) {
   return (
@@ -348,23 +369,43 @@ export function Switch({
         onChange={(e) => onChange(e.target.checked)}
       />
       <span className="switch-track" aria-hidden="true">
-        <span className="switch-knob">{checked ? "1" : "0"}</span>
+        {showState && (
+          <>
+            <span className="switch-state switch-state-off">{offContent}</span>
+            <span className="switch-state switch-state-on">{onContent}</span>
+          </>
+        )}
+        <span className="switch-knob" />
       </span>
       {children}
     </label>
   );
 }
 
+/** The lock toggle's open/closed padlock icon (issue #104), rendered inside
+ * the switch's own track (via `offContent`/`onContent`) rather than beside
+ * it as a separate static glyph -- issue #94's own padlock-beside-the-switch
+ * glyph never reflected locked/free itself (redundant with the switch's own
+ * digit), which is exactly what #104 asked to fix: replace it with an icon
+ * that DOES carry the state, standing in for "0"/"I" the same way the lock
+ * toggle already stood in for a plain boolean. Closed = locked (shackle
+ * down, over the body); open = free (shackle swung aside). */
+function LockIcon({ locked }: { locked: boolean }) {
+  return (
+    <span className={`lock-icon${locked ? "" : " lock-icon-open"}`} aria-hidden="true">
+      <span className="lock-icon-shackle" />
+      <span className="lock-icon-body" />
+    </span>
+  );
+}
+
 /**
- * The lock toggle: {@link Switch} plus a small static padlock glyph beside
- * it (issue #94 AC: "the label 'Lock' (or a small padlock glyph beside the
- * switch)") -- the glyph is purely decorative context (the switch's own 0/1
- * already carries the actual state), so it never reflects locked/free
- * itself. Rendered as a `leading` element inline on the field's own label
- * row (issue #16 review: a lock on a row of its own, above the field, left
- * it ambiguous which field it controlled), with an explicit "Lock {label}"
- * accessible name since the visible row carries the switch and glyph only,
- * no text.
+ * The lock toggle: {@link Switch} with its state indicator replaced by
+ * {@link LockIcon} (issue #104) instead of the default "0"/"I" digits.
+ * Rendered as a `leading` element inline on the field's own label row
+ * (issue #16 review: a lock on a row of its own, above the field, left it
+ * ambiguous which field it controlled), with an explicit "Lock {label}"
+ * accessible name since the visible row carries only the switch, no text.
  */
 function LockToggle({ testId, label, checked, onChange }: { testId: string; label: string; checked: boolean; onChange: (checked: boolean) => void }) {
   return (
@@ -374,12 +415,9 @@ function LockToggle({ testId, label, checked, onChange }: { testId: string; labe
       checked={checked}
       title={checked ? `Locked -- click to let ${label} be solved` : `Free -- click to lock ${label}`}
       onChange={onChange}
-    >
-      <span className="lock-glyph" aria-hidden="true">
-        <span className="lock-glyph-shackle" />
-        <span className="lock-glyph-body" />
-      </span>
-    </Switch>
+      offContent={<LockIcon locked={false} />}
+      onContent={<LockIcon locked={true} />}
+    />
   );
 }
 
@@ -485,11 +523,13 @@ export function LockStepperField({
 }
 
 /**
- * A view-only toggle over the viewer (e.g. "show wound cable"/"Dimensions"/
- * "Exploded view", and the camera's perspective/orthographic mode):
- * {@link Switch} plus its own trailing text label -- replaces the old eye/
- * crossed-out-eye pictogram (issue #16 review; issue #94 folded it, and
- * every other overlay pictogram, into the one shared switch).
+ * A view-only toggle over the viewer ("show wound cable"/"Dimensions"/
+ * "Exploded view"): {@link Switch} plus its own trailing text label --
+ * replaces the old eye/crossed-out-eye pictogram (issue #16 review; issue
+ * #94 folded it, and every other overlay pictogram, into the one shared
+ * switch). No surrounding border box (issue #104: these sit directly over
+ * the 3D canvas, so App.css gives their wrapping element only a subtle
+ * translucent backdrop for legibility, not a hard-edged box).
  */
 export function EyeToggle({
   testId,
@@ -503,10 +543,7 @@ export function EyeToggle({
   label: string;
   checked: boolean;
   hint?: string;
-  /** Overrides the default "Show X"/"Hide X" tooltip -- for a call site
-   * that isn't a plain visibility toggle (issue #94 review: the
-   * perspective/orthographic toggle is a MODE switch, not a show/hide one,
-   * so "Hide perspective" would read wrong). */
+  /** Overrides the default "Show X"/"Hide X" tooltip. */
   title?: string;
   onChange: (checked: boolean) => void;
 }) {
@@ -521,6 +558,47 @@ export function EyeToggle({
       >
         <span className="eye-toggle-text">{label}</span>
       </Switch>
+      {hint && <Hint text={hint} />}
+    </span>
+  );
+}
+
+/**
+ * A two-sided mode switch: {@link Switch} with a plain-language label on
+ * BOTH sides of the track instead of a state digit inside it (issue #104:
+ * the perspective/isometric toggle used to be a bare {@link EyeToggle}
+ * carrying just "Perspective" as its trailing label plus an internal "0"/
+ * "I" -- clear enough for a show/hide toggle, but this one switches between
+ * two named modes, and reviewers found "Perspective 0/I" didn't say what
+ * the OFF state actually was. Flanking the track with both names --
+ * `leftLabel` for off, `rightLabel` for on, whichever is currently active
+ * shown in ink and the other muted -- says both sides at a glance, so the
+ * track itself needs no internal indicator (`showState={false}`).
+ */
+export function TwoSidedToggle({
+  testId,
+  leftLabel,
+  rightLabel,
+  ariaLabel,
+  checked,
+  hint,
+  title,
+  onChange,
+}: {
+  testId: string;
+  leftLabel: string;
+  rightLabel: string;
+  ariaLabel: string;
+  checked: boolean;
+  hint?: string;
+  title?: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <span className="two-sided-toggle-row">
+      <span className={`two-sided-toggle-text${checked ? "" : " two-sided-toggle-text-active"}`}>{leftLabel}</span>
+      <Switch testId={`toggle-${testId}`} ariaLabel={ariaLabel} checked={checked} title={title} onChange={onChange} showState={false} />
+      <span className={`two-sided-toggle-text${checked ? " two-sided-toggle-text-active" : ""}`}>{rightLabel}</span>
       {hint && <Hint text={hint} />}
     </span>
   );
