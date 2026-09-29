@@ -9,7 +9,7 @@
 // outer wall, the bore, and the flat annuli at z=0 and z=height are all
 // connected. Fusing the bottom flange (see manifold.ts) only extends it.
 
-import { evalOutline, outlineColumnParams, paramAt, pointAt } from "./shapes";
+import { arcLengthFractionAt, evalOutline, outlineColumnParams, paramAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
@@ -55,6 +55,17 @@ export interface WallProfile {
   /** Cartesian point on the outer (grooved) wall surface for the same
    * (t, z). Flat (offset 0) at z=0 and z=height by construction. */
   point(t: number, z: number): [number, number, number];
+  /** The helix's own phase at arc-length fraction t: the true arc-length
+   * fraction of the GROOVE FLOOR's own outline (offset -grooveDepth), not
+   * the winding surface's (issue #103, see `shapes.ts`'s
+   * `arcLengthFractionAt`) -- what `z = zStart + pitch*phase(t)` and the
+   * nearby-turn search in `offset` above should advance by, so the helix
+   * pitch reads constant along the surface the wire actually sits in
+   * instead of bunching at every corner. `buildWall` reuses this same
+   * function for its own per-column row phase (`z0`), so the mesh's row
+   * shear and the profile it samples can never disagree about where a
+   * groove ring actually falls. */
+  phaseFraction(t: number): number;
 }
 
 export function createWallProfile(spec: WallSpec): WallProfile {
@@ -77,14 +88,23 @@ export function createWallProfile(spec: WallSpec): WallProfile {
   const zStart = marginBottom + halfDown;
   const taper = (phi: number) => smoothstep(phi / tau) * smoothstep((turns - phi) / tau);
 
+  // Issue #103: the helix's own phase, re-derived from the GROOVE FLOOR's
+  // own arc length (offset -g) instead of `t` itself (an arc-length fraction
+  // of the un-grooved winding surface, offset 0) -- see
+  // `shapes.ts`'s `arcLengthFractionAt` for why the two differ on a corner
+  // arc and not on a flat side, and why that's what was bunching consecutive
+  // groove rings together at every corner.
+  const phaseFraction = (t: number): number => arcLengthFractionAt(outline, -g, t);
+
   // Surface offset (<=0, inward) at arc-length fraction t and height z: the
   // minimum over the (at most 2) nearby helix turns, tapered out at the ends.
   const offset = (t: number, z: number): number => {
-    const q = (z - zStart) / pitch - t;
+    const phase = phaseFraction(t);
+    const q = (z - zStart) / pitch - phase;
     const k0 = Math.floor(q);
     let f = 0;
     for (let k = k0; k <= k0 + 1; k++) {
-      const phi = k + t;
+      const phi = k + phase;
       if (phi <= 0 || phi >= turns) continue;
       const dz = z - zStart - pitch * phi;
       const v = profile(dz) + (1 - taper(phi)) * (g + clearance);
@@ -99,7 +119,7 @@ export function createWallProfile(spec: WallSpec): WallProfile {
     return [p.x, p.y, z];
   };
 
-  return { pitch, zStart, offset, point };
+  return { pitch, zStart, offset, point, phaseFraction };
 }
 
 export function buildWall(spec: WallSpec): CoilMesh {
@@ -125,13 +145,15 @@ export function buildWall(spec: WallSpec): CoilMesh {
   const bottomO: number[] = [];
   const topO: number[] = [];
 
-  // Sheared (helical) rows: each column's rows sit at z = zStart + pitch*t +
-  // j*delta, so every column samples the groove profile at the same phase.
-  // This is what makes the profile exact with no aliasing, and what lets the
-  // t=0/t=1 seam close for free (S1 RESULT.md). Non-uniform column spacing
-  // (issue #85) doesn't disturb this: each column still samples its own
-  // exact arc-length fraction `t`, just not evenly spaced from its
-  // neighbours.
+  // Sheared (helical) rows: each column's rows sit at z = zStart +
+  // pitch*phaseFraction(t) + j*delta, so every column samples the groove
+  // profile at the same phase `profile.offset` itself uses (issue #103: the
+  // groove floor's own phase, not `t` directly -- see
+  // `shapes.ts`'s `arcLengthFractionAt`). This is what makes the profile
+  // exact with no aliasing, and what lets the t=0/t=1 seam close for free
+  // (S1 RESULT.md). Non-uniform column spacing (issue #85) doesn't disturb
+  // this: each column still samples its own exact arc-length fraction `t`,
+  // just not evenly spaced from its neighbours.
   for (let ci = 0; ci < C; ci++) {
     const t = ts[ci];
     const idx: number[] = [];
@@ -143,7 +165,7 @@ export function buildWall(spec: WallSpec): CoilMesh {
     };
     push(0);
     bottomO.push(idx[0]);
-    const z0 = zStart + pitch * t;
+    const z0 = zStart + pitch * profile.phaseFraction(t);
     const jMin = Math.ceil((zLo - z0) / delta);
     const jMax = Math.floor((zHi - z0) / delta);
     for (let j = jMin; j <= jMax; j++) {
