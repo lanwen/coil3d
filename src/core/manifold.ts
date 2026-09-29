@@ -37,7 +37,6 @@ import {
   JOINT_ENGAGE_DEPTH,
   JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
-  KEYHOLE_SLIT_FRACTION,
   LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
   MOUNT_PLATE_PIN_DIAMETER,
@@ -60,13 +59,14 @@ import {
   SNAP_RIDGE_THICKNESS,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
+  INNER_CHANNEL_WALL_GUARD,
 } from "./constants";
 import { jointGeometry } from "./joints";
 import { getLabelFont, labelLoops } from "./label";
 import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
-import { defaultCapKeyhole, layoutInnerEnd } from "./innerEnd";
-import type { InnerEndLayout, XY } from "./innerEnd";
+import { layoutInnerEnd, sweepMesh } from "./innerEnd";
+import type { CapClipLayout, InnerEndLayout, SweepSolid } from "./innerEnd";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
@@ -118,12 +118,13 @@ export interface CoreJointCut {
 }
 
 /**
- * What `fuseFlange` needs to cut the bottom-flange inner-end fixing (issue
- * #8): the rim keyhole for the inner cable end, through the flange's full
- * thickness, plus a recessed channel (straight along the cable's tangent chord, issue #115) from that keyhole toward the wall's
- * own groove start on the flange's inner (z=0) face. Always present (unlike
- * the mount, this isn't user-optional -- every core has a bottom flange and
- * every bottom flange gets this feature), so design.ts always passes one.
+ * What `fuseFlange` needs to cut the bottom-flange inner-end fixing (issues
+ * #8, #115, #117): the recessed channel swept along the cable (a round bore
+ * following its drop, along its tangent chord) from the wall's own groove
+ * start on the flange's inner (z=0) face, with the cable clip near the rim
+ * and the cable leaving through the rim. Always present (unlike the mount,
+ * this isn't user-optional -- every core has a bottom flange and every
+ * bottom flange gets this feature), so design.ts always passes one.
  */
 export interface InnerEndCut {
   wireDiameter: number;
@@ -132,7 +133,7 @@ export interface InnerEndCut {
   bendRadius: number;
   /** Depth of the channel recess below the flange's inner (z=0) face, mm. */
   channelDepth: number;
-  /** The flange's own thickness, mm -- the channel/keyhole cutters use this to stay within it (the keyhole cuts all the way through; the channel only partway). */
+  /** The flange's own thickness, mm. */
   flangeThickness: number;
 }
 
@@ -310,9 +311,8 @@ function slotLevelSolid(wasm: ManifoldToplevel, slot: KeyholeSlot, headRadius: n
  *
  * Only the MOUTH (the slot level's own outer face, at `zBase`) pokes
  * WELD_OVERLAP past the flange's true outer face, instead of starting
- * exactly flush with it: this recess is a BLIND pocket (unlike the
- * inner-end keyhole's through-cut, which already pokes past both faces --
- * see buildInnerEndCutter), so its mouth would otherwise sit exactly
+ * exactly flush with it: this recess is a BLIND pocket (unlike a
+ * through-cut, which pokes past both faces), so its mouth would otherwise sit exactly
  * coincident with the ring's own bottom annulus face. That razor-thin,
  * exactly-coincident seam is the same hazard `pinHoleCutter`'s own
  * MOUNT_PLATE_EMBED fixes ("an un-embedded cutter... left the flange's
@@ -348,9 +348,8 @@ function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, zBase: numb
 /**
  * The manifold-3d cut for one through-hole mount hole (issue #70, mount.ts's
  * `layoutThroughHoleMount`): a plain cylinder (the screw-shank clearance)
- * spanning the flange's FULL thickness -- poking 1mm past BOTH faces, the
- * same through-cut convention `buildInnerEndCutter` already uses for the
- * inner-end keyhole -- unioned with a wider, shallower cylinder (the
+ * spanning the flange's FULL thickness -- poking 1mm past BOTH faces --
+ * unioned with a wider, shallower cylinder (the
  * counterbore, screw-head clearance) blind from the flange's outer face
  * inward by `counterboreDepth`, poking WELD_OVERLAP past that face at its
  * own mouth (mirrors `screwMountCutter`'s identical mouth reasoning). The
@@ -371,50 +370,35 @@ export interface MountPlateFlangeCut {
   tolerance: number;
 }
 
-/**
- * The channel trench cutter: `innerEnd.ts`'s `channelRibbon` (a single flat
- * 2D polygon tracing the whole trench outline, already channel-width wide
- * and in the flange's local XY, computed ANALYTICALLY -- see its own doc
- * comment for why), extruded ONCE. An earlier version built this from a
- * chain of overlapping cylinders+boxes unioned one at a time (the standard
- * "stroke a polyline" technique) -- replicad's equivalent chain of `fuse()`
- * calls was found to occasionally produce an invalid BRep after ~20
- * sequential fuses, so both backends now extrude one shared polygon
- * instead, which is simpler here too. Returns `undefined` for a degenerate
- * (near-zero-area) ribbon -- the "impossible" bend-radius fallback
- * (innerEnd.ts's D<=0 case) can collapse to almost nothing, with no
- * meaningful trench to cut; the keyhole is still cut regardless.
- */
-function channelCutter(wasm: ManifoldToplevel, ribbon: XY[], zLo: number, zHi: number): Manifold | undefined {
-  if (ribbon.length < 3) return undefined;
-  const loop: [number, number][] = ribbon.map((p) => [p.x, p.y]);
-  return new wasm.CrossSection([loop], "NonZero").extrude(zHi - zLo).translate([0, 0, zLo]);
+/** A manifold of one of innerEnd.ts's swept solids (the channel/clip cutters and the cap clip's block), meshed by the same shared `sweepMesh` the rings come with. */
+function sweepSolid(wasm: ManifoldToplevel, sweep: SweepSolid): Manifold {
+  const mesh = sweepMesh(sweep);
+  const m = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: mesh.positions, triVerts: mesh.indices }));
+  if (m.status() !== "NoError") throw new Error(`Cable clip sweep is not a valid manifold: ${m.status()}`);
+  return m;
 }
 
 /**
  * A solid matching the wall's own outline (round/sq/tri) at offset 0,
  * spanning [zLo, zHi] -- protects the wall's own footprint (and, being a
  * strict subset of it, the bore inside) from the channel cutter: the
- * channel's WIDTH (channelWidth scales with wire diameter, and can exceed
- * WALL_THICKNESS for a heavy cord) extends radially on BOTH sides of its
- * centreline, including at the "groove" end where the centreline itself
- * sits exactly on the wall's own outer surface by design -- without this
- * clip, a wide-enough channel reaches past the wall into the bore's own
- * void, wiring the exterior (already reachable through the keyhole) to that
- * void a SECOND, independent way and adding a genus the part shouldn't
+ * channel's bore (its width scales with wire diameter, and can exceed
+ * WALL_THICKNESS for a heavy cord) extends radially on BOTH sides of the
+ * cable, and near the groove start the cable itself is still in the
+ * groove -- without this clip, a wide-enough bore reaches past the wall
+ * into the bore's own void, wiring the exterior to that void a SECOND,
+ * independent way and adding a genus the part shouldn't
  * have (reproduced directly: an 8mm cable on a 60mm round core gave the
  * core's bore a spurious genus of 2, not 1, before this clip).
  *
- * Sampled at `outline` offset by WELD_OVERLAP (not 0): the channel's own
- * closing edge at the groove end sits EXACTLY on the wall's true outline by
- * construction (innerEnd.ts), so clipping against that same outline
- * unmodified is another razor-thin, exactly-coincident seam -- mirrors this
+ * Sampled at `outline` offset by INNER_CHANNEL_WALL_GUARD (not 0): clipping against the
+ * wall's true outline unmodified would risk a razor-thin, exactly-coincident seam -- mirrors this
  * file's own `collarBase` reasoning, and step/build.ts's matching offset on
  * its own STEP-side blocker (needed there to avoid an outright invalid
  * BRep, not just a stray sliver).
  */
 function outlineBlocker(wasm: ManifoldToplevel, outline: ShapeOutline, zLo: number, zHi: number, segments = 96): Manifold {
-  const grown = offsetOutline(outline, WELD_OVERLAP);
+  const grown = offsetOutline(outline, INNER_CHANNEL_WALL_GUARD);
   const loop: [number, number][] = [];
   for (let i = 0; i < segments; i++) {
     const p = pointAt(grown, i / segments, 0);
@@ -424,15 +408,11 @@ function outlineBlocker(wasm: ManifoldToplevel, outline: ShapeOutline, zLo: numb
 }
 
 /**
- * The bottom flange's own inner-end fixing (issue #8): a rim keyhole (same
- * hole+narrower-retaining-slit shape as `buildKeyholeCutter`'s top-cap
- * keyhole, but cut all the way THROUGH the flange's full thickness -- there
- * is no separate outer face to stop at here) unioned with the recessed
- * channel trench (a shallow `strokePath` cut from the flange's inner, z=0
- * face, CLIPPED to stay outside the wall's own outline -- see
- * `outlineBlocker`) leading to the wall's own groove start. Both share ONE
- * `layoutInnerEnd` call, so the hole/slit and the channel's own starting
- * point can never disagree about where the keyhole actually is.
+ * The bottom flange's own inner-end fixing (issues #8, #117): the channel +
+ * clip swept along the cable (`layoutInnerEnd`'s `channel`), cut from the
+ * flange's inner (z=0) face and out through its rim, CLIPPED to stay outside
+ * the wall's own outline -- see `outlineBlocker` (near the groove start the
+ * bore still overlaps the wall, where the cable is still in the air).
  */
 function buildInnerEndCutter(
   wasm: ManifoldToplevel,
@@ -441,43 +421,14 @@ function buildInnerEndCutter(
   margin: number,
   cut: InnerEndCut,
 ): { cutter: Manifold; layout: InnerEndLayout } {
-  const { Manifold } = wasm;
   const layout = layoutInnerEnd(outline, margin, cut.wireDiameter, cut.tolerance, cut.bendRadius, cut.channelDepth);
-  const { hole, edge, holeRadius, slitWidth, channelRibbon } = layout;
-
-  const throughH = cut.flangeThickness + 2;
-  const throughZLo = -cut.flangeThickness - 1;
-  const holeM = track(Manifold.cylinder(throughH, holeRadius, holeRadius, 32, false).translate([hole.x, hole.y, throughZLo]));
-  const dx = edge.x - hole.x;
-  const dy = edge.y - hole.y;
-  const len = Math.hypot(dx, dy);
-  let keyhole = holeM;
-  if (len > 1e-6) {
-    const slitLen = len + 1; // reaches 1mm past the true edge, same convention as buildKeyholeCutter's own slit
-    const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-    const slit = track(
-      Manifold.cube([slitLen, slitWidth, throughH], true)
-        .translate([slitLen / 2, 0, 0])
-        .rotate([0, 0, angleDeg])
-        .translate([hole.x, hole.y, throughZLo + throughH / 2]),
-    );
-    keyhole = track(holeM.add(slit));
-  }
-
-  // The channel recess only cuts partway (channelDepth below z=0), poking
-  // 1mm above the flange's inner face for a clean boolean cut -- mirrors
-  // buildLabelCutter's own "poke past the real surface" convention. Clipped
-  // to stay outside the wall's own outline -- see `outlineBlocker`.
-  const rawChannel = channelCutter(wasm, channelRibbon, -cut.channelDepth, 1);
-  if (!rawChannel) return { cutter: keyhole, layout };
-  track(rawChannel);
-  const blocker = track(outlineBlocker(wasm, outline, -cut.channelDepth - 1, 2));
-  const channel = track(rawChannel.subtract(blocker));
-
-  return { cutter: track(keyhole.add(channel)), layout };
+  const raw = track(sweepSolid(wasm, layout.channel));
+  const top = Math.max(...layout.channel.rings.flat().map((p) => p.z)) + 1;
+  const blocker = track(outlineBlocker(wasm, outline, -cut.flangeThickness - 1, top));
+  return { cutter: track(raw.subtract(blocker)), layout };
 }
 
-/** Fuse a bottom flange (shaped like `flange.outline`, offset out by `flange.margin`) onto the wall, cutting its own inner-end fixing (issue #8: rim keyhole + recessed channel, always present), optionally a bayonet/snap joint feature into the top rim, then the screw-keyhole mount (issue #13) or the clip mount plate's alignment features (issue #14) if requested. */
+/** Fuse a bottom flange (shaped like `flange.outline`, offset out by `flange.margin`) onto the wall, cutting its own inner-end fixing (issues #8, #117: recessed channel + cable clip, always present), optionally a bayonet/snap joint feature into the top rim, then the screw-keyhole mount (issue #13) or the clip mount plate's alignment features (issue #14) if requested. */
 export async function fuseFlange(
   wall: CoilMesh,
   flange: FlangeSpec,
@@ -527,7 +478,7 @@ export async function fuseFlange(
       fused = track(fused.subtract(built.cutter));
       status = fused.status();
       if (status !== "NoError") {
-        throw new Error(`Inner-end keyhole/channel cut is not a valid manifold: ${status}`);
+        throw new Error(`Inner-end channel/clip cut is not a valid manifold: ${status}`);
       }
     }
 
@@ -547,7 +498,7 @@ export async function fuseFlange(
       // No inner-end cut was passed (only some direct/test callers ever omit
       // it -- design.ts always provides one): fall back to a channel guard
       // far from the flange, which never collides, rather than crashing.
-      const channelGuard = innerEndLayout ?? { hole: { x: 1e9, y: 1e9 }, holeRadius: 0, channelRibbon: [] };
+      const channelGuard = innerEndLayout ?? { channelRibbon: [] };
       const layout = layoutThroughHoleMount(flange.outline, flange.boreOutline, flange.margin, flange.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER, channelGuard, flange.envelopeRadius ?? 0);
       for (const hole of layout.holes) {
         const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, layout.counterboreRadius, layout.counterboreDepth, flange.thickness));
@@ -590,18 +541,17 @@ export interface TopCapSpec {
   flange: FlangeSpec;
   joint: JointKind;
   tolerance: number;
-  wireDiameter: number;
   /** Engraved label text (issue #12), already fit-checked by `label.ts`'s `resolveLabel` -- undefined means no label to cut. */
   label?: ResolvedLabel;
-  /** The rim keyhole's hole centre and slit end (issue #115: where the cable's cap lead-out ends, `Design.capKeyhole`). Omitted: the t=0 point, as before. */
-  keyhole?: { hole: XY; edge: XY };
+  /** The cable clip for the outer end (issue #117: where the cable's cap lead-out ends, `Design.capClip`). Omitted: no clip. */
+  clip?: CapClipLayout;
 }
 
 /**
  * Build the top cap: an annular plate following the core's own outline out
  * to the flange's footprint (mirroring the bottom flange), with a downward
- * engagement collar for the chosen joint and a rim keyhole for the outer
- * cable end. Built entirely in a LOCAL frame (plate z=[0, CAP_THICKNESS],
+ * engagement collar for the chosen joint and a cable clip for the outer
+ * cable end under its rim. Built entirely in a LOCAL frame (plate z=[0, CAP_THICKNESS],
  * collar z=[-JOINT_ENGAGE_DEPTH, 0]) and translated by the caller into the
  * shared assembly frame -- see design.ts.
  */
@@ -615,7 +565,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, tolerance, wireDiameter, label, keyhole } = spec;
+    const { flange, joint, tolerance, label, clip } = spec;
     const plateMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, 0, CAP_THICKNESS, flange.columns, flange.minCornerSegments);
     const plate = track(new Manifold(new Mesh({ numProp: 3, vertProperties: plateMesh.positions, triVerts: plateMesh.indices })));
     if (plate.status() !== "NoError") {
@@ -653,8 +603,14 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       collar = track(withBarb.subtract(slots));
     }
 
-    const keyholeCutter = track(buildKeyholeCutter(wasm, flange.outline, flange.margin, wireDiameter, tolerance, keyhole));
-    let assembled = track(track(plate.add(collar)).subtract(keyholeCutter));
+    let assembled = track(plate.add(collar));
+    // Issue #117: the cable clip hangs under the plate near the rim (its
+    // block welded 1 mm into the plate), with its bore cut through it.
+    if (clip) {
+      const block = track(sweepSolid(wasm, clip.block));
+      const bore = track(sweepSolid(wasm, clip.bore));
+      assembled = track(track(assembled.add(block)).subtract(bore));
+    }
 
     if (label) {
       const labelCutter = track(await buildLabelCutter(wasm, label));
@@ -693,34 +649,6 @@ async function buildLabelCutter(wasm: ManifoldToplevel, label: ResolvedLabel): P
   const cutterHeight = LABEL_DEPTH + 1;
   const cutter = new wasm.CrossSection(loops, "NonZero").extrude(cutterHeight);
   return cutter.translate([0, 0, CAP_THICKNESS - LABEL_DEPTH]);
-}
-
-/**
- * A through-cut keyhole in the cap's rim for the outer cable end (ticket:
- * "sized from the cable diameter plus tolerance"): a round hole sized to
- * the cable, set just inside the cap's true outer edge where the cable's cap
- * lead-out ends (`at`, issue #115; arc-length t=0 when omitted), connected
- * to the nearest point of that edge by a narrower retaining slit.
- */
-function buildKeyholeCutter(wasm: ManifoldToplevel, outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, at?: { hole: XY; edge: XY }): Manifold {
-  const { Manifold } = wasm;
-  const holeRadius = wireDiameter / 2 + tolerance;
-  const slitWidth = wireDiameter * KEYHOLE_SLIT_FRACTION + tolerance;
-  const skin = 1; // mm of rim material left outside the hole
-  const { hole: c, edge } = at ?? defaultCapKeyhole(outline, margin, holeRadius, skin);
-  const cx = c.x;
-  const cy = c.y;
-  const h = CAP_THICKNESS + 2;
-  const zLo = -1;
-
-  const hole = Manifold.cylinder(h, holeRadius, holeRadius, 32, false).translate([cx, cy, zLo]);
-  const slitLen = Math.hypot(edge.x - cx, edge.y - cy) + 1;
-  const angleDeg = (Math.atan2(edge.y - cy, edge.x - cx) * 180) / Math.PI;
-  const slit = Manifold.cube([slitLen, slitWidth, h], true)
-    .translate([slitLen / 2, 0, 0])
-    .rotate([0, 0, angleDeg])
-    .translate([cx, cy, zLo + h / 2]);
-  return hole.add(slit);
 }
 
 // --- Clip mount plate (issue #14, docs/research.md §1 "Wall mounting" +

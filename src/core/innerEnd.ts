@@ -1,33 +1,48 @@
-// Inner-end fixing (issue #8, docs/research.md "Wire ends"; redesigned in
-// issue #115): the bottom flange's rim keyhole for the inner cable end, and
-// the recessed channel on the flange's inner face that leads the cable from
-// it to the groove start. Pure geometry math only -- no manifold-3d, no
-// replicad -- shared by the mesh backend (manifold.ts), the STEP backend
-// (step/build.ts) AND the drawn cable (wire.ts, design.ts), the same "one
-// shared layout, several consumers" principle as mount.ts's
-// `layoutKeyholeMount`: all of them must agree on exactly where the hole,
-// slit and channel sit.
+// Cable fix points (issues #8, #115, #117, docs/research.md "Wire ends"):
+// the bottom flange's recessed channel + clip for the inner cable end, and
+// the top cap's clip for the outer end. Pure geometry math only -- no
+// manifold-3d, no replicad -- shared by the mesh backend (manifold.ts), the
+// STEP backend (step/build.ts) AND the drawn cable (wire.ts, design.ts), the
+// same "one shared layout, several consumers" principle as mount.ts's
+// `layoutKeyholeMount`: all of them build from the SAME cross-section rings.
 //
 // Issue #115: the cable must never bend tighter than its minimum bend
-// radius (MBR). Issue #8's radial channel plus a margin-limited fillet made
-// a stiff cable turn back on itself right at the groove start. Instead, the
-// cable now leaves the groove start (layer 1's first sample, `J`) along the
-// helix's OWN tangent, backwards, as a straight chord across the flange
-// margin -- a cable at its MBR can follow a straight line. Two gentle,
-// curvature-limited blends ride on that chord:
+// radius (MBR). The cable leaves the groove start (layer 1's first sample,
+// `J`) along the helix's OWN tangent, backwards, as a straight chord across
+// the flange margin -- a cable at its MBR can follow a straight line. Two
+// gentle, curvature-limited blends ride on that chord:
 //   - z: the cable drops from the helix start height (`zStart`, a few mm
 //     above the flange face) into the recessed channel (cable top flush
 //     with the face, the #43 guarantee), and
 //   - sideways (`N`, the outward normal at t=0): the channel sits a skin
-//     clear of the wall, so the cable lies in a full-width trench (a
-//     square/triangle's t=0 is the end of a flat side, so the chord runs
-//     right along the wall there; round's chord leaves the wall on its own).
+//     clear of the wall, so the cable lies in a full-width trench.
 // Each blend is the lowest-peak-curvature C1 ramp (two parabolas, see
 // `bump`), sized so the combined curvature stays within CABLE_BEND_BUDGET /
-// MBR. The keyhole sits where the chord meets the flange rim; the flat
-// channel runs from there to where the cable rises out of the face.
+// MBR.
 //
-// If the flange margin is too narrow for the chord to hold the keyhole past
+// Issue #117: the channel is no longer a flat-bottomed box cut to one depth.
+// It is SWEPT along that same drawn cable: every cross-section is a round
+// bore of diameter d + tolerance around the cable's own centre, opening
+// straight up to the face (a "U"). So its depth follows the cable's drop --
+// zero where the cable's bottom reaches the face, full depth once it lies in
+// the channel -- with no step and no square corners. Near the rim the
+// opening narrows below the cable's diameter (CABLE_CLIP_OPENING_FRACTION)
+// for a short length: the cable snaps down into a C-shaped clip that lies
+// along its own direction, and leaves the flange sideways through the rim
+// along the same chord, with no extra bend (the old vertical rim keyhole
+// needed a 90 degree turn). The clip sits where both lips are still inside
+// the rim (`CABLE_CLIP_WALL` of flange beyond them), after the drop.
+//
+// The cap end (`layoutCapClip`) is the same clip turned upside down: the
+// cable arrives level just under the cap, follows the outline for the
+// clip's length, then curves gently out past the rim. The cap is only 3 mm
+// thick, too thin to recess a cable into, so its clip is a short block
+// hanging under the plate with the bore through it and the opening facing
+// down (up, in the cap's flipped print orientation). The block sits between
+// the wound cable and the rim, so the flange (and cap) margin grows to fit
+// it (`requiredCapClipMargin`).
+//
+// If the flange margin is too narrow for the chord to hold the clip past
 // the end of the drop, `requiredInnerEndMargin` says how wide it must be --
 // flange.ts grows the margin to that (design.ts warns), so a real design
 // never gets an impossible bend.
@@ -35,12 +50,26 @@
 import {
   CABLE_BEND_BUDGET,
   CABLE_BRIDGE_STEP,
+  CABLE_CLIP_DEPTH_SLACK,
+  CABLE_CLIP_ENTRY,
+  CABLE_CLIP_LENGTH_FACTOR,
+  CABLE_CLIP_MIN_LENGTH,
+  CABLE_CLIP_OPENING_FRACTION,
+  CABLE_CLIP_WALL,
+  CABLE_CLIPPED_TAIL_FACTOR,
+  CABLE_CLIPPED_TAIL_MIN,
+  CABLE_SWEEP_ARC_SEGMENTS,
+  CABLE_SWEEP_STEP,
+  CAP_CABLE_DROP,
+  CAP_CLIP_COIL_GAP,
+  CAP_CLIP_LIP,
+  CAP_CLIP_RELIEF,
+  CAP_CLIP_RIM_INSET,
   CLEARANCE,
   GROOVE_DEPTH_FACTOR,
   INNER_CHANNEL_DEPTH_FACTOR,
   INNER_CHANNEL_MIN_SHELF,
   INNER_CHANNEL_WALL_SKIN,
-  KEYHOLE_SLIT_FRACTION,
   MARGIN,
   SCREW_MOUNT_RECESS_DEPTH,
   THROUGH_MOUNT_COUNTERBORE_DEPTH,
@@ -63,14 +92,16 @@ export function idealChannelDepth(wireDiameter: number): number {
 }
 
 /**
- * The channel's ACTUAL recess depth, given the flange's own (already
- * resolved) thickness: the ideal depth, capped to whatever the flange's
- * thickness leaves below a small shelf -- and, when there's also a mount's
- * own pocket/counterbore cut into the OTHER face (issue #13's screw-keyhole
- * mount, or issue #70's through-hole mount -- `reservedMountDepth`, a fixed
- * depth reserved from the flange's outer/z=-thickness side), below THAT cut
- * too, so the two never meet in the middle. design.ts warns when this caps
- * the channel (flange.ts normally provisions enough thickness).
+ * The channel's ACTUAL recess depth (to the cable's bottom), given the
+ * flange's own (already resolved) thickness: the ideal depth, capped to
+ * whatever the flange's thickness leaves below a small shelf -- and, when
+ * there's also a mount's own pocket/counterbore cut into the OTHER face
+ * (issue #13's screw-keyhole mount, or issue #70's through-hole mount --
+ * `reservedMountDepth`, a fixed depth reserved from the flange's
+ * outer/z=-thickness side), below THAT cut too, so the two never meet in the
+ * middle. design.ts warns when this caps the channel (flange.ts normally
+ * provisions enough thickness). The round bore around the cable reaches
+ * tolerance/2 deeper than this.
  */
 export function resolveChannelDepth(wireDiameter: number, flangeThickness: number, mount: MountKind): number {
   const ideal = idealChannelDepth(wireDiameter);
@@ -89,20 +120,34 @@ export interface XYZ {
   z: number;
 }
 
+/**
+ * A solid swept along the cable: one closed cross-section polygon (`rings`)
+ * per station, all with the same vertex count and order, each in the
+ * vertical plane across the cable at that station. Consecutive rings join
+ * with straight edges; `start`/`end` are interior points of the first and
+ * last ring, each end is capped by a fan from them. manifold.ts meshes it
+ * (`sweepMesh`), step/build.ts lofts the same rings.
+ */
+export interface SweepSolid {
+  rings: XYZ[][];
+  start: XYZ;
+  end: XYZ;
+}
+
 export interface InnerEndLayout {
-  /** Keyhole hole centre, in the flange's local XY (mm): on the cable's tangent chord, inset from the flange rim by holeRadius + a mm of skin. */
-  hole: XY;
-  /** The flange's outer edge point nearest the hole, where the retaining slit opens (mm). */
-  edge: XY;
-  holeRadius: number;
-  slitWidth: number;
-  /** Width of the recessed channel trench, mm. */
-  channelWidth: number;
-  /** The channel's straight centreline, from the keyhole (`channelPath[0]`, always `hole`) to where the cable rises out of the flange face. */
-  channelPath: XY[];
-  /** The channel trench's closed 2D outline (a `channelWidth`-wide rectangle around `channelPath`), extruded once by each backend. */
+  /** The channel/clip bore radius, (d + tolerance) / 2, mm. */
+  channelRadius: number;
+  /** The clip's opening width (narrower than the cable), mm. */
+  clipOpening: number;
+  /** The recessed channel + clip cutter, swept along the cable from where it first touches the flange face to past the rim. */
+  channel: SweepSolid;
+  /** The cable centre where the gripping lips start and end (the clip end nearer the rim is `to`). */
+  clip: { from: XYZ; to: XYZ };
+  /** Where the cable's centreline crosses the flange rim. */
+  rimExit: XY;
+  /** The channel's footprint on the flange face (a closed polygon, the bore's full width), which mount features must keep clear of. */
   channelRibbon: XY[];
-  /** The drawn cable from the keyhole (z at the channel's cable centre) to layer 1's first sample (`J`, the groove start), dense xyz samples. */
+  /** The drawn cable, from its free tail end past the rim, through the clip and the channel, to layer 1's first sample (`J`, the groove start): dense xyz samples. */
   leadIn: XYZ[];
   /** The narrowest flange margin that fits this lead-in within the bend radius, mm (flange.ts grows the margin to at least this). */
   requiredMargin: number;
@@ -110,13 +155,109 @@ export interface InnerEndLayout {
   warning?: string;
 }
 
-/** mm of rim material deliberately left outside the keyhole (mirrors manifold.ts's `buildKeyholeCutter`). */
-export const KEYHOLE_SKIN = 1;
+/** The clip bore's radius: the cable's own plus half the print tolerance. */
+export function clipRadius(wireDiameter: number, tolerance: number): number {
+  return (wireDiameter + tolerance) / 2;
+}
 
-/** The cap keyhole at t=0 (the pre-#115 placement), for a cap built without a `Design.capKeyhole`. */
-export function defaultCapKeyhole(outline: ShapeOutline, margin: number, holeRadius: number, skin: number): { hole: XY; edge: XY } {
-  const edge = pointAt(outline, 0, margin);
-  return { hole: { x: edge.x - edge.nx * (holeRadius + skin), y: edge.y - edge.ny * (holeRadius + skin) }, edge: { x: edge.x, y: edge.y } };
+/** How long the gripping lips are, along the cable (mm). */
+export function clipLength(wireDiameter: number): number {
+  return Math.max(CABLE_CLIP_MIN_LENGTH, CABLE_CLIP_LENGTH_FACTOR * wireDiameter);
+}
+
+/** A clipped cable end's free tail past the rim (mm). */
+export function clippedTailLength(wireDiameter: number): number {
+  return Math.max(CABLE_CLIPPED_TAIL_MIN, CABLE_CLIPPED_TAIL_FACTOR * wireDiameter);
+}
+
+/**
+ * The lips' half-opening at distance `s` along a clip spanning [from, to]:
+ * the bore's full radius outside it (no lips), CABLE_CLIP_OPENING_FRACTION
+ * of it inside, tapering over CABLE_CLIP_ENTRY at each end. `open` is the
+ * value used outside the clip (the flange channel's plain "U" uses the full
+ * radius; the cap bore keeps a sliver of lip, see `layoutCapClip`).
+ */
+function lipHalf(s: number, from: number, to: number, R: number, open = R): number {
+  const closed = CABLE_CLIP_OPENING_FRACTION * R;
+  const entry = Math.min(CABLE_CLIP_ENTRY, (to - from) / 2);
+  if (s <= from || s >= to) return open;
+  const k = Math.min(1, (s - from) / entry, (to - s) / entry);
+  return open + (closed - open) * k;
+}
+
+/**
+ * One cross-section of a round bore: a circle of radius `R` about `c`
+ * (stretched vertically by `stretch`, so a sloped cable's bore is still
+ * round perpendicular to the cable), with a slot of half-width `up.half`
+ * straight up to z = `up.to`, and optionally one of `down.half` straight
+ * down to z = `down.to`. `u` is the unit horizontal vector across the cable.
+ * Star-shaped about `c`, so a fan from it caps it.
+ */
+function boreRing(c: XYZ, u: XY, R: number, stretch: number, up: { half: number; to: number }, down?: { half: number; to: number }): XYZ[] {
+  const at = (p: number, z: number): XYZ => ({ x: c.x + u.x * p, y: c.y + u.y * p, z });
+  const circle = (phi: number) => at(R * Math.sin(phi), c.z + R * Math.cos(phi) * stretch);
+  const arc = (a: number, b: number) => Array.from({ length: CABLE_SWEEP_ARC_SEGMENTS + 1 }, (_, i) => circle(a + ((b - a) * i) / CABLE_SWEEP_ARC_SEGMENTS));
+  const phiUp = Math.asin(Math.min(1, up.half / R));
+  const ring: XYZ[] = [at(up.half, up.to)];
+  if (down) {
+    const phiDown = Math.PI - Math.asin(Math.min(1, down.half / R));
+    ring.push(...arc(phiUp, phiDown), at(down.half, down.to), at(-down.half, down.to), ...arc(2 * Math.PI - phiDown, 2 * Math.PI - phiUp));
+  } else {
+    ring.push(...arc(phiUp, 2 * Math.PI - phiUp));
+  }
+  ring.push(at(-up.half, up.to));
+  return ring;
+}
+
+/** A rectangular cross-section across the cable at `c` (same vertex order as `boreRing`): `half` either side, z from `zLo` to `zHi`. */
+function boxRing(c: XY, u: XY, half: number, zLo: number, zHi: number): XYZ[] {
+  const at = (p: number, z: number): XYZ => ({ x: c.x + u.x * p, y: c.y + u.y * p, z });
+  return [at(half, zHi), at(half, zLo), at(-half, zLo), at(-half, zHi)];
+}
+
+/**
+ * A closed, outward-facing triangle mesh of a sweep: quads between
+ * consecutive rings (two triangles each), fans at both ends. Valid as long
+ * as consecutive rings don't cross, which holds for any path bending far
+ * more gently than the bore is wide (the cable's own bend radius is several
+ * diameters).
+ */
+export function sweepMesh(sweep: SweepSolid): { positions: Float32Array; indices: Uint32Array } {
+  const { rings, start, end } = sweep;
+  const m = rings[0].length;
+  const n = rings.length;
+  const positions = new Float32Array((n * m + 2) * 3);
+  rings.forEach((ring, i) => ring.forEach((p, j) => positions.set([p.x, p.y, p.z], (i * m + j) * 3)));
+  const s = n * m;
+  const e = n * m + 1;
+  positions.set([start.x, start.y, start.z], s * 3);
+  positions.set([end.x, end.y, end.z], e * 3);
+  const tris: number[] = [];
+  for (let i = 0; i + 1 < n; i++) {
+    for (let j = 0; j < m; j++) {
+      const a = i * m + j;
+      const b = i * m + ((j + 1) % m);
+      const c = a + m;
+      const d = b + m;
+      tris.push(a, b, d, a, d, c);
+    }
+  }
+  for (let j = 0; j < m; j++) {
+    tris.push(s, (j + 1) % m, j);
+    tris.push(e, (n - 1) * m + j, (n - 1) * m + ((j + 1) % m));
+  }
+  // Orientation depends on the ring order and the sweep direction: flip to
+  // outward-facing (positive signed volume) if needed.
+  let volume = 0;
+  for (let t = 0; t < tris.length; t += 3) {
+    const [a, b, c] = [tris[t] * 3, tris[t + 1] * 3, tris[t + 2] * 3];
+    const p = positions;
+    volume += p[a] * (p[b + 1] * p[c + 2] - p[b + 2] * p[c + 1]) - p[a + 1] * (p[b] * p[c + 2] - p[b + 2] * p[c]) + p[a + 2] * (p[b] * p[c + 1] - p[b + 1] * p[c]);
+  }
+  if (volume < 0) {
+    for (let t = 0; t < tris.length; t += 3) [tris[t + 1], tris[t + 2]] = [tris[t + 2], tris[t + 1]];
+  }
+  return { positions, indices: new Uint32Array(tris) };
 }
 
 /**
@@ -149,11 +290,9 @@ export function bump(H: number, v0: number, L: number): { A: number; value(s: nu
   };
 }
 
-/** Smallest s in [0, L] where the (monotone) `value` reaches `target`. */
-function invert(value: (s: number) => number, target: number, L: number): number {
-  let lo = 0;
-  let hi = L;
-  for (let i = 0; i < 50; i++) {
+/** Smallest s in [lo, hi] where the (monotone increasing) `value` reaches `target`. */
+function invert(value: (s: number) => number, target: number, lo: number, hi: number): number {
+  for (let i = 0; i < 60; i++) {
     const mid = (lo + hi) / 2;
     if (value(mid) < target) lo = mid;
     else hi = mid;
@@ -161,17 +300,24 @@ function invert(value: (s: number) => number, target: number, L: number): number
   return hi;
 }
 
+/** Smallest s >= `from` where the (increasing) `value` reaches `target`, growing the search range as needed. */
+function reach(value: (s: number) => number, target: number, from: number): number {
+  let hi = from + 1;
+  while (value(hi) < target && hi < 1e5) hi = from + (hi - from) * 2;
+  return invert(value, target, from, hi);
+}
+
 interface LeadInRoute {
   /** The cable's centre at chord distance `s` back from the groove start. */
   at(s: number): XYZ;
   /** Where the drop into the channel ends (the cable is at channel height from here on). */
   dropLength: number;
-  /** Where the cable's bottom reaches the flange face (the channel starts here). */
-  channelStart: number;
-  /** A point on the (fully side-shifted) chord at distance `s` -- for s >= channelStart this IS `at(s)`'s xy. */
+  /** The chord's own gentle outward bend (planLeadIn's `curve`), 1/mm. */
+  curve: number;
+  /** Where the cable is within CABLE_CLIP_DEPTH_SLACK of channel height -- the clip's lips may start here. */
+  settled: number;
+  /** A point on the (fully side-shifted) chord at distance `s` -- for s >= the end of the side shift this IS `at(s)`'s xy. */
   chordAt(s: number): XY;
-  /** The chord's own xy direction at `s` (unit, pointing away from the groove start). */
-  directionAt(s: number): XY;
 }
 
 /**
@@ -222,7 +368,7 @@ function planLeadIn(
 
   const shape = (L: number) => {
     const z = bump(drop, helixSlope, L);
-    const channelStart = dropToFace <= 0 ? 0 : invert(z.value, dropToFace, L);
+    const channelStart = dropToFace <= 0 ? 0 : invert(z.value, dropToFace, 0, L);
     const side = channelStart > 1e-6 ? Math.max(0, needSide - lineOffset(channelStart) - (curve * channelStart * channelStart) / 2) : 0;
     const lateral = bump(side, 0, channelStart);
     return { z, channelStart, side, lateral, peak: Math.hypot(z.A, (side > 0 ? lateral.A : 0) + curve) };
@@ -248,14 +394,9 @@ function planLeadIn(
   const chordAt = (s: number): XY => ({ x: j.x - s * tx + (side + bend(s)) * nx, y: j.y - s * ty + (side + bend(s)) * ny });
   return {
     dropLength: L,
-    channelStart,
+    curve,
+    settled: drop <= CABLE_CLIP_DEPTH_SLACK ? 0 : invert(z.value, drop - CABLE_CLIP_DEPTH_SLACK, 0, L),
     chordAt,
-    directionAt: (s) => {
-      const dx = -tx + curve * s * nx;
-      const dy = -ty + curve * s * ny;
-      const len = Math.hypot(dx, dy);
-      return { x: dx / len, y: dy / len };
-    },
     at: (s) => {
       const shift = (side > 0 ? lateral.value(Math.min(s, channelStart)) : 0) + bend(s);
       return { x: j.x - s * tx + shift * nx, y: j.y - s * ty + shift * ny, z: zStart - z.value(s) };
@@ -263,60 +404,78 @@ function planLeadIn(
   };
 }
 
-/**
- * The lead-in bent (planLeadIn's `curve`) just enough that the keyhole
- * reaches the rim (`limit`, the hole centre's largest allowed offset) at
- * distance `target` along it -- or at the end of the drop, if the bend's
- * own share of the curvature budget pushes that further. Undefined when
- * that never settles (the caller keeps the straight chord).
- */
-function bendToRim(outline: ShapeOutline, wireDiameter: number, tolerance: number, bendRadius: number, channelDepth: number, limit: number, target: number): { route: LeadInRoute; holeAt: number } | undefined {
-  const maxCurve = (0.8 * CABLE_BEND_BUDGET) / bendRadius;
-  let at = target;
-  for (let pass = 0; pass < 8; pass++) {
-    // The smallest bend that puts the rim at `at`.
-    // (A wide flange -- a through-hole mount's -- can be out of reach by
-    // then even at the largest bend: the keyhole then stops short of the
-    // rim, with a longer slit out to it.)
-    let lo = 0;
-    let hi = maxCurve;
-    if (holeOffset(outline, planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: hi }), at) < limit) lo = hi;
-    for (let i = 0; i < 40 && lo < hi; i++) {
-      const mid = (lo + hi) / 2;
-      if (holeOffset(outline, planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: mid }), at) < limit) lo = mid;
-      else hi = mid;
-    }
-    const route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: lo });
-    if (route.dropLength <= at + 1e-6) return { route, holeAt: at };
-    at = route.dropLength;
-  }
-  return undefined;
-}
-
-function holeRadiusOf(wireDiameter: number, tolerance: number): number {
-  return wireDiameter / 2 + tolerance;
-}
-
-/** Offset (outside the core's own outline) of the keyhole centre at chord distance `s`. */
-function holeOffset(outline: ShapeOutline, route: LeadInRoute, s: number): number {
+/** Offset (outside the core's own outline) of the chord at distance `s`. */
+function chordOffset(outline: ShapeOutline, route: LeadInRoute, s: number): number {
   const p = route.chordAt(s);
   return outlineOffsetAt(outline, p.x, p.y).offset;
 }
 
 /**
- * The narrowest flange margin whose rim can hold the keyhole on the chord
- * past the end of the drop (so the whole lead-in stays within the bend
- * radius). Cheap and margin-independent, so flange.ts (and through it the
- * solver's search) can call it for every candidate.
+ * The lead-in bent (planLeadIn's `curve`) just enough that the clip's rim
+ * end reaches its limit (`limit`, the largest centre offset that still keeps
+ * the outer lip inside the rim) at distance `target` along it -- or at the
+ * end of the drop plus the clip, if the bend's own share of the curvature
+ * budget pushes that further. Undefined when that never settles (the caller
+ * keeps the straight chord).
  */
-export function requiredInnerEndMargin(outline: ShapeOutline, wireDiameter: number, tolerance: number, bendRadius: number, channelDepth = idealChannelDepth(wireDiameter)): number {
-  const route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth);
-  const holeRadius = holeRadiusOf(wireDiameter, tolerance);
-  return holeOffset(outline, route, route.dropLength) + holeRadius + KEYHOLE_SKIN;
+function bendToRim(
+  outline: ShapeOutline,
+  wireDiameter: number,
+  tolerance: number,
+  bendRadius: number,
+  channelDepth: number,
+  limit: number,
+  target: number,
+  clipLen: number,
+): { route: LeadInRoute; clipEnd: number } | undefined {
+  const maxCurve = (0.8 * CABLE_BEND_BUDGET) / bendRadius;
+  let at = target;
+  for (let pass = 0; pass < 8; pass++) {
+    // The smallest bend that puts the rim at `at`.
+    // (A wide flange -- a through-hole mount's -- can be out of reach by
+    // then even at the largest bend: the clip then stops short of the
+    // rim, with a longer plain channel out to it.)
+    let lo = 0;
+    let hi = maxCurve;
+    if (chordOffset(outline, planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: hi }), at) < limit) lo = hi;
+    for (let i = 0; i < 40 && lo < hi; i++) {
+      const mid = (lo + hi) / 2;
+      if (chordOffset(outline, planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: mid }), at) < limit) lo = mid;
+      else hi = mid;
+    }
+    const route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: lo });
+    if (route.settled + clipLen <= at + 1e-6) return { route, clipEnd: at };
+    at = route.settled + clipLen;
+  }
+  return undefined;
+}
+
+/** The largest offset of the clip's centre that still leaves CABLE_CLIP_WALL of flange outside its outer lip. */
+function clipLimit(margin: number, R: number): number {
+  return margin - R - CABLE_CLIP_WALL;
 }
 
 /**
- * Lay out the bottom-flange keyhole + inner channel + the drawn lead-in.
+ * The narrowest flange margin whose rim can hold the clip on the chord past
+ * the end of the drop (so the whole lead-in stays within the bend radius).
+ * Cheap and margin-independent, so flange.ts (and through it the solver's
+ * search) can call it for every candidate.
+ */
+export function requiredInnerEndMargin(outline: ShapeOutline, wireDiameter: number, tolerance: number, bendRadius: number, channelDepth = idealChannelDepth(wireDiameter)): number {
+  const route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth);
+  return chordOffset(outline, route, route.settled + clipLength(wireDiameter)) + clipRadius(wireDiameter, tolerance) + CABLE_CLIP_WALL;
+}
+
+/** Stations `step` apart over [from, to], plus every `extra` point inside it, sorted. */
+function stationsOver(from: number, to: number, step: number, extra: number[]): number[] {
+  const count = Math.max(1, Math.ceil((to - from) / step));
+  const all = [...Array.from({ length: count + 1 }, (_, i) => from + ((to - from) * i) / count), ...extra.filter((s) => s > from + 1e-3 && s < to - 1e-3)];
+  all.sort((a, b) => a - b);
+  return all.filter((s, i) => i === 0 || s - all[i - 1] > 1e-3);
+}
+
+/**
+ * Lay out the bottom-flange channel + clip and the drawn lead-in.
  * `outline`/`margin` mirror manifold.ts's `FlangeSpec.outline`/`.margin`
  * exactly, so every backend derives the identical layout from identical
  * inputs -- same convention as mount.ts's `layoutKeyholeMount`.
@@ -329,75 +488,238 @@ export function layoutInnerEnd(
   bendRadius: number,
   channelDepth = idealChannelDepth(wireDiameter),
 ): InnerEndLayout {
-  const holeRadius = holeRadiusOf(wireDiameter, tolerance);
-  const slitWidth = wireDiameter * KEYHOLE_SLIT_FRACTION + tolerance;
-  const channelWidth = wireDiameter + tolerance;
+  const R = clipRadius(wireDiameter, tolerance);
+  const clipLen = clipLength(wireDiameter);
 
   let route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth);
-  const minHoleAt = route.dropLength;
-  const requiredMargin = holeOffset(outline, route, minHoleAt) + holeRadius + KEYHOLE_SKIN;
-  const limit = margin - holeRadius - KEYHOLE_SKIN; // the hole centre's largest allowed offset
+  const minClipEnd = route.settled + clipLen;
+  const limit = clipLimit(margin, R);
+  const requiredMargin = chordOffset(outline, route, minClipEnd) + R + CABLE_CLIP_WALL;
 
-  // The keyhole goes as far out along the chord as the rim allows (a short
-  // slit), and never before the drop ends. Offset only grows along the
-  // chord (it's tangent to a convex outline), so bisection finds it.
-  const findHoleAt = (lo: number, hi: number) => {
+  // The clip goes as far out along the chord as the rim allows, and never
+  // starts before the drop has (all but CABLE_CLIP_DEPTH_SLACK) ended. Offset only grows along the chord (it's
+  // tangent to a convex outline), so bisection finds it.
+  const findClipEnd = (lo: number, hi: number) => {
     for (let i = 0; i < 60; i++) {
       const mid = (lo + hi) / 2;
-      if (holeOffset(outline, route, mid) <= limit) lo = mid;
+      if (chordOffset(outline, route, mid) <= limit) lo = mid;
       else hi = mid;
     }
     return lo;
   };
-  let holeAt: number;
+  let clipEnd: number;
+  let clipFrom: number;
   let warning: string | undefined;
-  if (holeOffset(outline, route, minHoleAt) <= limit + 1e-6) {
-    let hi = minHoleAt * 2 + 10;
-    while (holeOffset(outline, route, hi) <= limit && hi < 1e5) hi *= 2;
-    holeAt = findHoleAt(minHoleAt, hi);
+  if (chordOffset(outline, route, minClipEnd) <= limit + 1e-6) {
+    let hi = minClipEnd * 2 + 10;
+    while (chordOffset(outline, route, hi) <= limit && hi < 1e5) hi *= 2;
+    clipEnd = findClipEnd(minClipEnd, hi);
     // A square or triangle's straight chord runs along the flat side that
     // ends at the groove start and only meets the rim past the NEXT corner
     // -- right where a through-hole mount puts that corner's screw hole.
     // Bend it gently outward instead, so it reaches the rim by the flat
-    // side's middle (or the end of the drop, if that's further).
+    // side's middle (or the end of the drop and clip, if that's further).
     const halfFlat = sideLength(outline) / 2;
-    if (halfFlat > 1e-6 && holeAt > halfFlat) {
-      const bent = bendToRim(outline, wireDiameter, tolerance, bendRadius, channelDepth, limit, halfFlat);
-      if (bent) ({ route, holeAt } = bent);
+    if (halfFlat > 1e-6 && clipEnd > halfFlat) {
+      const bent = bendToRim(outline, wireDiameter, tolerance, bendRadius, channelDepth, limit, halfFlat, clipLen);
+      if (bent) ({ route, clipEnd } = bent);
     }
+    clipFrom = clipEnd - clipLen;
   } else {
     // Too narrow: squeeze the drop into what the rim leaves (bending the
     // cable tighter than it allows) and say so. design() never gets here --
     // flange.ts grows the margin to `requiredMargin` first.
-    holeAt = findHoleAt(0, minHoleAt);
-    route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { forcedDrop: Math.max(holeAt - holeRadius, holeAt / 2) });
+    clipEnd = findClipEnd(0, minClipEnd);
+    clipFrom = Math.max(clipEnd - clipLen, clipEnd / 2);
+    route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { forcedDrop: clipFrom });
     warning = `The ${margin.toFixed(1)} mm flange margin is too narrow for the inner cable end to reach the groove within its ${bendRadius.toFixed(1)} mm bend radius; it needs at least ${requiredMargin.toFixed(1)} mm.`;
   }
 
-  const hole = route.chordAt(holeAt);
-  const atHole = outlineOffsetAt(outline, hole.x, hole.y);
-  const edge: XY = { x: hole.x + atHole.nx * (margin - atHole.offset), y: hole.y + atHole.ny * (margin - atHole.offset) };
+  // Past the clip the cable bends gently outward with what's left of its
+  // bend budget (a chord along a square's or triangle's flat side would
+  // otherwise meet the rim at a grazing angle, leaving a long knife-edge
+  // sliver of rim beside the channel), and past the rim it goes straight on.
+  const H = 0.01;
+  const clipEndAt = route.at(clipEnd);
+  const outward = outlineOffsetAt(outline, clipEndAt.x, clipEndAt.y);
+  const exitCurve = Math.max(0, (0.8 * CABLE_BEND_BUDGET) / bendRadius - route.curve);
+  const bent = (s: number): XYZ => {
+    const p = route.at(s);
+    const k = s <= clipEnd ? 0 : (exitCurve * (s - clipEnd) ** 2) / 2;
+    return { x: p.x + outward.nx * k, y: p.y + outward.ny * k, z: p.z };
+  };
+  const sRim = reach((s) => {
+    const p = bent(s);
+    return outlineOffsetAt(outline, p.x, p.y).offset;
+  }, margin, clipEnd);
+  const atRim = bent(sRim);
+  const beforeRim = bent(sRim - H);
+  const out = { x: (atRim.x - beforeRim.x) / Math.hypot(atRim.x - beforeRim.x, atRim.y - beforeRim.y), y: (atRim.y - beforeRim.y) / Math.hypot(atRim.x - beforeRim.x, atRim.y - beforeRim.y) };
+  const path = (s: number): XYZ => (s <= sRim ? bent(s) : { x: atRim.x + out.x * (s - sRim), y: atRim.y + out.y * (s - sRim), z: atRim.z });
+  const sEnd = reach((s) => {
+    const p = path(s);
+    return outlineOffsetAt(outline, p.x, p.y).offset;
+  }, margin + R + 0.5, sRim); // the whole bore is past the rim
 
-  // The channel: from the keyhole along the chord to a little before where
-  // the cable's bottom rises above the face (so it never catches the
-  // trench's end wall), `channelWidth` wide -- a plain rectangle when the
-  // chord is straight, a gentle arc (radius well above half its width) when
-  // it's bent toward the rim.
-  const channelFrom = Math.max(0, Math.min(route.channelStart - channelWidth / 2, holeAt));
-  const span = holeAt - channelFrom;
-  const channelSteps = span > 1e-6 ? Math.max(1, Math.ceil(span / (4 * CABLE_BRIDGE_STEP))) : 0;
-  const centre = Array.from({ length: channelSteps + 1 }, (_, i) => holeAt - (span * i) / Math.max(channelSteps, 1));
+  // The bore's cross-section at chord distance s: round about the cable,
+  // stretched by the local slope, open straight up (a "U") except where the
+  // lips grip.
+  const frame = (s: number) => {
+    const a = path(Math.max(0, s - H));
+    const b = path(s + H);
+    const plan = Math.hypot(b.x - a.x, b.y - a.y);
+    return { c: path(s), u: { x: -(b.y - a.y) / plan, y: (b.x - a.x) / plan }, stretch: Math.hypot(1, (b.z - a.z) / plan) };
+  };
+  const bottom = (s: number) => {
+    const f = frame(s);
+    return f.c.z - R * f.stretch;
+  };
+  // It starts where the bore's bottom is still a little above the face (so
+  // the cut begins at zero depth), and ends with the whole bore past the rim.
+  const sStart = bottom(0) <= 0.3 ? 0 : invert((s) => -bottom(s), -0.3, 0, route.dropLength);
+  const stations = stationsOver(sStart, sEnd, CABLE_SWEEP_STEP, [clipFrom, clipFrom + CABLE_CLIP_ENTRY, clipEnd - CABLE_CLIP_ENTRY, clipEnd]);
+  const rings = stations.map((s) => {
+    const { c, u, stretch } = frame(s);
+    return boreRing(c, u, R, stretch, { half: lipHalf(s, clipFrom, clipEnd, R), to: Math.max(c.z + R * stretch, 0) + 1 });
+  });
+  const channel: SweepSolid = { rings, start: path(sStart), end: path(sEnd) };
+
+  // Its footprint on the face: the bore's full width, wherever it cuts.
+  const cutting = stations.filter((s) => bottom(s) < 0);
   const rail = (sign: 1 | -1) =>
-    centre.map((sAt) => {
-      const p = route.chordAt(sAt);
-      const t = route.directionAt(sAt);
-      return { x: p.x - sign * t.y * (channelWidth / 2), y: p.y + sign * t.x * (channelWidth / 2) };
+    cutting.map((s) => {
+      const { c, u } = frame(s);
+      return { x: c.x + sign * u.x * R, y: c.y + sign * u.y * R };
     });
-  const channelPath: XY[] = centre.map((sAt) => route.chordAt(sAt));
-  const channelRibbon: XY[] = span > 1e-6 ? [...rail(1), ...rail(-1).reverse()] : [];
+  const channelRibbon: XY[] = cutting.length >= 2 ? [...rail(1), ...rail(-1).reverse()] : [];
 
-  const steps = Math.max(2, Math.ceil(holeAt / CABLE_BRIDGE_STEP));
-  const leadIn: XYZ[] = Array.from({ length: steps + 1 }, (_, i) => route.at(holeAt * (1 - i / steps)));
+  const sTail = sRim + clippedTailLength(wireDiameter);
+  const steps = Math.max(2, Math.ceil(sTail / CABLE_BRIDGE_STEP));
+  const leadIn: XYZ[] = Array.from({ length: steps + 1 }, (_, i) => path(sTail * (1 - i / steps)));
 
-  return { hole, edge, holeRadius, slitWidth, channelWidth, channelPath, channelRibbon, leadIn, requiredMargin, warning };
+  return {
+    channelRadius: R,
+    clipOpening: 2 * CABLE_CLIP_OPENING_FRACTION * R,
+    channel,
+    clip: { from: route.at(clipFrom), to: route.at(clipEnd) },
+    rimExit: { x: atRim.x, y: atRim.y },
+    channelRibbon,
+    leadIn,
+    requiredMargin,
+    warning,
+  };
+}
+
+// --- The top cap's clip (the cable's outer end) -----------------------------
+
+/** The cap clip's centre offset (outside the core's outline): its outer wall ends CAP_CLIP_RIM_INSET inside the rim. */
+export function capClipOffset(margin: number, wireDiameter: number, tolerance: number): number {
+  return margin - CAP_CLIP_RIM_INSET - CABLE_CLIP_WALL - clipRadius(wireDiameter, tolerance);
+}
+
+/** The cable's centre height at the cap end, relative to the cap plate's underside: its top a hair (CAP_CABLE_DROP) below it. */
+export function capCableZ(wireDiameter: number): number {
+  return -wireDiameter / 2 - CAP_CABLE_DROP;
+}
+
+/**
+ * The narrowest margin that fits the cap clip between the wound cable's
+ * outer surface (`envelopeOffset`, outside the core's outline) and the rim,
+ * with CAP_CLIP_COIL_GAP to spare: the clip's inner wall must clear the
+ * outermost layer, which runs right up under the cap.
+ */
+export function requiredCapClipMargin(envelopeOffset: number, wireDiameter: number, tolerance: number): number {
+  return envelopeOffset + CAP_CLIP_COIL_GAP + CAP_CLIP_RIM_INSET + 2 * (CABLE_CLIP_WALL + clipRadius(wireDiameter, tolerance));
+}
+
+export interface CapClipLayout {
+  /** The clip block (the lips' body) under the cap plate, in the cap's LOCAL frame (plate underside at z = 0); its top reaches 1 mm into the plate so the two weld. */
+  block: SweepSolid;
+  /** The bore and its downward opening, cut through the block (and CAP_CLIP_RELIEF up into the plate). */
+  bore: SweepSolid;
+  /** The drawn cable's plan-view path from where the lead-out ends (the clip's start), through the clip and out past the rim to its free end. Its height is level, at `capCableZ`. */
+  path: XY[];
+}
+
+/**
+ * Lay out the top cap's clip, starting where the cable's cap lead-out ends
+ * (outline parameter `u0`, at `capClipOffset`, level, running along the
+ * outline). The cable follows the outline through the clip, then curves
+ * gently (a fraction of its bend budget) outward and leaves past the rim.
+ * `outline`/`margin` mirror the cap's own (the flange's) exactly.
+ */
+export function layoutCapClip(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, bendRadius: number, u0: number): CapClipLayout {
+  const R = clipRadius(wireDiameter, tolerance);
+  const o = capClipOffset(margin, wireDiameter, tolerance);
+  const len = clipLength(wireDiameter);
+  const zc = capCableZ(wireDiameter);
+
+  // Along the outline at offset `o`, by arc length (pointAt's own parameter
+  // is only proportional to arc length at offset 0).
+  const fine: { s: number; t: number }[] = [{ s: 0, t: u0 }];
+  const dt = 0.05 / Math.max(1, Math.hypot(pointAt(outline, u0 + 1e-4, o).x - pointAt(outline, u0, o).x, pointAt(outline, u0 + 1e-4, o).y - pointAt(outline, u0, o).y) / 1e-4);
+  while (fine[fine.length - 1].s < len + 1) {
+    const prev = fine[fine.length - 1];
+    const a = pointAt(outline, prev.t, o);
+    const b = pointAt(outline, prev.t + dt, o);
+    fine.push({ s: prev.s + Math.hypot(b.x - a.x, b.y - a.y), t: prev.t + dt });
+  }
+  const tAt = (s: number) => {
+    const i = Math.max(1, fine.findIndex((f) => f.s >= s));
+    const [a, b] = [fine[i - 1], fine[i]];
+    return a.t + ((b.t - a.t) * (s - a.s)) / Math.max(1e-12, b.s - a.s);
+  };
+  const along = (s: number) => {
+    const t = tAt(s);
+    const p = pointAt(outline, t, o);
+    const q = pointAt(outline, t + 1e-6, o);
+    const l = Math.hypot(q.x - p.x, q.y - p.y);
+    return { c: { x: p.x, y: p.y }, u: { x: -(q.y - p.y) / l, y: (q.x - p.x) / l }, n: { x: p.nx, y: p.ny }, tan: { x: (q.x - p.x) / l, y: (q.y - p.y) / l } };
+  };
+
+  // The lips hang CAP_CLIP_LIP below where the opening meets the bore.
+  const closed = CABLE_CLIP_OPENING_FRACTION * R;
+  const zLo = zc - Math.sqrt(R * R - closed * closed) - CAP_CLIP_LIP;
+  const blockStations = stationsOver(0, len, CABLE_SWEEP_STEP, [CABLE_CLIP_ENTRY, len - CABLE_CLIP_ENTRY]);
+  const block: SweepSolid = {
+    rings: blockStations.map((s) => {
+      const { c, u } = along(s);
+      return boxRing(c, u, R + CABLE_CLIP_WALL, zLo, 1);
+    }),
+    start: { ...along(0).c, z: (zLo + 1) / 2 },
+    end: { ...along(len).c, z: (zLo + 1) / 2 },
+  };
+  // The bore runs a mm past each end of the block, so the block is open.
+  // Outside the lips it keeps a sliver of lip (0.9 R, not R): a full-width
+  // opening under a full-width relief would leave the circle no arc at all.
+  const boreStations = stationsOver(-1, len + 1, CABLE_SWEEP_STEP, [0, CABLE_CLIP_ENTRY, len - CABLE_CLIP_ENTRY, len]);
+  const bore: SweepSolid = {
+    rings: boreStations.map((s) => {
+      const { c, u } = along(s);
+      return boreRing({ ...c, z: zc }, u, R, 1, { half: R, to: CAP_CLIP_RELIEF }, { half: lipHalf(s, 0, len, R, 0.9 * R), to: zLo - 1 });
+    }),
+    start: { ...along(-1).c, z: zc },
+    end: { ...along(len + 1).c, z: zc },
+  };
+
+  // The drawn cable: through the clip along the outline, then out along the
+  // clip end's tangent, bending gently outward, past the rim.
+  const path: XY[] = [];
+  const clipSteps = Math.max(2, Math.ceil(len / CABLE_BRIDGE_STEP));
+  for (let i = 0; i <= clipSteps; i++) path.push(along((len * i) / clipSteps).c);
+  const end = along(len);
+  const curve = (0.8 * CABLE_BEND_BUDGET) / bendRadius;
+  const exit = (s: number): XY => ({
+    x: end.c.x + end.tan.x * s + end.n.x * ((curve * s * s) / 2),
+    y: end.c.y + end.tan.y * s + end.n.y * ((curve * s * s) / 2),
+  });
+  const sRim = reach((s) => {
+    const p = exit(s);
+    return outlineOffsetAt(outline, p.x, p.y).offset;
+  }, margin, 0);
+  const sOut = sRim + clippedTailLength(wireDiameter);
+  const exitSteps = Math.max(2, Math.ceil(sOut / CABLE_BRIDGE_STEP));
+  for (let i = 1; i <= exitSteps; i++) path.push(exit((sOut * i) / exitSteps));
+
+  return { block, bore, path };
 }

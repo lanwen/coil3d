@@ -120,22 +120,63 @@ export const SNAP_BARB_HEIGHT = 1.6; // mm, axial height of the barb band
 export const SNAP_RIDGE_THICKNESS = 1.4; // mm, axial height of the core-side retaining ridge
 export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot between fingers
 
-/** Rim keyhole (top cap, outer cable end): the retaining slit is narrower than the hole so the cable grips after insertion. */
-export const KEYHOLE_SLIT_FRACTION = 0.6;
+// Cable fix points (issue #117, src/core/innerEnd.ts): both cable ends are
+// held by a snap-in clip that lies ALONG the cable -- a round bore of
+// diameter d + tolerance whose opening is narrower than the cable, so the
+// cable presses in and then leaves the part along its own tangent. (Before
+// #117 these were vertical rim keyholes the cable had to turn 90 degrees
+// into.)
+/**
+ * The clip's opening width, as a fraction of its bore diameter (d + tolerance).
+ * Below 1 the cable snaps in past two lips. It must stay at or above
+ * sin(45 deg) = 0.707: the lips' underside is the bore's own arc from the
+ * opening down to the bore's equator, and at the lip edge that arc overhangs
+ * by acos(fraction) from vertical -- 41 degrees at 0.75, inside the usual
+ * 45 degree no-support limit in both parts' print orientations (the core
+ * prints flange-down, so the flange clip opens UP; the cap prints flipped,
+ * so its clip, which opens DOWN in the assembly, also opens up). The
+ * pre-#117 keyhole's 0.6 would overhang 53 degrees.
+ */
+export const CABLE_CLIP_OPENING_FRACTION = 0.75;
+/** Length of the gripping lips along the cable, as a multiple of the wire diameter (at least CABLE_CLIP_MIN_LENGTH). Short, so the cable is easy to press in and the lips sit only near the rim. */
+export const CABLE_CLIP_LENGTH_FACTOR = 1.5;
+export const CABLE_CLIP_MIN_LENGTH = 5; // mm
+/** The flange clip's lips may start where the cable is still this far above its final channel depth (the very end of its drop), mm -- lets the clip sit a few mm further from the rim than "strictly after the drop", saving flange margin. */
+export const CABLE_CLIP_DEPTH_SLACK = 0.25; // mm
+/** The lips start and end square (the cable presses in from above, so it needs no lead-in chamfer, and a square lip end reads cleanly in the line art); this hairline ramp only keeps two cross-sections from sharing one station. */
+export const CABLE_CLIP_ENTRY = 0.05; // mm
+/** Part material kept on each side of the clip's bore (the lips' own root), mm: the flange clip ends this far (plus the bore radius) short of the rim; the cap clip is a block this much wider than its bore on each side. */
+export const CABLE_CLIP_WALL = 1; // mm
+/** Cap clip: how far the lips reach below the point where the opening meets the bore (the height of their inner, vertical face), mm -- so the lip edge isn't a knife edge. */
+export const CAP_CLIP_LIP = 0.6; // mm
+/** Cap clip: the bore also cuts this far up into the cap plate, so its top never grazes the plate's underside at a near-tangent angle (a fragile boolean case); the cable top still touches the underside. */
+export const CAP_CLIP_RELIEF = 0.5; // mm
+/** Cap clip: the block stops this far inside the cap's rim, so its outer face never coincides with the rim's own. */
+export const CAP_CLIP_RIM_INSET = 0.2; // mm
+/** Cap end: the cable runs this far below the cap plate's underside (its top would otherwise sit exactly on that face, which the line art draws as a dashed seam). */
+export const CAP_CABLE_DROP = 0.1; // mm
+/** Cap clip: radial clearance between the clip's inner wall and the wound cable's outer surface; the flange (and cap) margin grows to keep it. */
+export const CAP_CLIP_COIL_GAP = 0.3; // mm
+/** A clipped cable end's free tail past the rim, as a multiple of the wire diameter (at least CABLE_CLIPPED_TAIL_MIN). */
+export const CABLE_CLIPPED_TAIL_FACTOR = 3;
+export const CABLE_CLIPPED_TAIL_MIN = 10; // mm
+/** Samples on each arc of a channel/clip cross-section. */
+export const CABLE_SWEEP_ARC_SEGMENTS = 16;
+/** Spacing of the channel/clip cross-sections along the cable, mm. */
+export const CABLE_SWEEP_STEP = 2.5; // mm
 
-// Inner-end fixing (issue #8, docs/research.md "Wire ends" + §8 item 3): the
-// bottom flange's OWN rim keyhole for the inner cable end (same hole+slit
-// shape as the top cap's KEYHOLE_SLIT_FRACTION keyhole, but cut all the way
-// through the flange's full thickness -- there's no separate "outer face"
-// the way the top cap's room-facing face is, see src/core/innerEnd.ts) plus
-// a recessed channel (a straight tangential chord since issue #115) on the flange's inner (winding-side, z=0) face
-// leading from that keyhole to the wall's own groove start.
-/** Channel depth = this factor * wire diameter -- deep enough that the wound cable's first turn lies flush with the surrounding flange face (unlike the wall's own groove, which only needs GROOVE_DEPTH_FACTOR: later turns there nest into the groove's OWN profile, but here later turns pass straight over a flat annulus, so no bump can be tolerated). */
+// Inner-end fixing (issues #8, #115, #117, docs/research.md "Wire ends" +
+// §8 item 3): a recessed channel on the bottom flange's inner (winding-side,
+// z=0) face, swept along the cable from the wall's own groove start (a
+// tangential chord since issue #115), with the cable clip near the rim.
+/** Channel depth (to the cable's bottom) = this factor * wire diameter -- deep enough that the wound cable's first turn lies flush with the surrounding flange face (unlike the wall's own groove, which only needs GROOVE_DEPTH_FACTOR: later turns there nest into the groove's OWN profile, but here later turns pass straight over a flat annulus, so no bump can be tolerated). */
 export const INNER_CHANNEL_DEPTH_FACTOR = 1.0;
 /** Flange material required BELOW the channel's own recess (cut from the inner/z=0 face), stacked on top of whatever the screw-keyhole mount's own pocket (cut from the outer/wall face) also needs -- mirrors SCREW_MOUNT_MIN_SHELF's role for that pocket. */
 export const INNER_CHANNEL_MIN_SHELF = 1.5; // mm
 /** Flange material left between the channel's side and the wall's own outer surface, mm -- so the cable lies in a full-width trench instead of one the wall half-covers. */
 export const INNER_CHANNEL_WALL_SKIN = 0.4; // mm
+/** The channel cutter is clipped this far outside the wall's own outline (never cutting the wall), mm: less than INNER_CHANNEL_WALL_SKIN, so the clip never flattens the round channel's wall-side flank, but never exactly on the wall's surface either. */
+export const INNER_CHANNEL_WALL_GUARD = 0.2; // mm
 
 // Issue #115: the whole drawn cable -- inner-end lead-in, layers, layer
 // transitions, outer end -- stays within the cable's minimum bend radius

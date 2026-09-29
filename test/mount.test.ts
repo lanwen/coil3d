@@ -172,7 +172,7 @@ describe("keyhole mount undercut (issue #71): verified against the built mesh, n
 // --- Issue #70: through-hole mount ----------------------------------------
 
 /** No real inner-end channel to avoid -- a stand-in far from the flange that never collides, for tests that aren't exercising the collision-avoidance behaviour itself. */
-const noChannel = { hole: { x: 1e9, y: 1e9 }, holeRadius: 0, channelRibbon: [] };
+const noChannel = { channelRibbon: [] };
 
 describe("through-hole mount layout (issue #70)", () => {
 
@@ -245,7 +245,13 @@ describe("through-hole mount layout (issue #70)", () => {
 
     // A channel footprint placed EXACTLY there, comfortably within the
     // required clearance.
-    const collidingChannel = { hole: { x: corner0Hole.x, y: corner0Hole.y }, holeRadius: 2, channelRibbon: [] };
+    const square = (c: { x: number; y: number }, half: number) => [
+      { x: c.x - half, y: c.y - half },
+      { x: c.x + half, y: c.y - half },
+      { x: c.x + half, y: c.y + half },
+      { x: c.x - half, y: c.y + half },
+    ];
+    const collidingChannel = { channelRibbon: square(corner0Hole, 2) };
     const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, collidingChannel);
     expect(layout.holes.length).toBe(3); // corner 0 skipped, the other 3 corners keep their own holes
     expect(layout.warning).toMatch(/skipped/i);

@@ -93,13 +93,11 @@ function basisFor(axisDeg: number) {
 
 const BOUNDARY_SAMPLES = 512;
 
-/** What the pin holes must keep clear of: the flange's inner-end keyhole and its channel's outline (innerEnd.ts's `InnerEndLayout` fields of the same names). */
+/** What the pin holes must keep clear of: the footprint of the flange's inner-end channel and clip (innerEnd.ts's `InnerEndLayout.channelRibbon`). */
 export interface InnerEndKeepOut {
-  hole: { x: number; y: number };
-  holeRadius: number;
   channelRibbon: Array<{ x: number; y: number }>;
 }
-/** Minimum distance from a pin hole's centre to the keyhole's edge or the channel's outline (mm): the hole's own radius plus a wall. */
+/** Minimum distance from a pin hole's centre to the channel's outline (mm): the hole's own radius plus a wall. */
 const ANCHOR_KEEP_OUT = 3;
 
 /** Distance from `p` to the nearest edge of a closed polygon. */
@@ -192,7 +190,7 @@ export function layoutMountPlate(
   clipHalfSide: number,
   clipHalfUp: number,
   columnOffset = 0,
-  /** The flange's inner-end keyhole and channel (innerEnd.ts's `layoutInnerEnd`), which the pin holes must stay clear of. */
+  /** The footprint of the flange's inner-end channel and clip (innerEnd.ts's `layoutInnerEnd`), which the pin holes must stay clear of. */
   avoid?: InnerEndKeepOut,
 ): MountPlateLayout {
   const outline = offsetOutline(flangeOutline, -MOUNT_PLATE_EDGE_MARGIN);
@@ -237,8 +235,8 @@ export function layoutMountPlate(
   // 2 alignment pin holes, at the midpoint of the annulus between the bore
   // and the plate's own edge (mirrors mount.ts's `slotAt` band-midpoint
   // placement): on the side axis through the centre (up=0), or -- when that
-  // would cut into the flange's own inner-end keyhole or channel (issue
-  // #106: a pin hole grazing the keyhole's through-cut added a tunnel) --
+  // would cut into the flange's own inner-end channel or clip (issue
+  // #106: a pin hole grazing the old keyhole's through-cut added a tunnel) --
   // on the up axis instead. Purely a best-effort placement aid; the plate
   // is still a valid, glueable part without them.
   const pairOn = (turnDeg: 0 | 90): AnchorPoint[] => {
@@ -250,7 +248,7 @@ export function layoutMountPlate(
     return pts.map((p) => ({ ...p, rotationDeg }));
   };
   const clear = (p: { x: number; y: number }) =>
-    !avoid || (Math.hypot(p.x - avoid.hole.x, p.y - avoid.hole.y) >= avoid.holeRadius + ANCHOR_KEEP_OUT && (avoid.channelRibbon.length < 3 || distanceToPolygon(p, avoid.channelRibbon) >= ANCHOR_KEEP_OUT));
+    !avoid || avoid.channelRibbon.length < 3 || distanceToPolygon(p, avoid.channelRibbon) >= ANCHOR_KEEP_OUT;
   const anchors = [pairOn(0), pairOn(90)].find((pair) => pair.length === 2 && pair.every(clear)) ?? [];
 
   return { outline, clips, anchors, axisDeg };

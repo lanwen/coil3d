@@ -18,10 +18,11 @@ import { buildWall } from "../src/core/wall";
 // plus tolerance", "A recessed channel on the flange's inner face leads from
 // the keyhole to the groove start", "The keyhole->channel->groove path
 // respects the minimum bend radius; if impossible, a warning is emitted",
-// "The part stays manifold". Issue #115 moved the keyhole onto the cable's
-// tangent chord (the channel is straight now) and grows the flange margin
-// when the chord needs more room; test/cableBend.test.ts checks the bend
-// radius along the whole cable.
+// "The part stays manifold". Issue #115 moved the fixing onto the cable's
+// tangent chord and grows the flange margin when the chord needs more room;
+// issue #117 replaced the keyhole with a clip along the cable and sweeps the
+// channel along it (test/cableClip.test.ts checks the cut cross-sections);
+// test/cableBend.test.ts checks the bend radius along the whole cable.
 // These tests exercise ONLY the public `design()` interface (plus the shared
 // `layoutInnerEnd` pure-math function, mirroring test/design.test.ts's own
 // treatment of mount.ts), per the testing decisions in docs/research.md.
@@ -52,9 +53,9 @@ async function assertManifold(mesh: { positions: Float32Array; indices: Uint32Ar
   try {
     expect(m.status(), `${label}: manifold status`).toBe("NoError");
     expect(m.volume(), `${label}: volume`).toBeGreaterThan(0);
-    // A blind pocket/keyhole is not a tunnel: it must never change the
+    // A blind pocket or channel is not a tunnel: it must never change the
     // core's topology (still one hole through the whole part -- the bore).
-    expect(m.genus(), `${label}: genus (a rim keyhole must not add a handle)`).toBe(1);
+    expect(m.genus(), `${label}: genus (the channel and clip must not add a handle)`).toBe(1);
     return m.volume();
   } finally {
     m.delete();
@@ -80,55 +81,58 @@ function distanceFromTangentLine(j: { x: number; y: number; tx: number; ty: numb
   return Math.abs((x - j.x) * j.ty - (y - j.y) * j.tx);
 }
 
-describe("inner-end fixing: bottom rim keyhole and channel (issues #8, #115)", () => {
-  it("sizes the keyhole from wire diameter + tolerance, and puts it on the tangent chord inside the flange rim", async () => {
+describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #117)", () => {
+  it("sizes the clip from wire diameter + tolerance, puts it on the tangent chord inside the flange rim, and leads the cable out through the rim (issue #117)", async () => {
     const wireDiameter = 4.2;
     const tolerance = 0.25;
     for (const shape of [{ kind: "round" }, { kind: "sq", cornerRadius: 15 }, { kind: "tri", cornerRadius: 15 }] as ShapeSpec[]) {
       const d = await design(baseSpec({ shape, wire: { length: 2000, diameter: wireDiameter, type: "usb" }, tolerance, coreSize: { locked: true, dimension: "outer", value: 60 } }));
       const layout = layoutOf(d);
-      expect(layout.holeRadius).toBeCloseTo(wireDiameter / 2 + tolerance, 9);
+      expect(layout.channelRadius).toBeCloseTo((wireDiameter + tolerance) / 2, 9);
+      // The opening is narrower than the cable, so it snaps in.
+      expect(layout.clipOpening).toBeLessThan(wireDiameter);
 
       // Issue #115: on the straight line the cable leaves the groove start
       // along (backwards along layer 1's own tangent), give or take the
       // small sideways shift that keeps the channel clear of the wall.
       const j = grooveStartOf(d);
-      expect(distanceFromTangentLine(j, layout.hole.x, layout.hole.y), `${shape.kind}: keyhole off the tangent chord`).toBeLessThan((wireDiameter + tolerance) / 2 + 1);
-      // Behind the groove start (the side the cable comes from), not ahead.
-      expect((layout.hole.x - j.x) * j.tx + (layout.hole.y - j.y) * j.ty).toBeLessThan(0);
+      for (const at of [layout.clip.from, layout.clip.to]) {
+        expect(distanceFromTangentLine(j, at.x, at.y), `${shape.kind}: clip off the tangent chord`).toBeLessThan((wireDiameter + tolerance) / 2 + 1);
+        // Behind the groove start (the side the cable comes from), not ahead.
+        expect((at.x - j.x) * j.tx + (at.y - j.y) * j.ty).toBeLessThan(0);
+      }
 
-      // Inside the flange, a skin short of its rim; the slit opens on the rim.
-      const hole = outlineOffsetAt(d.flangeSpec.outline, layout.hole.x, layout.hole.y);
-      expect(hole.offset).toBeLessThanOrEqual(d.flangeSpec.margin - layout.holeRadius - 1 + 1e-6);
-      expect(hole.offset).toBeGreaterThan(layout.holeRadius);
-      expect(outlineOffsetAt(d.flangeSpec.outline, layout.edge.x, layout.edge.y).offset).toBeCloseTo(d.flangeSpec.margin, 6);
+      // Both lips inside the flange, a wall short of its rim; the cable
+      // crosses the rim further along the same chord and ends outside it.
+      const clipEnd = outlineOffsetAt(d.flangeSpec.outline, layout.clip.to.x, layout.clip.to.y);
+      expect(clipEnd.offset).toBeLessThanOrEqual(d.flangeSpec.margin - layout.channelRadius - 1 + 1e-6);
+      expect(clipEnd.offset).toBeGreaterThan(layout.channelRadius);
+      expect(outlineOffsetAt(d.flangeSpec.outline, layout.rimExit.x, layout.rimExit.y).offset).toBeCloseTo(d.flangeSpec.margin, 6);
+      const tailEnd = layout.leadIn[0];
+      expect(outlineOffsetAt(d.flangeSpec.outline, tailEnd.x, tailEnd.y).offset).toBeGreaterThan(d.flangeSpec.margin + 5);
     }
   });
 
-  it("cuts the recessed channel from the keyhole along the chord: straight on a round core, a gentle arc (within the bend radius) on a square/triangle", async () => {
+  it("the channel is swept around the drawn cable: every cross-section is the round bore about the cable's own centre, from above the face to past the rim (issue #117)", async () => {
     for (const shape of [{ kind: "round" }, { kind: "sq", cornerRadius: 15 }, { kind: "tri", cornerRadius: 15 }] as ShapeSpec[]) {
       const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: 60 } }));
       const layout = layoutOf(d);
-      const path = layout.channelPath;
-      expect(path.length).toBeGreaterThanOrEqual(2);
-      expect(path[0].x).toBeCloseTo(layout.hole.x, 9);
-      expect(path[0].y).toBeCloseTo(layout.hole.y, 9);
-      const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-      for (let i = 1; i + 1 < path.length; i++) {
-        const [a, b, c] = [path[i - 1], path[i], path[i + 1]];
-        const ab = Math.hypot(b.x - a.x, b.y - a.y);
-        const bc = Math.hypot(c.x - b.x, c.y - b.y);
-        const turn = Math.abs(Math.atan2((b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x), (b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y)));
-        if (shape.kind === "round") expect(turn, "round: straight").toBeLessThan(1e-6);
-        else expect((turn / ((ab + bc) / 2)) * bendRadius, `${shape.kind}: channel bend`).toBeLessThanOrEqual(1);
-      }
-      // Its outline is channelWidth wide at the keyhole end.
-      const ribbon = layout.channelRibbon;
-      expect(Math.hypot(ribbon[0].x - ribbon[ribbon.length - 1].x, ribbon[0].y - ribbon[ribbon.length - 1].y)).toBeCloseTo(layout.channelWidth, 6);
+      const { rings } = layout.channel;
+      expect(rings.length).toBeGreaterThanOrEqual(10);
+      expect(new Set(rings.map((r) => r.length)).size, "same vertex count everywhere").toBe(1);
+      // Starts with the bore still above the flange face (zero depth)...
+      expect(Math.min(...rings[0].map((p) => p.z))).toBeGreaterThan(0);
+      // ...and ends with the whole bore past the rim.
+      for (const p of rings[rings.length - 1]) expect(outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset).toBeGreaterThan(d.flangeSpec.margin);
+      // Its deepest cut is the bore's bottom around the cable resting in the
+      // channel: channelDepth to the cable's bottom, tolerance/2 more for the bore.
+      const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness, d.spec.mount);
+      const deepest = Math.min(...rings.flat().map((p) => p.z));
+      expect(deepest).toBeCloseTo(-channelDepth - d.spec.tolerance / 2, 3);
     }
   });
 
-  it("a square/triangle's keyhole reaches the rim along the flat side, clear of the next corner's through-hole (issue #115)", async () => {
+  it("a square/triangle's clip reaches the rim along the flat side, clear of the next corner's through-hole (issue #115)", async () => {
     for (const shape of [{ kind: "sq", cornerRadius: 10 }, { kind: "tri", cornerRadius: 10 }] as ShapeSpec[]) {
       const d = await design(baseSpec({ shape, coreSize: { locked: false }, height: { locked: false }, mount: "through" }));
       expect(d.warnings.some((w) => /through-hole\(s\) skipped/.test(w)), `${shape.kind}: ${d.warnings.join(" | ")}`).toBe(false);
@@ -177,14 +181,14 @@ describe("inner-end fixing: bottom rim keyhole and channel (issues #8, #115)", (
 
   const SHAPES: ShapeSpec[] = [{ kind: "round" }, { kind: "sq", cornerRadius: 15 }, { kind: "tri", cornerRadius: 15 }];
 
-  it.each(SHAPES)("stays a valid, watertight, genus-1 manifold with the keyhole+channel cut for shape=$kind", async (shape) => {
+  it.each(SHAPES)("stays a valid, watertight, genus-1 manifold with the channel+clip cut for shape=$kind", async (shape) => {
     const d = await design(
       baseSpec({
         shape,
         coreSize: { locked: true, dimension: "outer", value: 60 },
       }),
     );
-    await assertManifold(d.mesh, `keyhole+channel/${shape.kind}`);
+    await assertManifold(d.mesh, `channel+clip/${shape.kind}`);
   });
 
   it("removes real material from the core (the cutout, not a no-op)", async () => {
@@ -217,21 +221,30 @@ describe("inner-end fixing: bottom rim keyhole and channel (issues #8, #115)", (
   // design -- moved into design.test.ts's test alongside those same
   // assertions.
 
-  it("the drawn lead-in runs from the keyhole, lying flush in the channel, straight along the chord to EXACTLY layer 1's first sample", async () => {
+  it("the drawn lead-in runs from past the rim, level through the clip and flush in the channel, straight along the chord to EXACTLY layer 1's first sample", async () => {
     for (const shape of SHAPES) {
       const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: 60 } }));
       const layout = layoutOf(d);
       const lead = d.innerEndLeadIn;
       const n = lead.length / 3;
       expect(n).toBeGreaterThanOrEqual(2);
+      expect(lead[0]).toBeCloseTo(layout.leadIn[0].x, 4);
+      expect(lead[1]).toBeCloseTo(layout.leadIn[0].y, 4);
 
-      // Starts at the keyhole, resting on the channel floor: its top is flush
-      // with the flange face (issue #43), not proud of it.
+      // Level from its free end through the rim and the clip, resting on the
+      // channel floor: its top is flush with the flange face (issue #43), not
+      // proud of it.
       const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness, d.spec.mount);
-      expect(lead[0]).toBeCloseTo(layout.hole.x, 4);
-      expect(lead[1]).toBeCloseTo(layout.hole.y, 4);
-      expect(lead[2]).toBeCloseTo(-channelDepth + d.spec.wire.diameter / 2, 4);
+      const zChannel = -channelDepth + d.spec.wire.diameter / 2;
       expect(lead[2] + d.spec.wire.diameter / 2).toBeLessThanOrEqual(1e-4);
+      for (let i = 0; i < n; i++) {
+        const dx = lead[i * 3] - layout.leadIn[0].x;
+        const dy = lead[i * 3 + 1] - layout.leadIn[0].y;
+        const toClipStart = Math.hypot(layout.clip.to.x - layout.leadIn[0].x, layout.clip.to.y - layout.leadIn[0].y);
+        if (Math.hypot(dx, dy) > toClipStart) break;
+        expect(lead[i * 3 + 2], `${shape.kind}: sample ${i} level through the clip`).toBeCloseTo(zChannel, 4);
+      }
+      expect(layout.clip.from.z - zChannel, "the lips start once the cable has (nearly) settled").toBeLessThanOrEqual(0.25 + 1e-6);
 
       // Ends bit-for-bit at layer 1's own first sample.
       const first = d.wirePaths[0].points;
@@ -239,10 +252,12 @@ describe("inner-end fixing: bottom rim keyhole and channel (issues #8, #115)", (
       expect(lead[(n - 1) * 3 + 1]).toBeCloseTo(first[1], 5);
       expect(lead[(n - 1) * 3 + 2]).toBeCloseTo(first[2], 5);
 
-      // A straight chord in plan view: every sample within the channel's
-      // small sideways shift of the tangent line.
+      // A straight chord in plan view: every sample from the clip in within
+      // the channel's small sideways shift of the tangent line (the
+      // rest runs on out through the rim, then straight).
       const j = grooveStartOf(d);
       for (let i = 0; i < n; i++) {
+        if (outlineOffsetAt(d.flangeSpec.outline, lead[i * 3], lead[i * 3 + 1]).offset > outlineOffsetAt(d.flangeSpec.outline, layout.clip.to.x, layout.clip.to.y).offset + 1e-6) continue;
         expect(distanceFromTangentLine(j, lead[i * 3], lead[i * 3 + 1]), `${shape.kind}: sample ${i} off the chord`).toBeLessThan(d.spec.wire.diameter);
       }
     }
@@ -256,7 +271,7 @@ describe("inner-end fixing: bottom rim keyhole and channel (issues #8, #115)", (
       }),
     );
     expect(d.solution.layerResults[0]?.turns ?? 0).toBe(0);
-    // The channel/keyhole are still cut (they don't depend on turns), but
+    // The channel and clip are still cut (they don't depend on turns), but
     // there is no wound layer to visually lead into with a drawn tube --
     // the viewer only ever draws the lead-in ALONGSIDE `wirePaths[0]`
     // (CoilViewer.tsx), which is itself empty here.

@@ -5,6 +5,7 @@
 
 import type { WallSpec } from "./wall";
 import type { FlangeSpec } from "./manifold";
+import type { CapClipLayout } from "./innerEnd";
 
 export type { ShapeKind } from "./shapes";
 
@@ -398,12 +399,15 @@ export interface Design {
    */
   pegboard?: PegboardSection;
   /**
-   * The inner-end lead-in (issues #8, #115): from the bottom flange's rim
-   * keyhole, along the straight tangential chord and its gentle drop out of
-   * the recessed channel, to layer 1's own first sample (`wirePaths[0]`) --
-   * xyz per sample. Empty when layer 1 has no turns.
+   * The inner-end lead-in (issues #8, #115, #117): from the cable's free
+   * end past the bottom flange's rim, through the clip and the recessed
+   * channel (level), along the straight tangential chord and its gentle
+   * rise out of the channel, to layer 1's own first sample (`wirePaths[0]`)
+   * -- xyz per sample. Empty when layer 1 has no turns.
    */
   innerEndLeadIn: Float32Array;
+  /** Issue #117: the inner end's clip in the bottom flange -- the cable centre where its gripping lips start (`from`) and end (`to`, nearer the rim). */
+  innerEndClip: { from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } };
   /**
    * The cable's run from the chronological end of each wound layer to the
    * start of the next (issues #68, #115): `layerTransitions[i]` joins
@@ -414,9 +418,10 @@ export interface Design {
   layerTransitions: Float32Array[];
   /**
    * The outer end (issues #68, #115), from the last wound layer's own end:
-   * with the top cap on, the run up to just under the cap's rim keyhole
-   * (`capKeyhole`); with it off, a straight free tail along the last turn's
-   * tangent. Empty when no layer has any turns.
+   * with the top cap on, the run up to just under the cap, on through the
+   * cap's clip (`capClip`) and out past the rim; with it off, a straight
+   * free tail along the last turn's tangent. Empty when no layer has any
+   * turns.
    */
   outerEndLeadOut: Float32Array;
   /**
@@ -428,12 +433,11 @@ export interface Design {
    */
   cablePath: Float32Array;
   /**
-   * The top cap's rim keyhole (issue #115): cut where the cable's cap
-   * lead-out ends, with its retaining slit opening at the nearest point of
-   * the cap's rim. Undefined when the top cap is off. Not for UI use (the
-   * STEP backend cuts the same keyhole from it).
+   * The top cap's cable clip (issue #117, innerEnd.ts's `layoutCapClip`):
+   * laid out where the cable's cap lead-out ends. Undefined when the top cap
+   * is off. Not for UI use (the STEP backend builds the same clip from it).
    */
-  capKeyhole?: { hole: { x: number; y: number }; edge: { x: number; y: number } };
+  capClip?: CapClipLayout;
 }
 
 export type ExportFormat = "stl" | "step" | "3mf";

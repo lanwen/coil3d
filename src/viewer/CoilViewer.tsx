@@ -255,8 +255,26 @@ const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
  * `?debugFocusInnerEnd=1`, or the cable's outer end (issue #115: the cap
  * keyhole, or the free tail with the cap off), behind
  * `?debugFocusOuterEnd=1` (checked once at mount, not reactively -- a
- * screenshot tool, not a user control).
+ * screenshot tool, not a user control). `&debugFocusFromBelow=1` also turns
+ * the model over so the camera looks at that end from underneath (issue
+ * #117: the top cap's clip hangs under its rim), and
+ * `&debugFocusRadius=<mm>` frames only the part of that end within this
+ * distance of the cable's end, for a tighter close-up.
  */
+function useDebugFocusOptions(): { fromBelow: boolean; radius: number } {
+  const [options] = useState(() => {
+    if (typeof window === "undefined") return { fromBelow: false, radius: Infinity };
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const radius = Number(params.get("debugFocusRadius"));
+      return { fromBelow: params.get("debugFocusFromBelow") === "1", radius: radius > 0 ? radius : Infinity };
+    } catch {
+      return { fromBelow: false, radius: Infinity };
+    }
+  });
+  return options;
+}
+
 function useDebugFocusEnd(): "inner" | "outer" | null {
   const [end] = useState<"inner" | "outer" | null>(() => {
     if (typeof window === "undefined") return null;
@@ -312,10 +330,21 @@ export function CoilViewer({
   const reducedMotion = usePrefersReducedMotion();
   const [viewMode, setViewMode] = useState<ViewMode>("standing");
   const debugFocusEnd = useDebugFocusEnd();
+  const { fromBelow: debugFocusFromBelow, radius: debugFocusRadius } = useDebugFocusOptions();
   // The cable end the debug close-up frames (its own samples), and the
   // sample it turns to face the camera: the keyhole (the lead-in's first)
   // or the outer end's last.
-  const focusPath = debugFocusEnd === "inner" ? innerEndLeadIn : debugFocusEnd === "outer" ? outerEndLeadOut : undefined;
+  const focusPath = useMemo(() => {
+    const path = debugFocusEnd === "inner" ? innerEndLeadIn : debugFocusEnd === "outer" ? outerEndLeadOut : undefined;
+    if (!path || path.length < 6 || !Number.isFinite(debugFocusRadius)) return path;
+    // Only the samples near the cable's end (`debugFocusRadius`).
+    const at = debugFocusEnd === "outer" ? path.length - 3 : 0;
+    const near: number[] = [];
+    for (let i = 0; i < path.length; i += 3) {
+      if (Math.hypot(path[i] - path[at], path[i + 1] - path[at + 1], path[i + 2] - path[at + 2]) <= debugFocusRadius) near.push(path[i], path[i + 1], path[i + 2]);
+    }
+    return near.length >= 6 ? new Float32Array(near) : path;
+  }, [debugFocusEnd, innerEndLeadIn, outerEndLeadOut, debugFocusRadius]);
   const focusIndex = debugFocusEnd === "outer" && focusPath ? focusPath.length / 3 - 1 : 0;
   useEffect(() => {
     onPrintLayoutActiveChange?.(viewMode === "printLayout");
@@ -349,8 +378,12 @@ export function CoilViewer({
     if (viewMode !== "standing" || !focusPath || focusPath.length < 6) return null;
     const isoAzimuth = Math.atan2(getPreset("iso").direction.y, getPreset("iso").direction.x);
     const keyholeAzimuth = Math.atan2(focusPath[focusIndex * 3 + 1], focusPath[focusIndex * 3]);
-    return new THREE.Matrix4().makeRotationZ(isoAzimuth - keyholeAzimuth);
-  }, [viewMode, focusPath, focusIndex]);
+    const turn = new THREE.Matrix4().makeRotationZ(isoAzimuth - keyholeAzimuth);
+    if (!debugFocusFromBelow) return turn;
+    // Upside down about the horizontal axis through the focus point's own
+    // azimuth, so it stays in front of the camera.
+    return new THREE.Matrix4().makeRotationAxis(new THREE.Vector3(Math.cos(isoAzimuth), Math.sin(isoAzimuth), 0), Math.PI).multiply(turn);
+  }, [viewMode, focusPath, focusIndex, debugFocusFromBelow]);
 
   const partGeometries = useMemo(() => parts.map((part) => ({ part, geometry: buildCreasedGeometry(part.mesh) })), [parts]);
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);

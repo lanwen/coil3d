@@ -48,7 +48,7 @@ test.describe("printable assembly guide (issue #17)", () => {
   test("a 1-layer design (no top cap) skips the two cap steps: print, thread, wind, mount, unwind", async ({ page }) => {
     await gotoGuide(page, ONE_LAYER);
     await expect(page.getByTestId("guide-step-1")).toContainText("Print the parts");
-    await expect(page.getByTestId("guide-step-2")).toContainText("Thread the inner cable end");
+    await expect(page.getByTestId("guide-step-2")).toContainText("Clip in the inner cable end");
     await expect(page.getByTestId("guide-step-3")).toContainText("Wind the cable");
     await expect(page.getByTestId("guide-step-4")).toContainText("Mount on the wall");
     await expect(page.getByTestId("guide-step-4")).toContainText("mounts are coming soon");
@@ -67,7 +67,7 @@ test.describe("printable assembly guide (issue #17)", () => {
     await gotoGuide(page, TWO_LAYER_CAP);
     await expect(page.getByTestId("guide-step-1")).toContainText("Print the parts");
     await expect(page.getByTestId("guide-step-1")).toContainText("2 parts");
-    await expect(page.getByTestId("guide-step-2")).toContainText("Thread the inner cable end");
+    await expect(page.getByTestId("guide-step-2")).toContainText("Clip in the inner cable end");
     await expect(page.getByTestId("guide-step-3")).toContainText("Wind the cable");
     await expect(page.getByTestId("guide-step-3")).toContainText("2 layers");
     await expect(page.getByTestId("guide-step-4")).toContainText("Fit the top cap");
