@@ -6,8 +6,7 @@ import type { CoilSpec } from "../src/core";
 // PUBLIC `flangeSpec` (not a reimplementation) verifies the actual layout
 // that was cut, per the PR review's request for "a vitest check through
 // design()" of the slot geometry.
-import { bestAxisDeg, layoutKeyholeMount } from "../src/core/mount";
-import { SCREW_MOUNT_TWO_SLOT_ANGLE } from "../src/core/constants";
+import { layoutKeyholeMount } from "../src/core/mount";
 // Issue #54: independently verifies the ACTUAL resolved outline design()
 // produced (`wallSpec.outline`), not a reimplemented formula -- same
 // pattern as the mount.ts import above.
@@ -541,6 +540,15 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
     expect(d.warnings.some((w) => /margin increased/i.test(w))).toBe(true);
     // The mount fits at this size: no "too narrow"/skip warning.
     expect(d.warnings.some((w) => /too narrow/i.test(w))).toBe(false);
+    // Test-audit report, C-C: moved from test/innerEnd.test.ts's own "the
+    // mount's own recess grows the flange thickness further, so the channel
+    // still reaches its ideal depth" (issue #43), which otherwise duplicated
+    // this test's own thickness/margin assertions on the identical
+    // core=100/height=60/none-vs-keyhole spec. Issue #43: the flange grows
+    // enough for the full-depth inner-end channel PLUS the mount's own
+    // recess, so neither design should ever warn about a shallow channel.
+    expect(none.warnings.some((w) => /channel is only .* mm deep/i.test(w))).toBe(false);
+    expect(d.warnings.some((w) => /channel is only .* mm deep/i.test(w))).toBe(false);
   });
 
   it("warns (without crashing) and skips the cut when the caller feeds layoutKeyholeMount a margin it already knows is too narrow", async () => {
@@ -624,8 +632,12 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
         expect(slot.head.y).toBeGreaterThan(0);
       }
 
-      // The 2 anchors are mirror images of each other about the shape's own best axis.
-      const axisDeg = bestAxisDeg(boreOutline, SCREW_MOUNT_TWO_SLOT_ANGLE);
+      // The 2 anchors are mirror images of each other about the PUBLIC
+      // `d.mountAxisDeg` -- not a value re-derived by calling `bestAxisDeg`
+      // again (test-audit report, C-B/B3: that would only show `bestAxisDeg`
+      // agreeing with itself, still passing even if it chose a wrong axis).
+      expect(d.mountAxisDeg).not.toBeUndefined();
+      const axisDeg = d.mountAxisDeg!;
       const [a, b] = layout.slots.map((slot) => project(anchorOf(slot), axisDeg));
       expect(a.side).toBeCloseTo(-b.side, 6);
       expect(a.up).toBeCloseTo(b.up, 6);
@@ -637,7 +649,6 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
       // a consumer (the viewer's wall presets) needs this to show the
       // mount's real hung orientation -- see mount.ts's own doc comment.
       expect(layout.axisDeg).toBeCloseTo(axisDeg, 9);
-      expect(d.mountAxisDeg).toBeCloseTo(axisDeg, 9);
     });
 
     it("places a single slot centred on the shape's own best axis, above centre, channel pointing literally up, on a modest flange", async () => {
@@ -671,18 +682,19 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
       expect(slot.shankEnd.y).toBeGreaterThan(slot.head.y);
       expect(slot.head.y).toBeGreaterThan(0);
 
-      // Centred exactly on the shape's own best axis (side offset 0).
-      const axisDeg = bestAxisDeg(boreOutline, 0);
+      // Centred exactly on the PUBLIC `d.mountAxisDeg` (side offset 0) --
+      // not a re-derived `bestAxisDeg` call (see the 2-slot test above).
+      expect(d.mountAxisDeg).not.toBeUndefined();
+      const axisDeg = d.mountAxisDeg!;
       const anchor = project(anchorOf(slot), axisDeg);
       expect(anchor.side).toBeCloseTo(0, 6);
       expect(anchor.up).toBeGreaterThan(0);
 
       expect(layout.axisDeg).toBeCloseTo(axisDeg, 9);
-      expect(d.mountAxisDeg).toBeCloseTo(axisDeg, 9);
     });
   });
 
-  it("design()'s mountAxisDeg is undefined without the keyhole mount, and also when the mount doesn't fit at all", async () => {
+  it("design()'s mountAxisDeg is undefined without the keyhole mount, but defined once requiredFlangeMargin grows the flange to fit it", async () => {
     const none = await design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 100 }, height: { locked: true, value: 60 } }));
     expect(none.mountAxisDeg).toBeUndefined();
 
