@@ -40,7 +40,9 @@ test("the bed-size fields exist and shrinking the bed produces a fit warning", a
   await expect(page.getByTestId("warnings")).toContainText(/footprint/i);
   await expect(page.getByTestId("warnings")).toContainText(/doesn't fit/i);
 
-  // The hash reflects the new bed size, so a reload reproduces it.
-  await page.waitForTimeout(300);
-  expect(decodeHashDoc(page.url()).bx).toBe(20);
+  // The hash reflects the new bed size, so a reload reproduces it. A settle
+  // poll (test-audit S5), not a fixed sleep + immediate read: the hash write
+  // races the input's own debounce, so retry until it lands instead of
+  // guessing how long that takes.
+  await expect(async () => expect(decodeHashDoc(page.url()).bx).toBe(20)).toPass();
 });
