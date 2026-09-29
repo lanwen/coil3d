@@ -28,10 +28,19 @@ export type Projection = "ortho" | "perspective";
 // Nothing in this app reads it outside e2e/line-art.spec.ts, which polls it
 // off `window` the same way e2e/smooth-param-changes.spec.ts already does
 // for __framingTweenCount above.
+// Test-only seam (issue #110): drives a full orbit directly instead of
+// simulating a mouse drag, for tests that only care about the CAMERA'S
+// resulting azimuth, not the pointer path that produces it -- the drag path
+// itself (does a drag actually orbit the camera, does it reach the right
+// OrbitControls STATE) is already covered by e2e/line-art.spec.ts's own
+// orbit tests (issue #84). Nothing in this app reads it outside
+// e2e/dimensions.spec.ts's issue #93 rigidity test, which used to drive 24
+// steps of a full orbit via `page.mouse.move` and now calls this instead.
 declare global {
   interface Window {
     __framingTweenCount?: number;
     __orbitAzimuthDeg?: number;
+    __orbitByDeg?: (deltaDeg: number) => void;
   }
 }
 function recordFramingTween() {
@@ -449,6 +458,39 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
   // be corrected back onto the same continuous number line before adding it
   // to `cumulativeDeg`.
   const azimuthTracking = useRef<{ raw: number; cumulativeDeg: number } | null>(null);
+
+  // __orbitByDeg's own doc comment above explains why this exists. Rotates
+  // the live camera azimuthally by `deltaDeg` around the current orbit
+  // target, using the exact same up-aligning quaternion trick
+  // `OrbitControls.update()` itself uses internally (see its own source) to
+  // convert to/from a Y-up spherical basis regardless of this app's Z-up
+  // cameras -- so the result is indistinguishable, to every other piece of
+  // code that reads the camera (including __orbitAzimuthDeg above), from a
+  // real drag having rotated it by the same amount. Re-registered whenever
+  // `activeCamera` changes identity (a projection toggle) so it always acts
+  // on whichever camera is actually live.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.__orbitByDeg = (deltaDeg: number) => {
+      const controls = controlsRef.current;
+      if (!controls) return;
+      const target = controls.target;
+      const yUp = new THREE.Vector3(0, 1, 0);
+      const quat = new THREE.Quaternion().setFromUnitVectors(activeCamera.up, yUp);
+      const quatInverse = quat.clone().invert();
+      const offset = activeCamera.position.clone().sub(target).applyQuaternion(quat);
+      const spherical = new THREE.Spherical().setFromVector3(offset);
+      spherical.theta += THREE.MathUtils.degToRad(deltaDeg);
+      offset.setFromSpherical(spherical).applyQuaternion(quatInverse);
+      activeCamera.position.copy(target).add(offset);
+      activeCamera.lookAt(target);
+      controls.update();
+      invalidate();
+    };
+    return () => {
+      if (typeof window !== "undefined") delete window.__orbitByDeg;
+    };
+  }, [activeCamera, controlsRef, invalidate]);
 
   function aspectOf() {
     return size.width > 0 && size.height > 0 ? size.width / size.height : 1;
