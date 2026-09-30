@@ -5,6 +5,8 @@ import { useDesignPreview } from "./geometry/useDesignPreview";
 import { ControlsForm } from "./components/ControlsForm";
 import { ResultPanel } from "./components/ResultPanel";
 import { CoilViewer } from "./viewer/CoilViewer";
+import { ProjectionToggle } from "./viewer/ViewControls";
+import type { Projection } from "./viewer/lineArt/LineArtRenderer";
 import { EyeToggle } from "./components/fields";
 import { HINTS } from "./components/hints";
 import { Guide } from "./guide/Guide";
@@ -27,6 +29,10 @@ export default function App() {
   const [exploded, setExploded] = useState(false);
   // Dimension axes (issue #69): view-only too, on by default.
   const [showDimensions, setShowDimensions] = useState(true);
+  // Isometric/perspective camera (issue #15): view-only, resets on reload.
+  // Lifted here from CoilViewer by issue #145 so its switch sits with the
+  // three toggles above (one strip under the canvas on a phone).
+  const [projection, setProjection] = useState<Projection>("ortho");
   // Print layout (issue #78 PR review): while that view is active, the
   // wire/dimensions toggles below have no effect (the view force-hides both
   // itself -- there's nothing to show), so they're hidden rather than left
@@ -160,21 +166,6 @@ export default function App() {
         <div className="viewer">
           {result && (
             <>
-              {!isPrintLayout && (
-                <div className="wire-toggle">
-                  <EyeToggle testId="wire" label="Show wound cable" checked={showWire} hint={HINTS.wire} onChange={setShowWire} />
-                </div>
-              )}
-              {!isPrintLayout && (
-                <div className="dimensions-toggle">
-                  <EyeToggle testId="dimensions" label="Dimensions" checked={showDimensions} hint={HINTS.dimensions} onChange={setShowDimensions} />
-                </div>
-              )}
-              {!isPrintLayout && result.parts.length > 1 && (
-                <div className="explode-toggle">
-                  <EyeToggle testId="exploded" label="Exploded view" checked={exploded} hint={HINTS.exploded} onChange={setExploded} />
-                </div>
-              )}
               <CoilViewer
                 parts={result.parts}
                 resolution={result.resolution}
@@ -195,7 +186,31 @@ export default function App() {
                 onPrintLayoutActiveChange={setIsPrintLayout}
                 mountKind={result.spec.mount}
                 pegboard={result.pegboard}
+                projection={projection}
               />
+              {/* The viewport toggles (issue #145): overlaid on the canvas's
+                  corners on desktop (the wrapper is `display: contents`
+                  there), one strip under the canvas on a phone -- see
+                  App.css's `.viewport-toggles`. After the canvas in the DOM
+                  so the phone's tab order follows what's on screen. */}
+              <div className="viewport-toggles" data-testid="viewport-toggles">
+                {!isPrintLayout && (
+                  <div className="wire-toggle">
+                    <EyeToggle testId="wire" label="Show wound cable" checked={showWire} hint={HINTS.wire} onChange={setShowWire} />
+                  </div>
+                )}
+                {!isPrintLayout && (
+                  <div className="dimensions-toggle">
+                    <EyeToggle testId="dimensions" label="Dimensions" checked={showDimensions} hint={HINTS.dimensions} onChange={setShowDimensions} />
+                  </div>
+                )}
+                {!isPrintLayout && result.parts.length > 1 && (
+                  <div className="explode-toggle">
+                    <EyeToggle testId="exploded" label="Exploded view" checked={exploded} hint={HINTS.exploded} onChange={setExploded} />
+                  </div>
+                )}
+                <ProjectionToggle projection={projection} onProjectionChange={setProjection} />
+              </div>
             </>
           )}
         </div>

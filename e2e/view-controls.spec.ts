@@ -305,7 +305,9 @@ test.describe("preset bar layout (issue #141)", () => {
   test("phone width: the bar falls back to the bottom centre, clear of the toggles and captions", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await gotoDesign(page, SKADIS);
-    const viewer = (await page.locator(".viewer").boundingBox())!;
+    // The canvas frame, not `.viewer`: on a phone `.viewer` also holds the
+    // toggle strip under the canvas (issue #145).
+    const viewer = (await page.getByTestId("coil-viewer").boundingBox())!;
     for (const id of ["iso", "wallRoom", "mountSide", "printLayout"] as const) {
       await page.getByTestId(`preset-${id}`).click();
       await expect(page.getByTestId(`preset-${id}`)).toHaveAttribute("aria-pressed", "true");

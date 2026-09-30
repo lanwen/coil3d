@@ -98,6 +98,8 @@ export interface CoilViewerProps {
   mountKind?: MountKind;
   /** `Design.pegboard` (issue #106): the SKÅDIS slot grid the mount-side view draws against the clips; undefined hides that view. */
   pegboard?: PegboardSection;
+  /** Isometric (`ortho`) or perspective camera. Owned by App since issue #145, so its switch can sit with the other viewport toggles (under the canvas on a phone). */
+  projection?: Projection;
 }
 
 function usePrefersReducedMotion(): boolean {
@@ -323,6 +325,7 @@ export function CoilViewer({
   onPrintLayoutActiveChange,
   mountKind,
   pegboard,
+  projection = "ortho",
 }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -389,14 +392,15 @@ export function CoilViewer({
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
 
   // Camera view controls (issue #15, trimmed to Front/Iso/Wall mount by
-  // issue #49): both are purely viewer-internal (no bearing on the design
-  // itself), so they're owned here rather than lifted to App -- they reset
-  // on reload, same as the exploded-view toggle. `preset` only ever holds a
+  // issue #49): purely viewer-internal (no bearing on the design itself),
+  // so the preset is owned here rather than lifted to App -- it resets on
+  // reload, same as the exploded-view toggle. (The projection used to live
+  // here too; issue #145 lifted it to App, see the `projection` prop.)
+  // `preset` only ever holds a
   // STANDING-camera value (front/iso): the wall preset is represented by
   // `viewMode` instead (issue #13, see `effectivePreset` below), since it's
   // really a geometry rotation this component already owned, not a new
   // camera direction of its own.
-  const [projection, setProjection] = useState<Projection>("ortho");
   const [preset, setPreset] = useState<PresetId>("iso");
 
   // The preset this render actually asks LineArtRenderer for, and what
@@ -792,7 +796,7 @@ export function CoilViewer({
           ))}
         </ul>
       )}
-      <ViewControls preset={effectivePreset} onPresetChange={handlePresetChange} projection={projection} onProjectionChange={setProjection} showMountSide={!!pegboard} />
+      <ViewControls preset={effectivePreset} onPresetChange={handlePresetChange} showMountSide={!!pegboard} />
     </div>
   );
 }
