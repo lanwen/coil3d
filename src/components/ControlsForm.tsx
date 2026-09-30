@@ -46,8 +46,10 @@ const WIRE_TYPE_OPTIONS: Array<{ id: WireTypeId; label: string }> = [
 // `mount: "opengrid"` capability stays implemented and tested (mountPlate.ts,
 // manifold.ts, step/build.ts) so that follow-up is just swapping the
 // connector solid, not building the feature from scratch.
-const MOUNT_OPTIONS: Array<{ id: MountKind; label: string }> = [
-  { id: "none", label: "None" },
+//
+// Issue #131: no "None" entry any more -- that state is now the mount
+// toggle's OFF position (see `mountOn` below), not a dropdown option.
+const MOUNT_KIND_OPTIONS: Array<{ id: Exclude<MountKind, "none">; label: string }> = [
   { id: "keyhole", label: "Screw keyhole (wall mount)" },
   { id: "through", label: "Through-holes (screw straight on)" },
   { id: "skadis", label: "IKEA SKÅDIS clip plate" },
@@ -154,6 +156,20 @@ export function ControlsForm({
   const topCapOn = topCapAuto ? (solution?.capsAuto ?? false) : spec.topCap === "on";
   const setTopCapExplicit = (checked: boolean) => onChange({ ...spec, topCap: checked ? "on" : "off" });
   const resetTopCapToAuto = () => onChange({ ...spec, topCap: "auto" });
+
+  // Issue #131: the Wall-mount section now leads with a pill toggle instead
+  // of a "None" entry in the dropdown -- off IS `spec.mount === "none"`
+  // (already the hash's own backward-compatible default, hash.ts: absent or
+  // "none" means off), so no new spec/hash field is needed. Turning it back
+  // on restores whichever real kind was last selected rather than resetting
+  // to a fixed one -- a plain "latest ref" kept in sync with `spec.mount`
+  // on every render where it's a real kind, defaulting to "keyhole" before
+  // the user has ever picked one (including a link that starts with the
+  // mount already off).
+  const lastMountKindRef = useRef<Exclude<MountKind, "none">>(spec.mount !== "none" ? spec.mount : "keyhole");
+  if (spec.mount !== "none") lastMountKindRef.current = spec.mount;
+  const mountOn = spec.mount !== "none";
+  const setMountOn = (checked: boolean) => onChange({ ...spec, mount: checked ? lastMountKindRef.current : "none" });
 
   // Issue #54/#58: for a square or triangle core, this cable's bend limit
   // can force a bigger minimum core size than a round core needs (a bigger
@@ -343,15 +359,38 @@ export function ControlsForm({
 
       <Section title="Mount">
         <div className="field">
-          <FieldTop label="Wall mount" hint={HINTS.mount} htmlFor={mountId} />
-          <select id={mountId} className="field-select" data-testid="select-mount" value={spec.mount} onChange={(e) => onChange({ ...spec, mount: e.target.value as MountKind })}>
-            {MOUNT_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          <div className="field-top">
+            <FieldTop label="Wall mount" hint={HINTS.mount} />
+            <Switch testId="mount-enabled" ariaLabel="Wall mount" checked={mountOn} onChange={setMountOn} />
+          </div>
         </div>
+        {/* Issue #131: the kind picker only exists once the toggle above is
+            on -- off is exactly today's "none", nothing left to pick. */}
+        {mountOn && (
+          <div className="field">
+            <FieldTop label="Mount type" hint={HINTS.mount} htmlFor={mountId} />
+            <select id={mountId} className="field-select" data-testid="select-mount" value={spec.mount} onChange={(e) => onChange({ ...spec, mount: e.target.value as MountKind })}>
+              {MOUNT_KIND_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {/* Issue #131: a small, unobtrusive credit for SKÅDIS's own clip
+            geometry, which this app's clip profile is based on (see
+            docs/research.md's "skapa" section) -- shown only for the mount
+            it actually describes. */}
+        {spec.mount === "skadis" && (
+          <p className="field-note mount-credit-note" data-testid="mount-credit">
+            Clip design after{" "}
+            <a href="https://github.com/nmattia/skapa" target="_blank" rel="noreferrer">
+              skapa
+            </a>
+            .
+          </p>
+        )}
         {spec.mount === "keyhole" && (
           <div className="field">
             <FieldTop label="Keyhole rotation" hint={HINTS.keyholeRotation} htmlFor={keyholeRotationId} />
@@ -421,7 +460,22 @@ export function ControlsForm({
         <div className="field">
           <div className="field-top">
             <FieldTop label="Top cap" hint={HINTS.topCap} />
+            {/* Issue #131: the "auto" tag sits BEFORE the switch (matching
+                its pill height) so the row reads left-to-right as "current
+                mode, then state" -- once touched, that same spot shows a
+                "reset" link back to auto instead, and the separate
+                "Reset to auto" line that used to sit below the switch is
+                gone (issue #119's own version of this row). */}
             <span className="cap-toggle-row">
+              {topCapAuto ? (
+                <span className="tag-auto" data-testid="topCap-auto-tag">
+                  auto
+                </span>
+              ) : (
+                <button type="button" className="reset-auto-btn" data-testid="topCap-reset-auto" onClick={resetTopCapToAuto}>
+                  reset
+                </button>
+              )}
               <Switch
                 testId="topCap"
                 ariaLabel="Top cap"
@@ -433,65 +487,64 @@ export function ControlsForm({
                 }
                 onChange={setTopCapExplicit}
               />
-              {topCapAuto && (
-                <span className="tag-auto" data-testid="topCap-auto-tag">
-                  auto
-                </span>
-              )}
             </span>
           </div>
-          {/* Issue #119 AC #3: the way back to auto, shown only once the
-              user has actually touched the switch (an explicit "on"/"off"). */}
-          {!topCapAuto && (
-            <button type="button" className="reset-auto-btn" data-testid="topCap-reset-auto" onClick={resetTopCapToAuto}>
-              Reset to auto
-            </button>
-          )}
         </div>
-        <div className="field">
-          <FieldTop label="Joint" hint={HINTS.joint} htmlFor={jointId} />
-          <select id={jointId} className="field-select" data-testid="select-joint" value={spec.joint} onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}>
-            {JOINT_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <RangeField
-          testId="tolerance"
-          label="Joint tolerance"
-          unit="mm"
-          min={TOLERANCE_MIN}
-          max={TOLERANCE_MAX}
-          step={0.05}
-          value={spec.tolerance}
-          hint={HINTS.tolerance}
-          onChange={(v) => onChange({ ...spec, tolerance: v })}
-        />
-        <div className="field">
-          <div className="field-top">
-            <FieldTop label="Label (engraved on the top cap)" hint={HINTS.label} />
-            <Switch testId="label-enabled" ariaLabel="Engrave a label on the top cap" checked={labelEnabled} onChange={setLabelEnabled} />
-          </div>
-        </div>
-        {/* Issue #105 AC #5: off by default, and the text input stays
-            collapsed until switched on -- `labelEnabled` reads "the user
-            turned this on", not "there's text in it" (an empty label while
-            the switch is on is still a deliberate, revealed field, not a
-            reason to re-collapse it). Switching off clears the label back
-            to `undefined`, which `toHash` already omits from the URL (see
-            hash.ts's `if (spec.label) doc.label = ...`), so "clears the
-            hash" falls out of the existing encode rule for free. */}
-        {labelEnabled && (
-          <TextField
-            testId="label"
-            label="Label text"
-            placeholder="e.g. USB-C 2m"
-            maxLength={LABEL_MAX_LENGTH}
-            value={spec.label ?? ""}
-            onChange={(v) => onChange({ ...spec, label: v })}
-          />
+        {/* Issue #131 AC #4: the joint/tolerance/label controls only apply
+            to a cap that actually exists -- hidden whenever the cap is off,
+            whether that's the user's own explicit override or just the
+            current automatic (layers <= 1) decision. Their values stay put
+            in `spec` either way (only the CONTROLS hide, nothing resets),
+            so they're exactly as the user left them once the cap comes back. */}
+        {topCapOn && (
+          <>
+            <div className="field">
+              <FieldTop label="Joint" hint={HINTS.joint} htmlFor={jointId} />
+              <select id={jointId} className="field-select" data-testid="select-joint" value={spec.joint} onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}>
+                {JOINT_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <RangeField
+              testId="tolerance"
+              label="Joint tolerance"
+              unit="mm"
+              min={TOLERANCE_MIN}
+              max={TOLERANCE_MAX}
+              step={0.05}
+              value={spec.tolerance}
+              hint={HINTS.tolerance}
+              onChange={(v) => onChange({ ...spec, tolerance: v })}
+            />
+            <div className="field">
+              <div className="field-top">
+                <FieldTop label="Label (engraved on the top cap)" hint={HINTS.label} />
+                <Switch testId="label-enabled" ariaLabel="Engrave a label on the top cap" checked={labelEnabled} onChange={setLabelEnabled} />
+              </div>
+            </div>
+            {/* Issue #105 AC #5: off by default, and the text input stays
+                collapsed until switched on -- `labelEnabled` reads "the user
+                turned this on", not "there's text in it" (an empty label
+                while the switch is on is still a deliberate, revealed field,
+                not a reason to re-collapse it). Switching off clears the
+                label back to `undefined`, which `toHash` already omits from
+                the URL (see hash.ts's `if (spec.label) doc.label = ...`), so
+                "clears the hash" falls out of the existing encode rule for
+                free. */}
+            {labelEnabled && (
+              <TextField
+                testId="label"
+                label="Label text"
+                placeholder="e.g. USB-C 2m"
+                maxLength={LABEL_MAX_LENGTH}
+                value={spec.label ?? ""}
+                onChange={(v) => onChange({ ...spec, label: v })}
+              />
+            )}
+          </>
         )}
       </Section>
 
