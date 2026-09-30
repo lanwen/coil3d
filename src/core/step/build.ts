@@ -787,10 +787,10 @@ async function buildLabelCutterSolid(label: ResolvedLabel): Promise<R.Shape3D | 
 async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
   const outerOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
-  // Issue #121: solid, no hole over the bore (mirrors manifold.ts).
+  // Issue #127: the plate's middle is opened by the through-hole below (mirrors manifold.ts).
   const plate = outlineSolid(outerOutline, CAP_THICKNESS, 0);
 
-  const { boreRadius, collarRadius, collarOutline, weldOutline } = jointGeometry(flangeSpec.boreOutline, spec.joint, spec.tolerance);
+  const { boreRadius, collarRadius, collarOutline, weldOutline, holeOutline } = jointGeometry(flangeSpec.boreOutline, spec.joint, spec.tolerance);
   const canCutJoint = boreRadius >= JOINT_MIN_BORE_RADIUS && solution.height >= JOINT_ENGAGE_DEPTH + 2;
 
   let collar: R.Shape3D;
@@ -817,6 +817,8 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   }
 
   let assembled = plate.fuse(collar);
+  // Issue #127: the straight through-hole down the middle (the collar is a tube).
+  if (holeOutline) assembled = assembled.cut(outlineSolid(holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2, -JOINT_ENGAGE_DEPTH - 1));
 
   // Mirrors design.ts's own call: the SAME `resolveLabel` the mesh backend
   // uses, against the SAME outline/boreOutline/margin, so the two backends

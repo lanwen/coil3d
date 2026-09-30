@@ -97,6 +97,8 @@ export const TOLERANCE_MIN = 0.05; // mm
 export const TOLERANCE_MAX = 0.8; // mm
 /** How far the cap's engagement collar reaches down into the core's bore. */
 export const JOINT_ENGAGE_DEPTH = 7; // mm
+/** Issue #127: the cap's collar is a tube this thick, with the hole through its middle running straight through the cap -- no floor, ledge or roof over it that would print as a bridge. */
+export const CAP_COLLAR_WALL = 2; // mm
 /** Height of the frustum that flares the collar's top out from `collarRadius` to (the bore's own radius + WELD_OVERLAP), so it genuinely overlaps the plate's inner edge -- welds the collar to the plate as one solid instead of leaving two that merely touch. */
 export const JOINT_TRANSITION_HEIGHT = 2; // mm
 /** A real volumetric overlap (not just a coincident, razor-thin seam) between two independently-tessellated curved surfaces meeting at "the same" nominal radius, so their boolean union is robust rather than producing stray degenerate slivers. */
