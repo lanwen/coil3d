@@ -171,10 +171,23 @@ describe("design() clip mount plate (issue #14)", () => {
     expect(d.parts.find((p) => p.role === "mountPlate")).toBeDefined();
   });
 
-  it("warns and skips the plate (no mountPlate part) when the flange is too small for at least 2 clips", async () => {
+  // Issue #120: `requiredMountPlateMargin` (mountPlate.ts) grows the flange
+  // margin to fit at least 2 clips, exactly like `requiredFlangeMargin`
+  // already does for the keyhole mount (e2e/mount.spec.ts's "a tiny, sharp
+  // core still fits the mount by growing the flange ... never a silent
+  // skip") -- a tiny, LOCKED core used to skip the plate entirely (this
+  // test's own pre-fix name/assertions); now it gets a flange grown just
+  // wide enough instead.
+  it("still fits the plate (no silent skip) on a tiny, locked core by growing the flange margin, warned about", async () => {
+    const none = await design(baseSpec({ mount: "none", coreSize: { locked: true, dimension: "outer", value: 12 }, height: { locked: true, value: 20 } }));
     const d = await design(baseSpec({ mount: "skadis", coreSize: { locked: true, dimension: "outer", value: 12 }, height: { locked: true, value: 20 } }));
-    expect(d.parts.find((p) => p.role === "mountPlate")).toBeUndefined();
-    expect(d.warnings.some((w) => /too small to fit at least 2 clips/i.test(w))).toBe(true);
+    expect(d.flangeSpec.margin).toBeGreaterThan(none.flangeSpec.margin);
+    expect(d.warnings.some((w) => /margin increased.*SK.DIS/i.test(w))).toBe(true);
+    expect(d.warnings.some((w) => /too small to fit/i.test(w))).toBe(false);
+    const plate = d.parts.find((p) => p.role === "mountPlate");
+    expect(plate).toBeDefined();
+    const layout = mountPlateLayoutFor("skadis", offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin), d.flangeSpec.boreOutline);
+    expect(layout.clips.length).toBeGreaterThanOrEqual(2);
   });
 
   it("mountAxisDeg is surfaced for the clip mount plate too, matching mountPlate.ts's own layout.axisDeg", async () => {

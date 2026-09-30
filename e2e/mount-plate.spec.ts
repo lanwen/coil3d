@@ -68,14 +68,20 @@ test.describe("mount plate controls (issue #14)", () => {
     await expect(page.getByTestId("warnings")).toContainText(/snap tabs can't print without supports/i);
   });
 
-  test("a small core warns and keeps a single part (no mount plate fits)", async ({ page }) => {
+  // Issue #120: a tiny, locked core used to silently skip the plate (this
+  // test's own pre-fix name/assertions -- "no mount plate fits"); the
+  // flange's margin now grows just wide enough to fit it instead, exactly
+  // like the keyhole mount's own "tiny, sharp core" test just below in
+  // mount.spec.ts.
+  test("a small core still fits the plate by growing the flange margin (never a silent skip)", async ({ page }) => {
     const consoleErrors: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") consoleErrors.push(msg.text());
     });
     await gotoDesign(page, "#v=1&L=20&d=1&lock=outer,ly&size=12&h=20&mount=skadis");
-    await expect(page.getByTestId("warnings")).toContainText(/too small to fit at least 2 clips/i);
-    await expect(page.getByTestId("mesh-detail")).toContainText("1 part");
+    await expect(page.getByTestId("warnings")).toContainText(/margin increased.*SK.DIS/i);
+    await expect(page.getByTestId("warnings")).not.toContainText(/too small to fit/i);
+    await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
     expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
   });
 });

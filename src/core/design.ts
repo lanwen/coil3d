@@ -143,6 +143,9 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (wantsThrough && thickness > channelOnlyThickness + 1e-9) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the counterbored through-hole mount.`);
   }
+  if (mountKindForPlate && mountMargin > baseMargin) {
+    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the ${mountKindForPlate === "skadis" ? "SKÅDIS" : "openGrid"} clip mount plate's grid.`);
+  }
   if (mountKindForPlate && thickness > channelOnlyThickness + 1e-9) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the mount plate's alignment features.`);
   }
