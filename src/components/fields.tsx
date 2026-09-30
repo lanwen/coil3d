@@ -95,6 +95,13 @@ export function Section({ title, children }: { title: string; children: ReactNod
  * entirely rather than showing an inert one; the number input alone (itself
  * `:disabled`, so it reads as plainly non-interactive) is "only the value,
  * read-only". A locked field keeps the slider, exactly as before.
+ *
+ * Issue #140: `keepSliderWhenDisabled` opts a caller out of that hide
+ * behaviour instead -- the slider stays visible but greyed out and
+ * unmovable (a native `:disabled` range input), for a field that's always
+ * manually editable in principle but currently has no useful range to move
+ * across at all (the corner radius, when the current core size leaves no
+ * room between its bend-limit floor and its useful max).
  */
 export function RangeField({
   testId,
@@ -115,6 +122,23 @@ export function RangeField({
    * #4: the corner radius's bend-limit minimum) shown right under the
    * slider -- omitted when there's nothing special to say about `min`. */
   minNote,
+  /** Issue #140: when `disabled` is set, keep the slider itself in the DOM
+   * (greyed out via the native `:disabled` style, `.field-slider:disabled`
+   * in App.css) instead of the default "hide it entirely" behaviour above.
+   * Opt-in, and independent of `disabled` itself, so the free/locked
+   * dimension fields (`LockRangeField`, issue #105 AC #1) keep their
+   * existing hide-the-slider behaviour unchanged -- only a caller that
+   * passes this explicitly gets the new "visible but unmovable" treatment
+   * (the corner-radius field, when this cable/core leaves no useful range
+   * to slide across at all). */
+  keepSliderWhenDisabled,
+  /** Issue #140: shows the field's own `max` (in `unit`) as a small muted
+   * number right under the slider's own right end, e.g. "max 23 mm" -- so a
+   * shared slider doesn't grow this label unless a caller opts in. Sits on
+   * its own row below the slider (never beside it), which is what keeps the
+   * knob's bounding box clear of the label's at every position, including
+   * all the way at max: the two never share a row to overlap in. */
+  maxLabel,
   onChange,
 }: {
   testId: string;
@@ -128,6 +152,8 @@ export function RangeField({
   leading?: ReactNode;
   hint?: string;
   minNote?: string;
+  keepSliderWhenDisabled?: boolean;
+  maxLabel?: boolean;
   onChange: (value: number) => void;
 }) {
   const numberId = useId();
@@ -160,7 +186,7 @@ export function RangeField({
           {unit && <span className="field-unit">{unit}</span>}
         </span>
       </div>
-      {!disabled && (
+      {(!disabled || keepSliderWhenDisabled) && (
         <input
           type="range"
           className="field-slider"
@@ -169,8 +195,14 @@ export function RangeField({
           max={max}
           step={step}
           value={value}
+          disabled={disabled}
           onChange={handleRange}
         />
+      )}
+      {maxLabel && (
+        <p className="field-note field-max-label" data-testid={`${testId}-max-label`}>
+          {`max ${max}${unit ? ` ${unit}` : ""}`}
+        </p>
       )}
       {minNote && (
         <p className="field-note" data-testid={`${testId}-min-note`}>

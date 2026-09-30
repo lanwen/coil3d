@@ -14,6 +14,20 @@ import { expect, test } from "@playwright/test";
 // fixture).
 const TOO_SMALL_TRIANGLE = "/#v=1&shape=tri&tri.rc=5&lock=outer,ly&size=20&h=40";
 
+// Issue #140: TOO_SMALL_TRIANGLE above sits exactly on the boundary where
+// the bend-limit floor and the useful max (`Solution.cornerRadiusRange`)
+// coincide -- the solver raises its locked size right up to
+// `minOuterSizeForShapeFlats`, the SAME size `usefulMaxCornerRadius` traces
+// from the other axis (solve.ts's own doc comment on why the two never
+// disagree there) -- so the corner-radius field is now disabled there (no
+// useful room to move at all, corner-radius-range.spec.ts's own coverage),
+// and can no longer be typed into. This fixture is the same triangle, just
+// locked at a bigger 60mm (comfortably past that boundary), which still
+// forces `tri.rc=5` to clamp up to the SAME bend-limit floor but leaves a
+// real, enabled range above it -- so the "typing below the floor clamps
+// back up" behavior below still has a field it can actually type into.
+const TRIANGLE_WITH_ROOM_ABOVE_FLOOR = "/#v=1&shape=tri&tri.rc=5&lock=outer,ly&size=60&h=40";
+
 test("a locked size below the shape's minimum shows the EFFECTIVE (raised) size in the field itself, matching the note next to it", async ({ page }) => {
   await page.goto(TOO_SMALL_TRIANGLE);
   await expect(page.getByTestId("hash-notice")).toHaveCount(0);
@@ -103,6 +117,12 @@ test("the core-size (i) hint explains the shape-dependent minimum in plain Engli
 // it), matching the min-note, and neither the slider nor the typed number
 // can be edited below it.
 test("a locked corner radius below the bend-limit floor shows the EFFECTIVE (clamped) value, matching the min-note next to it", async ({ page }) => {
+  // Issue #140: this fixture sits exactly on the boundary where the field
+  // also disables (no useful range at all) -- the effective-value and
+  // min-note invariants this test checks must still hold even while
+  // disabled (the value stays visible either way, only the ability to drag/
+  // type it goes away), so this is deliberately left on TOO_SMALL_TRIANGLE
+  // rather than moved to the enabled fixture below.
   await page.goto(TOO_SMALL_TRIANGLE); // tri.rc=5, well below this cable's bend-limit floor
   await expect(page.getByTestId("diagnosis-status")).toBeVisible();
 
@@ -123,7 +143,11 @@ test("a locked corner radius below the bend-limit floor shows the EFFECTIVE (cla
 });
 
 test("typing or dragging the corner radius below the bend-limit floor clamps it right back up, immediately", async ({ page }) => {
-  await page.goto(TOO_SMALL_TRIANGLE);
+  // Issue #140: TOO_SMALL_TRIANGLE itself is now a disabled field (no useful
+  // range at all) and can't be typed into -- this fixture keeps the SAME
+  // bend-limit clamp-up behavior under test, just with a locked size that
+  // leaves the field enabled (see the fixture's own doc comment above).
+  await page.goto(TRIANGLE_WITH_ROOM_ABOVE_FLOOR);
   await expect(page.getByTestId("diagnosis-status")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
