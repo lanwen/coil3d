@@ -278,7 +278,12 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
     wire: { length: 2000, diameter: 3.8, type: "usb" },
     shape: { kind: shape, cornerRadius },
     windingQuality: 0.7,
-    coreSize: { locked: true, dimension: "outer", value: 60 },
+    // 100mm (not 60mm): big enough that 15mm sits comfortably inside the
+    // useful-max ceiling issue #134 adds (`solve.ts`'s
+    // `usefulMaxCornerRadius`, which grows with size), not just the old,
+    // size-independent bend-limit floor this comment already guarded
+    // against.
+    coreSize: { locked: true, dimension: "outer", value: 100 },
     height: { locked: true, value: 40 },
     layers: { locked: true, value: 1 },
     objective: "minVolume",
@@ -292,8 +297,9 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
 
   it("is a valid watertight manifold with the analytically-expected volume", async () => {
     const d = await design(shapeSpec);
-    // Not clamped by the bend limit at this size -- the test would be
-    // exercising the "became round" clamp instead of the plain shape math.
+    // Not clamped by the bend limit OR the useful-max ceiling at this size
+    // -- the test would be exercising one of those clamps instead of the
+    // plain shape math.
     expect(d.solution.cornerRadius).toBeCloseTo(cornerRadius, 3);
 
     const wasm = await Module();

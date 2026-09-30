@@ -98,6 +98,32 @@ export function ControlsForm({
   const cornerRadiusMinRaw = spec.shape.kind === "round" ? 0 : (solution?.cornerRadiusRange[0] ?? 0);
   const cornerRadiusMin = Math.ceil(cornerRadiusMinRaw / 0.5) * 0.5;
 
+  // Issue #134: the slider's own maximum follows `Solution.cornerRadiusRange[1]`
+  // -- the largest corner radius that still keeps the shape reading as a
+  // square/triangle rather than a circle (solve.ts's `usefulMaxCornerRadius`),
+  // not the old fixed 250mm (which let the slider keep moving for a long
+  // stretch after the shape had already become visually indistinguishable
+  // from round). `solution` is undefined only before the very first solve,
+  // when 250 (the field's old static ceiling) is as good a placeholder as
+  // any.
+  //
+  // Rounded DOWN to the field's own 0.5mm step (the opposite direction from
+  // the min above): rounding UP here could push the field's max past the
+  // true, unrounded ceiling.
+  //
+  // PR review: when the useful max and the bend-limit floor sit within the
+  // SAME 0.5mm step of each other (the two criteria agree almost exactly --
+  // see `usefulMaxCornerRadius`'s own doc comment on why they can coincide),
+  // rounding each one in its own safe direction can flip their order --
+  // ceil(14.44) = 14.5 but floor(14.44) = 14, an inverted [14.5, 14]
+  // min/max that left the field's clamped VALUE (min(max, ...)) reading
+  // BELOW the bend-limit floor it must never go under. `Math.max` against
+  // `cornerRadiusMin` guarantees a valid, non-inverted range, at the cost of
+  // the max occasionally reading up to 0.5mm past the true useful ceiling --
+  // the same order of rounding slop the min side already accepts.
+  const cornerRadiusMaxRaw = spec.shape.kind === "round" ? 250 : (solution?.cornerRadiusRange[1] ?? 250);
+  const cornerRadiusMax = Math.max(cornerRadiusMin, Math.floor(cornerRadiusMaxRaw / 0.5) * 0.5);
+
   // Issue #105 AC #5: "enabled" tracks whether the user switched the label
   // ON, not whether it currently has text -- an empty label while the
   // switch is on must stay revealed, not snap shut. `spec.label` is only
@@ -115,8 +141,12 @@ export function ControlsForm({
     // number) push the corner radius below this cable's own bend-limit
     // floor -- `solution.cornerRadiusRange[0]` is that exact floor for the
     // CURRENT shape/cable (solve.ts's `bendCornerRadiusFloor`), so this
-    // can't drift from what the solver would clamp to anyway.
-    onChange({ ...spec, shape: { kind: spec.shape.kind, cornerRadius: Math.max(cornerRadiusMin, cornerRadius) } });
+    // can't drift from what the solver would clamp to anyway. Issue #134:
+    // the SAME immediate-clamp treatment for the other end -- a manual edit
+    // above `cornerRadiusMax` snaps right back down, matching the slider's
+    // own max attribute instead of silently accepting a request the solver
+    // would just clamp down to anyway.
+    onChange({ ...spec, shape: { kind: spec.shape.kind, cornerRadius: Math.min(cornerRadiusMax, Math.max(cornerRadiusMin, cornerRadius)) } });
   };
 
   // Ids for the plain `<select>` fields below, so each one's `FieldTop`
@@ -278,14 +308,15 @@ export function ControlsForm({
             label="Corner radius"
             unit="mm"
             min={cornerRadiusMin}
-            max={250}
+            max={cornerRadiusMax}
             step={0.5}
             // PR review: the FIELD must show the effective (clamped) value,
             // never a stale/shared-link request below the bend-limit floor
-            // -- `cornerRadiusMin` is already the safe, rounded-UP floor
-            // (never below the true one), so this can't drift from the
-            // min-note's own number below.
-            value={Math.max(cornerRadiusMin, spec.shape.cornerRadius)}
+            // or above the useful max -- `cornerRadiusMin`/`cornerRadiusMax`
+            // are already the safe, rounded floor/ceiling (never inside the
+            // true one), so this can't drift from the min-note's own number
+            // below or the slider's own `max` attribute.
+            value={Math.min(cornerRadiusMax, Math.max(cornerRadiusMin, spec.shape.cornerRadius))}
             hint={HINTS.shapeCornerRadius}
             minNote={cornerRadiusMin > 0.05 ? `Minimum for this cable's bend limit: ${cornerRadiusMin} mm` : undefined}
             onChange={setShapeCornerRadius}
