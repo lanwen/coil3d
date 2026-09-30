@@ -131,6 +131,14 @@ header p {
    phone width too" (its `inRects` check), which an earlier translucent
    version of this rule failed. A solid backdrop fully covers whatever the
    canvas drew underneath, exactly like the border box it replaces did. */
+/* The wrapper around the three toggles and the projection switch (issue
+   #145) takes no box of its own on desktop, so each keeps its absolute spot
+   over the canvas; on a phone it becomes the strip under the canvas (see
+   the max-width: 720px block). */
+.viewport-toggles {
+  display: contents;
+}
+
 .wire-toggle,
 .dimensions-toggle,
 .explode-toggle {
@@ -1262,11 +1270,20 @@ header p {
   }
 
   /* Stack the viewer above the controls. */
+  /* Stack the canvas and, under it, the viewport-toggle strip (issue #145,
+     `.viewport-toggles` below): the canvas keeps its old fixed height and
+     the strip adds its own rows beneath instead of eating into it. */
   .viewer {
     order: 1;
     flex: none;
-    height: min(60vh, 92vw);
+    display: flex;
+    flex-direction: column;
     border-bottom: 2px solid var(--hairline);
+  }
+
+  .viewer > .coil-viewer-frame {
+    flex: none;
+    height: min(60vh, 92vw);
   }
 
   .sidebar {
@@ -1361,33 +1378,41 @@ header p {
     font-size: 0.85rem;
   }
 
-  /* The bigger mobile pill (above) makes every viewer-overlay toggle box
-     taller than its old icon-only self, so the wire/dimensions/exploded-
-     view boxes (stacked at fixed offsets, see `.wire-toggle` & co. above)
-     all get the same roomier padding here -- not just `.wire-toggle` -- and
-     their stacking offsets grow to match, each still comfortably clear of
-     the next. */
+  /* Issue #145: a 390px phone (or any window up to this breakpoint) has no
+     room to overlay four labelled switches on the canvas -- they overlapped
+     each other's (i) hints and covered the model. So they leave the canvas
+     entirely: one wrapping strip right under it, in reading order (wound
+     cable, dimensions, exploded view, then the projection switch). Nothing
+     is hidden behind a menu, every state stays visible, and the canvas
+     keeps only the preset bar and the view caption. The toggles drop their
+     opaque overlay backdrop here -- there's no model behind them any more. */
+  .viewport-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 18px;
+    padding: 6px 16px 8px;
+    border-top: 1px solid var(--hairline-soft);
+  }
+
   .wire-toggle,
   .dimensions-toggle,
   .explode-toggle,
   .projection-toggle-box {
-    padding: 10px 12px;
+    position: static;
+    /* Flex items with a z-index form their own stacking contexts, which
+       would paint each later box over an earlier one's open (i) bubble. */
+    z-index: auto;
+    padding: 8px 0;
+    background: none;
   }
 
-  .dimensions-toggle {
-    top: 64px;
-  }
-
-  .explode-toggle {
-    top: 116px;
-  }
-
-  /* A phone viewport is too narrow for the projection switch beside the
-     (wider, mobile-sized) wound-cable toggle row, so it keeps its old
-     second-row spot; the preset bar itself is at the bottom centre here
-     (the `@container` rule above) with slightly wider touch targets. */
-  .projection-toggle-box {
-    top: 64px;
+  /* With the toggles gone from the canvas, the wall/print caption takes the
+     free top-left corner instead of squeezing in above the preset bar
+     (where it only just cleared the dimension labels). */
+  .wall-view-caption {
+    top: 10px;
+    bottom: auto;
   }
 
   .preset-btn {
