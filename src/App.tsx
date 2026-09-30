@@ -126,7 +126,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>scroll3d</h1>
+        <h1>coil3d</h1>
         <p>Design a 3D-printable cable coil from your cable's length and diameter.</p>
       </header>
       {notice && (

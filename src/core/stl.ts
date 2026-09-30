@@ -3,7 +3,7 @@
 
 import type { CoilMesh } from "./types";
 
-export function writeBinaryStl(mesh: CoilMesh, name = "scroll3d"): Uint8Array<ArrayBuffer> {
+export function writeBinaryStl(mesh: CoilMesh, name = "coil3d"): Uint8Array<ArrayBuffer> {
   const { positions: v, indices: t } = mesh;
   const triCount = t.length / 3;
   const buf = new ArrayBuffer(84 + triCount * 50);

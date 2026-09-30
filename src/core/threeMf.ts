@@ -98,7 +98,7 @@ export function write3mf(design: Design): Uint8Array<ArrayBuffer> {
 
   const model = `<?xml version="1.0" encoding="UTF-8"?>
 <model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-  <metadata name="Application">scroll3d</metadata>
+  <metadata name="Application">coil3d</metadata>
   <resources>${objects}</resources>
   <build>${items}</build>
 </model>`;

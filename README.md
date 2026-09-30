@@ -1,4 +1,4 @@
-# scroll3d
+# coil3d
 
 A static, client-side app that designs a 3D-printable cable coil from your
 cable's length and diameter. See `docs/research.md` for the full design
@@ -61,7 +61,7 @@ on every later push to that PR). The jobs are:
 ## GitHub Pages deploy
 
 `.github/workflows/pages.yml` builds the app with the base path GitHub Pages
-needs for a project site (`https://lanwen.github.io/scroll3d/`) and uploads
+needs for a project site (`https://lanwen.github.io/coil3d/`) and uploads
 it as a Pages artifact. It runs only when started manually; push to `main`
 doesn't trigger it. The actual **deploy** job is
 gated behind the `PAGES_ENABLED` repository variable — until that variable
@@ -90,7 +90,7 @@ yet confirmed here whether it gzips `.wasm` at all (Pages' compression is
 extension/mime-type-based and historically hasn't reliably covered `.wasm`).
 Once Pages is enabled, check the actual `Content-Encoding` served for
 `assets/*.wasm` (e.g. `curl -sI -H 'Accept-Encoding: gzip, br'
-https://lanwen.github.io/scroll3d/assets/replicad_single-*.wasm`) before
+https://lanwen.github.io/coil3d/assets/replicad_single-*.wasm`) before
 relying on STEP export being fast for users on slower connections. If it's
 served uncompressed, options include a smaller/custom OCCT build, or
 pre-compressing the asset and decompressing it client-side.
