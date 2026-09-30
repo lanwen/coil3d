@@ -198,6 +198,23 @@ function halfWidthAtUp(boundary: Array<{ up: number; side: number }>, up0: numbe
   return maxSide;
 }
 
+/** The farthest boundary crossing at `up0` on each side of `side=0` (`pos` >= 0, `neg` >= 0 its distance on the negative side; 0 where the outline doesn't reach). */
+function edgesAtUp(boundary: Array<{ up: number; side: number }>, up0: number): { pos: number; neg: number } {
+  let pos = 0;
+  let neg = 0;
+  for (let i = 0; i < boundary.length - 1; i++) {
+    const a = boundary[i];
+    const b = boundary[i + 1];
+    const lo = Math.min(a.up, b.up);
+    const hi = Math.max(a.up, b.up);
+    if (up0 < lo || up0 > hi || hi - lo < 1e-9) continue;
+    const side = a.side + ((up0 - a.up) / (b.up - a.up)) * (b.side - a.side);
+    if (side > pos) pos = side;
+    if (-side > neg) neg = -side;
+  }
+  return { pos, neg };
+}
+
 /**
  * Lay out a grid of clip instances (and, if they fit, 2 alignment
  * anchors) on the plate's own footprint. `flangeOutline`/`boreOutline`
@@ -279,11 +296,20 @@ export function layoutMountPlate(
   // on the up axis instead. Purely a best-effort placement aid; the plate
   // is still a valid, glueable part without them.
   const pairOn = (turnDeg: 0 | 90): AnchorPoint[] => {
-    const inner = halfWidthAtUp(projectedBoundary(boreOutline, axisDeg + turnDeg), 0) + 1;
-    const outer = halfWidthAtUp(projectedBoundary(outline, axisDeg + turnDeg), 0) - 1;
-    if (outer - inner < 2 * MOUNT_PLATE_PEG_RADIUS) return [];
-    const mid = (inner + outer) / 2;
-    const pts = turnDeg === 0 ? [toXY(0, mid), toXY(0, -mid)] : [toXY(mid, 0), toXY(-mid, 0)];
+    // Issue #132: each hole at the middle of ITS OWN side's annulus -- a
+    // triangle is much shorter from its centre to a flat than to the
+    // opposite corner, so one shared (farther-side) distance put the hole on
+    // the flat's side outside the plate (unseen with a filament pin, a
+    // floating peg now).
+    const bore = edgesAtUp(projectedBoundary(boreOutline, axisDeg + turnDeg), 0);
+    const edge = edgesAtUp(projectedBoundary(outline, axisDeg + turnDeg), 0);
+    const mids: number[] = [];
+    for (const [inner, outer, sign] of [[bore.pos + 1, edge.pos - 1, 1], [bore.neg + 1, edge.neg - 1, -1]]) {
+      if (outer - inner < 2 * MOUNT_PLATE_PEG_RADIUS) return [];
+      mids.push((sign * (inner + outer)) / 2);
+    }
+    // The turned frame's +side is this frame's -up (`basisFor`).
+    const pts = mids.map((m) => (turnDeg === 0 ? toXY(0, m) : toXY(-m, 0)));
     return pts.map((p) => ({ ...p, rotationDeg }));
   };
   const clear = (p: { x: number; y: number }) =>

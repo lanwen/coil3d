@@ -95,9 +95,16 @@ describe("SKÅDIS alignment pegs (issue #132)", () => {
     expect(d.parts.map((p) => p.role)).toEqual(["core", "topCap", "mountPlate", "peg", "peg"]);
   });
 
-  for (const tolerance of [0.2, 0.5]) {
-    it(`each peg stands in its two holes with half the ${tolerance} mm tolerance of clearance across its corners`, async () => {
-      const d = await design(spec({ tolerance }));
+  const SHAPES: Array<{ label: string; tolerance: number; overrides: Partial<CoilSpec> }> = [
+    { label: "round", tolerance: 0.2, overrides: {} },
+    { label: "round", tolerance: 0.5, overrides: {} },
+    { label: "square", tolerance: 0.2, overrides: { shape: { kind: "sq", cornerRadius: 15 } } },
+    // The triangle's holes sit on its up axis, where the flat is much nearer the centre than the opposite corner: both must still land in the plate.
+    { label: "triangle", tolerance: 0.2, overrides: { shape: { kind: "tri", cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 120 } } },
+  ];
+  for (const { label, tolerance, overrides } of SHAPES) {
+    it(`${label}: each peg stands in its two holes with half the ${tolerance} mm tolerance of clearance across its corners`, async () => {
+      const d = await design(spec({ tolerance, ...overrides }));
       const t = d.flangeSpec.thickness;
       const pegs = pegsOf(d);
       expect(pegs).toHaveLength(2);
