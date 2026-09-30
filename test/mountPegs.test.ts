@@ -5,7 +5,9 @@ import type { CoilMesh, CoilSpec, Design, Part } from "../src/core";
 
 // Issue #132: the SKÅDIS mount plate's two alignment pegs are real printed
 // parts (low-poly chamfered octagonal prisms), in every export, sized to a
-// printed clearance fit in round holes. Only the public `design()` /
+// printed clearance fit in holes. Issue #143: the holes match the peg's own
+// octagonal profile (not a circumscribing circle any more), grown by half
+// the print tolerance on every flat side. Only the public `design()` /
 // `exportDesign()` interface.
 
 function spec(overrides: Partial<CoilSpec> = {}): CoilSpec {
@@ -48,27 +50,63 @@ function axisOf(mesh: CoilMesh): { x: number; y: number; zMin: number; zMax: num
   return { x, y, zMin, zMax, radius };
 }
 
-/** The nearest a hole's side wall comes to the axis at (x, y), between zLo and zHi: every steep triangle there, projected onto the flange plane, is a segment. */
-function holeWallDistance(mesh: CoilMesh, x: number, y: number, zLo: number, zHi: number): number {
-  const { positions: p, indices } = mesh;
-  let best = Infinity;
-  for (let t = 0; t < indices.length; t += 3) {
-    const v = [indices[t], indices[t + 1], indices[t + 2]].map((i) => [p[i * 3], p[i * 3 + 1], p[i * 3 + 2]]);
-    if (v.some(([vx, vy, vz]) => Math.hypot(vx - x, vy - y) > 3 || vz < zLo - 1e-6 || vz > zHi + 1e-6)) continue;
-    const e1 = [v[1][0] - v[0][0], v[1][1] - v[0][1], v[1][2] - v[0][2]];
-    const e2 = [v[2][0] - v[0][0], v[2][1] - v[0][1], v[2][2] - v[0][2]];
-    const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]];
-    if (Math.abs(n[2]) > 0.1 * Math.hypot(n[0], n[1], n[2])) continue;
-    for (let k = 0; k < 3; k++) {
-      const [ax, ay] = v[k];
-      const [bx, by] = v[(k + 1) % 3];
-      const dx = bx - ax;
-      const dy = by - ay;
-      const len2 = dx * dx + dy * dy;
-      const s = len2 > 1e-12 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2)) : 0;
-      best = Math.min(best, Math.hypot(x - (ax + s * dx), y - (ay + s * dy)));
-    }
+/**
+ * Every distinct (x, y) among `mesh`'s own vertices within `radius` mm of
+ * (cx, cy) and z in [zLo, zHi], deduplicated to a small epsilon (issue #143:
+ * the octagonal hole/peg cross-section is extruded straight -- no rounding,
+ * no extra subdivision -- so its vertices sit ONLY at its own 8 corners; this
+ * recovers that polygon's actual corner set straight from the built mesh,
+ * not from re-deriving the module's own math).
+ */
+function nearbyXY(mesh: CoilMesh, cx: number, cy: number, zLo: number, zHi: number, radius = 3): Array<{ x: number; y: number }> {
+  const { positions: p } = mesh;
+  const out: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i < p.length; i += 3) {
+    const x = p[i];
+    const y = p[i + 1];
+    const z = p[i + 2];
+    if (Math.hypot(x - cx, y - cy) > radius || z < zLo - 1e-6 || z > zHi + 1e-6) continue;
+    if (!out.some((q) => Math.hypot(q.x - x, q.y - y) < 1e-3)) out.push({ x, y });
   }
+  return out;
+}
+
+/**
+ * The 8 corners of the peg's own straight, unchamfered mid-section: every
+ * distinct vertex over the peg's whole span, kept to just the ones at the
+ * single largest radius from (cx, cy) -- `pegSweep`'s two chamfered end
+ * rings shrink uniformly (both the flats and the 45 degree cuts), so they're
+ * always strictly closer in than the nominal cross-section shared by its two
+ * middle rings.
+ */
+function pegCorners(peg: CoilMesh, cx: number, cy: number, zLo: number, zHi: number): Array<{ x: number; y: number }> {
+  const pts = nearbyXY(peg, cx, cy, zLo, zHi);
+  const dist = (q: { x: number; y: number }) => Math.hypot(q.x - cx, q.y - cy);
+  const maxR = Math.max(...pts.map(dist));
+  return pts.filter((q) => dist(q) > maxR - 1e-3);
+}
+
+/**
+ * The hole's own 8 corners, all at ONE shared radius from (cx, cy) (a
+ * straight, untapered prism, unlike the peg): every distinct nearby vertex,
+ * grouped by its (rounded) radius, keeping only the largest group. Issue
+ * #143's own round-flange fixture puts the flange's relief-slab boundary
+ * (flangePads.ts's pad around the hole) a stray vertex or two away from the
+ * hole at a DIFFERENT radius -- this rejects those without assuming an exact
+ * search radius.
+ */
+function holeCorners(mesh: CoilMesh, cx: number, cy: number, zLo: number, zHi: number): Array<{ x: number; y: number }> {
+  const pts = nearbyXY(mesh, cx, cy, zLo, zHi);
+  const dist = (q: { x: number; y: number }) => Math.hypot(q.x - cx, q.y - cy);
+  const groups = new Map<string, Array<{ x: number; y: number }>>();
+  for (const p of pts) {
+    const key = dist(p).toFixed(2);
+    const g = groups.get(key);
+    if (g) g.push(p);
+    else groups.set(key, [p]);
+  }
+  let best: Array<{ x: number; y: number }> = [];
+  for (const g of groups.values()) if (g.length > best.length) best = g;
   return best;
 }
 
@@ -103,7 +141,7 @@ describe("SKÅDIS alignment pegs (issue #132)", () => {
     { label: "triangle", tolerance: 0.2, overrides: { shape: { kind: "tri", cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 120 } } },
   ];
   for (const { label, tolerance, overrides } of SHAPES) {
-    it(`${label}: each peg stands in its two holes with half the ${tolerance} mm tolerance of clearance across its corners`, async () => {
+    it(`${label}: each hole is the peg's own octagon, grown by half the ${tolerance} mm tolerance on every flat side (issue #143)`, async () => {
       const d = await design(spec({ tolerance, ...overrides }));
       const t = d.flangeSpec.thickness;
       const pegs = pegsOf(d);
@@ -113,10 +151,36 @@ describe("SKÅDIS alignment pegs (issue #132)", () => {
         // Across the seam (z = -t), and shorter than the two 2.4 mm holes together.
         expect((a.zMin + a.zMax) / 2).toBeCloseTo(-t, 6);
         expect(a.zMax - a.zMin).toBeCloseTo(4.5, 6);
-        const plateWall = holeWallDistance(partOf(d, "mountPlate").mesh, a.x, a.y, -t - 2.4, -t);
-        const flangeWall = holeWallDistance(partOf(d, "core").mesh, a.x, a.y, -t, -t + 2.4);
-        for (const wall of [plateWall, flangeWall]) {
-          expect(wall - a.radius).toBeCloseTo(tolerance / 2, 3);
+
+        const pegPts = pegCorners(peg.mesh, a.x, a.y, a.zMin, a.zMax);
+        expect(pegPts).toHaveLength(8);
+
+        for (const [holeMesh, zLo, zHi] of [
+          [partOf(d, "mountPlate").mesh, -t - 2.4, -t],
+          [partOf(d, "core").mesh, -t, -t + 2.4],
+        ] as const) {
+          const holePts = holeCorners(holeMesh, a.x, a.y, zLo, zHi);
+          // The hole's cross-section is the peg's own profile, not a
+          // circumscribing circle (a round hole would show many more than 8
+          // distinct rim/floor vertices here).
+          expect(holePts).toHaveLength(8);
+
+          // Clearance is measured PER SIDE (the support distance along each
+          // flat's and each 45 degree cut's own outward normal -- the 8
+          // directions a regular octagon's faces point in), not corner to
+          // corner: a true polygon offset grows every edge by the tolerance
+          // itself along its own normal, but a mitred corner vertex moves out
+          // by MORE than that (the corner is where two grown edges meet).
+          for (let i = 0; i < 8; i++) {
+            const dir = { x: Math.cos((i * Math.PI) / 4), y: Math.sin((i * Math.PI) / 4) };
+            const support = (pts: Array<{ x: number; y: number }>) =>
+              Math.max(...pts.map((p) => (p.x - a.x) * dir.x + (p.y - a.y) * dir.y));
+            // The peg fits in the hole without intersecting it: the hole's
+            // own face sits strictly farther out than the peg's matching
+            // face along every one of the octagon's 8 face normals, by
+            // exactly half the tolerance.
+            expect(support(holePts) - support(pegPts)).toBeCloseTo(tolerance / 2, 3);
+          }
         }
       }
       // Wider than the old 1.75 mm filament pin, but still a small peg.

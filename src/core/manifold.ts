@@ -68,7 +68,7 @@ import type { CapClipLayout, InnerEndLayout, SweepSolid } from "./innerEnd";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import { layoutFlangePads, plateTopZ } from "./flangePads";
 import type { KeyholeSlot, ThroughHole } from "./mount";
-import { pegHoleRadius, pegSweep } from "./mountPlate";
+import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
 import { circumscribedRadius, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -770,22 +770,21 @@ function mountPlateClipSolid(wasm: ManifoldToplevel, mountKind: Extract<MountKin
 }
 
 /**
- * One peg hole (issues #106, #132, constants.ts's MOUNT_PLATE_PEG_*): a
- * blind cylinder MOUNT_PLATE_PEG_HOLE_DEPTH deep, gripping the peg's corners, starting at the mating
- * face `zFace` and going into the part along `dir` (+1: into the flange,
- * from its outer face; -1: into the plate, from its front face). Its mouth
- * pokes MOUNT_PLATE_EMBED out past the face, so the cut never shares a
- * coincident face with it (see that constant's doc comment). Printable
- * both ways: each hole opens onto its own part's bed face.
+ * One peg hole (issues #106, #132, #143, constants.ts's MOUNT_PLATE_PEG_*): a
+ * blind prism MOUNT_PLATE_PEG_HOLE_DEPTH deep, the peg's own octagon
+ * (`pegHoleOutline`) so it grips every flat with the same tolerance
+ * clearance, starting at the mating face `zFace` and going into the part
+ * along `dir` (+1: into the flange, from its outer face; -1: into the plate,
+ * from its front face). Its mouth pokes MOUNT_PLATE_EMBED out past the face,
+ * so the cut never shares a coincident face with it (see that constant's
+ * doc comment). Printable both ways: each hole opens onto its own part's bed
+ * face.
  */
 function pinHoleCutter(wasm: ManifoldToplevel, anchor: AnchorPoint, tolerance: number, zFace: number, dir: 1 | -1): Manifold {
-  // Circumscribed about the true circle (its flats at exactly the hole
-  // radius), so the faceted hole never pinches the peg's corners.
-  const segments = 24;
-  const r = pegHoleRadius(tolerance) / Math.cos(Math.PI / segments);
+  const poly: [number, number][] = pegHoleOutline(anchor, tolerance).map((p) => [p.x, p.y]);
   const h = MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_EMBED;
-  const hole = wasm.Manifold.cylinder(h, r, r, segments, false).translate([0, 0, -MOUNT_PLATE_EMBED]);
-  return (dir === 1 ? hole : hole.mirror([0, 0, 1])).translate([anchor.x, anchor.y, zFace]);
+  const hole = new wasm.CrossSection([poly], "NonZero").extrude(h).translate([0, 0, -MOUNT_PLATE_EMBED]);
+  return (dir === 1 ? hole : hole.mirror([0, 0, 1])).translate([0, 0, zFace]);
 }
 
 export interface MountPlateSpec {
