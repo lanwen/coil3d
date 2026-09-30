@@ -14,9 +14,12 @@ import { decodeHashDoc } from "./hashDoc";
 // end), so these checks exercise the real cut, not the graceful skip.
 const KEYHOLE_HASH = "#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60&mount=keyhole";
 
-test("mount defaults to none, with no mount param in the hash", async ({ page }) => {
+test("mount defaults to off (no dropdown, toggle unchecked), with no mount param in the hash", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("select-mount")).toHaveValue("none");
+  // Issue #131: off is the toggle's own state now, not a "None" dropdown
+  // entry -- the dropdown doesn't exist at all until the toggle is on.
+  await expect(page.getByTestId("mount-enabled")).not.toBeChecked();
+  await expect(page.getByTestId("select-mount")).toHaveCount(0);
   await expect(page.getByTestId("mount")).toHaveText("None");
   expect(decodeHashDoc(page.url()).mount).toBeUndefined();
 });
@@ -25,6 +28,10 @@ test("switching to the screw-keyhole mount updates the hash + result panel, and 
   // A 2 mm cable: its channel pad (3.5 mm) is thinner than the keyhole's
   // own 5 mm, so the mount really does thicken the flange (issue #122).
   await page.goto("/#v=1&L=2000&d=2&lock=outer,ly&size=100&h=60");
+  // Issue #131: the kind picker only appears once the wall-mount toggle is
+  // switched on (defaulting to keyhole, the first time).
+  await page.getByTestId("mount-enabled").check();
+  await expect(page.getByTestId("select-mount")).toHaveValue("keyhole");
   await page.getByTestId("select-mount").selectOption("keyhole");
 
   await expect(async () => {
@@ -36,8 +43,25 @@ test("switching to the screw-keyhole mount updates the hash + result panel, and 
   await expect(page.getByTestId("warnings")).toContainText(/thickness increased/i);
 
   await page.reload();
+  await expect(page.getByTestId("mount-enabled")).toBeChecked();
   await expect(page.getByTestId("select-mount")).toHaveValue("keyhole");
   await expect(page.getByTestId("mount")).toHaveText("Screw keyhole");
+});
+
+test("turning the mount toggle off and back on remembers the last chosen kind (issue #131)", async ({ page }) => {
+  await page.goto("/#v=1&L=2000&d=2&lock=outer,ly&size=100&h=60");
+  await page.getByTestId("mount-enabled").check();
+  await page.getByTestId("select-mount").selectOption("through");
+  await expect(async () => expect(decodeHashDoc(page.url()).mount).toBe("through")).toPass();
+
+  await page.getByTestId("mount-enabled").uncheck();
+  await expect(page.getByTestId("select-mount")).toHaveCount(0);
+  await expect(async () => expect(decodeHashDoc(page.url()).mount).toBeUndefined()).toPass();
+  await expect(page.getByTestId("mount")).toHaveText("None");
+
+  await page.getByTestId("mount-enabled").check();
+  await expect(page.getByTestId("select-mount")).toHaveValue("through");
+  await expect(async () => expect(decodeHashDoc(page.url()).mount).toBe("through")).toPass();
 });
 
 test("a tiny, sharp core still fits the mount by growing the flange (warned about), never crashing", async ({ page }) => {
@@ -109,6 +133,7 @@ test.describe("keyhole mount rotation (issue #71)", () => {
     await page.goto("/#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60");
     await expect(page.getByTestId("select-keyholeRotation")).toHaveCount(0);
 
+    await page.getByTestId("mount-enabled").check();
     await page.getByTestId("select-mount").selectOption("keyhole");
     await expect(page.getByTestId("select-keyholeRotation")).toHaveValue("0");
     expect(decodeHashDoc(page.url()).kr).toBeUndefined();
@@ -160,6 +185,7 @@ test.describe("through-hole mount (issue #70)", () => {
     await page.goto(`/${BASE_HASH}`);
     await expect(page.getByTestId("input-throughHoleDiameter")).toHaveCount(0);
 
+    await page.getByTestId("mount-enabled").check();
     await page.getByTestId("select-mount").selectOption("through");
     await expect(async () => {
       expect(decodeHashDoc(page.url()).mount).toBe("through");
@@ -198,6 +224,7 @@ test.describe("through-hole mount (issue #70)", () => {
     });
 
     await page.goto(`/${BASE_HASH}`);
+    await page.getByTestId("mount-enabled").check();
     await page.getByTestId("select-mount").selectOption("through");
     await expect(async () => {
       expect(decodeHashDoc(page.url()).mount).toBe("through");

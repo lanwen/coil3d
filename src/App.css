@@ -859,30 +859,45 @@ header p {
   color: var(--ink);
 }
 
-/* Top-cap auto/explicit toggle (issue #119): the switch plus an "auto" tag
-   shown only while `spec.topCap === "auto"` (untouched), and a small text
-   link back to auto shown only once the user has touched it (explicit
-   "on"/"off"). Mirrors `.eye-toggle-row`'s layout (switch + trailing
-   content as row siblings, never nested in the switch's own `<label>`). */
+/* Top-cap auto/explicit toggle (issue #119, row order revised by #131): the
+   "auto" tag (or, once touched, the "reset" link back to auto) LEADS the
+   switch rather than trailing it -- both occupy the same slot, so the row
+   never shows both at once. Mirrors `.eye-toggle-row`'s layout (switch +
+   trailing content as row siblings, never nested in the switch's own
+   `<label>`). */
 .cap-toggle-row {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
+/* Sized to exactly match the switch pill's own height (`.switch-track`,
+   issue #131 AC: "matches the pill's height") -- a fixed height plus
+   centred content, rather than relying on padding/line-height/border to add
+   up to the same number by coincidence. Repeated for the bigger mobile pill
+   below. */
 .tag-auto {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 20px;
+  box-sizing: border-box;
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 1px 6px;
+  padding: 0 6px;
   border: 1.3px solid var(--ink);
   border-radius: 8px;
   flex: none;
 }
 
+/* Issue #131: now sits inline BEFORE the switch (in the auto tag's own
+   slot), not on a line of its own below it -- `.cap-toggle-row`'s own
+   `align-items: center` centres it against the pill for free, so this needs
+   no height/margin trick of its own, unlike `.tag-auto` above. */
 .reset-auto-btn {
-  margin: -4px 0 0;
+  margin: 0;
   padding: 0;
   border: none;
   background: none;
@@ -891,7 +906,17 @@ header p {
   color: var(--ink);
   text-decoration: underline;
   cursor: pointer;
-  align-self: flex-start;
+  flex: none;
+}
+
+/* SKÅDIS credit link (issue #131): a small, unobtrusive note under the
+   mount picker, shown only for that one mount kind -- reuses `.field-note`'s
+   own muted, small-print styling (see above) for the surrounding text, with
+   just the link itself in this app's one established link colour/underline
+   (`.reset-auto-btn`'s own ink + underline) so it still reads as tappable. */
+.mount-credit-note a {
+  color: var(--ink);
+  text-decoration: underline;
 }
 
 /* ---------- Camera view controls (issue #15) ---------- */
@@ -1286,6 +1311,12 @@ header p {
 
   .switch-input {
     inset: -12px;
+  }
+
+  /* Keeps the top-cap "auto" tag matching the bigger mobile pill's own
+     height (issue #131 AC), exactly like the desktop rule above. */
+  .tag-auto {
+    height: 24px;
   }
 
   /* The state-indicator zone (issue #104) grows to match the bigger mobile

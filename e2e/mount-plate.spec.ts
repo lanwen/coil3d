@@ -29,24 +29,49 @@ async function gotoDesign(page: Page, hash: string) {
 test.describe("mount plate controls (issue #14)", () => {
   test("skadis appears in the mount select, but openGrid is hidden (issue #14 PR review, issue #38: placeholder connector geometry only)", async ({ page }) => {
     await page.goto("/");
+    // Issue #131: the kind picker only exists once the wall-mount toggle is on.
+    await page.getByTestId("mount-enabled").check();
     const options = await page.getByTestId("select-mount").locator("option").allTextContents();
     expect(options.join(" ")).toMatch(/SK.DIS/i);
     expect(options.join(" ")).not.toMatch(/openGrid/i);
+    expect(options.join(" ")).not.toMatch(/none/i); // issue #131: no "None" entry any more -- that's the toggle's off state
     await expect(page.getByTestId("select-plateJoint")).toHaveCount(0); // mount=none by default
   });
 
   test("a shared link with mount=opengrid falls back to defaults with a notice, not a silently-wrong plate", async ({ page }) => {
     await page.goto("/#v=1&mount=opengrid");
     await expect(page.getByTestId("hash-notice")).toBeVisible();
-    await expect(page.getByTestId("select-mount")).toHaveValue("none");
+    // Issue #131: the fallback is "off" -- the toggle unchecked, no dropdown.
+    await expect(page.getByTestId("mount-enabled")).not.toBeChecked();
+    await expect(page.getByTestId("select-mount")).toHaveCount(0);
+  });
+
+  test("the skapa credit link only shows for the skadis mount, not keyhole or through (issue #131)", async ({ page }) => {
+    await page.goto("/#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60");
+    await page.getByTestId("mount-enabled").check();
+
+    await page.getByTestId("select-mount").selectOption("keyhole");
+    await expect(page.getByTestId("mount-credit")).toHaveCount(0);
+
+    await page.getByTestId("select-mount").selectOption("through");
+    await expect(page.getByTestId("mount-credit")).toHaveCount(0);
+
+    await page.getByTestId("select-mount").selectOption("skadis");
+    await expect(page.getByTestId("mount-credit")).toBeVisible();
+    await expect(page.getByTestId("mount-credit")).toContainText(/skapa/i);
   });
 
   test("switching to skadis adds the plate, jumps to the mount-side view once, and reproduces on reload (issue #106)", async ({ page }) => {
     await gotoDesign(page, "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60");
     await expect(page.getByTestId("preset-mountSide")).toHaveCount(0); // no plate, no mount-side view
+    await page.getByTestId("mount-enabled").check();
     await page.getByTestId("select-mount").selectOption("skadis");
     await expect(async () => expect(decodeHashDoc(page.url()).mount).toBe("skadis")).toPass();
     await expect(page.getByTestId("mount")).toContainText(/SK.DIS/i);
+    // Issue #131: a small credit link to skapa, the SKÅDIS clip design this
+    // profile is based on -- shown only for this one mount kind.
+    await expect(page.getByTestId("mount-credit")).toBeVisible();
+    await expect(page.getByTestId("mount-credit").getByRole("link", { name: "skapa" })).toHaveAttribute("href", "https://github.com/nmattia/skapa");
     await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
     // The plate sits behind the flange, where Iso never looks: selecting it shows it.
     await expect(page.getByTestId("preset-mountSide")).toHaveAttribute("aria-pressed", "true");
