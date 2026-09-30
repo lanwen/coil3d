@@ -553,7 +553,7 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
       expect(d.capClip).toBeDefined();
       const out = d.outerEndLeadOut;
       const n = out.length / 3;
-      const path = d.capClip!.path;
+      const path = d.capClip!.clips[0].path;
       // The lead-out's last samples ARE the clip's path, level, the cable's
       // top a hair under the cap's underside (z = height, assembly frame).
       for (let i = 0; i < path.length; i++) {
@@ -562,9 +562,9 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
         expect(p[1]).toBeCloseTo(path[i].y, 4);
         expect(p[2] + 3.8 / 2).toBeCloseTo(d.solution.height - 0.1, 4);
       }
-      // The clip itself (its block) sits inside the cap's footprint...
+      // The clips themselves (their blocks) sit inside the cap's footprint...
       const rimRadius = d.solution.flangeExtent!.acrossFlats / 2;
-      for (const ring of d.capClip!.block.rings) for (const q of ring) expect(Math.hypot(q.x, q.y)).toBeLessThan(rimRadius);
+      for (const clip of d.capClip!.clips) for (const ring of clip.block.rings) for (const q of ring) expect(Math.hypot(q.x, q.y)).toBeLessThan(rimRadius);
       // ...and the cable's free end is outside it.
       const end = pointAt3(out, n - 1);
       expect(Math.hypot(end[0], end[1])).toBeGreaterThan(rimRadius + 5);

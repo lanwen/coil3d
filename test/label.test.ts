@@ -39,12 +39,13 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 // thus the top cap's own annulus between bore and rim) well past the core's
 // own outline, leaving plenty of room for a short label at a legible height.
 const ROOMY_CAP = baseSpec();
-// The same footprint as issue #9's own two-part fixture: a bigger core but
-// only 2 layers, so the flange barely grows past the core outline -- too
-// narrow an annulus for ANY legible-height label. (A thin 2.5 mm cable since
-// issue #117: the cap's cable clip widens the margin for a 3.8 mm one, and
-// then this label would fit.)
-const TIGHT_CAP = baseSpec({ wire: { length: 6000, diameter: 2.5, type: "flex" }, coreSize: { locked: true, dimension: "outer", value: 60 }, height: { locked: true, value: 60 }, layers: { locked: true, value: 2 } });
+// Close to issue #9's own two-part fixture: a bigger core but few layers,
+// so the flange barely grows past the core outline -- too narrow an annulus
+// for ANY legible-height label. (A thin 2.5 mm cable since issue #117, and
+// one layer, cap forced on, since issue #121: the cap's chamfered cable
+// clips widen the margin for a 3.8 mm cable or a second layer, and then
+// this label would fit.)
+const TIGHT_CAP = baseSpec({ wire: { length: 6000, diameter: 2.5, type: "flex" }, coreSize: { locked: true, dimension: "outer", value: 60 }, height: { locked: true, value: 60 }, layers: { locked: true, value: 1 }, topCap: "on" });
 
 async function assertManifold(mesh: { positions: Float32Array; indices: Uint32Array }, label: string) {
   const wasm = await Module();

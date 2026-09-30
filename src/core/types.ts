@@ -419,7 +419,7 @@ export interface Design {
   /**
    * The outer end (issues #68, #115), from the last wound layer's own end:
    * with the top cap on, the run up to just under the cap, on through the
-   * cap's clip (`capClip`) and out past the rim; with it off, a straight
+   * cap's first clip (`capClip.clips[0]`) and out past the rim; with it off, a straight
    * free tail along the last turn's tangent. Empty when no layer has any
    * turns.
    */
@@ -433,9 +433,12 @@ export interface Design {
    */
   cablePath: Float32Array;
   /**
-   * The top cap's cable clip (issue #117, innerEnd.ts's `layoutCapClip`):
-   * laid out where the cable's cap lead-out ends. Undefined when the top cap
-   * is off. Not for UI use (the STEP backend builds the same clip from it).
+   * The top cap's cable clips (issue #117, innerEnd.ts's `layoutCapClip`):
+   * `clips[0]` is laid out where the cable's cap lead-out ends (the drawn
+   * cable runs through it); issue #121 repeats the same clip around the cap.
+   * Undefined when the top cap is off. Not for UI use beyond the guide (the
+   * first clip's `path`, the clip count); the STEP backend builds the same
+   * clips from it.
    */
   capClip?: CapClipLayout;
 }
