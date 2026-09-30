@@ -280,6 +280,15 @@ header p {
   color: var(--muted);
 }
 
+/* Issue #140: the slider's own max value, under the slider's right end.
+   Right-aligned so it sits directly below the track's max position; its own
+   row (below the slider, never beside it) is what keeps the knob's
+   bounding box clear of this text at every slider position, including all
+   the way at max. */
+.field-max-label {
+  text-align: right;
+}
+
 /* ---------- (i) hint button + bubble (issue #53) ---------- */
 
 .hint {

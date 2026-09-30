@@ -124,6 +124,23 @@ export function ControlsForm({
   const cornerRadiusMaxRaw = spec.shape.kind === "round" ? 250 : (solution?.cornerRadiusRange[1] ?? 250);
   const cornerRadiusMax = Math.max(cornerRadiusMin, Math.floor(cornerRadiusMaxRaw / 0.5) * 0.5);
 
+  // Issue #140: no useful room to move the slider at all -- either the
+  // bend-limit floor and the useful max already coincide exactly (a
+  // literally empty range) or they're close enough that they round to the
+  // SAME 0.5mm step (the same coincidence `cornerRadiusMax`'s own
+  // `Math.max` clamp above already guards against), leaving only one
+  // reachable value on the slider's own grid. Kept as its own flag, not
+  // reused from `disabled`'s existing "hide the slider" meaning elsewhere
+  // in this file (`LockRangeField`, a free dimension) -- this field must
+  // stay VISIBLE while unmovable (the issue's own "grey out the slider",
+  // not "hide it"), via `RangeField`'s opt-in `keepSliderWhenDisabled`.
+  const cornerRadiusDisabled = spec.shape.kind !== "round" && cornerRadiusMax <= cornerRadiusMin;
+
+  // Issue #140: the (i) hint explains WHY, once the field is disabled --
+  // appended rather than replacing `HINTS.shapeCornerRadius` outright, so
+  // the hint still says what the field normally does too.
+  const cornerRadiusHint = cornerRadiusDisabled ? `${HINTS.shapeCornerRadius} The core is too small for a larger radius; grow the core to unlock.` : HINTS.shapeCornerRadius;
+
   // Issue #105 AC #5: "enabled" tracks whether the user switched the label
   // ON, not whether it currently has text -- an empty label while the
   // switch is on must stay revealed, not snap shut. `spec.label` is only
@@ -317,7 +334,10 @@ export function ControlsForm({
             // true one), so this can't drift from the min-note's own number
             // below or the slider's own `max` attribute.
             value={Math.min(cornerRadiusMax, Math.max(cornerRadiusMin, spec.shape.cornerRadius))}
-            hint={HINTS.shapeCornerRadius}
+            disabled={cornerRadiusDisabled}
+            keepSliderWhenDisabled
+            maxLabel
+            hint={cornerRadiusHint}
             minNote={cornerRadiusMin > 0.05 ? `Minimum for this cable's bend limit: ${cornerRadiusMin} mm` : undefined}
             onChange={setShapeCornerRadius}
           />
