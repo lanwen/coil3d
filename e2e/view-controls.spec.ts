@@ -243,3 +243,80 @@ test.describe("perspective/orthographic toggle (issue #15)", () => {
     expect(afterCount).toBeLessThan(beforeCount * 2);
   });
 });
+
+// Issue #141: the preset picker is its own borderless bar -- top centre of
+// the viewport, clear of the top-left toggles and the top-right projection
+// switch, or bottom centre when the viewport is too narrow for that (phone).
+const SKADIS = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis";
+const OVERLAYS = [".wire-toggle", ".dimensions-toggle", ".explode-toggle", ".projection-toggle-box", ".wall-view-caption"];
+
+async function expectBarClearOfOverlays(page: Page) {
+  const bar = (await page.locator(".preset-bar").boundingBox())!;
+  for (const selector of OVERLAYS) {
+    for (const el of await page.locator(selector).all()) {
+      const box = await el.boundingBox();
+      if (!box) continue; // unmounted between all() and here (e.g. a caption swapping out)
+      const overlaps = bar.x < box.x + box.width && box.x < bar.x + bar.width && bar.y < box.y + box.height && box.y < bar.y + bar.height;
+      expect(overlaps, `preset bar overlaps ${selector}`).toBe(false);
+    }
+  }
+  return bar;
+}
+
+test.describe("preset bar layout (issue #141)", () => {
+  // Only the bar's own layout/state matters here, not the camera tween.
+  test.use({ contextOptions: { reducedMotion: "reduce" } });
+
+  test("desktop: top centre, no border, active preset is a solid ink pill, clear of every other overlay", async ({ page }) => {
+    await gotoDesign(page, SKADIS);
+    const viewer = (await page.locator(".viewer").boundingBox())!;
+    const bar = await expectBarClearOfOverlays(page);
+    expect(Math.abs(bar.x + bar.width / 2 - (viewer.x + viewer.width / 2)), "horizontally centred").toBeLessThan(2);
+    expect(bar.y - viewer.y, "at the top").toBeLessThan(20);
+    expect(await page.locator(".preset-bar").evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe("0px");
+
+    for (const id of ["front", "iso", "wallRoom", "mountSide", "printLayout"] as const) {
+      await page.getByTestId(`preset-${id}`).click();
+      await expect(page.getByTestId(`preset-${id}`)).toHaveAttribute("aria-pressed", "true");
+      await expect(page.locator('.preset-btn[aria-pressed="true"]')).toHaveCount(1);
+      const [bg, fg] = await page.getByTestId(`preset-${id}`).evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color]);
+      expect(bg).toBe("rgb(0, 0, 0)");
+      expect(fg).toBe("rgb(255, 255, 255)");
+      await expectBarClearOfOverlays(page);
+      await expect(page.locator(".preset-bar")).toHaveScreenshot(`preset-bar-${id}.png`);
+    }
+  });
+
+  test("every preset has an accessible name and shows its label on keyboard focus", async ({ page }) => {
+    await gotoDesign(page, SKADIS);
+    const names = { front: "Front view", iso: "Iso view", wallRoom: "Wall mount view", mountSide: "Mount side view", printLayout: "Print layout view" };
+    for (const [id, name] of Object.entries(names)) {
+      await expect(page.getByRole("button", { name, exact: true })).toHaveAttribute("data-testid", `preset-${id}`);
+    }
+    const tip = page.getByTestId("preset-front").locator(".preset-tip");
+    await expect(tip).toHaveCSS("opacity", "0");
+    await page.getByTestId("preset-iso").focus();
+    await page.keyboard.press("Shift+Tab"); // keyboard focus -> :focus-visible
+    await expect(page.getByTestId("preset-front")).toBeFocused();
+    await expect(tip).toHaveCSS("opacity", "1");
+    await expect(tip).toHaveText("Front");
+  });
+
+  test("phone width: the bar falls back to the bottom centre, clear of the toggles and captions", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await gotoDesign(page, SKADIS);
+    const viewer = (await page.locator(".viewer").boundingBox())!;
+    for (const id of ["iso", "wallRoom", "mountSide", "printLayout"] as const) {
+      await page.getByTestId(`preset-${id}`).click();
+      await expect(page.getByTestId(`preset-${id}`)).toHaveAttribute("aria-pressed", "true");
+      // The caption (the thing the bar is most likely to collide with at
+      // the bottom) must be settled in before the overlap check.
+      await expect(page.getByTestId("wall-view-caption")).toHaveCount(id === "iso" ? 0 : 1);
+      const bar = await expectBarClearOfOverlays(page);
+      expect(Math.abs(bar.x + bar.width / 2 - (viewer.x + viewer.width / 2)), "horizontally centred").toBeLessThan(2);
+      expect(viewer.y + viewer.height - (bar.y + bar.height), "at the bottom").toBeLessThan(12);
+      expect(bar.x).toBeGreaterThanOrEqual(viewer.x);
+      expect(bar.x + bar.width).toBeLessThanOrEqual(viewer.x + viewer.width);
+    }
+  });
+});

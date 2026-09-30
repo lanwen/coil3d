@@ -928,150 +928,147 @@ header p {
   text-decoration: underline;
 }
 
-/* ---------- Camera view controls (issue #15) ---------- */
+/* ---------- Camera view controls (issue #15, redesigned by #141) ---------- */
 
-.view-controls {
+/* The viewport's own width (not the window's) decides where the preset bar
+   fits: the sidebar takes 360px on desktop, so a mid-size window can leave
+   a narrow viewport even above the phone breakpoint. */
+.viewer {
+  container-type: inline-size;
+}
+
+/* The perspective/isometric toggle, top right: a `TwoSidedToggle` (issue
+   #104: promoted from a plain `EyeToggle` -- see ViewControls.tsx) over the
+   same opaque, borderless backdrop as the wire/dimensions/exploded-view
+   toggles (`.wire-toggle` & co. above -- see its own comment for why opaque,
+   not translucent). Checked = perspective. */
+.projection-toggle-box {
   position: absolute;
   top: 12px;
   right: 12px;
   z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
+  background: var(--paper);
+  padding: 5px 10px;
+  border-radius: 4px;
 }
 
-.preset-group {
+/* Preset views (issue #141): a borderless bar at the top centre of the
+   viewport, built like the pill switch -- a paper pill (no outline; the
+   opaque paper only keeps the icons legible over the model and slot grid)
+   whose active button is a solid ink pill with the icon knocked out in
+   paper, like the switch's checked track. */
+.preset-bar {
+  position: absolute;
+  top: 11px;
+  left: 50%;
+  z-index: 1;
   display: flex;
   gap: 2px;
+  padding: 3px;
   background: var(--paper);
-  border: 1.5px solid var(--ink);
-  border-radius: 2px;
-  padding: 2px;
+  border-radius: 999px;
+  transform: translateX(-50%);
 }
 
 .preset-btn {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 42px;
+  height: 32px;
   padding: 0;
   border: none;
-  border-radius: 1px;
-  background: var(--paper);
+  border-radius: 999px;
+  background: transparent;
   color: var(--ink);
   cursor: pointer;
-}
-
-.preset-btn:hover {
-  background: var(--hairline-soft);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
 }
 
 .preset-btn.active {
   background: var(--ink);
+  color: var(--paper);
 }
 
-/* Every preset pictogram is a plain outlined shape suggesting the view it
-   switches to -- front is a flat rectangle seen face-on, iso is a rotated
-   square (a 3/4 look), both drawn with the same 2px ink stroke as the
-   eye/lock icons. */
+.preset-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
 .preset-icon {
-  box-sizing: border-box;
-  border: 2px solid var(--ink);
-  background: transparent;
+  width: 24px;
+  height: 24px;
+  flex: none;
 }
 
-.preset-btn.active .preset-icon {
-  border-color: var(--paper);
-}
-
-.preset-icon-front {
-  width: 14px;
-  height: 14px;
-}
-
-.preset-icon-iso {
-  width: 11px;
-  height: 11px;
-  transform: rotate(45deg);
-}
-
-/* Wall mount (issue #13, folded into this bar by #15 and trimmed to just
-   this one room-side view by #49): a square standing for the flange face,
-   with a bottom bar suggesting it resting against the wall. */
-.preset-icon-wallRoom {
-  position: relative;
-  width: 14px;
-  height: 14px;
-}
-
-.preset-icon-wallRoom::after {
-  content: "";
+/* The view's name, shown under the button on hover and keyboard focus --
+   an ink pill with paper text, the same inverted look as the active
+   button, so it reads as part of the bar rather than a browser tooltip. */
+.preset-tip {
   position: absolute;
-  left: 1px;
-  right: 1px;
-  bottom: -4px;
-  height: 2px;
+  top: calc(100% + 7px);
+  left: 50%;
+  padding: 3px 8px;
+  border-radius: 999px;
   background: var(--ink);
+  color: var(--paper);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity 0.12s ease;
 }
 
-.preset-btn.active .preset-icon-wallRoom::after {
-  background: var(--paper);
+.preset-btn:focus-visible .preset-tip {
+  opacity: 1;
 }
 
-/* Mount side (issue #106): the flange face seen from the wall, with two
-   short vertical bars inside it for the clips in their slots. */
-.preset-icon-mountSide {
-  position: relative;
-  width: 14px;
-  height: 14px;
+/* Hover only where there is a real pointer: on touch screens :hover sticks
+   after a tap and would leave the tip (and grey pill) hanging over the
+   caption until the next tap elsewhere. The tip is for finding the right
+   view BEFORE clicking, so it also hides once the button is clicked
+   (mouse focus without :focus-visible) instead of sitting over the new
+   view until the pointer moves away. */
+@media (hover: hover) {
+  .preset-btn:not(.active):hover {
+    background: var(--hairline-soft);
+  }
+
+  .preset-btn:hover:not(:focus) .preset-tip {
+    opacity: 1;
+  }
 }
 
-.preset-icon-mountSide::before,
-.preset-icon-mountSide::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  width: 2px;
-  height: 6px;
-  background: var(--ink);
+@media (prefers-reduced-motion: reduce) {
+  .preset-btn,
+  .preset-tip {
+    transition: none;
+  }
 }
 
-.preset-icon-mountSide::before {
-  left: 2px;
-}
+/* Too narrow for the bar to sit between the top-left toggles and the
+   projection switch: it moves to the bottom centre instead (thumb reach on
+   a phone; the framed model leaves the most free space there), its tips
+   open upwards, and the wall/print caption lifts to sit just above it. */
+@container (max-width: 680px) {
+  .preset-bar {
+    top: auto;
+    bottom: 6px;
+  }
 
-.preset-icon-mountSide::after {
-  right: 2px;
-}
+  .preset-tip {
+    top: auto;
+    bottom: calc(100% + 7px);
+  }
 
-.preset-btn.active .preset-icon-mountSide::before,
-.preset-btn.active .preset-icon-mountSide::after {
-  background: var(--paper);
-}
-
-/* Print layout (issue #78): a flat, wide rectangle standing for the bed
-   seen from above -- visually distinct from front's tall square, iso's
-   rotated one and wall mount's square-plus-bar. */
-.preset-icon-printLayout {
-  width: 16px;
-  height: 8px;
-}
-
-/* The perspective/isometric toggle (below the preset buttons): a
-   `TwoSidedToggle` (issue #104: promoted from a plain `EyeToggle` -- see
-   ViewControls.tsx) over the same opaque, borderless backdrop as the
-   wire/dimensions/exploded-view toggles (`.wire-toggle` & co. above -- see
-   its own comment for why opaque, not translucent; issue #104 also dropped
-   this one's border, "the other overlay controls" in the same AC), minus
-   their `position: absolute` -- this one sits in `.view-controls`'s own
-   flex column instead of being stacked over the canvas. Checked =
-   perspective. */
-.projection-toggle-box {
-  background: var(--paper);
-  padding: 5px 10px;
-  border-radius: 4px;
+  .wall-view-caption {
+    bottom: 46px;
+  }
 }
 
 /* ---------- Advanced disclosure ---------- */
@@ -1385,9 +1382,17 @@ header p {
     top: 116px;
   }
 
+  /* A phone viewport is too narrow for the projection switch beside the
+     (wider, mobile-sized) wound-cable toggle row, so it keeps its old
+     second-row spot; the preset bar itself is at the bottom centre here
+     (the `@container` rule above) with slightly wider touch targets. */
+  .projection-toggle-box {
+    top: 64px;
+  }
+
   .preset-btn {
-    width: 38px;
-    height: 38px;
+    width: 44px;
+    height: 32px;
   }
 
   /* Larger tap target for the (i) hint (issue #53 AC: "tap on mobile") and
