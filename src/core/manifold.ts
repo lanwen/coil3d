@@ -14,7 +14,7 @@
 //
 // Issue #9 (top cap, joints, keyhole): `buildTopCap` builds the cap as a
 // second manifold part, mirroring the bottom flange (same footprint, but a
-// solid plate with no hole over the bore since issue #121) plus an
+// straight through-hole down the middle since issue #127) plus an
 // engagement collar that reaches down into the core's bore. All three joints (press/bayonet/snap) share ONE circular
 // collar centered on the coil axis regardless of the core's own
 // round/sq/tri cross-section -- see joints.ts for why. `applyCoreJointCut`
@@ -574,7 +574,7 @@ export interface TopCapSpec {
 }
 
 /**
- * Build the top cap: a solid plate (issue #121) following the core's own
+ * Build the top cap: a plate with a through-hole in its middle (issue #127) following the core's own
  * outline out to the flange's footprint (mirroring the bottom flange), with
  * a downward engagement collar for the chosen joint and cable clips for the
  * outer cable end under it. Built entirely in a LOCAL frame (plate z=[0, CAP_THICKNESS],
@@ -592,10 +592,10 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
 
   try {
     const { flange, joint, tolerance, label, clip } = spec;
-    // Issue #121: a SOLID plate, no hole over the bore -- its outer face
-    // lies on the print bed, and an opening there would leave the collar's
-    // top bridging over a hollow. Same outer outline (and columns) as the
-    // bottom flange's own ring.
+    // The plate: the same outer outline (and columns) as the bottom
+    // flange's own ring. Issue #127: its middle is opened up below by the
+    // through-hole (`holeOutline`), never by a blind pocket whose floor would
+    // print as a bridge (the pre-#121 annulus over a solid collar plug).
     const rim = outlineColumnParams(flange.outline, flange.columns, flange.minCornerSegments).map((t): [number, number] => {
       const p = pointAt(flange.outline, t, flange.margin);
       return [p.x, p.y];
@@ -605,7 +605,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
     }
 
-    const { collarRadius, collarOutline, weldOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
+    const { collarRadius, collarOutline, weldOutline, holeOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
     const segments = 48;
 
     let collar: Manifold;
@@ -637,6 +637,13 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     }
 
     let assembled = track(plate.add(collar));
+    // Issue #127: a straight through-hole down the middle -- the collar is a
+    // tube, and in the cap's print orientation (face down) the hole's walls
+    // rise straight up from the bed with nothing spanning it.
+    if (holeOutline) {
+      const hole = track(outlinePrismSolid(wasm, holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2, -JOINT_ENGAGE_DEPTH - 1, segments, flange.minCornerSegments));
+      assembled = track(assembled.subtract(hole));
+    }
     // Issue #117: the cable clips hang under the plate (each block welded
     // 1 mm into the plate), with their bores cut through them.
     for (const c of clip?.clips ?? []) {

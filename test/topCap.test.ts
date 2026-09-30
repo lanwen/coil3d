@@ -5,7 +5,7 @@ import type { CoilSpec, JointKind, ShapeSpec } from "../src/core";
 import { bedRestingTransform } from "../src/core/plate";
 import { applyRigidTransform } from "../src/core/transform";
 import { offsetArea } from "../src/core/shapes";
-import { CAP_THICKNESS } from "../src/core/constants";
+import { jointGeometry } from "../src/core/joints";
 
 // Issue #9 acceptance criteria: "Top cap auto-on when layers > 1; override
 // on/off in the UI and hash", "The cap is a second named, manifold part in
@@ -300,19 +300,20 @@ describe("exportDesign for a two-part design (issue #9)", () => {
 // local z <= 0, strictly on the OTHER side of the plate from the resting
 // face; see manifold.ts's `buildTopCap` and `collarBase`).
 //
-// Issue #121 ("the top cap surface that will be on the bed has a hole in
-// the center, which will include bridging"): until then the plate was an
-// annulus with a hole over the bore, and the collar below it is a solid
-// plug -- so the bed face had a 3 mm deep pocket whose floor (the plug's
-// top) printed as a bridge over that hollow. The bore itself was never open
-// through the cap (the plug always closed it; the bore stays open from the
-// bottom flange's side). Now the plate is solid: the flat resting face must
-// cover the WHOLE outer outline (`offsetArea` in shapes.ts), hole included.
-describe("issue #67/#121: the top cap rests on one flat, solid face, with nothing below it", () => {
-  // The cap's full outer face: the flange's outer outline (offset out by
-  // margin), with no hole over the bore.
+// Issues #121/#127 (the user: "the top cap can have a hole in the middle
+// ... my only concern was that we don't want excessive bridges"): before
+// #121 the plate was an annulus over a solid collar plug, so the bed face
+// had a 3 mm deep pocket whose floor printed as a bridge over that hollow;
+// #121 filled it in solid; #127 opens it up as a straight THROUGH-hole (the
+// collar is a tube). So the flat resting face is the outer outline minus
+// that hole, and nothing anywhere above the bed may face straight down over
+// open air wider than a small overhang (see "no bridges" below).
+describe("issue #67/#127: the top cap rests on one flat face, with nothing below it and no bridges", () => {
+  // The cap's flat outer face: the flange's outer outline (offset out by
+  // margin) minus the through-hole (joints.ts's `holeOutline`).
   function faceArea(d: Awaited<ReturnType<typeof design>>): number {
-    return offsetArea(d.flangeSpec.outline, d.flangeSpec.margin);
+    const { holeOutline } = jointGeometry(d.flangeSpec.boreOutline, d.spec.joint, d.spec.tolerance);
+    return offsetArea(d.flangeSpec.outline, d.flangeSpec.margin) - (holeOutline ? offsetArea(holeOutline, 0) : 0);
   }
 
   // The XY area that the part's lowest (bed-resting) layer
@@ -413,44 +414,104 @@ describe("issue #67/#121: the top cap rests on one flat, solid face, with nothin
     expect(flatArea(resting, minZ) / faceArea(d)).toBeGreaterThanOrEqual(0.9);
   });
 
-  /** Whether the XY point (x, y) lies on one of the triangles at min Z -- i.e. the bed face is solid there. */
-  function onBedFace(mesh: { positions: Float32Array; indices: Uint32Array }, minZ: number, x: number, y: number): boolean {
+  /**
+   * The widest "bridge" in the part's print orientation: every connected
+   * patch of horizontal, downward-facing triangles ABOVE the bed (a face the
+   * printer would lay over open air), measured by its width 2 * area /
+   * perimeter (a disc of radius r gives r, a thin ring or strip about its
+   * width). Small overhang ledges -- the bayonet lugs, the snap barb band,
+   * the engraved label's letter floors -- stay around a millimetre; the
+   * pre-#121 pocket floor over the bore gave well over 10 mm.
+   */
+  function widestBridge(mesh: { positions: Float32Array; indices: Uint32Array }, minZ: number): number {
     const { positions: p, indices } = mesh;
-    const EPS = 1e-3;
+    const down: number[] = [];
     for (let t = 0; t < indices.length; t += 3) {
       const [a, b, c] = [indices[t] * 3, indices[t + 1] * 3, indices[t + 2] * 3];
-      if (p[a + 2] > minZ + EPS || p[b + 2] > minZ + EPS || p[c + 2] > minZ + EPS) continue;
-      const cross = (i: number, j: number) => (p[j] - p[i]) * (y - p[i + 1]) - (p[j + 1] - p[i + 1]) * (x - p[i]);
-      const [s1, s2, s3] = [cross(a, b), cross(b, c), cross(c, a)];
-      if ((s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0)) return true;
+      if (Math.min(p[a + 2], p[b + 2], p[c + 2]) < minZ + 0.05) continue;
+      if (Math.max(p[a + 2], p[b + 2], p[c + 2]) - Math.min(p[a + 2], p[b + 2], p[c + 2]) > 1e-3) continue;
+      const nz = (p[b] - p[a]) * (p[c + 1] - p[a + 1]) - (p[b + 1] - p[a + 1]) * (p[c] - p[a]);
+      if (nz < -1e-9) down.push(t);
     }
-    return false;
+    // Group by shared vertices (manifold's own output shares them).
+    const parent = new Map<number, number>();
+    const find = (v: number): number => {
+      while (parent.get(v) !== v) v = parent.get(v)!;
+      return v;
+    };
+    for (const t of down) for (let k = 0; k < 3; k++) if (!parent.has(indices[t + k])) parent.set(indices[t + k], indices[t + k]);
+    for (const t of down) {
+      const r = find(indices[t]);
+      parent.set(find(indices[t + 1]), r);
+      parent.set(find(indices[t + 2]), find(indices[t]));
+    }
+    const area = new Map<number, number>();
+    const edges = new Map<number, Map<string, number>>();
+    for (const t of down) {
+      const r = find(indices[t]);
+      const [a, b, c] = [indices[t] * 3, indices[t + 1] * 3, indices[t + 2] * 3];
+      area.set(r, (area.get(r) ?? 0) + Math.abs((p[b] - p[a]) * (p[c + 1] - p[a + 1]) - (p[b + 1] - p[a + 1]) * (p[c] - p[a])) / 2);
+      const e = edges.get(r) ?? new Map<string, number>();
+      for (const [u, v] of [[indices[t], indices[t + 1]], [indices[t + 1], indices[t + 2]], [indices[t + 2], indices[t]]]) {
+        const key = u < v ? `${u},${v}` : `${v},${u}`;
+        e.set(key, (e.get(key) ?? 0) + 1);
+      }
+      edges.set(r, e);
+    }
+    let widest = 0;
+    for (const [r, A] of area) {
+      let perimeter = 0;
+      for (const [key, count] of edges.get(r)!) {
+        if (count !== 1) continue;
+        const [u, v] = key.split(",").map(Number);
+        perimeter += Math.hypot(p[u * 3] - p[v * 3], p[u * 3 + 1] - p[v * 3 + 1]);
+      }
+      widest = Math.max(widest, (2 * A) / perimeter);
+    }
+    return widest;
   }
 
-  // Issue #121: no hole over the bore -- the coil axis and points across
-  // the bore all lie on the flat bed face. Fails on the annular plate.
-  describe.each(JOINTS)("issue #121, joint = %s", (joint) => {
-    it.each(SHAPES)("$kind: the bed face is solid over the bore (no hole, no bridging)", async (shape) => {
-      const d = await design(
-        baseSpec({
-          wire: { length: 6000, diameter: 3.8, type: "usb" },
-          shape,
-          coreSize: { locked: true, dimension: "outer", value: 60 },
-          height: { locked: true, value: 60 },
-          layers: { locked: true, value: 2 },
-          joint,
-        }),
-      );
-      const cap = d.parts.find((p) => p.role === "topCap")!;
-      const transform = bedRestingTransform(cap);
-      const resting = applyRigidTransform(cap.mesh, transform);
-      const minZ = minZOf(resting.positions);
-      const boreR = d.flangeSpec.boreOutline.apothem;
-      for (const [x, y] of [[0, 0], [0.5 * boreR, 0], [0, -0.9 * boreR], [-0.7 * boreR, 0.7 * boreR]]) {
-        // The assembly-frame point on the cap's top (bed) face, carried into the print frame.
-        const top = applyRigidTransform({ positions: new Float32Array([x, y, d.solution.height + CAP_THICKNESS]), indices: new Uint32Array(0) }, transform).positions;
-        expect(top[2], "the cap's top face is the bed face").toBeCloseTo(minZ, 3);
-        expect(onBedFace(resting, minZ, top[0], top[1]), `solid bed face at (${x.toFixed(1)}, ${y.toFixed(1)})`).toBe(true);
+  // Issue #127: no bridge anywhere in print orientation -- the middle is a
+  // straight through-hole, no floor over a hollow. Fails on the pre-#121
+  // pocket (its floor alone is ~20 mm wide by this measure).
+  const capOf = async (shape: ShapeSpec, joint: JointKind, label?: string) => {
+    const d = await design(
+      baseSpec({
+        wire: { length: 6000, diameter: 3.8, type: "usb" },
+        shape,
+        coreSize: { locked: true, dimension: "outer", value: 60 },
+        height: { locked: true, value: 60 },
+        layers: { locked: true, value: 2 },
+        joint,
+        label,
+      }),
+    );
+    return d.parts.find((p) => p.role === "topCap")!;
+  };
+
+  describe.each(JOINTS)("issue #127, joint = %s", (joint) => {
+    // Passes on #121's solid face too; fails on the pre-#121 pocket.
+    it.each(SHAPES)("$kind: nothing prints as a bridge in the cap's print orientation", async (shape) => {
+      for (const label of [undefined, "USB-C 2m"]) {
+        const cap = await capOf(shape, joint, label);
+        const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
+        const minZ = minZOf(resting.positions);
+        expect(widestBridge(resting, minZ), `${shape.kind}/${joint}/${label ?? "no label"}: widest downward face over open air, mm`).toBeLessThan(2);
+      }
+    });
+
+    it.each(SHAPES)("$kind: the middle is a through-hole (the coil axis is open at every height), and the cap is one solid", async (shape) => {
+      const cap = await capOf(shape, joint);
+      await assertManifold(cap.mesh, `${shape.kind}/${joint}`);
+      const wasm = await Module();
+      wasm.setup();
+      const m = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: cap.mesh.positions, triVerts: cap.mesh.indices }));
+      const probe = wasm.Manifold.cylinder(400, 0.5, 0.5, 16).translate([0, 0, -200]);
+      const hit = m.intersect(probe);
+      try {
+        expect(hit.volume(), `${shape.kind}/${joint}: nothing on the coil axis`).toBeLessThan(1e-6);
+      } finally {
+        for (const x of [m, probe, hit]) x.delete();
       }
     });
   });
