@@ -218,8 +218,8 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
 
 function StepSecureOuterEnd({ design, n }: { design: Design; n: number }) {
   const cap = capPart(design)!;
-  // The cap's clip (issue #117) hangs under its rim; marked on the rim from above.
-  const clip = design.capClip?.path;
+  // The cap's clips (issues #117, #121) hang under it; the one the drawn cable runs through is marked from above.
+  const clip = design.capClip?.clips[0].path;
   const mid = clip ? clip[Math.floor(clip.length / 4)] : undefined;
   const anchor = mid ? new THREE.Vector3(mid.x, mid.y, meshBounds(cap.mesh).max.z) : approxRimPoint(cap.mesh, 0.5, 1);
   return (
@@ -227,7 +227,11 @@ function StepSecureOuterEnd({ design, n }: { design: Design; n: number }) {
       <div className="guide-figure-row guide-figure-row--solo">
         <Figure parts={design.parts} testId="guide-secure-outer" zoomInsetAt={anchor} />
       </div>
-      <Callout icons={<KeyholeIcon label="Press the cable into the clip under the cap's rim" />}>Press the outer end into the clip under the cap's rim.</Callout>
+      <Callout icons={<KeyholeIcon label="Press the cable into a clip under the cap" />}>
+        {(design.capClip?.clips.length ?? 1) > 1
+          ? "Press the outer end into a clip under the cap. There are clips all around it: after unwinding a little more cable, use the next one."
+          : "Press the outer end into the clip under the cap."}
+      </Callout>
     </StepCard>
   );
 }

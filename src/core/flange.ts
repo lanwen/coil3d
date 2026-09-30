@@ -69,6 +69,8 @@ export interface FlangeSizing {
   innerEndMargin: number;
   /** The margin the top cap's cable clip alone needs (issue #117): 0 with the cap off. */
   capClipMargin: number;
+  /** The wound cable's outer surface, as an offset outside the core's outline (issue #121: the cap clips sit just outside it, innerEnd.ts's `capClipOffset`). */
+  envelopeOffset: number;
   /** The plain channel-driven thickness, before any mount/plate bump -- design.ts compares against this the same way. */
   channelOnlyThickness: number;
 }
@@ -144,7 +146,7 @@ export function resolveFlangeSizing(
   const capClipMargin = leadIn.topCap ? requiredCapClipMargin(envelopeOffset, wireDiameter, leadIn.tolerance) : 0;
   const margin = Math.max(mountMargin, innerEndMargin, capClipMargin);
 
-  return { margin, thickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, channelOnlyThickness };
+  return { margin, thickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness };
 }
 
 /** The flange's real outer extent (types.ts's `FlangeExtent`) at a resolved outline and the real margin `resolveFlangeSizing` returned -- exact, since the flange mesh itself is built from this same offset outline (wall.ts's `buildOutlineRing`). */

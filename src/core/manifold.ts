@@ -13,9 +13,9 @@
 // COOP/COEP headers (fine for GitHub Pages / `vite preview`).
 //
 // Issue #9 (top cap, joints, keyhole): `buildTopCap` builds the cap as a
-// second manifold part, mirroring the bottom flange (same footprint, via the
-// same `buildOutlineRing`) plus an engagement collar that reaches down into
-// the core's bore. All three joints (press/bayonet/snap) share ONE circular
+// second manifold part, mirroring the bottom flange (same footprint, but a
+// solid plate with no hole over the bore since issue #121) plus an
+// engagement collar that reaches down into the core's bore. All three joints (press/bayonet/snap) share ONE circular
 // collar centered on the coil axis regardless of the core's own
 // round/sq/tri cross-section -- see joints.ts for why. `applyCoreJointCut`
 // cuts the matching bayonet groove/entry-slots or snap relief/ridge into the
@@ -543,21 +543,21 @@ export interface TopCapSpec {
   tolerance: number;
   /** Engraved label text (issue #12), already fit-checked by `label.ts`'s `resolveLabel` -- undefined means no label to cut. */
   label?: ResolvedLabel;
-  /** The cable clip for the outer end (issue #117: where the cable's cap lead-out ends, `Design.capClip`). Omitted: no clip. */
+  /** The cable clips for the outer end (issue #117: where the cable's cap lead-out ends, repeated around the cap since issue #121, `Design.capClip`). Omitted: no clip. */
   clip?: CapClipLayout;
 }
 
 /**
- * Build the top cap: an annular plate following the core's own outline out
- * to the flange's footprint (mirroring the bottom flange), with a downward
- * engagement collar for the chosen joint and a cable clip for the outer
- * cable end under its rim. Built entirely in a LOCAL frame (plate z=[0, CAP_THICKNESS],
+ * Build the top cap: a solid plate (issue #121) following the core's own
+ * outline out to the flange's footprint (mirroring the bottom flange), with
+ * a downward engagement collar for the chosen joint and cable clips for the
+ * outer cable end under it. Built entirely in a LOCAL frame (plate z=[0, CAP_THICKNESS],
  * collar z=[-JOINT_ENGAGE_DEPTH, 0]) and translated by the caller into the
  * shared assembly frame -- see design.ts.
  */
 export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   const wasm = await getWasm();
-  const { Manifold, Mesh } = wasm;
+  const { Manifold } = wasm;
   const trash: { delete(): void }[] = [];
   const track = <T extends { delete(): void }>(m: T): T => {
     trash.push(m);
@@ -566,8 +566,15 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
 
   try {
     const { flange, joint, tolerance, label, clip } = spec;
-    const plateMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, 0, CAP_THICKNESS, flange.columns, flange.minCornerSegments);
-    const plate = track(new Manifold(new Mesh({ numProp: 3, vertProperties: plateMesh.positions, triVerts: plateMesh.indices })));
+    // Issue #121: a SOLID plate, no hole over the bore -- its outer face
+    // lies on the print bed, and an opening there would leave the collar's
+    // top bridging over a hollow. Same outer outline (and columns) as the
+    // bottom flange's own ring.
+    const rim = outlineColumnParams(flange.outline, flange.columns, flange.minCornerSegments).map((t): [number, number] => {
+      const p = pointAt(flange.outline, t, flange.margin);
+      return [p.x, p.y];
+    });
+    const plate = track(new wasm.CrossSection([rim], "NonZero").extrude(CAP_THICKNESS));
     if (plate.status() !== "NoError") {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
     }
@@ -604,11 +611,11 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     }
 
     let assembled = track(plate.add(collar));
-    // Issue #117: the cable clip hangs under the plate near the rim (its
-    // block welded 1 mm into the plate), with its bore cut through it.
-    if (clip) {
-      const block = track(sweepSolid(wasm, clip.block));
-      const bore = track(sweepSolid(wasm, clip.bore));
+    // Issue #117: the cable clips hang under the plate (each block welded
+    // 1 mm into the plate), with their bores cut through them.
+    for (const c of clip?.clips ?? []) {
+      const block = track(sweepSolid(wasm, c.block));
+      const bore = track(sweepSolid(wasm, c.bore));
       assembled = track(track(assembled.add(block)).subtract(bore));
     }
 

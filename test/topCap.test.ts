@@ -5,6 +5,7 @@ import type { CoilSpec, JointKind, ShapeSpec } from "../src/core";
 import { bedRestingTransform } from "../src/core/plate";
 import { applyRigidTransform } from "../src/core/transform";
 import { offsetArea } from "../src/core/shapes";
+import { CAP_THICKNESS } from "../src/core/constants";
 
 // Issue #9 acceptance criteria: "Top cap auto-on when layers > 1; override
 // on/off in the UI and hash", "The cap is a second named, manifold part in
@@ -292,45 +293,29 @@ describe("exportDesign for a two-part design (issue #9)", () => {
   // with each other and get a generous explicit timeout.
 });
 
-// Issue #67 ("the top cap has no flat face to print on"): the cap's plate is
-// (correctly) an ANNULUS -- `buildOutlineRing`, mirroring the bottom
-// flange's own open bore hole -- and the print orientation rests the
-// plate's OUTWARD/label face on the bed (design.ts's own `printTransform`
-// comment). The bore stays open through the cap on purpose (docs/research.md
-// §1: the core is "a tube: hollow and open", the same hollow the bottom
-// flange's own hole already leaves open for the inner connector) -- so the
-// cap's own required "flat bed-contact face" is the ANNULUS's area (the
-// flange's TRUE outer outline area minus the bore's own area, `offsetArea`
-// in shapes.ts), never the bore hole itself, which is never supposed to
-// have material at any Z. Measuring against a convex-hull footprint that
-// (wrongly) counts the open bore as "should be flat" was an early diagnosis
-// mistake here (it produced spurious 49-64% "failures" purely from the
-// hole's own area, not from a real defect) -- an earlier revision of this
-// fix closed the bore into a solid disc to chase that number, but that
-// silently discarded the open-bore storage space the spec calls for. Fixed:
-// measure against the annulus itself.
+// Issue #67 ("the top cap has no flat face to print on"): the print
+// orientation rests the plate's OUTWARD/label face on the bed (design.ts's
+// own `printTransform` comment), so that face must be one flat face with
+// nothing protruding below it (the collar/lugs/barbs/clips are all built at
+// local z <= 0, strictly on the OTHER side of the plate from the resting
+// face; see manifold.ts's `buildTopCap` and `collarBase`).
 //
-// Verified empirically against every joint x shape x label combination
-// (plus a broader sweep across core sizes 12-100mm and several label
-// lengths) that the EXISTING geometry already satisfies this: 96.5-99.5%+
-// annulus coverage, and -- separately -- not a single vertex anywhere below
-// the resting plane (the collar/lugs/barbs are all built at local z <= 0,
-// strictly on the OTHER side of the plate from the resting face, so by
-// construction nothing can protrude past it; see manifold.ts's `buildTopCap`
-// and `collarBase`). So no geometry change was needed; these tests exist to
-// guard that continuing invariant against a real future regression.
-describe("issue #67: the top cap rests on one flat annulus, with nothing below it", () => {
-  // The TRUE annulus area the cap's plate covers (flange.ts/shapes.ts's own
-  // `offsetArea`, not an approximation): the flange's outer outline area
-  // (outline offset out by margin) minus the bore's own area. This is the
-  // ONLY region the resting face is expected to be flat over -- the bore
-  // itself is deliberately left open (docs/research.md's "hollow and open"
-  // core), so it must NOT count against the required coverage.
-  function annulusArea(d: Awaited<ReturnType<typeof design>>): number {
-    return offsetArea(d.flangeSpec.outline, d.flangeSpec.margin) - offsetArea(d.flangeSpec.boreOutline, 0);
+// Issue #121 ("the top cap surface that will be on the bed has a hole in
+// the center, which will include bridging"): until then the plate was an
+// annulus with a hole over the bore, and the collar below it is a solid
+// plug -- so the bed face had a 3 mm deep pocket whose floor (the plug's
+// top) printed as a bridge over that hollow. The bore itself was never open
+// through the cap (the plug always closed it; the bore stays open from the
+// bottom flange's side). Now the plate is solid: the flat resting face must
+// cover the WHOLE outer outline (`offsetArea` in shapes.ts), hole included.
+describe("issue #67/#121: the top cap rests on one flat, solid face, with nothing below it", () => {
+  // The cap's full outer face: the flange's outer outline (offset out by
+  // margin), with no hole over the bore.
+  function faceArea(d: Awaited<ReturnType<typeof design>>): number {
+    return offsetArea(d.flangeSpec.outline, d.flangeSpec.margin);
   }
 
-  // The fraction of the annulus that the part's lowest (bed-resting) layer
+  // The XY area that the part's lowest (bed-resting) layer
   // actually covers: sums the XY area of every triangle whose three
   // vertices all sit at the mesh's global min Z (the AC's own "triangles at
   // min z" -- for a valid, closed manifold a triangle strictly at the global
@@ -368,11 +353,11 @@ describe("issue #67: the top cap rests on one flat annulus, with nothing below i
   // transform under test, not an independent geometry check (its own comment
   // said a failure was "impossible unless something is numerically
   // inconsistent"). A real protruding feature is still caught below: it would
-  // become the new min Z and shrink the flat annulus's own area, failing the
+  // become the new min Z and shrink the flat face's own area, failing the
   // `flatArea >= 90%` assertion these tests already make.
 
   describe.each(JOINTS)("joint = %s", (joint) => {
-    it.each(SHAPES)("$kind, no label: the flat resting face covers >= 90% of the annulus, nothing protrudes below it", async (shape) => {
+    it.each(SHAPES)("$kind, no label: the flat resting face covers >= 90% of the whole face, nothing protrudes below it", async (shape) => {
       const d = await design(
         baseSpec({
           wire: { length: 6000, diameter: 3.8, type: "usb" },
@@ -386,10 +371,10 @@ describe("issue #67: the top cap rests on one flat annulus, with nothing below i
       const cap = d.parts.find((p) => p.role === "topCap")!;
       const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
       const minZ = minZOf(resting.positions);
-      expect(flatArea(resting, minZ) / annulusArea(d)).toBeGreaterThanOrEqual(0.9);
+      expect(flatArea(resting, minZ) / faceArea(d)).toBeGreaterThanOrEqual(0.9);
     });
 
-    it.each(SHAPES)("$kind, with a label: the flat resting face still covers >= 90% of the annulus, nothing protrudes below it", async (shape) => {
+    it.each(SHAPES)("$kind, with a label: the flat resting face still covers >= 90% of the whole face, nothing protrudes below it", async (shape) => {
       const d = await design(
         baseSpec({
           wire: { length: 6000, diameter: 3.8, type: "usb" },
@@ -404,13 +389,13 @@ describe("issue #67: the top cap rests on one flat annulus, with nothing below i
       const cap = d.parts.find((p) => p.role === "topCap")!;
       const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
       const minZ = minZOf(resting.positions);
-      expect(flatArea(resting, minZ) / annulusArea(d)).toBeGreaterThanOrEqual(0.9);
+      expect(flatArea(resting, minZ) / faceArea(d)).toBeGreaterThanOrEqual(0.9);
     });
   });
 
   // The ticket's own repro (square, 5 layers, keyhole wall mount, default
   // press joint, no label).
-  it("the ticket's own repro (square/5-layer/keyhole) rests on a flat annulus, nothing protrudes below it", async () => {
+  it("the ticket's own repro (square/5-layer/keyhole) rests on a flat face, nothing protrudes below it", async () => {
     const d = await design(
       baseSpec({
         wire: { length: 2000, diameter: 5.8, type: "custom", customBendMultiplier: 4 },
@@ -425,6 +410,48 @@ describe("issue #67: the top cap rests on one flat annulus, with nothing below i
     const cap = d.parts.find((p) => p.role === "topCap")!;
     const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
     const minZ = minZOf(resting.positions);
-    expect(flatArea(resting, minZ) / annulusArea(d)).toBeGreaterThanOrEqual(0.9);
+    expect(flatArea(resting, minZ) / faceArea(d)).toBeGreaterThanOrEqual(0.9);
+  });
+
+  /** Whether the XY point (x, y) lies on one of the triangles at min Z -- i.e. the bed face is solid there. */
+  function onBedFace(mesh: { positions: Float32Array; indices: Uint32Array }, minZ: number, x: number, y: number): boolean {
+    const { positions: p, indices } = mesh;
+    const EPS = 1e-3;
+    for (let t = 0; t < indices.length; t += 3) {
+      const [a, b, c] = [indices[t] * 3, indices[t + 1] * 3, indices[t + 2] * 3];
+      if (p[a + 2] > minZ + EPS || p[b + 2] > minZ + EPS || p[c + 2] > minZ + EPS) continue;
+      const cross = (i: number, j: number) => (p[j] - p[i]) * (y - p[i + 1]) - (p[j + 1] - p[i + 1]) * (x - p[i]);
+      const [s1, s2, s3] = [cross(a, b), cross(b, c), cross(c, a)];
+      if ((s1 >= 0 && s2 >= 0 && s3 >= 0) || (s1 <= 0 && s2 <= 0 && s3 <= 0)) return true;
+    }
+    return false;
+  }
+
+  // Issue #121: no hole over the bore -- the coil axis and points across
+  // the bore all lie on the flat bed face. Fails on the annular plate.
+  describe.each(JOINTS)("issue #121, joint = %s", (joint) => {
+    it.each(SHAPES)("$kind: the bed face is solid over the bore (no hole, no bridging)", async (shape) => {
+      const d = await design(
+        baseSpec({
+          wire: { length: 6000, diameter: 3.8, type: "usb" },
+          shape,
+          coreSize: { locked: true, dimension: "outer", value: 60 },
+          height: { locked: true, value: 60 },
+          layers: { locked: true, value: 2 },
+          joint,
+        }),
+      );
+      const cap = d.parts.find((p) => p.role === "topCap")!;
+      const transform = bedRestingTransform(cap);
+      const resting = applyRigidTransform(cap.mesh, transform);
+      const minZ = minZOf(resting.positions);
+      const boreR = d.flangeSpec.boreOutline.apothem;
+      for (const [x, y] of [[0, 0], [0.5 * boreR, 0], [0, -0.9 * boreR], [-0.7 * boreR, 0.7 * boreR]]) {
+        // The assembly-frame point on the cap's top (bed) face, carried into the print frame.
+        const top = applyRigidTransform({ positions: new Float32Array([x, y, d.solution.height + CAP_THICKNESS]), indices: new Uint32Array(0) }, transform).positions;
+        expect(top[2], "the cap's top face is the bed face").toBeCloseTo(minZ, 3);
+        expect(onBedFace(resting, minZ, top[0], top[1]), `solid bed face at (${x.toFixed(1)}, ${y.toFixed(1)})`).toBe(true);
+      }
+    });
   });
 });

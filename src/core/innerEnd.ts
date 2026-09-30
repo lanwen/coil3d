@@ -40,7 +40,10 @@
 // hanging under the plate with the bore through it and the opening facing
 // down (up, in the cap's flipped print orientation). The block sits between
 // the wound cable and the rim, so the flange (and cap) margin grows to fit
-// it (`requiredCapClipMargin`).
+// it (`requiredCapClipMargin`). Issue #121: the block's root is chamfered at
+// 45 degrees on all sides (a pyramid-like base, strong across the layer
+// lines), it sits as close to the coil as the wound cable allows, and the
+// same clip repeats every 1/n of the way around the cap.
 //
 // If the flange margin is too narrow for the chord to hold the clip past
 // the end of the drop, `requiredInnerEndMargin` says how wide it must be --
@@ -61,6 +64,7 @@ import {
   CABLE_SWEEP_ARC_SEGMENTS,
   CABLE_SWEEP_STEP,
   CAP_CABLE_DROP,
+  CAP_CLIP_CHAMFER,
   CAP_CLIP_COIL_GAP,
   CAP_CLIP_LIP,
   CAP_CLIP_RELIEF,
@@ -207,12 +211,6 @@ function boreRing(c: XYZ, u: XY, R: number, stretch: number, up: { half: number;
   }
   ring.push(at(-up.half, up.to));
   return ring;
-}
-
-/** A rectangular cross-section across the cable at `c` (same vertex order as `boreRing`): `half` either side, z from `zLo` to `zHi`. */
-function boxRing(c: XY, u: XY, half: number, zLo: number, zHi: number): XYZ[] {
-  const at = (p: number, z: number): XYZ => ({ x: c.x + u.x * p, y: c.y + u.y * p, z });
-  return [at(half, zHi), at(half, zLo), at(-half, zLo), at(-half, zHi)];
 }
 
 /**
@@ -610,11 +608,22 @@ export function layoutInnerEnd(
   };
 }
 
-// --- The top cap's clip (the cable's outer end) -----------------------------
+// --- The top cap's clips (the cable's outer end) ----------------------------
 
-/** The cap clip's centre offset (outside the core's outline): its outer wall ends CAP_CLIP_RIM_INSET inside the rim. */
-export function capClipOffset(margin: number, wireDiameter: number, tolerance: number): number {
-  return margin - CAP_CLIP_RIM_INSET - CABLE_CLIP_WALL - clipRadius(wireDiameter, tolerance);
+/** The cap clip block's half-width where it meets the plate: its bore, the bore's wall and the 45 degree chamfer (issue #121). */
+function capClipRootHalf(wireDiameter: number, tolerance: number): number {
+  return clipRadius(wireDiameter, tolerance) + CABLE_CLIP_WALL + CAP_CLIP_CHAMFER;
+}
+
+/**
+ * The cap clips' centre offset (outside the core's outline). Issue #121: as
+ * close to the coil as the wound cable allows -- the chamfer's inner foot
+ * CAP_CLIP_COIL_GAP clear of the outermost layer's outer surface
+ * (`envelopeOffset`) -- instead of pressed against the rim; the flange (and
+ * cap) margin keeps room for the rest (`requiredCapClipMargin`).
+ */
+export function capClipOffset(envelopeOffset: number, wireDiameter: number, tolerance: number): number {
+  return envelopeOffset + CAP_CLIP_COIL_GAP + capClipRootHalf(wireDiameter, tolerance);
 }
 
 /** The cable's centre height at the cap end, relative to the cap plate's underside: its top a hair (CAP_CABLE_DROP) below it. */
@@ -624,102 +633,188 @@ export function capCableZ(wireDiameter: number): number {
 
 /**
  * The narrowest margin that fits the cap clip between the wound cable's
- * outer surface (`envelopeOffset`, outside the core's outline) and the rim,
- * with CAP_CLIP_COIL_GAP to spare: the clip's inner wall must clear the
- * outermost layer, which runs right up under the cap.
+ * outer surface (`envelopeOffset`, outside the core's outline) and the rim:
+ * the clip at `capClipOffset`, its chamfered root still CAP_CLIP_RIM_INSET
+ * inside the rim.
  */
 export function requiredCapClipMargin(envelopeOffset: number, wireDiameter: number, tolerance: number): number {
-  return envelopeOffset + CAP_CLIP_COIL_GAP + CAP_CLIP_RIM_INSET + 2 * (CABLE_CLIP_WALL + clipRadius(wireDiameter, tolerance));
+  return capClipOffset(envelopeOffset, wireDiameter, tolerance) + capClipRootHalf(wireDiameter, tolerance) + CAP_CLIP_RIM_INSET;
 }
 
-export interface CapClipLayout {
-  /** The clip block (the lips' body) under the cap plate, in the cap's LOCAL frame (plate underside at z = 0); its top reaches 1 mm into the plate so the two weld. */
+/** One clip under the top cap, in the cap's LOCAL frame (plate underside at z = 0). */
+export interface CapClip {
+  /** The clip block (the lips' body), with its chamfered, pyramid-like root; its top reaches 1 mm into the plate so the two weld. */
   block: SweepSolid;
   /** The bore and its downward opening, cut through the block (and CAP_CLIP_RELIEF up into the plate). */
   bore: SweepSolid;
-  /** The drawn cable's plan-view path from where the lead-out ends (the clip's start), through the clip and out past the rim to its free end. Its height is level, at `capCableZ`. */
+  /** The cable's plan-view path from the clip's start, through the clip and out past the rim to its free end. Its height is level, at `capCableZ`. */
   path: XY[];
 }
 
+export interface CapClipLayout {
+  /** Every clip around the cap (issue #121). The drawn cable runs through `clips[0]`; the others are the same clip at other positions, for a cable end unwound a little further. */
+  clips: CapClip[];
+}
+
 /**
- * Lay out the top cap's clip, starting where the cable's cap lead-out ends
- * (outline parameter `u0`, at `capClipOffset`, level, running along the
- * outline). The cable follows the outline through the clip, then curves
- * gently (a fraction of its bend budget) outward and leaves past the rim.
- * `outline`/`margin` mirror the cap's own (the flange's) exactly.
+ * Lay out the top cap's clips. The first starts where the cable's cap
+ * lead-out ends (outline parameter `u0`, at `capClipOffset`, level, running
+ * along the outline): the cable follows the outline through the clip, then
+ * curves gently (a fraction of its bend budget) outward and leaves past the
+ * rim. `outline`/`margin` mirror the cap's own (the flange's) exactly.
+ *
+ * Issue #121: the same clip is repeated at `outline.n` evenly spaced
+ * positions around the cap (every 90 degrees on round and square, every 120
+ * on a triangle), all at the same offset and height and all along the
+ * outline in the winding direction, so each one is exactly the first clip's
+ * layout moved along the outline: a cable end arriving at any of them level
+ * along the outline (as the drawn one arrives at the first) goes through it
+ * and out past the rim within the same bend budget. A repeated clip is left
+ * out where it would stand in the drawn cable's way (`avoid`, the lead-out's
+ * samples in this local frame, or another clip's cable path) -- e.g. just
+ * behind the first clip, where the lead-out runs up under the cap.
  */
-export function layoutCapClip(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, bendRadius: number, u0: number): CapClipLayout {
+export function layoutCapClip(
+  outline: ShapeOutline,
+  margin: number,
+  envelopeOffset: number,
+  wireDiameter: number,
+  tolerance: number,
+  bendRadius: number,
+  u0: number,
+  avoid: XYZ[] = [],
+): CapClipLayout {
   const R = clipRadius(wireDiameter, tolerance);
-  const o = capClipOffset(margin, wireDiameter, tolerance);
+  const o = capClipOffset(envelopeOffset, wireDiameter, tolerance);
   const len = clipLength(wireDiameter);
   const zc = capCableZ(wireDiameter);
-
-  // Along the outline at offset `o`, by arc length (pointAt's own parameter
-  // is only proportional to arc length at offset 0).
-  const fine: { s: number; t: number }[] = [{ s: 0, t: u0 }];
-  const dt = 0.05 / Math.max(1, Math.hypot(pointAt(outline, u0 + 1e-4, o).x - pointAt(outline, u0, o).x, pointAt(outline, u0 + 1e-4, o).y - pointAt(outline, u0, o).y) / 1e-4);
-  while (fine[fine.length - 1].s < len + 1) {
-    const prev = fine[fine.length - 1];
-    const a = pointAt(outline, prev.t, o);
-    const b = pointAt(outline, prev.t + dt, o);
-    fine.push({ s: prev.s + Math.hypot(b.x - a.x, b.y - a.y), t: prev.t + dt });
-  }
-  const tAt = (s: number) => {
-    const i = Math.max(1, fine.findIndex((f) => f.s >= s));
-    const [a, b] = [fine[i - 1], fine[i]];
-    return a.t + ((b.t - a.t) * (s - a.s)) / Math.max(1e-12, b.s - a.s);
-  };
-  const along = (s: number) => {
-    const t = tAt(s);
-    const p = pointAt(outline, t, o);
-    const q = pointAt(outline, t + 1e-6, o);
-    const l = Math.hypot(q.x - p.x, q.y - p.y);
-    return { c: { x: p.x, y: p.y }, u: { x: -(q.y - p.y) / l, y: (q.x - p.x) / l }, n: { x: p.nx, y: p.ny }, tan: { x: (q.x - p.x) / l, y: (q.y - p.y) / l } };
-  };
-
+  const W = R + CABLE_CLIP_WALL;
+  const C = CAP_CLIP_CHAMFER;
   // The lips hang CAP_CLIP_LIP below where the opening meets the bore.
   const closed = CABLE_CLIP_OPENING_FRACTION * R;
   const zLo = zc - Math.sqrt(R * R - closed * closed) - CAP_CLIP_LIP;
-  const blockStations = stationsOver(0, len, CABLE_SWEEP_STEP, [CABLE_CLIP_ENTRY, len - CABLE_CLIP_ENTRY]);
-  const block: SweepSolid = {
-    rings: blockStations.map((s) => {
-      const { c, u } = along(s);
-      return boxRing(c, u, R + CABLE_CLIP_WALL, zLo, 1);
-    }),
-    start: { ...along(0).c, z: (zLo + 1) / 2 },
-    end: { ...along(len).c, z: (zLo + 1) / 2 },
-  };
-  // The bore runs a mm past each end of the block, so the block is open.
-  // Outside the lips it keeps a sliver of lip (0.9 R, not R): a full-width
-  // opening under a full-width relief would leave the circle no arc at all.
-  const boreStations = stationsOver(-1, len + 1, CABLE_SWEEP_STEP, [0, CABLE_CLIP_ENTRY, len - CABLE_CLIP_ENTRY, len]);
-  const bore: SweepSolid = {
-    rings: boreStations.map((s) => {
-      const { c, u } = along(s);
-      return boreRing({ ...c, z: zc }, u, R, 1, { half: R, to: CAP_CLIP_RELIEF }, { half: lipHalf(s, 0, len, R, 0.9 * R), to: zLo - 1 });
-    }),
-    start: { ...along(-1).c, z: zc },
-    end: { ...along(len + 1).c, z: zc },
+
+  const one = (uStart: number): { clip: CapClip; spine: XY[] } => {
+    // Along the outline at offset `o`, by arc length (pointAt's own parameter
+    // is only proportional to arc length at offset 0).
+    const fine: { s: number; t: number }[] = [{ s: 0, t: uStart }];
+    const dt = 0.05 / Math.max(1, Math.hypot(pointAt(outline, uStart + 1e-4, o).x - pointAt(outline, uStart, o).x, pointAt(outline, uStart + 1e-4, o).y - pointAt(outline, uStart, o).y) / 1e-4);
+    while (fine[fine.length - 1].s < len + C + 2) {
+      const prev = fine[fine.length - 1];
+      const a = pointAt(outline, prev.t, o);
+      const b = pointAt(outline, prev.t + dt, o);
+      fine.push({ s: prev.s + Math.hypot(b.x - a.x, b.y - a.y), t: prev.t + dt });
+    }
+    // ...and back past the start, where the block's end chamfer and the bore reach.
+    while (fine[0].s > -(C + 2)) {
+      const next = fine[0];
+      const a = pointAt(outline, next.t - dt, o);
+      const b = pointAt(outline, next.t, o);
+      fine.unshift({ s: next.s - Math.hypot(b.x - a.x, b.y - a.y), t: next.t - dt });
+    }
+    const tAt = (s: number) => {
+      const i = Math.max(1, fine.findIndex((f) => f.s >= s));
+      const [a, b] = [fine[i - 1], fine[i]];
+      return a.t + ((b.t - a.t) * (s - a.s)) / Math.max(1e-12, b.s - a.s);
+    };
+    const along = (s: number) => {
+      const t = tAt(s);
+      const p = pointAt(outline, t, o);
+      const q = pointAt(outline, t + 1e-6, o);
+      const l = Math.hypot(q.x - p.x, q.y - p.y);
+      return { c: { x: p.x, y: p.y }, u: { x: -(q.y - p.y) / l, y: (q.x - p.x) / l }, n: { x: p.nx, y: p.ny }, tan: { x: (q.x - p.x) / l, y: (q.y - p.y) / l } };
+    };
+
+    // The block: the lips' body down to zLo over the clip's length, on a
+    // 45 degree chamfer C wide at the plate on both sides AND past both
+    // ends (the end chamfer ramps from C deep at the block's end face to
+    // nothing C further on), so its root is a pyramid-like frustum.
+    const depthAt = (s: number) => (s >= 0 && s <= len ? -zLo : C - Math.max(-s, s - len));
+    const END = 0.05; // the end chamfer stops this short of the plate, never a face lying on it
+    // Close stations along the end chamfers, so their slopes follow a
+    // curving outline closely.
+    const ramp = Array.from({ length: 6 }, (_, i) => (C * (i + 1)) / 7);
+    const blockStations = stationsOver(-C + END, len + C - END, CABLE_SWEEP_STEP, [...ramp.map((e) => -e), ...ramp.map((e) => len + e), -0.01, 0, CABLE_CLIP_ENTRY, len - CABLE_CLIP_ENTRY, len, len + 0.01]);
+    const block: SweepSolid = {
+      rings: blockStations.map((s) => {
+        const { c, u } = along(s);
+        return chamferedBlockRing(c, u, W, C, depthAt(s));
+      }),
+      start: { ...along(-C + END).c, z: (1 - END) / 2 },
+      end: { ...along(len + C - END).c, z: (1 - END) / 2 },
+    };
+    // The bore runs a mm past each end of the block (chamfer included), so
+    // the block is open. Outside the lips it keeps a sliver of lip (0.9 R,
+    // not R): a full-width opening under a full-width relief would leave the
+    // circle no arc at all.
+    const boreStations = stationsOver(-C - 1, len + C + 1, CABLE_SWEEP_STEP, [0, CABLE_CLIP_ENTRY, len - CABLE_CLIP_ENTRY, len]);
+    const bore: SweepSolid = {
+      rings: boreStations.map((s) => {
+        const { c, u } = along(s);
+        return boreRing({ ...c, z: zc }, u, R, 1, { half: R, to: CAP_CLIP_RELIEF }, { half: lipHalf(s, 0, len, R, 0.9 * R), to: zLo - 1 });
+      }),
+      start: { ...along(-C - 1).c, z: zc },
+      end: { ...along(len + C + 1).c, z: zc },
+    };
+
+    // The cable: through the clip along the outline, then out along the
+    // clip end's tangent, bending gently outward, past the rim.
+    const path: XY[] = [];
+    const clipSteps = Math.max(2, Math.ceil(len / CABLE_BRIDGE_STEP));
+    for (let i = 0; i <= clipSteps; i++) path.push(along((len * i) / clipSteps).c);
+    const end = along(len);
+    const curve = (0.8 * CABLE_BEND_BUDGET) / bendRadius;
+    const exit = (s: number): XY => ({
+      x: end.c.x + end.tan.x * s + end.n.x * ((curve * s * s) / 2),
+      y: end.c.y + end.tan.y * s + end.n.y * ((curve * s * s) / 2),
+    });
+    const sRim = reach((s) => {
+      const p = exit(s);
+      return outlineOffsetAt(outline, p.x, p.y).offset;
+    }, margin, 0);
+    const sOut = sRim + clippedTailLength(wireDiameter);
+    const exitSteps = Math.max(2, Math.ceil(sOut / CABLE_BRIDGE_STEP));
+    for (let i = 1; i <= exitSteps; i++) path.push(exit((sOut * i) / exitSteps));
+
+    const spineSteps = Math.ceil((len + 2 * C) / CABLE_BRIDGE_STEP);
+    const spine = Array.from({ length: spineSteps + 1 }, (_, i) => along(-C + ((len + 2 * C) * i) / spineSteps).c);
+    return { clip: { block, bore, path }, spine };
   };
 
-  // The drawn cable: through the clip along the outline, then out along the
-  // clip end's tangent, bending gently outward, past the rim.
-  const path: XY[] = [];
-  const clipSteps = Math.max(2, Math.ceil(len / CABLE_BRIDGE_STEP));
-  for (let i = 0; i <= clipSteps; i++) path.push(along((len * i) / clipSteps).c);
-  const end = along(len);
-  const curve = (0.8 * CABLE_BEND_BUDGET) / bendRadius;
-  const exit = (s: number): XY => ({
-    x: end.c.x + end.tan.x * s + end.n.x * ((curve * s * s) / 2),
-    y: end.c.y + end.tan.y * s + end.n.y * ((curve * s * s) / 2),
-  });
-  const sRim = reach((s) => {
-    const p = exit(s);
-    return outlineOffsetAt(outline, p.x, p.y).offset;
-  }, margin, 0);
-  const sOut = sRim + clippedTailLength(wireDiameter);
-  const exitSteps = Math.max(2, Math.ceil(sOut / CABLE_BRIDGE_STEP));
-  for (let i = 1; i <= exitSteps; i++) path.push(exit((sOut * i) / exitSteps));
+  // Whether a cable (centre samples `points`, local frame) would run into a
+  // clip's block: within the block's root half-width (plus the cable's own
+  // radius and the coil gap) of its spine, and not wholly below its lips.
+  const reachHalf = W + C + wireDiameter / 2 + CAP_CLIP_COIL_GAP;
+  const blocks = (spine: XY[], points: XYZ[]) =>
+    points.some((q) => q.z + wireDiameter / 2 > zLo - CAP_CLIP_COIL_GAP && spine.some((c) => Math.hypot(q.x - c.x, q.y - c.y) < reachHalf));
+  const onPath = (clip: CapClip) => clip.path.map((p) => ({ ...p, z: zc }));
 
-  return { block, bore, path };
+  const all = Array.from({ length: outline.n }, (_, i) => one(u0 + i / outline.n));
+  const kept = [all[0]];
+  for (const candidate of all.slice(1)) {
+    if (blocks(candidate.spine, avoid)) continue;
+    if (all.some((other) => other !== candidate && (blocks(candidate.spine, onPath(other.clip)) || blocks(other.spine, onPath(candidate.clip))))) continue;
+    kept.push(candidate);
+  }
+  return { clips: kept.map((k) => k.clip) };
+}
+
+/**
+ * A cap clip block's cross-section across the cable at `c` (issue #121): a
+ * half-width of `W` down to `depth` below the plate, widening on a 45 degree
+ * chamfer to W + C at the plate. The chamfer runs on 0.1 mm into the plate
+ * (never an edge lying exactly on its underside), then straight up to 1 mm
+ * into it, where the two weld -- so nothing reaches past W + C + 0.1, inside
+ * the rim. Where `depth` is under C (the end chamfer) the whole section lies
+ * on the chamfer's slope. Always eight vertices, so every ring of the sweep
+ * matches: on the slope-only sections the one between the weld and the
+ * bottom is a collinear midpoint.
+ */
+function chamferedBlockRing(c: XY, u: XY, W: number, C: number, depth: number): XYZ[] {
+  const at = (p: number, z: number): XYZ => ({ x: c.x + u.x * p, y: c.y + u.y * p, z });
+  const E = 0.1;
+  const weld = W + C + E;
+  const lo = depth > C ? W : W + C - depth;
+  const [bp, bz] = depth > C ? [W, -C] : [(weld + lo) / 2, (E - depth) / 2];
+  return [at(weld, 1), at(weld, E), at(bp, bz), at(lo, -depth), at(-lo, -depth), at(-bp, bz), at(-weld, E), at(-weld, 1)];
 }
