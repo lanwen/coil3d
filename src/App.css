@@ -373,6 +373,14 @@ header p {
   box-shadow: 3px 3px 0 var(--ink);
 }
 
+/* Set by Hint.tsx when opening rightwards would run off the window's right
+   edge (e.g. the top-right projection switch): open leftwards instead,
+   ending at the row's right edge. */
+.hint-bubble[data-align="end"] {
+  left: auto;
+  right: 0;
+}
+
 .field-select {
   height: var(--control-h);
   padding: 0 10px;
@@ -958,6 +966,17 @@ header p {
   background: var(--paper);
   padding: 5px 10px;
   border-radius: 4px;
+}
+
+/* Each overlay box above is its own `z-index: 1` stacking context, so an
+   open (i) bubble inside one was painted UNDER the next box down (e.g. the
+   wound-cable hint under the Dimensions row). The box holding the open
+   bubble lifts above its siblings while it's open. */
+.wire-toggle:has(.hint-bubble[data-open]),
+.dimensions-toggle:has(.hint-bubble[data-open]),
+.explode-toggle:has(.hint-bubble[data-open]),
+.projection-toggle-box:has(.hint-bubble[data-open]) {
+  z-index: 3;
 }
 
 /* Preset views (issue #141): a borderless bar at the top centre of the
