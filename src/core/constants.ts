@@ -401,7 +401,7 @@ export const THROUGH_MOUNT_ENVELOPE_MARGIN = 2; // mm
 export const THROUGH_MOUNT_ROUND_HOLE_COUNTS = [4, 3] as const;
 
 // Clip mount plate (issue #14, docs/research.md §10b "SKÅDIS clip" +
-// PR research): a SEPARATE part that glues (on filament pins) onto the bottom
+// PR research): a SEPARATE part that glues (on two printed pegs) onto the bottom
 // flange's outer (wall-facing) face -- see mountPlate.ts. Its own footprint
 // is a uniform inward offset of the flange's outline (offsetOutline, always
 // strictly inside it -- AC "the plate must fit inside the flange outline").
@@ -503,16 +503,27 @@ export const OPENGRID_PLACEHOLDER_PEG_SIZE = 14; // mm square, comfortably insid
 export const OPENGRID_PLACEHOLDER_PEG_REACH = 5; // mm, protrusion from the plate's back face
 
 /**
- * Plate-to-flange joint (issue #106): the plate prints back-face up and the
- * core prints flange-down, so neither mating face can carry a protrusion
- * without supports. Both get matching blind holes instead, aligned with two
- * short pieces of 1.75 mm filament used as dowel pins, then glued.
+ * Plate-to-flange joint (issues #106, #132): the plate prints back-face up
+ * and the core prints flange-down, so neither mating face can carry a
+ * protrusion without supports. Both get matching blind round holes instead,
+ * aligned on two separately printed pegs (their own parts), then glued.
+ *
+ * The peg is a low-poly prism: a square with its corners chamfered at 45
+ * degrees (an octagon whose 8 corners all lie on one circle,
+ * `MOUNT_PLATE_PEG_RADIUS`), with a 45 degree lead-in on both ends. It
+ * prints lying on one of its wide flats: the layers then run along the peg,
+ * so the joint's shear load (across the peg) never splits a layer line, and
+ * every other face is at 45 degrees or steeper -- no supports. The round
+ * hole grips the octagon's corners, so the peg goes in at any rotation.
  */
-export const MOUNT_PLATE_PIN_DIAMETER = 1.75; // mm, standard filament
-export const MOUNT_PLATE_PIN_HOLE_CLEARANCE = 0.1; // mm, added to the pin radius (plus half the fit tolerance)
-export const MOUNT_PLATE_PIN_HOLE_DEPTH = 2.4; // mm, in the flange and in the 3 mm plate alike
-/** Pin length to cut: both holes' depth less a little, so the faces close. */
-export const MOUNT_PLATE_PIN_LENGTH = 4.5; // mm
+export const MOUNT_PLATE_PEG_SIZE = 3; // mm, across the wide flats
+export const MOUNT_PLATE_PEG_CORNER = 0.5; // mm, cut off each side at every corner (the 45 degree flats)
+export const MOUNT_PLATE_PEG_LEAD_IN = 0.4; // mm, 45 degree chamfer on both ends
+/** Both holes' depth less a little, so the faces close. */
+export const MOUNT_PLATE_PEG_LENGTH = 4.5; // mm
+/** The circle every corner of the peg's octagon lies on. */
+export const MOUNT_PLATE_PEG_RADIUS = Math.hypot(MOUNT_PLATE_PEG_SIZE / 2, MOUNT_PLATE_PEG_SIZE / 2 - MOUNT_PLATE_PEG_CORNER); // ~1.80 mm
+export const MOUNT_PLATE_PEG_HOLE_DEPTH = 2.4; // mm, in the flange and in the 3 mm plate alike
 
 /**
  * How far every clip/peg/tab/cutter genuinely EMBEDS past the flat face it
@@ -535,4 +546,4 @@ export const MOUNT_PLATE_EMBED = 0.5; // mm
 /** Minimum flange material left ABOVE an anchor cut (mirrors SCREW_MOUNT_MIN_SHELF): the load-bearing "roof" between the cut and the wound-cable side. */
 export const MOUNT_PLATE_ANCHOR_MIN_SHELF = 1.5; // mm
 /** design.ts bumps FLANGE_THICKNESS up to (at least) this, and warns, whenever mount is "skadis"/"opengrid" -- mirrors MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT. */
-export const MIN_FLANGE_THICKNESS_FOR_PLATE = MOUNT_PLATE_PIN_HOLE_DEPTH + MOUNT_PLATE_ANCHOR_MIN_SHELF;
+export const MIN_FLANGE_THICKNESS_FOR_PLATE = MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_ANCHOR_MIN_SHELF;

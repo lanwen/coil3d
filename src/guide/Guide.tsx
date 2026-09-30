@@ -29,7 +29,7 @@ import { rotateParts, rotatePoint, wallMountRotation, wallRoomRotation } from ".
 import { ClickIcon, GlueDropIcon, KeyholeIcon, NoPullIcon, NoSupportsIcon, PressIcon, RotateIcon, ScrewdriverIcon, TwistIcon, WallMountIcon, WindIcon } from "./pictograms";
 import "./guide.css";
 
-const PART_LABELS: Record<string, string> = { core: "Core", "top-cap": "Top cap", "mount-plate": "Mount plate" };
+const PART_LABELS: Record<string, string> = { core: "Core", "top-cap": "Top cap", "mount-plate": "Mount plate", "peg-1": "Alignment peg" };
 
 function partLabel(part: Part): string {
   return PART_LABELS[part.name] ?? part.name;
@@ -45,6 +45,11 @@ function capPart(design: Design): Part | undefined {
 
 function platePart(design: Design): Part | undefined {
   return design.parts.find((p) => p.role === "mountPlate");
+}
+
+/** Issue #132: the mount plate's two printed alignment pegs (empty without a plate). */
+function pegParts(design: Design): Part[] {
+  return design.parts.filter((p) => p.role === "peg");
 }
 
 /** The mesh's own X/Y center at a given Z -- a plain bounding-box read (public `CoilMesh` data only), used to anchor an arrow at "the core's top rim, on axis" or "the cap's underside, on axis" without needing any core-internal outline data. */
@@ -88,20 +93,23 @@ function Callout({ icons, children }: { icons: React.ReactNode; children: React.
 }
 
 function StepPrintParts({ design }: { design: Design }) {
+  // Issue #132: the two identical pegs share one figure, "x2".
+  const pegs = pegParts(design);
+  const shown = design.parts.filter((p) => p.role !== "peg" || p === pegs[0]);
   return (
     <StepCard n={1} title="Print the parts">
       <div className="guide-figure-row">
-        {design.parts.map((part) => (
+        {shown.map((part) => (
           <figure key={part.name} className="guide-part">
             <Figure parts={[partInPrintPose(part)]} fill={0.9} testId={`guide-print-part-${part.name}`} />
             <figcaption>
-              {partLabel(part)} &times;1
+              {partLabel(part)} &times;{part.role === "peg" ? pegs.length : 1}
             </figcaption>
           </figure>
         ))}
       </div>
       <Callout icons={<NoSupportsIcon label="No supports needed" />}>
-        {design.parts.length} part{design.parts.length === 1 ? "" : "s"}, prints upright -- no supports.
+        {design.parts.length} part{design.parts.length === 1 ? "" : "s"}, prints upright{pegs.length > 0 ? " (the pegs lying on their side)" : ""} -- no supports.
       </Callout>
     </StepCard>
   );
@@ -176,8 +184,8 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
   const joint = design.spec.joint;
   const JointIcon = JOINT_ICON[joint];
 
-  // The mount plate sits UNDER the flange: lifting it with the cap would push it up through the core (issue #106).
-  const capParts = design.parts.filter((p) => p.role !== "mountPlate");
+  // The mount plate (and its pegs, issue #132) sits UNDER the flange: lifting it with the cap would push it up through the core (issue #106).
+  const capParts = design.parts.filter((p) => p.role !== "mountPlate" && p.role !== "peg");
   const posedForAlign = explodedParts(capParts, true, EXPLODE_GAP);
   const posedCap = posedForAlign.find((p) => p.role !== "core")!;
   const capBottomExploded = centerAtZ(posedCap.mesh, meshBounds(posedCap.mesh).min.z);
@@ -399,29 +407,43 @@ function StepMountKeyhole({ design, n }: { design: Design; n: number }) {
   );
 }
 
-/** The mount plate lowered below the flange (the guide's own "exploded" pose for it: `explodedParts` lifts every non-core part UP, which for this part, under the flange, would push it through the core). */
-function loweredPlate(plate: Part, gap: number): Part {
-  const { min, max } = meshBounds(plate.mesh);
-  const offset = max.z - min.z + gap;
-  const positions = new Float32Array(plate.mesh.positions);
+/** `part` moved down Z by `offset` (the guide's own "exploded" pose for the parts under the flange: `explodedParts` lifts every non-core part UP, which for these would push them through the core). */
+function lowered(part: Part, offset: number): Part {
+  const positions = new Float32Array(part.mesh.positions);
   for (let i = 2; i < positions.length; i += 3) positions[i] -= offset;
-  return { ...plate, mesh: { positions, indices: plate.mesh.indices } };
+  return { ...part, mesh: { positions, indices: part.mesh.indices } };
 }
 
-/** Issue #106: glue the SKÅDIS plate onto the flange, on two filament pins (constants.ts's MOUNT_PLATE_PIN_*: 1.75 mm filament, 4.5 mm long). */
+/** Issues #106, #132: glue the SKÅDIS plate onto the flange, on its two printed pegs -- drawn exploded, the pegs halfway between the flange and the lowered plate, in line with their holes. */
 function StepFitPlate({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
   const plate = platePart(design)!;
-  const lowered = loweredPlate(plate, EXPLODE_GAP);
-  const from = centerAtZ(lowered.mesh, meshBounds(lowered.mesh).max.z);
+  const { min, max } = meshBounds(plate.mesh);
+  const drop = max.z - min.z + EXPLODE_GAP;
+  const plateDown = lowered(plate, drop);
+  const pegsDown = pegParts(design).map((peg) => lowered(peg, drop / 2));
+  const from = centerAtZ(plateDown.mesh, meshBounds(plateDown.mesh).max.z);
   const to = centerAtZ(core.mesh, meshBounds(core.mesh).min.z);
+  const figureParts = [core, ...pegsDown, plateDown];
+  // A close-up of the peg nearest the camera (the pegs are only 3 mm across).
+  const fit = computeGuideFit(figureParts, "iso", 1);
+  const depth = (p: THREE.Vector3) => (fit ? p.clone().sub(fit.center).applyMatrix4(fit.inverse).z : 0);
+  const pegCentres = pegsDown.map((peg) => meshBounds(peg.mesh).getCenter(new THREE.Vector3()));
+  const nearestPeg = pegCentres.sort((a, b) => depth(b) - depth(a))[0];
   return (
     <StepCard n={n} title="Fit the mount plate">
       <div className="guide-figure-row guide-figure-row--solo">
-        <Figure parts={[core, lowered]} testId="guide-fit-plate" renderOverlay={(fit) => <StraightArrow from={projectToFigure(fit, from)} to={projectToFigure(fit, to)} />} />
+        <Figure
+          parts={figureParts}
+          testId="guide-fit-plate"
+          zoomInsetAt={nearestPeg}
+          renderOverlay={(fit) => <StraightArrow from={projectToFigure(fit, from)} to={projectToFigure(fit, to)} />}
+        />
       </div>
       <Callout icons={[<PressIcon key="press" label="Press the plate on" />, <GlueDropIcon key="glue" label="Permanent: add glue" />]}>
-        Cut two 4.5 mm pieces of 1.75 mm filament and push them into the plate's two holes. Add glue, then press the plate onto the flange, pins into its holes.
+        {pegsDown.length > 0
+          ? "Push the two printed pegs into the plate's two holes. Add glue, then press the plate onto the flange, pegs into its holes."
+          : "Add glue, then press the plate flat onto the flange."}
       </Callout>
     </StepCard>
   );

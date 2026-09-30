@@ -72,11 +72,11 @@ test.describe("mount plate controls (issue #14)", () => {
     // profile is based on -- shown only for this one mount kind.
     await expect(page.getByTestId("mount-credit")).toBeVisible();
     await expect(page.getByTestId("mount-credit").getByRole("link", { name: "skapa" })).toHaveAttribute("href", "https://github.com/nmattia/skapa");
-    await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
+    await expect(page.getByTestId("mesh-detail")).toContainText("4 parts");
     // The plate sits behind the flange, where Iso never looks: selecting it shows it.
     await expect(page.getByTestId("preset-mountSide")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("wall-view-caption")).toHaveText(/SK.DIS slot/i);
-    // The plate joint is always pins + glue now (snap tabs couldn't print without supports).
+    // The plate joint is always pegs + glue now (snap tabs couldn't print without supports).
     await expect(page.getByTestId("select-plateJoint")).toHaveCount(0);
 
     // A link that already has the plate opens in the usual Iso view, with the mount-side view one click away.
@@ -86,10 +86,10 @@ test.describe("mount plate controls (issue #14)", () => {
     await expect(page.getByTestId("preset-mountSide")).toBeVisible();
   });
 
-  test("an old snap-tab link still opens, builds the pin + glue plate and says so", async ({ page }) => {
+  test("an old snap-tab link still opens, builds the peg + glue plate and says so", async ({ page }) => {
     await gotoDesign(page, `#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis&pj=snap`);
     await expect(page.getByTestId("hash-notice")).toHaveCount(0);
-    await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
+    await expect(page.getByTestId("mesh-detail")).toContainText("4 parts");
     await expect(page.getByTestId("warnings")).toContainText(/snap tabs can't print without supports/i);
   });
 
@@ -106,7 +106,7 @@ test.describe("mount plate controls (issue #14)", () => {
     await gotoDesign(page, "#v=1&L=20&d=1&lock=outer,ly&size=12&h=20&mount=skadis");
     await expect(page.getByTestId("warnings")).toContainText(/margin increased.*SK.DIS/i);
     await expect(page.getByTestId("warnings")).not.toContainText(/too small to fit/i);
-    await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
+    await expect(page.getByTestId("mesh-detail")).toContainText("4 parts");
     expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
   });
 });
@@ -125,7 +125,7 @@ test.describe("mount plate render, exports and manifold end-to-end (issue #14)",
     const stlDownload = page.waitForEvent("download");
     await page.getByTestId("download-stl").click();
     const stl = await stlDownload;
-    expect(stl.suggestedFilename()).toBe("coil-parts.zip"); // 2 parts -> zip, mirrors issue #9's own convention
+    expect(stl.suggestedFilename()).toBe("coil-parts.zip"); // 4 parts (core, plate, 2 pegs) -> zip, mirrors issue #9's own convention
     expect(await stl.path()).toBeTruthy();
 
     const threeMfDownload = page.waitForEvent("download");

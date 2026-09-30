@@ -29,9 +29,7 @@ import {
   JOINT_TRANSITION_HEIGHT,
   LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
-  MOUNT_PLATE_PIN_DIAMETER,
-  MOUNT_PLATE_PIN_HOLE_CLEARANCE,
-  MOUNT_PLATE_PIN_HOLE_DEPTH,
+  MOUNT_PLATE_PEG_HOLE_DEPTH,
   MOUNT_PLATE_THICKNESS,
   OPENGRID_PLACEHOLDER_PEG_REACH,
   OPENGRID_PLACEHOLDER_PEG_SIZE,
@@ -60,7 +58,7 @@ import { layoutKeyholeMount, layoutThroughHoleMount } from "../mount";
 import { layoutFlangePads, offsetAtZ, padLevels, plateTopZ } from "../flangePads";
 import type { FlangePad } from "../flangePads";
 import type { KeyholeSlot, ThroughHole } from "../mount";
-import { mountPlateLayoutFor as layoutFor } from "../mountPlate";
+import { mountPlateLayoutFor as layoutFor, pegHoleRadius, pegSweep } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
 import { circumscribedRadius, offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
@@ -424,7 +422,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     }
   }
 
-  // Issue #14/#106: cut the same filament-pin holes the mesh
+  // Issue #14/#106: cut the same peg holes the mesh
   // backend cuts into the flange's outer face (manifold.ts's `fuseFlange`'s
   // `mountPlateCut`), from the identical layout (mountPlate.ts), so STEP and
   // STL/preview never drift apart. Only when the plate itself actually got
@@ -465,6 +463,18 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     const plateSolid = buildMountPlateSolid(design);
     validateSolid(kernel, plateSolid, mountPlatePart.mesh, mountPlatePart.name);
     shapes.push({ shape: plateSolid, name: mountPlatePart.name });
+  }
+
+  // Issue #132: the alignment pegs, one per anchor (design.ts names them in
+  // anchor order), from the same `pegSweep` rings the mesh is built from.
+  const pegParts = design.parts.filter((p) => p.role === "peg");
+  if (pegParts.length > 0) {
+    const { anchors } = mountPlateLayoutFor(design);
+    pegParts.forEach((part, i) => {
+      const pegSolid = sweepSolidStep(pegSweep(anchors[i], -flangeSpec.thickness));
+      validateSolid(kernel, pegSolid, part.mesh, part.name);
+      shapes.push({ shape: pegSolid, name: part.name });
+    });
   }
 
   const blob = R.exportSTEP(shapes);
@@ -893,10 +903,10 @@ function mountPlateClipSolidStep(mountKind: "skadis" | "opengrid", clip: ClipIns
   return canonical.rotate(clip.rotationDeg, [0, 0, 0], [0, 0, 1]).translate([clip.x, clip.y, zBase]);
 }
 
-/** One filament-pin hole cutter (mirrors manifold.ts's `pinHoleCutter`): `dir` +1 cuts into the flange from its outer face, -1 into the plate from its front face. */
+/** One peg hole cutter (mirrors manifold.ts's `pinHoleCutter`): `dir` +1 cuts into the flange from its outer face, -1 into the plate from its front face. */
 function pinHoleCutterSolid(anchor: AnchorPoint, tolerance: number, zFace: number, dir: 1 | -1): R.Shape3D {
-  const r = MOUNT_PLATE_PIN_DIAMETER / 2 + MOUNT_PLATE_PIN_HOLE_CLEARANCE + tolerance / 2;
-  const h = MOUNT_PLATE_PIN_HOLE_DEPTH + MOUNT_PLATE_EMBED;
+  const r = pegHoleRadius(tolerance);
+  const h = MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_EMBED;
   const z0 = dir === 1 ? zFace - MOUNT_PLATE_EMBED : zFace + MOUNT_PLATE_EMBED - h;
   return R.makeCylinder(r, h, [anchor.x, anchor.y, z0]);
 }
