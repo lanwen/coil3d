@@ -32,6 +32,7 @@ import {
 } from "./constants";
 import { idealChannelDepth, requiredCapClipMargin, requiredInnerEndMargin, resolveChannelDepth } from "./innerEnd";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
+import { requiredMountPlateMargin } from "./mountPlate";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { FlangeExtent, MountKind } from "./types";
@@ -113,7 +114,15 @@ export function resolveFlangeSizing(
     ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline, keyholeRotation))
     : wantsThrough
       ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, flangeSizeEnvelope / 2))
-      : baseMargin;
+      : mountKindForPlate
+        // Issue #120: SKÅDIS/openGrid used to just take `baseMargin` here,
+        // so a plate whose fixed-pitch grid needs more room than the plain
+        // wound-envelope clearance gives could be silently skipped (only a
+        // warning to notice) -- this grows the margin exactly like the
+        // other two mount kinds already do, so the plate is never dropped
+        // just because the (often solver-picked) core came out small.
+        ? Math.max(baseMargin, requiredMountPlateMargin(outline, boreOutline, mountKindForPlate))
+        : baseMargin;
 
   const minPlateThickness = mountKindForPlate ? MIN_FLANGE_THICKNESS_FOR_PLATE : 0;
   const idealDepth = idealChannelDepth(wireDiameter);

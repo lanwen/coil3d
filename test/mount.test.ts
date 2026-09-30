@@ -11,7 +11,7 @@
 
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { design, parseHash } from "../src/core";
 import type { CoilSpec } from "../src/core";
 import {
   DEFAULT_THROUGH_HOLE_DIAMETER,
@@ -25,6 +25,7 @@ import {
 } from "../src/core/constants";
 import { layoutKeyholeMount, layoutThroughHoleMount, requiredFlangeMargin, requiredThroughMountMargin } from "../src/core/mount";
 import { layoutInnerEnd } from "../src/core/innerEnd";
+import { mountPlateLayoutFor } from "../src/core/mountPlate";
 import { makeOutline, offsetOutline, radiusAtAngle } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 import { bruteForceRadiusAtAngle, coarseOutlineScan } from "./support/bruteForceRadius";
@@ -89,6 +90,86 @@ describe("keyhole mount rotation (issue #71)", () => {
       }
     }
     expect(axes[45]).not.toBeCloseTo(axes[0], 6); // rotation actually changed which axis got used
+  });
+});
+
+// --- Issue #120: two reported mount bugs -----------------------------------
+//
+// (1) keyhole rotation 0 vs 45 produced NO visible change for a triangle
+// core: `candidateAxisDegs` only ever gives a triangle 2 reachable axes
+// (its own +-30 degree corner/side pair), and the one closest to literal 45
+// was ALWAYS the same axis the automatic (cheapest) pick already used --
+// `bestAxisDeg` picked purely by distance-to-request with no regard for
+// what the automatic case already chose. Fixed by excluding the automatic
+// axis from the candidates a non-zero request can land on, whenever a
+// second one is reachable at all (mount.ts's `bestAxisDeg`).
+//
+// (2) the SKÅDIS clip mount plate silently disappeared (no `mountPlate`
+// part, only a general warning) whenever the auto-solved -- or a small,
+// locked -- core came out smaller than the plate's fixed 40mm-pitch grid
+// needs: unlike the keyhole/through-hole mounts, nothing grew the flange
+// margin to guarantee the plate's own minimum 2-clip fit. Fixed by
+// `mountPlate.ts`'s new `requiredMountPlateMargin`, wired into
+// `flange.ts`'s `resolveFlangeSizing` exactly like the other two mount
+// kinds already were.
+describe("issue #120: keyhole rotation and SKÅDIS mount regressions", () => {
+  it("a triangle core: keyholeRotation 0 vs 45 land on genuinely different axes and slot positions (previously identical -- confirmed bug)", async () => {
+    const specs = [0, 45] as const;
+    const results = await Promise.all(
+      specs.map((kr) =>
+        design(
+          baseSpec({
+            shape: { kind: "tri", cornerRadius: 15 },
+            coreSize: { locked: true, dimension: "outer", value: 100 },
+            mount: "keyhole",
+            keyholeRotation: kr,
+          }),
+        ),
+      ),
+    );
+    const [atZero, at45] = results;
+    expect(atZero.mountAxisDeg).not.toBeCloseTo(at45.mountAxisDeg!, 6);
+
+    const layoutAt = (d: (typeof results)[number], kr: 0 | 45) => layoutKeyholeMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, kr);
+    const slotsZero = layoutAt(atZero, 0).slots;
+    const slots45 = layoutAt(at45, 45).slots;
+    expect(slotsZero.length).toBeGreaterThan(0);
+    expect(slots45.length).toBe(slotsZero.length);
+    // At least one slot actually moved -- not just a coincidental relabeling.
+    const moved = slots45.some((s, i) => Math.hypot(s.head.x - slotsZero[i].head.x, s.head.y - slotsZero[i].head.y) > 1e-3);
+    expect(moved).toBe(true);
+  });
+
+  it("a small triangle core also differs between rotations (single-slot case, not just the 2-slot square already covered above)", async () => {
+    const d0 = await design(baseSpec({ shape: { kind: "tri", cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 50 }, mount: "keyhole", keyholeRotation: 0 }));
+    const d45 = await design(baseSpec({ shape: { kind: "tri", cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 50 }, mount: "keyhole", keyholeRotation: 45 }));
+    expect(d0.mountAxisDeg).not.toBeCloseTo(d45.mountAxisDeg!, 6);
+  });
+
+  // The issue's own SKÅDIS repro hash: a round core, height locked at 33mm,
+  // core size and layers free (solver-picked), top cap on, mount=skadis --
+  // decoded from `#s=eyJ2IjoyLCJMIjoxMDAwLCJkIjoyLjQsImgiOjMzLCJsb2NrIjpb
+  // ImgiXSwiY2FwIjoib24iLCJtb3VudCI6InNrYWRpcyIsImJ4Ijo1NzYsImJ5Ijo1NDcsImJ6
+  // Ijo1NzV9`.
+  it("the issue's own SKÅDIS repro (round core, h locked 33, cap on, solver-picked size) builds a mount-plate part with clips, not a silent skip", async () => {
+    const hash =
+      "#s=eyJ2IjoyLCJMIjoxMDAwLCJkIjoyLjQsImgiOjMzLCJsb2NrIjpbImgiXSwiY2FwIjoib24iLCJtb3VudCI6InNrYWRpcyIsImJ4Ijo1NzYsImJ5Ijo1NDcsImJ6Ijo1NzV9";
+    const { spec, notice } = parseHash(hash);
+    expect(notice).toBeUndefined();
+    const d = await design(spec);
+    expect(d.warnings.some((w) => /too small to fit/i.test(w))).toBe(false);
+    const plate = d.parts.find((p) => p.role === "mountPlate");
+    expect(plate).toBeDefined();
+    const layout = mountPlateLayoutFor("skadis", offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin), d.flangeSpec.boreOutline);
+    expect(layout.clips.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("a small, locked core still fits the SKÅDIS plate by growing the flange margin, across shapes (never a silent skip)", async () => {
+    for (const shape of [{ kind: "round" as const }, { kind: "sq" as const, cornerRadius: 5 }, { kind: "tri" as const, cornerRadius: 5 }]) {
+      const d = await design(baseSpec({ shape, mount: "skadis", coreSize: { locked: true, dimension: "outer", value: 12 }, height: { locked: true, value: 20 } }));
+      expect(d.warnings.some((w) => /too small to fit/i.test(w))).toBe(false);
+      expect(d.parts.find((p) => p.role === "mountPlate")).toBeDefined();
+    }
   });
 });
 
