@@ -1,6 +1,6 @@
 // Clip mount plate layout (issue #14, docs/research.md §1 "Wall mounting" +
 // §10b "SKÅDIS clip", §10d issue #106 fit check): a SEPARATE named part
-// that glues (on two filament pins) onto the bottom flange's outer
+// that glues (on two printed alignment pegs, issue #132) onto the bottom flange's outer
 // (wall-facing) face -- the SAME face mount.ts's screw-keyhole slots cut
 // into (issue #13) -- so the core keeps printing flat with no clip features
 // of its own. Pure geometry math only, shared by both geometry backends
@@ -38,6 +38,11 @@ import {
   MOUNT_PLATE_EDGE_MARGIN,
   MOUNT_PLATE_MAX_PER_SIDE,
   MOUNT_PLATE_MIN_CLIPS,
+  MOUNT_PLATE_PEG_CORNER,
+  MOUNT_PLATE_PEG_LEAD_IN,
+  MOUNT_PLATE_PEG_LENGTH,
+  MOUNT_PLATE_PEG_RADIUS,
+  MOUNT_PLATE_PEG_SIZE,
   MOUNT_PLATE_THICKNESS,
   OPENGRID_PITCH,
   OPENGRID_PLACEHOLDER_PEG_SIZE,
@@ -52,6 +57,7 @@ import {
 import { bestAxisDeg } from "./mount";
 import { offsetOutline, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
+import type { SweepSolid } from "./innerEnd";
 import type { PegboardSection } from "./types";
 
 /** One clip/connector instance, in TRUE (x, y) flange-plane coordinates, mm. */
@@ -62,7 +68,7 @@ export interface ClipInstance {
   rotationDeg: number;
 }
 
-/** One filament-pin hole pair (a blind hole in the plate's front face plus a matching one in the flange -- constants.ts's MOUNT_PLATE_PIN_*), in TRUE (x, y) flange-plane coordinates -- always placed symmetric about `side=0`. */
+/** One peg hole pair (a blind hole in the plate's front face plus a matching one in the flange, joined by one printed peg -- constants.ts's MOUNT_PLATE_PEG_*), in TRUE (x, y) flange-plane coordinates -- always placed symmetric about `side=0`. */
 export interface AnchorPoint {
   x: number;
   y: number;
@@ -73,7 +79,7 @@ export interface MountPlateLayout {
   /** The plate's own footprint: a uniform inward offset of the flange's outline, always strictly inside it (issue #14 AC: "the plate must fit inside the flange outline"). */
   outline: ShapeOutline;
   clips: ClipInstance[];
-  /** 2 pin holes, symmetric about `side=0`; empty when the annulus is too narrow to fit them (the plate can still be glued flat without alignment aids). */
+  /** 2 peg holes, symmetric about `side=0`; empty when the annulus is too narrow to fit them (the plate can still be glued flat without alignment aids). */
   anchors: AnchorPoint[];
   /** The `bestAxisDeg` theta this layout's rows/columns are actually aligned to (undefined only when `clips` is empty). Mirrors mount.ts's `MountLayout.axisDeg`. */
   axisDeg?: number;
@@ -97,8 +103,41 @@ const BOUNDARY_SAMPLES = 512;
 export interface InnerEndKeepOut {
   channelRibbon: Array<{ x: number; y: number }>;
 }
-/** Minimum distance from a pin hole's centre to the channel's outline (mm): the hole's own radius plus a wall. */
-const ANCHOR_KEEP_OUT = 3;
+/** Minimum distance from a peg hole's centre to the channel's outline (mm): the hole's own radius plus a wall. */
+const ANCHOR_KEEP_OUT = MOUNT_PLATE_PEG_RADIUS + 1.5;
+
+/** The round peg hole's radius (issue #132): the circle through the peg's corners plus half the print tolerance, so the fit's clearance across the corners is the tolerance itself. */
+export function pegHoleRadius(tolerance: number): number {
+  return MOUNT_PLATE_PEG_RADIUS + tolerance / 2;
+}
+
+/**
+ * One alignment peg (issue #132, constants.ts's MOUNT_PLATE_PEG_*) as a
+ * swept solid: 4 octagonal rings along the peg's own axis, which stands in
+ * `anchor`'s hole along Z, centred on the plate/flange seam at `zSeam`. The
+ * end rings are inset by the lead-in, so both ends are 45 degree chamfers.
+ * The flats face +-X/+-Y, so the print pose (lying down, rotated about X)
+ * rests on a wide flat. The same rings build the mesh (innerEnd.ts's
+ * `sweepMesh`) and the STEP solid.
+ */
+export function pegSweep(anchor: { x: number; y: number }, zSeam: number): SweepSolid {
+  const octagon = (inset: number, z: number) => {
+    const h = MOUNT_PLATE_PEG_SIZE / 2 - inset;
+    const k = MOUNT_PLATE_PEG_SIZE - MOUNT_PLATE_PEG_CORNER - inset * Math.SQRT2; // the 45 degree flats lie on |x| + |y| = k
+    const corners: Array<[number, number]> = [
+      [h, k - h], [k - h, h], [h - k, h], [-h, k - h], [-h, h - k], [h - k, -h], [k - h, -h], [h, h - k],
+    ];
+    return corners.map(([x, y]) => ({ x: anchor.x + x, y: anchor.y + y, z }));
+  };
+  const z0 = zSeam - MOUNT_PLATE_PEG_LENGTH / 2;
+  const z1 = zSeam + MOUNT_PLATE_PEG_LENGTH / 2;
+  const c = MOUNT_PLATE_PEG_LEAD_IN;
+  return {
+    rings: [octagon(c, z0), octagon(0, z0 + c), octagon(0, z1 - c), octagon(c, z1)],
+    start: { x: anchor.x, y: anchor.y, z: z0 },
+    end: { x: anchor.x, y: anchor.y, z: z1 },
+  };
+}
 
 /** Distance from `p` to the nearest edge of a closed polygon. */
 function distanceToPolygon(p: { x: number; y: number }, points: Array<{ x: number; y: number }>): number {
@@ -157,6 +196,23 @@ function halfWidthAtUp(boundary: Array<{ up: number; side: number }>, up0: numbe
     if (side > maxSide) maxSide = side;
   }
   return maxSide;
+}
+
+/** The farthest boundary crossing at `up0` on each side of `side=0` (`pos` >= 0, `neg` >= 0 its distance on the negative side; 0 where the outline doesn't reach). */
+function edgesAtUp(boundary: Array<{ up: number; side: number }>, up0: number): { pos: number; neg: number } {
+  let pos = 0;
+  let neg = 0;
+  for (let i = 0; i < boundary.length - 1; i++) {
+    const a = boundary[i];
+    const b = boundary[i + 1];
+    const lo = Math.min(a.up, b.up);
+    const hi = Math.max(a.up, b.up);
+    if (up0 < lo || up0 > hi || hi - lo < 1e-9) continue;
+    const side = a.side + ((up0 - a.up) / (b.up - a.up)) * (b.side - a.side);
+    if (side > pos) pos = side;
+    if (-side > neg) neg = -side;
+  }
+  return { pos, neg };
 }
 
 /**
@@ -232,7 +288,7 @@ export function layoutMountPlate(
     };
   }
 
-  // 2 alignment pin holes, at the midpoint of the annulus between the bore
+  // 2 alignment peg holes, at the midpoint of the annulus between the bore
   // and the plate's own edge (mirrors mount.ts's `slotAt` band-midpoint
   // placement): on the side axis through the centre (up=0), or -- when that
   // would cut into the flange's own inner-end channel or clip (issue
@@ -240,11 +296,20 @@ export function layoutMountPlate(
   // on the up axis instead. Purely a best-effort placement aid; the plate
   // is still a valid, glueable part without them.
   const pairOn = (turnDeg: 0 | 90): AnchorPoint[] => {
-    const inner = halfWidthAtUp(projectedBoundary(boreOutline, axisDeg + turnDeg), 0) + 1;
-    const outer = halfWidthAtUp(projectedBoundary(outline, axisDeg + turnDeg), 0) - 1;
-    if (inner >= outer) return [];
-    const mid = (inner + outer) / 2;
-    const pts = turnDeg === 0 ? [toXY(0, mid), toXY(0, -mid)] : [toXY(mid, 0), toXY(-mid, 0)];
+    // Issue #132: each hole at the middle of ITS OWN side's annulus -- a
+    // triangle is much shorter from its centre to a flat than to the
+    // opposite corner, so one shared (farther-side) distance put the hole on
+    // the flat's side outside the plate (unseen with a filament pin, a
+    // floating peg now).
+    const bore = edgesAtUp(projectedBoundary(boreOutline, axisDeg + turnDeg), 0);
+    const edge = edgesAtUp(projectedBoundary(outline, axisDeg + turnDeg), 0);
+    const mids: number[] = [];
+    for (const [inner, outer, sign] of [[bore.pos + 1, edge.pos - 1, 1], [bore.neg + 1, edge.neg - 1, -1]]) {
+      if (outer - inner < 2 * MOUNT_PLATE_PEG_RADIUS) return [];
+      mids.push((sign * (inner + outer)) / 2);
+    }
+    // The turned frame's +side is this frame's -up (`basisFor`).
+    const pts = mids.map((m) => (turnDeg === 0 ? toXY(0, m) : toXY(-m, 0)));
     return pts.map((p) => ({ ...p, rotationDeg }));
   };
   const clear = (p: { x: number; y: number }) =>

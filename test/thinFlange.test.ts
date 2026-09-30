@@ -2,9 +2,9 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design, parseHash } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
-import { DEFAULT_THROUGH_HOLE_DIAMETER, FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PIN_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core/constants";
+import { DEFAULT_THROUGH_HOLE_DIAMETER, FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PEG_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core/constants";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "../src/core/mount";
-import { mountPlateLayoutFor } from "../src/core/mountPlate";
+import { mountPlateLayoutFor, pegHoleRadius } from "../src/core/mountPlate";
 import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
 import { offsetOutline, pointAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
@@ -120,7 +120,7 @@ describe("thin bottom flange (issue #122)", () => {
       }
       let minZ = Infinity;
       let maxZ = -Infinity;
-      for (const part of d.parts.filter((p) => p.role !== "mountPlate")) {
+      for (const part of d.parts.filter((p) => p.role !== "mountPlate" && p.role !== "peg")) {
         for (let i = 2; i < part.mesh.positions.length; i += 3) {
           minZ = Math.min(minZ, part.mesh.positions[i]);
           maxZ = Math.max(maxZ, part.mesh.positions[i]);
@@ -200,7 +200,7 @@ describe("thin bottom flange (issue #122)", () => {
     }
   });
 
-  it("keeps each SKADIS pin hole's shelf on a pad", async () => {
+  it("keeps each SKADIS peg hole's shelf on a pad", async () => {
     for (const { spec: plateSpec } of [DESIGNS[3], DESIGNS[4]]) {
       const skadis = await design(plateSpec, "draft");
       const f = skadis.flangeSpec;
@@ -210,14 +210,16 @@ describe("thin bottom flange (issue #122)", () => {
       const layout = mountPlateLayoutFor("skadis", offsetOutline(f.outline, f.margin), f.boreOutline, innerEnd);
       expect(layout.anchors.length).toBeGreaterThan(0);
       for (const a of layout.anchors) {
-        // Just beside the pin hole: solid from the wall face up to the inner face.
-        const s = flangeSpans(skadis, a.x + 1.6, a.y);
+        // Just beside the peg hole: solid from the wall face up to the inner face.
+        // (Off the x axis: a ray exactly through the hole's and the ring's own vertices can miss a face.)
+        const beside = pegHoleRadius(skadis.spec.tolerance) + 0.5;
+        const s = flangeSpans(skadis, a.x + beside * Math.cos(0.37), a.y + beside * Math.sin(0.37));
         expect(s).toHaveLength(1);
         expect(s[0][1] - s[0][0]).toBeGreaterThanOrEqual(MIN_FLANGE_THICKNESS_FOR_PLATE - 1e-3);
-        // In it: the pin hole, then at least the anchor shelf above it.
+        // In it: the peg hole, then at least the anchor shelf above it.
         const inHole = flangeSpans(skadis, a.x, a.y);
         expect(inHole).toHaveLength(1);
-        expect(inHole[0][0]).toBeCloseTo(-f.thickness + MOUNT_PLATE_PIN_HOLE_DEPTH, 3);
+        expect(inHole[0][0]).toBeCloseTo(-f.thickness + MOUNT_PLATE_PEG_HOLE_DEPTH, 3);
         expect(inHole[0][1]).toBeCloseTo(0, 3);
       }
     }

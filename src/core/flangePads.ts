@@ -26,7 +26,8 @@
 // ring before fusing the wall. Each pad is a `SweepSolid` (innerEnd.ts), so
 // both backends mesh it from the same rings.
 
-import { CABLE_BRIDGE_STEP, FLANGE_PAD_COLLAR, FLANGE_PAD_COLLAR_COLUMNS, FLANGE_PAD_EMBED, FLANGE_PAD_RISE, FLANGE_PAD_STEP, FLANGE_PAD_WALL, MOUNT_PLATE_PIN_DIAMETER, MOUNT_PLATE_PIN_HOLE_CLEARANCE, SCREW_MOUNT_HEAD_RADIUS } from "./constants";
+import { CABLE_BRIDGE_STEP, FLANGE_PAD_COLLAR, FLANGE_PAD_COLLAR_COLUMNS, FLANGE_PAD_EMBED, FLANGE_PAD_RISE, FLANGE_PAD_STEP, FLANGE_PAD_WALL, SCREW_MOUNT_HEAD_RADIUS } from "./constants";
+import { pegHoleRadius } from "./mountPlate";
 import type { InnerEndLayout, SweepSolid, XY, XYZ } from "./innerEnd";
 import { layoutKeyholeMount } from "./mount";
 import { outlineColumnParams, pointAt } from "./shapes";
@@ -175,7 +176,6 @@ export function layoutFlangePads(flange: PaddedFlange, innerEnd: InnerEndLayout 
   // Issue #129: the through-hole mount gets no pad any more -- it's a
   // plain, constant-radius hole with the flange staying its ordinary plate
   // thickness right up to the hole's own edge, flat on the wall face.
-  const pinRadius = MOUNT_PLATE_PIN_DIAMETER / 2 + MOUNT_PLATE_PIN_HOLE_CLEARANCE + tolerance / 2;
-  for (const anchor of anchors) pads.push(stadiumPad(anchor, anchor, pinRadius, FLANGE_PAD_WALL, zPlate));
+  for (const anchor of anchors) pads.push(stadiumPad(anchor, anchor, pegHoleRadius(tolerance), FLANGE_PAD_WALL, zPlate));
   return pads;
 }

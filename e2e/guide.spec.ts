@@ -109,13 +109,16 @@ test.describe("printable assembly guide (issue #17)", () => {
   // wording too, not the generic "coming soon" fallback meant only for
   // "none" (and "opengrid", which isn't reachable -- see mountLine's own
   // doc comment in Guide.tsx).
-  // Issue #106: the plate gets its own "fit the plate" step (filament pins +
+  // Issue #106: the plate gets its own "fit the plate" step (printed pegs +
   // glue), then the mount step shows the clips face-on against the drawn
   // SKÅDIS slot grid.
   test("the SKÅDIS clip mount gets a fit-the-plate step, then a mount step with the clips in the board's slots", async ({ page }) => {
     await gotoGuide(page, `${ONE_LAYER}&mount=skadis`);
     await expect(page.getByTestId("guide-step-4")).toContainText(/mount plate/i);
-    await expect(page.getByTestId("guide-step-4")).toContainText(/1\.75 mm filament/i);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/two printed pegs/i);
+    // Issue #132: the pegs are printed parts, shown once in step 1 as x2.
+    await expect(page.getByTestId("guide-step-1")).toContainText(/Alignment peg ×2/);
+    await expect(page.getByTestId("guide-step-1")).toContainText("4 parts");
     await expect(page.getByTestId("guide-step-5")).toContainText(/SK.DIS/i);
     await expect(page.getByTestId("guide-step-5")).toContainText(/slots/i);
     await expect(page.getByTestId("guide-step-5")).not.toContainText("coming soon");

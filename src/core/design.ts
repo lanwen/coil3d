@@ -36,7 +36,7 @@ import {
   SCREW_MOUNT_HEAD_RADIUS,
   WALL_THICKNESS,
 } from "./constants";
-import { buildMountPlate, buildTopCap, fuseFlange } from "./manifold";
+import { buildMountPlate, buildPeg, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
 import { printBBox } from "./plate";
@@ -105,7 +105,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // Issue #14: skadis/opengrid don't cut anything into the flange's own
   // OUTLINE (unlike keyhole) -- the separate mount plate's footprint
   // shrinks to fit whatever margin the flange already has (mountPlate.ts's
-  // `layoutMountPlate` insets it) -- but its filament-pin holes still
+  // `layoutMountPlate` insets it) -- but its peg holes still
   // need the flange to be a bit THICKER, exactly like the keyhole mount.
   const mountKindForPlate = spec.mount === "skadis" || spec.mount === "opengrid" ? spec.mount : undefined;
 
@@ -241,9 +241,9 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     if (mountPlateLayout.warning) warnings.push(mountPlateLayout.warning);
     // Issue #106: snap tabs on the plate's front face would print hanging
     // in mid-air (the plate prints back-face up, the flange face-down), so
-    // every plate now uses the filament-pin + glue joint. Old links that
+    // every plate now uses the peg + glue joint. Old links that
     // still ask for "snap" get it, with this notice.
-    if (spec.plateJoint === "snap") warnings.push("Snap tabs can't print without supports, so the mount plate uses two filament pins and glue instead.");
+    if (spec.plateJoint === "snap") warnings.push("Snap tabs can't print without supports, so the mount plate uses two printed pegs and glue instead.");
   }
   const mountPlateCut: MountPlateFlangeCut | undefined =
     mountPlateLayout && mountPlateLayout.clips.length > 0 && mountPlateLayout.anchors.length > 0
@@ -354,6 +354,16 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     // offset that actually rests it on the bed, so the translate here only
     // needs to supply the rotation.
     parts.push({ name: "mount-plate", role: "mountPlate", mesh: plateMesh, printTransform: { rotateX: Math.PI, translate: [0, 0, 0] } });
+    // Issue #132: one printed alignment peg per hole pair, standing in its
+    // holes across the seam. Printed lying on a wide flat (a quarter turn
+    // about X), so its layers run along it -- see constants.ts's
+    // MOUNT_PLATE_PEG_* for why.
+    if (mountPlateCut) {
+      for (const [i, anchor] of mountPlateCut.anchors.entries()) {
+        const pegMesh = await buildPeg(anchor, thickness);
+        parts.push({ name: `peg-${i + 1}`, role: "peg", mesh: pegMesh, printTransform: { rotateX: Math.PI / 2, translate: [0, 0, 0] } });
+      }
+    }
   }
 
   const mesh = parts[0].mesh;

@@ -420,7 +420,14 @@ export function CoilViewer({
 
   // How far each non-core part lifts when exploded: its own Z-extent plus a
   // fixed gap, so it clears itself regardless of design scale.
-  const explodeOffsets = useMemo(() => new Map(parts.filter((p) => p.role !== "core").map((p) => [p.name, zExtent(p.mesh) + EXPLODE_GAP])), [parts]);
+  // Issue #132: the alignment pegs float halfway across the plate's own
+  // gap, between the flange and the lowered plate, in line with their holes.
+  const explodeOffsets = useMemo(() => {
+    const offsets = new Map(parts.filter((p) => p.role !== "core" && p.role !== "peg").map((p) => [p.name, zExtent(p.mesh) + EXPLODE_GAP]));
+    const plate = parts.find((p) => p.role === "mountPlate");
+    for (const peg of parts.filter((p) => p.role === "peg")) offsets.set(peg.name, plate ? (offsets.get(plate.name) ?? 0) / 2 : 0);
+    return offsets;
+  }, [parts]);
 
   // Deliberately NOT creased (unlike the coil geometry above): a tube's own
   // radial facets would otherwise draw a spurious line at every facet ridge,
@@ -543,7 +550,15 @@ export function CoilViewer({
   // every render): PrintLayoutLabels.tsx memoizes its own sprites on this
   // array's identity, so a fresh array literal here every render would
   // rebuild (and re-draw) every label's canvas texture every frame.
-  const printLayoutLabelParts = useMemo(() => printLayoutParts?.map(({ part, box }) => ({ name: part.name, box })) ?? null, [printLayoutParts]);
+  // Issue #132: the two small alignment pegs lie side by side, so they share
+  // one label ("pegs x2") over their joint box instead of two overlapping ones.
+  const printLayoutLabelParts = useMemo(() => {
+    if (!printLayoutParts) return null;
+    const pegs = printLayoutParts.filter(({ part }) => part.role === "peg");
+    const labels = printLayoutParts.filter(({ part }) => part.role !== "peg").map(({ part, box }) => ({ name: part.name, box }));
+    if (pegs.length > 0) labels.push({ name: `pegs \u00d7${pegs.length}`, box: pegs.reduce((box, p) => box.union(p.box), new THREE.Box3()) });
+    return labels;
+  }, [printLayoutParts]);
 
   // Frames the WHOLE bed (not just the parts) AND the labels' own shared
   // callout row (PrintLayoutLabels.tsx, issue #78 PR review: a fixed margin
@@ -586,7 +601,7 @@ export function CoilViewer({
   // back (`.multiplyScalar`/`ExplodedPart`'s own per-frame `.copy`), so
   // returning the shared `explodeAxis` object as-is for the top-cap case
   // would corrupt it for every other reader.
-  const explodeAxisFor = (role: Part["role"]): THREE.Vector3 => (role === "mountPlate" ? explodeAxis.clone().negate() : explodeAxis.clone());
+  const explodeAxisFor = (role: Part["role"]): THREE.Vector3 => (role === "mountPlate" || role === "peg" ? explodeAxis.clone().negate() : explodeAxis.clone());
 
   // A stable framing geometry (issue #9, reworked for #15): every non-core
   // part contributes its FULLY exploded position whenever `exploded` is on,

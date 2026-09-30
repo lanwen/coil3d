@@ -104,7 +104,7 @@ export type KeyholeRotation = 0 | 45;
 /**
  * How the clip mount plate (issue #14, `mount: "skadis" | "opengrid"`)
  * attaches to the flange. `"glue"`: matching blind holes in the plate and
- * the flange, aligned with two short pieces of 1.75 mm filament, then glued.
+ * the flange, aligned on two printed pegs (issue #132), then glued.
  * `"snap"` (issue #14's printable snap tabs) is kept only so old links still
  * parse: tabs on the plate's front face can't print without supports, so
  * design() builds the glue joint for it too, with a warning (issue #106).
@@ -311,7 +311,8 @@ export interface WireLayerPath {
   points: Float32Array;
 }
 
-export type PartRole = "core" | "topCap" | "mountPlate";
+/** Issue #132: `"peg"` is one of the mount plate's two printed alignment pegs (parts "peg-1", "peg-2"). */
+export type PartRole = "core" | "topCap" | "mountPlate" | "peg";
 
 /**
  * A rigid transform (rotation about X, then translation) applied to a
@@ -323,9 +324,11 @@ export type PartRole = "core" | "topCap" | "mountPlate";
  * joint boss/lugs/hooks pointing DOWN into the core's bore -- which would
  * need supports if printed as-is; its transform flips it upside-down (so
  * the joint features point up, unsupported) and lands it on the bed.
+ * Issue #132's alignment pegs stand along Z in the assembly and turn a
+ * quarter turn about X to print lying on a flat.
  */
 export interface RigidTransform {
-  /** Rotation about the X axis, radians (0 or Math.PI in practice). */
+  /** Rotation about the X axis, radians: 0 or Math.PI, or Math.PI / 2 to lay a peg on its side (issue #132). */
   rotateX: number;
   /** Translation applied AFTER rotation, mm. */
   translate: [number, number, number];
@@ -369,7 +372,8 @@ export interface Design {
   warnings: string[];
   /** Every printable part (issue #9): always includes the core (wall +
    * integral bottom flange); a topCap part is appended when
-   * `solution.topCapEnabled`. */
+   * `solution.topCapEnabled`, then (SKÅDIS/openGrid) the mount plate and
+   * its two alignment pegs (issue #132): at most 5 parts. */
   parts: Part[];
   /** Trivial derived convenience: `parts.find(p => p.role === "core").mesh`.
    * Kept because most existing analysis (volume/manifoldness checks, the

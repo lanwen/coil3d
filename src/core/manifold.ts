@@ -39,9 +39,7 @@ import {
   JOINT_TRANSITION_HEIGHT,
   LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
-  MOUNT_PLATE_PIN_DIAMETER,
-  MOUNT_PLATE_PIN_HOLE_CLEARANCE,
-  MOUNT_PLATE_PIN_HOLE_DEPTH,
+  MOUNT_PLATE_PEG_HOLE_DEPTH,
   MOUNT_PLATE_THICKNESS,
   OPENGRID_PLACEHOLDER_PEG_REACH,
   OPENGRID_PLACEHOLDER_PEG_SIZE,
@@ -70,6 +68,7 @@ import type { CapClipLayout, InnerEndLayout, SweepSolid } from "./innerEnd";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import { layoutFlangePads, plateTopZ } from "./flangePads";
 import type { KeyholeSlot, ThroughHole } from "./mount";
+import { pegHoleRadius, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
 import { circumscribedRadius, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -362,7 +361,7 @@ function throughHoleCutter(wasm: ManifoldToplevel, hole: ThroughHole, holeRadius
   return Manifold.cylinder(flangeThickness + 2 * WELD_OVERLAP, holeRadius, holeRadius, 32).translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP);
 }
 
-/** What `fuseFlange` needs to cut the clip mount plate's own filament-pin holes into the flange's outer (wall-facing) face (issue #14, #106) -- mirrors `CoreJointCut`'s "one shared description, cut by whichever backend needs it" role. Omitted entirely when the plate has no anchors to cut for (see mountPlate.ts's `MountPlateLayout.anchors`). */
+/** What `fuseFlange` needs to cut the clip mount plate's own peg holes into the flange's outer (wall-facing) face (issue #14, #106) -- mirrors `CoreJointCut`'s "one shared description, cut by whichever backend needs it" role. Omitted entirely when the plate has no anchors to cut for (see mountPlate.ts's `MountPlateLayout.anchors`). */
 export interface MountPlateFlangeCut {
   anchors: AnchorPoint[];
   tolerance: number;
@@ -530,7 +529,7 @@ export async function fuseFlange(
       }
     }
 
-    // Issue #14/#106: the clip mount plate's filament pins sit in a
+    // Issue #14/#106: the clip mount plate's alignment pegs sit in a
     // shallow blind hole cut into this SAME outer face (and a matching one
     // in the plate) -- see `pinHoleCutter` and `buildMountPlate` below (the
     // plate itself is a SEPARATE part, built by `buildMountPlate`, not
@@ -698,7 +697,7 @@ async function buildLabelCutter(wasm: ManifoldToplevel, label: ResolvedLabel): P
 // z=-flangeThickness, its BACK face (bearing the pegboard clips, reaching
 // further outward into more-negative z) at
 // z=-flangeThickness-MOUNT_PLATE_THICKNESS. Nothing protrudes from the
-// front face (issue #106: the plate prints on it): a blind filament-pin hole
+// front face (issue #106: the plate prints on it): a blind peg hole
 // goes into the plate from it, and a matching one into the flange from its
 // outer face (see `pinHoleCutter`).
 //
@@ -771,8 +770,8 @@ function mountPlateClipSolid(wasm: ManifoldToplevel, mountKind: Extract<MountKin
 }
 
 /**
- * One filament-pin hole (issue #106, constants.ts's MOUNT_PLATE_PIN_*): a
- * blind cylinder MOUNT_PLATE_PIN_HOLE_DEPTH deep, starting at the mating
+ * One peg hole (issues #106, #132, constants.ts's MOUNT_PLATE_PEG_*): a
+ * blind cylinder MOUNT_PLATE_PEG_HOLE_DEPTH deep, gripping the peg's corners, starting at the mating
  * face `zFace` and going into the part along `dir` (+1: into the flange,
  * from its outer face; -1: into the plate, from its front face). Its mouth
  * pokes MOUNT_PLATE_EMBED out past the face, so the cut never shares a
@@ -780,9 +779,12 @@ function mountPlateClipSolid(wasm: ManifoldToplevel, mountKind: Extract<MountKin
  * both ways: each hole opens onto its own part's bed face.
  */
 function pinHoleCutter(wasm: ManifoldToplevel, anchor: AnchorPoint, tolerance: number, zFace: number, dir: 1 | -1): Manifold {
-  const r = MOUNT_PLATE_PIN_DIAMETER / 2 + MOUNT_PLATE_PIN_HOLE_CLEARANCE + tolerance / 2;
-  const h = MOUNT_PLATE_PIN_HOLE_DEPTH + MOUNT_PLATE_EMBED;
-  const hole = wasm.Manifold.cylinder(h, r, r, 24, false).translate([0, 0, -MOUNT_PLATE_EMBED]);
+  // Circumscribed about the true circle (its flats at exactly the hole
+  // radius), so the faceted hole never pinches the peg's corners.
+  const segments = 24;
+  const r = pegHoleRadius(tolerance) / Math.cos(Math.PI / segments);
+  const h = MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_EMBED;
+  const hole = wasm.Manifold.cylinder(h, r, r, segments, false).translate([0, 0, -MOUNT_PLATE_EMBED]);
   return (dir === 1 ? hole : hole.mirror([0, 0, 1])).translate([anchor.x, anchor.y, zFace]);
 }
 
@@ -801,7 +803,7 @@ export interface MountPlateSpec {
 /**
  * Build the mount plate part: a flat panel (mountPlate.ts's own
  * `MountPlateLayout.outline`) with every clip fused onto its back face and
- * a filament-pin hole cut into its front face per anchor, already
+ * a peg hole cut into its front face per anchor, already
  * positioned in the shared ASSEMBLY frame (see the file header) -- design.ts
  * uses the result as-is, with no further translation needed (unlike
  * `buildTopCap`, which builds in a LOCAL frame because its own z-offset
@@ -841,5 +843,21 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
     return { positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) };
   } finally {
     for (const m of trash) m.delete();
+  }
+}
+
+/**
+ * One alignment peg part (issue #132): mountPlate.ts's `pegSweep` rings,
+ * standing in its hole across the plate/flange seam (z = -flangeThickness)
+ * in the shared ASSEMBLY frame, like `buildMountPlate`.
+ */
+export async function buildPeg(anchor: AnchorPoint, flangeThickness: number): Promise<CoilMesh> {
+  const wasm = await getWasm();
+  const peg = sweepSolid(wasm, pegSweep(anchor, -flangeThickness));
+  try {
+    const outMesh = peg.getMesh();
+    return { positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) };
+  } finally {
+    peg.delete();
   }
 }

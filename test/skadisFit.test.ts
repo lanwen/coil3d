@@ -196,7 +196,7 @@ describe("the SKÅDIS clip really fits a SKÅDIS board (issue #106)", () => {
     plate.delete();
   });
 
-  it("prints without supports: in its print pose, no downward face except the bed face and the pin holes' small bridged roofs", async () => {
+  it("prints without supports: in its print pose, no downward face except the bed face and the peg holes' small bridged roofs", async () => {
     const d = await design(baseSpec({ mount: "skadis" }));
     const part = d.parts.find((p) => p.role === "mountPlate")!;
     expect(part.printTransform.rotateX).toBeCloseTo(Math.PI, 9);
@@ -218,7 +218,7 @@ describe("the SKÅDIS clip really fits a SKÅDIS board (issue #106)", () => {
       const zs = [a[2], b[2], c[2]];
       if (Math.max(...zs) < minZ + 1e-3) continue; // on the bed
       const span = Math.max(Math.max(a[0], b[0], c[0]) - Math.min(a[0], b[0], c[0]), Math.max(a[1], b[1], c[1]) - Math.min(a[1], b[1], c[1]));
-      if (nz < -0.999 && span <= 2.5) continue; // a pin hole's roof: a flat bridge under 2.5 mm
+      if (nz < -0.999 && span <= 4) continue; // a peg hole's roof (issue #132): a flat bridge under 4 mm
       bad.push(`nz=${nz.toFixed(3)} at z=${Math.min(...zs).toFixed(2)}`);
     }
     expect(bad, "overhanging faces that would need supports").toEqual([]);
