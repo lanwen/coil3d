@@ -179,12 +179,30 @@ export const CABLE_SWEEP_STEP = 2.5; // mm
 // tangential chord since issue #115), with the cable clip near the rim.
 /** Channel depth (to the cable's bottom) = this factor * wire diameter -- deep enough that the wound cable's first turn lies flush with the surrounding flange face (unlike the wall's own groove, which only needs GROOVE_DEPTH_FACTOR: later turns there nest into the groove's OWN profile, but here later turns pass straight over a flat annulus, so no bump can be tolerated). */
 export const INNER_CHANNEL_DEPTH_FACTOR = 1.0;
-/** Flange material required BELOW the channel's own recess (cut from the inner/z=0 face), stacked on top of whatever the screw-keyhole mount's own pocket (cut from the outer/wall face) also needs -- mirrors SCREW_MOUNT_MIN_SHELF's role for that pocket. */
+/** Flange material required BELOW the channel's own recess (cut from the inner/z=0 face) -- mirrors SCREW_MOUNT_MIN_SHELF's role for the keyhole pocket (issue #122: the two sit on separate pads, so they only stack if their footprints ever overlap, see design.ts). */
 export const INNER_CHANNEL_MIN_SHELF = 1.5; // mm
 /** Flange material left between the channel's side and the wall's own outer surface, mm -- so the cable lies in a full-width trench instead of one the wall half-covers. */
 export const INNER_CHANNEL_WALL_SKIN = 0.4; // mm
 /** The channel cutter is clipped this far outside the wall's own outline (never cutting the wall), mm: less than INNER_CHANNEL_WALL_SKIN, so the clip never flattens the round channel's wall-side flank, but never exactly on the wall's surface either. */
 export const INNER_CHANNEL_WALL_GUARD = 0.2; // mm
+
+// Issue #122: the bottom flange is a thin plate (the wall-facing face flat),
+// thick only on pads under the wall, the inner-end channel and each mount
+// cut -- see flangePads.ts.
+/** The plate's own thickness away from every pad: the flange's structural minimum. */
+export const FLANGE_PLATE_THICKNESS = FLANGE_THICKNESS;
+/** Material a pad keeps beyond the cut it carries, at the face, mm (more than SCREW_MOUNT_EDGE_MARGIN / THROUGH_MOUNT_EDGE_MARGIN / CABLE_CLIP_WALL, so a pad at a tight margin always runs out over the rim instead of grazing it). */
+export const FLANGE_PAD_WALL = 2.5; // mm
+/** The collar under the wall reaches this far past the wall's outline at the face, mm. */
+export const FLANGE_PAD_COLLAR = 1; // mm
+/** Samples round the collar's outline (a keep-out for the relief cut, not a visible surface finish -- it lies FLANGE_PAD_COLLAR outside the wall -- so this stays well below the mesh's own column count, keeping the STEP boolean cheap). */
+export const FLANGE_PAD_COLLAR_COLUMNS = 96;
+/** Spacing of the channel pad's cross-sections along the cable, mm. */
+export const FLANGE_PAD_STEP = 5; // mm
+/** Pads reach this far into the plate below its top face, mm (so no pad face lies on the plate's own). */
+export const FLANGE_PAD_EMBED = 0.5; // mm
+/** Pads reach this far above the inner face, mm (so the relief cut never has a face on it). */
+export const FLANGE_PAD_RISE = 0.5; // mm
 
 // Issue #115: the whole drawn cable -- inner-end lead-in, layers, layer
 // transitions, outer end -- stays within the cable's minimum bend radius

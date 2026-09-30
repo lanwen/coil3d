@@ -84,6 +84,11 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // a wall inside the rim, so the margin grows again (10.2 mm -> 11.8 mm),
     // and the swept round channel no longer cuts a through-hole -- real,
     // intentional material, with the same warning.
-    expect(meshVolume(d.mesh)).toBeCloseTo(38287.458428563026, 3);
+    //
+    // Issue #122 bumped it DOWN from 38287.458428563026: the bottom flange is
+    // now a 3 mm plate, only 5.3 mm (this cable's channel depth + shelf) on
+    // pads under the wall and along the channel -- material intentionally
+    // removed, not a regression.
+    expect(meshVolume(d.mesh)).toBeCloseTo(33646.19380608499, 3);
   });
 });

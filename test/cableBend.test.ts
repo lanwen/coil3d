@@ -100,7 +100,7 @@ function expectWithinBendLimit(points: Float32Array, mbr: number, label: string)
  */
 function expectFixPointsWithinBendLimit(d: Design, mbr: number, label: string) {
   const bendRadius = mbr;
-  const layout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness, d.spec.mount));
+  const layout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness));
   const lead = d.innerEndLeadIn;
   // From the free end up to the clip's far end (the one nearer the groove).
   const tail = layout.leadIn[0];

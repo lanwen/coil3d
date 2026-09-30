@@ -19,6 +19,7 @@ import {
   CAP_THICKNESS,
   DEFAULT_THROUGH_HOLE_DIAMETER,
   FLANGE_MARGIN,
+  FLANGE_PLATE_THICKNESS,
   FLANGE_THICKNESS,
   INNER_CHANNEL_MIN_SHELF,
   MIN_BORE_CORNER_RADIUS,
@@ -27,7 +28,6 @@ import {
   MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
   MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT,
   SCREW_MOUNT_RECESS_DEPTH,
-  THROUGH_MOUNT_COUNTERBORE_DEPTH,
   WALL_THICKNESS,
 } from "./constants";
 import { idealChannelDepth, requiredCapClipMargin, requiredInnerEndMargin, resolveChannelDepth } from "./innerEnd";
@@ -60,7 +60,10 @@ export function resolveBoreOutline(outline: ShapeOutline): { boreOutline: ShapeO
 
 export interface FlangeSizing {
   margin: number;
+  /** The full thickness, on the pads (issue #122) -- the flange's overall thickness. */
   thickness: number;
+  /** Issue #122: the plate's own thickness away from the pads (flangePads.ts). */
+  plateThickness: number;
   /** The plain envelope-clearance margin, before any mount bump -- design.ts compares against this to decide whether to warn "margin increased ...". */
   baseMargin: number;
   /** The margin the requested mount alone needs (>= baseMargin). */
@@ -126,27 +129,35 @@ export function resolveFlangeSizing(
         ? Math.max(baseMargin, requiredMountPlateMargin(outline, boreOutline, mountKindForPlate))
         : baseMargin;
 
-  const minPlateThickness = mountKindForPlate ? MIN_FLANGE_THICKNESS_FOR_PLATE : 0;
-  const idealDepth = idealChannelDepth(wireDiameter);
-  const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealDepth + INNER_CHANNEL_MIN_SHELF);
+  // Issue #122: the channel and the mount's cut sit on separate pads (the
+  // keyhole/through-hole on the wall face, the channel on the winding face;
+  // the through-hole and pin-hole layouts keep clear of the channel, and
+  // design.ts checks the keyhole), so the thickness is the deeper of the two,
+  // not their sum. Away from the pads the plate is FLANGE_PLATE_THICKNESS.
+  const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
   const thickness = wantsKeyhole
-    ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT, idealDepth + INNER_CHANNEL_MIN_SHELF + SCREW_MOUNT_RECESS_DEPTH)
+    ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT)
     : wantsThrough
-      ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT, idealDepth + INNER_CHANNEL_MIN_SHELF + THROUGH_MOUNT_COUNTERBORE_DEPTH)
+      ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT)
       : mountKindForPlate
-        ? Math.max(channelOnlyThickness, minPlateThickness)
+        ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_PLATE)
         : channelOnlyThickness;
 
   // Issue #115: wide enough for the inner-end lead-in's straight chord to
   // hold the clip past the end of its drop into the channel.
-  const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness, mount));
+  const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness));
   // Issue #117: the cap's clip hangs between the outermost layer (the
   // envelope, FLANGE_MARGIN inside `flangeSizeEnvelope`) and the rim.
   const envelopeOffset = flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0);
   const capClipMargin = leadIn.topCap ? requiredCapClipMargin(envelopeOffset, wireDiameter, leadIn.tolerance) : 0;
   const margin = Math.max(mountMargin, innerEndMargin, capClipMargin);
 
-  return { margin, thickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness };
+  return { margin, thickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, thickness), baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness };
+}
+
+/** Issue #122: the thickness when a keyhole slot's footprint overlaps the channel's, so the pocket (wall face) and the channel (winding face) stack in one spot -- the pre-#122 sizing. design.ts falls back to it; the layouts normally keep the two apart. */
+export function stackedKeyholeThickness(wireDiameter: number, thickness: number): number {
+  return Math.max(thickness, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF + SCREW_MOUNT_RECESS_DEPTH);
 }
 
 /** The flange's real outer extent (types.ts's `FlangeExtent`) at a resolved outline and the real margin `resolveFlangeSizing` returned -- exact, since the flange mesh itself is built from this same offset outline (wall.ts's `buildOutlineRing`). */
