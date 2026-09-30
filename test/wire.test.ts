@@ -59,14 +59,15 @@ describe("design().wirePaths (issue #4)", () => {
   });
 
   it("a rounded-square core's wire follows the true offset outline, not a circle (issue #6 follow-up)", async () => {
-    // A big outer size and a corner radius comfortably clear of the
-    // bend-limit floor (see solve.ts's "became round" clamp): otherwise the
-    // solver rounds the corner radius up toward the apothem and the outline
-    // is indistinguishable from a circle, defeating the point of this test.
+    // A big outer size and a corner radius comfortably clear of BOTH the
+    // bend-limit floor and the useful-max ceiling (see solve.ts's "became
+    // round" clamp and, issue #134, `usefulMaxCornerRadius`): otherwise the
+    // solver clamps the corner radius and the outline is indistinguishable
+    // from a circle, defeating the point of this test.
     const d = await design(
       baseSpec({
         shape: { kind: "sq", cornerRadius: 20 },
-        coreSize: { locked: true, dimension: "outer", value: 80 },
+        coreSize: { locked: true, dimension: "outer", value: 140 },
       }),
     );
     expect(d.warnings.some((w) => /clamped/i.test(w))).toBe(false);

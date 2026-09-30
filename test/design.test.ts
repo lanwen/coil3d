@@ -341,6 +341,28 @@ describe("design() solver (min-volume objective and capacity range, issue #23)",
 
 describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)", () => {
   it("uses the requested corner radius as-is when it's within the bend-limit/size range", async () => {
+    // A big enough locked size that 15mm sits comfortably inside BOTH ends
+    // of `cornerRadiusRange`: above the bend-limit floor (~14.4mm for this
+    // wire, size-independent) and below the useful max issue #134 adds
+    // (`solve.ts`'s `usefulMaxCornerRadius`, which grows with size) --
+    // unlike the old, size-independent `outerSize/2` ceiling, 60mm would no
+    // longer be big enough for this (see the sibling test below).
+    const spec = baseSpec({
+      shape: { kind: "sq", cornerRadius: 15 },
+      coreSize: { locked: true, dimension: "outer", value: 100 },
+      height: { locked: true, value: 40 },
+      layers: { locked: true, value: 1 },
+    });
+    const d = await design(spec);
+    expect(d.solution.cornerRadius).toBeCloseTo(15, 6);
+    expect(d.warnings.some((w) => /clamp/i.test(w))).toBe(false);
+  });
+
+  // Issue #134: at a small enough locked size, even a MODEST corner radius
+  // request can exceed the useful max well before it hits the "effectively
+  // round" bend-limit floor -- the point of `usefulMaxCornerRadius` is to
+  // catch exactly this well short of a literal circle.
+  it("clamps a corner radius that's within the OLD outerSize/2 ceiling but beyond the useful max (issue #134)", async () => {
     const spec = baseSpec({
       shape: { kind: "sq", cornerRadius: 15 },
       coreSize: { locked: true, dimension: "outer", value: 60 },
@@ -348,8 +370,12 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
       layers: { locked: true, value: 1 },
     });
     const d = await design(spec);
-    expect(d.solution.cornerRadius).toBeCloseTo(15, 6);
-    expect(d.warnings.some((w) => /clamp/i.test(w))).toBe(false);
+    // Still well short of a literal circle (half the RESOLVED, possibly
+    // size-raised, outer size).
+    expect(d.solution.cornerRadius).toBeLessThan(d.solution.outerSize / 2);
+    expect(d.solution.cornerRadius).toBeLessThan(15);
+    expect(d.solution.cornerRadius).toBeCloseTo(d.solution.cornerRadiusRange[1], 6);
+    expect(d.warnings.some((w) => /clamped down/i.test(w))).toBe(true);
   });
 
   it("clamps the corner radius up to the bend-limit floor and warns, without becoming fully round", async () => {
@@ -499,6 +525,98 @@ describe("design() keeps square/triangle distinct at small sizes (issue #54)", (
     expect(flat).toBeGreaterThanOrEqual(threshold - 1e-6);
   });
 });
+
+// Issue #134: "with the square or triangle shape corner radius after some
+// point doesn't change anything and makes it look like a circle" -- the
+// slider used to run all the way up to `outerSize/2` (an exact circle), so
+// a long stretch of it changed nothing anyone would notice well before that
+// point. `Solution.cornerRadiusRange[1]` (solve.ts's `usefulMaxCornerRadius`)
+// is now the largest corner radius that still reads as a square/triangle,
+// by the SAME "flat >= max(2 wire diameters, 15% of perimeter)" criterion
+// issue #54 already established on the minimum-SIZE side (`sideLength`/
+// `offsetPerimeter` below, exercised through the public `design()`
+// interface only, per docs/research.md's testing decisions -- never a
+// reimplemented or directly-imported copy of `usefulMaxCornerRadius`
+// itself).
+describe("design() useful corner-radius maximum (issue #134)", () => {
+  const WIRE = { length: 2000, diameter: 3.8, type: "usb" as const };
+
+  it.each(["sq", "tri"] as const)(
+    "%s: cornerRadiusRange[1] keeps the straight flat at the SAME threshold issue #54 enforces on the minimum size, at a range of outer sizes",
+    async (kind) => {
+      // Every size here is comfortably above `minOuterSizeForShapeFlats` for
+      // this wire/shape, so none of these triggers a "core size raised"
+      // side effect -- each resolves at exactly the locked size.
+      for (const outerSize of [80, 120, 200, 320]) {
+        const d = await design({
+          ...baseSpec({ wire: WIRE }),
+          shape: { kind, cornerRadius: d0(kind, outerSize) },
+          coreSize: { locked: true, dimension: "outer", value: outerSize },
+          height: { locked: true, value: 40 },
+          layers: { locked: true, value: 1 },
+        });
+        expect(d.solution.outerSize).toBeCloseTo(outerSize, 6);
+
+        const useful = d.solution.cornerRadiusRange[1];
+        // Sitting right AT the useful max: the flat is still at or above
+        // the threshold (never collapses past it).
+        const atMax = await design({
+          ...baseSpec({ wire: WIRE }),
+          shape: { kind, cornerRadius: useful },
+          coreSize: { locked: true, dimension: "outer", value: outerSize },
+          height: { locked: true, value: 40 },
+          layers: { locked: true, value: 1 },
+        });
+        const flatAtMax = sideLength(atMax.wallSpec.outline);
+        const thresholdAtMax = Math.max(2 * WIRE.diameter, 0.15 * offsetPerimeter(atMax.wallSpec.outline, 0));
+        expect(flatAtMax, `${kind} @ ${outerSize}mm: flat at the useful max`).toBeGreaterThanOrEqual(thresholdAtMax - 1e-6);
+
+        // Just past it: the flat would have dropped BELOW the threshold --
+        // this is what makes `useful` a true maximum, not just "a" legal
+        // value. (This is the assertion that fails against the OLD
+        // `outerSize/2` ceiling: a request of `useful + 1` used to be
+        // honored as-is, no matter how thin the resulting flat.)
+        const pastMax = await design({
+          ...baseSpec({ wire: WIRE }),
+          shape: { kind, cornerRadius: useful + 1 },
+          coreSize: { locked: true, dimension: "outer", value: outerSize },
+          height: { locked: true, value: 40 },
+          layers: { locked: true, value: 1 },
+        });
+        expect(pastMax.solution.cornerRadius, `${kind} @ ${outerSize}mm: a request above the useful max is clamped back down to it`).toBeCloseTo(useful, 3);
+        expect(pastMax.warnings.some((w) => /clamped down/i.test(w))).toBe(true);
+      }
+    },
+  );
+
+  it.each(["sq", "tri"] as const)("%s: cornerRadiusRange[1] is monotone increasing in core size", async (kind) => {
+    const sizes = [70, 90, 130, 180, 260, 400];
+    const useful: number[] = [];
+    for (const outerSize of sizes) {
+      const d = await design({
+        ...baseSpec({ wire: WIRE }),
+        shape: { kind, cornerRadius: 1 }, // request itself is irrelevant; only cornerRadiusRange is read
+        coreSize: { locked: true, dimension: "outer", value: outerSize },
+        height: { locked: true, value: 40 },
+        layers: { locked: true, value: 1 },
+      });
+      expect(d.solution.outerSize).toBeCloseTo(outerSize, 6); // none of these triggers a size raise
+      useful.push(d.solution.cornerRadiusRange[1]);
+    }
+    for (let i = 1; i < useful.length; i++) {
+      expect(useful[i], `${kind}: useful max at ${sizes[i]}mm vs. ${sizes[i - 1]}mm`).toBeGreaterThan(useful[i - 1]);
+    }
+  });
+});
+
+// A request comfortably inside whatever this outer size's useful max is
+// likely to be (a hair above the bend-limit floor) -- just needs to be a
+// LEGAL, non-clamped starting point for the "past the useful max" probe
+// above; the exact value doesn't matter, only that `useful + 1` (computed
+// from the ACTUAL resolved solution) is what gets tested against it.
+function d0(_kind: "sq" | "tri", outerSize: number): number {
+  return Math.max(1, outerSize * 0.05);
+}
 
 describe("design() screw-keyhole wall mount (issue #13)", () => {
   it("defaults to no mount, with the flange thickness derived from the cable diameter (issue #43) and no keyhole warnings", async () => {

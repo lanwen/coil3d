@@ -59,16 +59,14 @@ function bendCornerRadiusFloor(wire: CoilSpec["wire"]): number {
 
 /** The shape outline actually used for a candidate outer size: round is
  * always fully round; sq/tri clamp the requested corner radius into
- * [bend-limit floor, outerSize/2] (see `bendCornerRadiusFloor` above). */
-function resolveOutline(shape: ShapeSpec, outerSize: number, rcMin: number): ShapeOutline {
+ * [bend-limit floor, useful max] (see `bendCornerRadiusFloor` and
+ * `usefulMaxCornerRadius` below -- issue #134 tightened the old ceiling,
+ * literally `outerSize/2` [an exact circle], down to the largest corner
+ * radius that still reads as a square/triangle). */
+function resolveOutline(shape: ShapeSpec, outerSize: number, rcMin: number, wire: CoilSpec["wire"]): ShapeOutline {
   if (shape.kind === "round") return makeOutline("round", outerSize, outerSize / 2);
-  const rcMax = outerSize / 2;
-  // A hairline short of fully round (SHAPE_ROUNDING_EPS): keeps a
-  // non-degenerate (nonzero-length) straight side even when the bend limit
-  // forces the shape as round as this size allows, so the geometry backends
-  // (the polygon-fillet solid in step/build.ts) never see an exactly
-  // zero-length side. Imperceptible at print resolution.
-  const rc = Math.min(Math.max(shape.cornerRadius, rcMin), Math.max(0, rcMax - SHAPE_ROUNDING_EPS));
+  const rcMax = usefulMaxCornerRadius(shape.kind, outerSize, wire);
+  const rc = Math.min(Math.max(shape.cornerRadius, rcMin), Math.max(0, rcMax));
   return makeOutline(shape.kind, outerSize, rc);
 }
 
@@ -82,9 +80,11 @@ const MIN_FLAT_WIRE_DIAMETERS = 2;
  * the bend-limited corner radius (issue #54): with a small core (or a stiff
  * cable whose bend limit alone forces a big corner radius), the corner
  * radius can get clamped up close to the apothem well before it technically
- * hits the "effectively round" floor (`cornerRadiusRange`'s own `rcMin >=
- * rcMax`) -- the shape choice becomes invisible even though the solver
- * hasn't (yet) reported it as literally round.
+ * hits the "effectively round" floor (`finishSolution`'s own `rcMin >=
+ * rcMaxHard`, the TRUE geometric ceiling -- see `usefulMaxCornerRadius`
+ * below for the tighter, cosmetic ceiling issue #134 adds on the corner
+ * radius's own axis) -- the shape choice becomes invisible even though the
+ * solver hasn't (yet) reported it as literally round.
  *
  * At a FIXED corner radius (`rcMin`, the bend limit -- independent of size),
  * a straight side's length grows 1:1 with the apothem (`sideLength =
@@ -114,6 +114,76 @@ function minOuterSizeForShapeFlats(kind: Extract<ShapeSpec["kind"], "sq" | "tri"
 /** `minOuterSizeForShapeFlats` for round too (a no-op: round has no flats to keep, so its own bend-limit floor is the whole story) -- one call site for both, so callers never need their own round/non-round branch. */
 function minOuterSizeForShape(shape: ShapeSpec, wire: CoilSpec["wire"], minOuterSizeForBend: number): number {
   return shape.kind === "round" ? minOuterSizeForBend : minOuterSizeForShapeFlats(shape.kind, wire);
+}
+
+/**
+ * Useful maximum corner radius for sq/tri at an already-resolved outer size
+ * (issue #134): "with the square or triangle shape, corner radius after
+ * some point doesn't change anything and makes it look like a circle" --
+ * because the OLD ceiling `resolveOutline` clamped into was literally
+ * `outerSize/2 - SHAPE_ROUNDING_EPS`, a hair short of an EXACT circle. Long
+ * before a slider reaches that point, the straight sides have already
+ * shrunk to an imperceptible sliver, so most of the slider's own range did
+ * nothing anyone would notice -- exactly issue #54's "the shape choice
+ * becomes invisible" problem, just approached from the corner-radius axis
+ * instead of the size axis.
+ *
+ * This reuses issue #54's own "still distinguishable from round" criterion
+ * verbatim (`MIN_FLAT_WIRE_DIAMETERS`/`MIN_FLAT_PERIMETER_FRACTION` above:
+ * "each flat >= max(2 wire diameters, 15% of the outline's own perimeter)"),
+ * just solved for the OTHER unknown: `minOuterSizeForShapeFlats` fixes the
+ * corner radius at the bend floor and searches for the smallest legal outer
+ * size; this fixes the outer size (already resolved) and searches for the
+ * largest legal corner radius. Both trace the SAME joint (size,
+ * cornerRadius) feasibility boundary -- `sideLength` (shapes.ts) grows
+ * linearly with size and shrinks linearly with corner radius, and so does
+ * the perimeter threshold it's compared against -- so a shape sitting on
+ * either boundary reads identically "still a square/triangle". One
+ * consequence of sharing the boundary: a resolved size (already raised to
+ * >= `minOuterSizeForShapeFlats` at the bend floor, by the solver's own
+ * invariant elsewhere) always keeps this useful max at or above that same
+ * bend floor -- the two criteria never disagree about which corner radius
+ * is legal.
+ *
+ * Closed form, not a search: `sideLength(cr) = 2*(apothem-cr)*tan(pi/n)`
+ * and `perimeter(cr) = n*sideLength(cr) + 2*pi*cr` are both affine in `cr`,
+ * so each inequality solves directly to an upper bound on `cr`; the
+ * tighter (smaller) one binds, since either threshold can dominate
+ * depending on `n` and `outerSize` (matching `minOuterSizeForShapeFlats`'s
+ * own `Math.max` of its two crossovers -- there the larger size wins,
+ * here the smaller corner radius does, because corner radius and size
+ * move in OPPOSITE directions along the same boundary).
+ *
+ * Doesn't take `layers` as a parameter, unlike the ticket's own phrasing
+ * ("a pure core function of shape, core size, cable, bend limit and
+ * layers") -- layers only ever affects this indirectly, through the outer
+ * size the solver already resolved around them; once `outerSize` is known,
+ * this criterion needs nothing else about how it got there.
+ */
+function usefulMaxCornerRadius(kind: Extract<ShapeSpec["kind"], "sq" | "tri">, outerSize: number, wire: CoilSpec["wire"]): number {
+  const n = shapePlugin(kind).corners;
+  const k = Math.tan(Math.PI / n);
+  const apothem = outerSize / 2;
+
+  // sideLength(cr) >= MIN_FLAT_WIRE_DIAMETERS * d
+  //   2*(apothem-cr)*k >= MIN_FLAT_WIRE_DIAMETERS*d
+  //   cr <= apothem - (MIN_FLAT_WIRE_DIAMETERS*d) / (2*k)
+  const diameterFloorCr = apothem - (MIN_FLAT_WIRE_DIAMETERS * wire.diameter) / (2 * k);
+
+  // sideLength(cr) >= MIN_FLAT_PERIMETER_FRACTION * (n*sideLength(cr) + 2*pi*cr)
+  //   Let A = 2*k*(1 - f*n) (f = MIN_FLAT_PERIMETER_FRACTION; positive for n=3,4):
+  //   A*(apothem-cr) >= 2*pi*f*cr  =>  cr <= A*apothem / (A + 2*pi*f)
+  const f = MIN_FLAT_PERIMETER_FRACTION;
+  const A = 2 * k * (1 - f * n);
+  const perimeterFloorCr = (A * apothem) / (A + 2 * Math.PI * f);
+
+  // Never above the hard geometric ceiling (a hairline short of an exact
+  // circle, same margin `resolveOutline` always kept -- see
+  // SHAPE_ROUNDING_EPS): both closed-form bounds above are already strictly
+  // below `apothem` for any physically sane wire diameter, but this keeps
+  // that invariant explicit rather than relying on it always holding.
+  const hardCeiling = Math.max(0, apothem - SHAPE_ROUNDING_EPS);
+  return Math.min(diameterFloorCr, perimeterFloorCr, hardCeiling);
 }
 
 /** Relative tolerance on "capacity >= target", to absorb floating-point noise only. */
@@ -166,7 +236,7 @@ function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
   const wire = spec.wire;
   const grooveDepth = GROOVE_DEPTH_FACTOR * wire.diameter;
   const usableHeight = Math.max(0, g.height - 2 * MARGIN);
-  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(wire));
+  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(wire), wire);
   return computeCapacity({
     outline,
     height: usableHeight,
@@ -229,7 +299,7 @@ function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap:
 
 function envelopeVolumeFor(spec: CoilSpec, g: Resolved): number {
   const cap = capacityOf(spec, spec.windingQuality, g);
-  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire));
+  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
   // Real printed-volume proxy (issue #63): the flange's own true footprint
   // area (shapes.ts's `offsetArea`, at the REAL flange margin -- not the
   // wound envelope's own offset) times the REAL overall assembled height
@@ -243,7 +313,7 @@ function envelopeVolumeFor(spec: CoilSpec, g: Resolved): number {
 
 function aspectScoreFor(spec: CoilSpec, g: Resolved): number {
   const cap = capacityOf(spec, spec.windingQuality, g);
-  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire));
+  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
   const { margin, overallHeight } = realExtentsFor(spec, g, outline, cap);
   // The real flange's own "across flats" extent (shapes.ts sizeSemantics:
   // round=diameter, square=across flats, triangle=inscribed diameter) --
@@ -277,8 +347,15 @@ function finishSolution(
   const lengthHi = capHi.totalWoundLength;
 
   const rcMin = bendCornerRadiusFloor(spec.wire);
-  const rcMax = resolved.outerSize / 2;
-  const outline = resolveOutline(spec.shape, resolved.outerSize, rcMin);
+  // The TRUE geometric ceiling (an exact circle) -- kept separate from
+  // `rcMax` below (issue #134's tighter, "still reads as a shape" ceiling)
+  // only for the "effectively round" check just past it: that's the
+  // strictly worse, bend-limit-forced case where no corner radius at this
+  // size can avoid a circle at all, distinct from merely exceeding the
+  // cosmetic useful max.
+  const rcMaxHard = resolved.outerSize / 2;
+  const rcMax = spec.shape.kind === "round" ? rcMaxHard : usefulMaxCornerRadius(spec.shape.kind, resolved.outerSize, spec.wire);
+  const outline = resolveOutline(spec.shape, resolved.outerSize, rcMin, spec.wire);
   const cornerRadius = outline.cornerRadius;
 
   const innerBore = resolved.outerSize - 2 * WALL_THICKNESS;
@@ -315,14 +392,18 @@ function finishSolution(
   if (spec.shape.kind !== "round") {
     const label = shapePlugin(spec.shape.kind).label.toLowerCase();
     const requested = spec.shape.cornerRadius;
-    if (rcMin >= rcMax) {
+    if (rcMin >= rcMaxHard) {
       warnings.push(
         `The bend limit needs at least a ${rcMin.toFixed(1)} mm corner radius, but the core is only ${resolved.outerSize.toFixed(1)} mm across -- the ${label} core is effectively round.`,
       );
     } else if (requested < rcMin - 1e-9) {
       warnings.push(`Corner radius clamped up to ${rcMin.toFixed(1)} mm (requested ${requested.toFixed(1)} mm) to respect the bend limit.`);
     } else if (requested > rcMax + 1e-9) {
-      warnings.push(`Corner radius clamped down to ${rcMax.toFixed(1)} mm (half the core size).`);
+      // Issue #134: this is now the "still reads as a shape" ceiling, not
+      // literally half the core size -- past it, the straight flats would
+      // shrink below the same readability floor issue #54 enforces on the
+      // MINIMUM size side (see `usefulMaxCornerRadius`'s own doc comment).
+      warnings.push(`Corner radius clamped down to ${rcMax.toFixed(1)} mm (the largest that still reads as a ${label}, not a circle).`);
     }
   }
 

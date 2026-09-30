@@ -189,7 +189,17 @@ export interface Solution {
    * into `cornerRadiusRange` (docs/research.md §2 "cornerRadiusRange").
    */
   cornerRadius: number;
-  /** [bend-limit floor, outerSize/2]. When the floor exceeds the ceiling, the shape is forced fully round regardless of the request -- see the "became round" warning in solve.ts. */
+  /**
+   * [bend-limit floor, useful max]. The ceiling is no longer literally
+   * `outerSize/2` (an exact circle, issue #134): it's the largest corner
+   * radius that still keeps a straight flat meeting the same "still reads
+   * as a square/triangle" criterion issue #54 enforces on the minimum SIZE
+   * side (solve.ts's `usefulMaxCornerRadius`) -- driving the UI slider's
+   * max all the way up to a literal circle left most of its range doing
+   * nothing anyone would notice. When the floor exceeds the TRUE geometric
+   * ceiling (`outerSize/2`), the shape is forced fully round regardless of
+   * the request -- see the "effectively round" warning in solve.ts.
+   */
   cornerRadiusRange: [number, number];
   innerBore: number;
   height: number;
