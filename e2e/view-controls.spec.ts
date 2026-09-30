@@ -254,7 +254,8 @@ async function expectBarClearOfOverlays(page: Page) {
   const bar = (await page.locator(".preset-bar").boundingBox())!;
   for (const selector of OVERLAYS) {
     for (const el of await page.locator(selector).all()) {
-      const box = (await el.boundingBox())!;
+      const box = await el.boundingBox();
+      if (!box) continue; // unmounted between all() and here (e.g. a caption swapping out)
       const overlaps = bar.x < box.x + box.width && box.x < bar.x + bar.width && bar.y < box.y + box.height && box.y < bar.y + bar.height;
       expect(overlaps, `preset bar overlaps ${selector}`).toBe(false);
     }
@@ -307,6 +308,10 @@ test.describe("preset bar layout (issue #141)", () => {
     const viewer = (await page.locator(".viewer").boundingBox())!;
     for (const id of ["iso", "wallRoom", "mountSide", "printLayout"] as const) {
       await page.getByTestId(`preset-${id}`).click();
+      await expect(page.getByTestId(`preset-${id}`)).toHaveAttribute("aria-pressed", "true");
+      // The caption (the thing the bar is most likely to collide with at
+      // the bottom) must be settled in before the overlap check.
+      await expect(page.getByTestId("wall-view-caption")).toHaveCount(id === "iso" ? 0 : 1);
       const bar = await expectBarClearOfOverlays(page);
       expect(Math.abs(bar.x + bar.width / 2 - (viewer.x + viewer.width / 2)), "horizontally centred").toBeLessThan(2);
       expect(viewer.y + viewer.height - (bar.y + bar.height), "at the bottom").toBeLessThan(12);
