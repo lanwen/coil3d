@@ -180,14 +180,29 @@ function candidateAxisDegs(n: number): number[] {
  *   `requiredFlangeMargin` already grows the flange margin to fit whichever
  *   axis is actually chosen, exactly as it already does for the automatic
  *   case, so a more expensive explicit choice is never silently rejected,
- *   only costed).
+ *   only costed) -- EXCLUDING the automatic axis itself whenever a second
+ *   safe candidate is reachable at all (issue #120): a triangle only ever
+ *   has 2 reachable candidates (its own corner and side axes, `+-30`
+ *   degrees off vertical -- see `candidateAxisDegs`'s own doc comment), and
+ *   the one closest to literal 45 is ALWAYS the same one the automatic
+ *   (cheapest) pick already lands on for every triangle (its cheap side
+ *   axis is simultaneously the closer of the two to 45) -- so picking
+ *   purely by distance-to-request, with no regard for what the automatic
+ *   case already chose, made `keyholeRotation=45` a silent no-op for every
+ *   triangle (confirmed bug: rotating 0 -> 45 produced byte-identical slot
+ *   positions). A shape with only one reachable candidate at all (rare, but
+ *   not provably impossible for extreme n) still has no OTHER axis to move
+ *   to, so this falls back to that same one rather than refusing to place
+ *   the mount at all.
  */
 export function bestAxisDeg(boreOutline: ShapeOutline, fanDeg: number, keyholeRotation = 0): number {
   const candidates = candidateAxisDegs(boreOutline.n);
-  if (keyholeRotation === 0) {
-    let best = 0;
+
+  /** Whichever candidate in `pool` needs the LEAST flange margin (`radiusAtAngle` at its own fanned position), tie-broken by closeness to true vertical -- the automatic (kr=0) rule, factored out so the `keyholeRotation !== 0` branch can also use it to find (and then exclude) the automatic pick. */
+  const cheapestOf = (pool: number[]): number => {
+    let best = pool[0] ?? 0;
     let bestRadius = Infinity;
-    for (const theta of candidates) {
+    for (const theta of pool) {
       const r = radiusAtAngle(boreOutline, standardAngleRad(theta + fanDeg));
       // Prefer a strictly cheaper candidate, but break a (near-)tie -- e.g.
       // round, or any shape with no bulge to speak of, ties on EVERY
@@ -201,12 +216,18 @@ export function bestAxisDeg(boreOutline: ShapeOutline, fanDeg: number, keyholeRo
       }
     }
     return best;
-  }
+  };
 
-  let best = candidates[0] ?? 0;
+  if (keyholeRotation === 0) return cheapestOf(candidates);
+
+  const autoAxis = cheapestOf(candidates);
+  const others = candidates.filter((theta) => Math.abs(theta - autoAxis) > 1e-6);
+  const pool = others.length > 0 ? others : candidates;
+
+  let best = pool[0] ?? autoAxis;
   let bestDist = Infinity;
   let bestRadius = Infinity;
-  for (const theta of candidates) {
+  for (const theta of pool) {
     const dist = Math.abs(theta - keyholeRotation);
     const r = radiusAtAngle(boreOutline, standardAngleRad(theta + fanDeg));
     const tiedDist = Math.abs(dist - bestDist) < 1e-6;

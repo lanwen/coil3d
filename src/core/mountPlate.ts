@@ -322,3 +322,50 @@ export function mountPlateLayoutFor(mountKind: "skadis" | "opengrid", flangeOutl
   const { halfSide, halfUp } = openGridClipHalfExtents();
   return layoutMountPlate(flangeOutline, boreOutline, OPENGRID_PITCH, halfSide, halfUp, 0, avoid);
 }
+
+/**
+ * The minimum flange margin that lets `mountPlateLayoutFor` place at least
+ * `MOUNT_PLATE_MIN_CLIPS` clips (issue #120): mirrors mount.ts's own
+ * `requiredFlangeMargin` (keyhole) and `requiredThroughMountMargin`
+ * (through-hole) -- flange.ts's `resolveFlangeSizing` already grows the
+ * flange margin for THOSE two mount kinds so the mount is never silently
+ * skipped just because the auto-solved core came out small, "no ceiling:
+ * even a tiny, sharp core gets a flange grown just wide enough to fit the
+ * mount" (e2e/mount.spec.ts). SKÅDIS/openGrid had no equivalent -- their
+ * margin only ever grew for the plain wound-envelope clearance, never for
+ * the plate's own fixed-pitch grid, so a solver-picked (or just small,
+ * locked) core could come out smaller than 1 pitch step and silently drop
+ * the whole plate with only a general warning to notice by (the reported
+ * bug: a solver-picked core small enough that even 2 clips, mirrored at the
+ * FIRST/cheapest row -- `up=0`, where every outline is widest, see this
+ * file's own header on why `up=0` is the one row `radiusAtAngle` actually
+ * gets right -- can't clear the flange edge).
+ *
+ * Found by bisection over `layoutMountPlate`'s own REAL clip count -- not a
+ * closed form, unlike the keyhole slot's single-ray `radiusAtAngle` check:
+ * a clip's own footprint is offset in the "up" direction too (`clipHalfUp`
+ * on either side of `up=0`), where `radiusAtAngle` is NOT exact for a
+ * non-round outline (this file's own header), so this checks the actual
+ * layout at each trial margin, exactly like the fit it's guaranteeing.
+ * `layoutMountPlate` only ever returns 0 or (by construction, every
+ * position is placed as a mirrored `+-side` pair) an even number >=
+ * `MOUNT_PLATE_MIN_CLIPS` of clips, so "at least one clip" and "at least
+ * `MOUNT_PLATE_MIN_CLIPS`" are the same bisection target.
+ */
+export function requiredMountPlateMargin(outline: ShapeOutline, boreOutline: ShapeOutline, mountKind: "skadis" | "opengrid"): number {
+  const fits = (margin: number): boolean => mountPlateLayoutFor(mountKind, offsetOutline(outline, margin), boreOutline).clips.length > 0;
+  let lo = 0;
+  let hi = 1;
+  while (!fits(hi)) hi *= 2;
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2;
+    if (fits(mid)) hi = mid;
+    else lo = mid;
+  }
+  // A hairline (1e-6 mm) safety margin past the bare-minimum target, same
+  // convention as mount.ts's own bisections: floating-point rounding can
+  // otherwise leave flange.ts's later, independent recomputation of this
+  // SAME "does it fit" check a few ULPs short of the value this bisection
+  // was solved against.
+  return hi + 1e-6;
+}
