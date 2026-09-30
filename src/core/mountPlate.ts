@@ -106,34 +106,72 @@ export interface InnerEndKeepOut {
 /** Minimum distance from a peg hole's centre to the channel's outline (mm): the hole's own radius plus a wall. */
 const ANCHOR_KEEP_OUT = MOUNT_PLATE_PEG_RADIUS + 1.5;
 
-/** The round peg hole's radius (issue #132): the circle through the peg's corners plus half the print tolerance, so the fit's clearance across the corners is the tolerance itself. */
+/**
+ * The peg's own cross-section (issue #132's chamfered-corner octagon,
+ * MOUNT_PLATE_PEG_SIZE across the flats with MOUNT_PLATE_PEG_CORNER cut off
+ * each 45 degree corner), offset OUTWARD by `offset` mm along every edge's
+ * own normal -- a TRUE polygon offset (negative shrinks, as `pegSweep`'s
+ * lead-in rings do below), so every flat AND every diagonal corner cut grows
+ * by the exact same clearance; never a uniform scale (which would move the
+ * flats and the corners by different amounts) or a circumscribed circle
+ * (issue #143: that let a round hole's clearance balloon at the flats while
+ * only pinching the peg at its corners). Centred at `anchor`; ignores
+ * `anchor.rotationDeg` -- like `pegSweep`, the flats always face the global
+ * +-X/+-Y axes (see that function's own doc comment on the print pose), so
+ * the hole this cuts always lines up with the peg that stands in it.
+ */
+function pegOctagon(anchor: { x: number; y: number }, offset: number): Array<{ x: number; y: number }> {
+  const h = MOUNT_PLATE_PEG_SIZE / 2 + offset;
+  const k = MOUNT_PLATE_PEG_SIZE - MOUNT_PLATE_PEG_CORNER + offset * Math.SQRT2; // the 45 degree flats lie on |x| + |y| = k
+  const corners: Array<[number, number]> = [
+    [h, k - h], [k - h, h], [h - k, h], [-h, k - h], [-h, h - k], [h - k, -h], [k - h, -h], [h, h - k],
+  ];
+  return corners.map(([x, y]) => ({ x: anchor.x + x, y: anchor.y + y }));
+}
+
+/**
+ * The peg hole's own cross-section (issue #143): `pegOctagon` grown outward
+ * by `tolerance / 2` along every edge, so the clearance is the tolerance
+ * itself on every flat side, not just across the corners. Both geometry
+ * backends (manifold.ts's `pinHoleCutter`, step/build.ts's
+ * `pinHoleCutterSolid`) extrude this exact polygon, so the mesh and the STEP
+ * solid agree.
+ */
+export function pegHoleOutline(anchor: { x: number; y: number }, tolerance: number): Array<{ x: number; y: number }> {
+  return pegOctagon(anchor, tolerance / 2);
+}
+
+/**
+ * An upper bound on how far the peg hole (`pegHoleOutline`) reaches from
+ * `anchor`'s centre (issue #143): the grown octagon's own farthest corner,
+ * for callers that only need a circular envelope around the hole --
+ * flangePads.ts's pad sizing (the pad must fully cover the octagon, not just
+ * touch its flats) and this file's own `ANCHOR_KEEP_OUT`. Never the hole's
+ * own cut, which is the octagon itself (`pegHoleOutline`).
+ */
 export function pegHoleRadius(tolerance: number): number {
-  return MOUNT_PLATE_PEG_RADIUS + tolerance / 2;
+  const offset = tolerance / 2;
+  const h = MOUNT_PLATE_PEG_SIZE / 2 + offset;
+  const diag = MOUNT_PLATE_PEG_SIZE / 2 - MOUNT_PLATE_PEG_CORNER + offset * (Math.SQRT2 - 1);
+  return Math.hypot(h, diag);
 }
 
 /**
  * One alignment peg (issue #132, constants.ts's MOUNT_PLATE_PEG_*) as a
- * swept solid: 4 octagonal rings along the peg's own axis, which stands in
- * `anchor`'s hole along Z, centred on the plate/flange seam at `zSeam`. The
- * end rings are inset by the lead-in, so both ends are 45 degree chamfers.
- * The flats face +-X/+-Y, so the print pose (lying down, rotated about X)
- * rests on a wide flat. The same rings build the mesh (innerEnd.ts's
- * `sweepMesh`) and the STEP solid.
+ * swept solid: 4 octagonal rings (`pegOctagon`) along the peg's own axis,
+ * which stands in `anchor`'s hole along Z, centred on the plate/flange seam
+ * at `zSeam`. The end rings are inset by the lead-in, so both ends are 45
+ * degree chamfers. The flats face +-X/+-Y, so the print pose (lying down,
+ * rotated about X) rests on a wide flat. The same rings build the mesh
+ * (innerEnd.ts's `sweepMesh`) and the STEP solid.
  */
 export function pegSweep(anchor: { x: number; y: number }, zSeam: number): SweepSolid {
-  const octagon = (inset: number, z: number) => {
-    const h = MOUNT_PLATE_PEG_SIZE / 2 - inset;
-    const k = MOUNT_PLATE_PEG_SIZE - MOUNT_PLATE_PEG_CORNER - inset * Math.SQRT2; // the 45 degree flats lie on |x| + |y| = k
-    const corners: Array<[number, number]> = [
-      [h, k - h], [k - h, h], [h - k, h], [-h, k - h], [-h, h - k], [h - k, -h], [k - h, -h], [h, h - k],
-    ];
-    return corners.map(([x, y]) => ({ x: anchor.x + x, y: anchor.y + y, z }));
-  };
+  const ring = (inset: number, z: number) => pegOctagon(anchor, -inset).map((p) => ({ ...p, z }));
   const z0 = zSeam - MOUNT_PLATE_PEG_LENGTH / 2;
   const z1 = zSeam + MOUNT_PLATE_PEG_LENGTH / 2;
   const c = MOUNT_PLATE_PEG_LEAD_IN;
   return {
-    rings: [octagon(c, z0), octagon(0, z0 + c), octagon(0, z1 - c), octagon(c, z1)],
+    rings: [ring(c, z0), ring(0, z0 + c), ring(0, z1 - c), ring(c, z1)],
     start: { x: anchor.x, y: anchor.y, z: z0 },
     end: { x: anchor.x, y: anchor.y, z: z1 },
   };

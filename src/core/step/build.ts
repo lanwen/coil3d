@@ -58,7 +58,7 @@ import { layoutKeyholeMount, layoutThroughHoleMount } from "../mount";
 import { layoutFlangePads, offsetAtZ, padLevels, plateTopZ } from "../flangePads";
 import type { FlangePad } from "../flangePads";
 import type { KeyholeSlot, ThroughHole } from "../mount";
-import { mountPlateLayoutFor as layoutFor, pegHoleRadius, pegSweep } from "../mountPlate";
+import { mountPlateLayoutFor as layoutFor, pegHoleOutline, pegSweep } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
 import { circumscribedRadius, offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
@@ -927,12 +927,12 @@ function mountPlateClipSolidStep(mountKind: "skadis" | "opengrid", clip: ClipIns
   return canonical.rotate(clip.rotationDeg, [0, 0, 0], [0, 0, 1]).translate([clip.x, clip.y, zBase]);
 }
 
-/** One peg hole cutter (mirrors manifold.ts's `pinHoleCutter`): `dir` +1 cuts into the flange from its outer face, -1 into the plate from its front face. */
+/** One peg hole cutter (mirrors manifold.ts's `pinHoleCutter`): the peg's own octagon (`pegHoleOutline`), not a cylinder (issue #143). `dir` +1 cuts into the flange from its outer face, -1 into the plate from its front face. */
 function pinHoleCutterSolid(anchor: AnchorPoint, tolerance: number, zFace: number, dir: 1 | -1): R.Shape3D {
-  const r = pegHoleRadius(tolerance);
+  const loop: [number, number][] = pegHoleOutline(anchor, tolerance).map((p) => [p.x, p.y]);
   const h = MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_EMBED;
   const z0 = dir === 1 ? zFace - MOUNT_PLATE_EMBED : zFace + MOUNT_PLATE_EMBED - h;
-  return R.makeCylinder(r, h, [anchor.x, anchor.y, z0]);
+  return loopSolid(loop, h).translate([0, 0, z0]);
 }
 
 /** Build the mount plate solid (issue #14): a flat panel (`layout.outline`, `outlineSolid` -- no bore, unlike the core/flange) with every clip fused onto its back face and a pin hole cut into its front face per anchor, in the shared ASSEMBLY frame -- mirrors manifold.ts's own `buildMountPlate`. */
