@@ -1,4 +1,4 @@
-# scroll3d — Research & Design Notes
+# coil3d — Research & Design Notes
 
 Status: pre-implementation research (2026-09-23). Spikes S1–S5 done (see §10a); throwaway code lives in `spikes/`.
 

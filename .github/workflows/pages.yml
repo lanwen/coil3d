@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build (with the /scroll3d/ Pages base path)
+    name: Build (with the /coil3d/ Pages base path)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,13 +26,13 @@ jobs:
 
       - run: npm ci
 
-      # VITE_BASE makes every built asset URL absolute under /scroll3d/,
+      # VITE_BASE makes every built asset URL absolute under /coil3d/,
       # matching where GitHub Pages serves a project site from
-      # (https://lanwen.github.io/scroll3d/). See vite.config.ts.
+      # (https://lanwen.github.io/coil3d/). See vite.config.ts.
       - name: Build
         run: npm run build
         env:
-          VITE_BASE: /scroll3d/
+          VITE_BASE: /coil3d/
 
       # Packages dist/ as a deployable artifact. This alone makes no API
       # calls and has no effect on the repo's Pages settings, so it's safe

@@ -4,7 +4,7 @@ import { defineConfig } from "vitest/config";
 // No COOP/COEP headers here on purpose: GitHub Pages can't set them, so the
 // app must run on single-threaded WASM only (see docs/research.md §4).
 export default defineConfig({
-  // GitHub Pages serves this app from https://lanwen.github.io/scroll3d/,
+  // GitHub Pages serves this app from https://lanwen.github.io/coil3d/,
   // not the domain root, so every built asset URL needs that sub-path
   // prefix. Only the Pages deploy workflow sets VITE_BASE (see
   // .github/workflows/pages.yml and README's "GitHub Pages" section);
