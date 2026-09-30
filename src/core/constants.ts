@@ -201,6 +201,12 @@ export const FLANGE_PAD_COLLAR = 1; // mm
 export const FLANGE_PAD_COLLAR_COLUMNS = 96;
 /** Spacing of the channel pad's cross-sections along the cable, mm. */
 export const FLANGE_PAD_STEP = 5; // mm
+/** Issue #133: the channel pad blends into the collar (both sides, flangePads.ts) with a concave curve in plan, of this radius at the chamfer's foot (on the plate), mm -- and as much more at the face as the chamfer is wide, so it stays a smooth curve all the way down. */
+export const FLANGE_PAD_BLEND_RADIUS = 5; // mm
+/** Spacing of the channel pad's cross-sections through those blends, mm. */
+export const FLANGE_PAD_BLEND_STEP = 2; // mm
+/** Where a blend meets the collar, the pad's edge runs this far inside the collar's, mm: never on it (no coincident faces), and close enough that the two meet at a hair of an angle, not a crease. */
+export const FLANGE_PAD_BLEND_BURY = 0.15; // mm
 /** Pads reach this far into the plate below its top face, mm (so no pad face lies on the plate's own). */
 export const FLANGE_PAD_EMBED = 0.5; // mm
 /** Pads reach this far above the inner face, mm (so the relief cut never has a face on it). */

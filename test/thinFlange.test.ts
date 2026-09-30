@@ -6,7 +6,7 @@ import { DEFAULT_THROUGH_HOLE_DIAMETER, FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MI
 import { layoutKeyholeMount, layoutThroughHoleMount } from "../src/core/mount";
 import { mountPlateLayoutFor, pegHoleRadius } from "../src/core/mountPlate";
 import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
-import { offsetOutline, pointAt } from "../src/core/shapes";
+import { offsetOutline, outlineOffsetAt, pointAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 
 // Issue #122: the bottom flange is a thin plate with its wall-facing face
@@ -223,5 +223,99 @@ describe("thin bottom flange (issue #122)", () => {
         expect(inHole[0][1]).toBeCloseTo(0, 3);
       }
     }
+  });
+});
+
+// Issue #133: the channel pad used to meet the collar (the chamfered pad
+// under the wall) in a sharp V on the wall side, and to end in a flat,
+// unchamfered face at the groove start on the other; it now blends into the
+// collar on both. Checked on the built mesh: no crease sharper than
+// MAX_CREASE_DEG anywhere on the flange's chamfers -- between the plate's
+// top and the winding face, clear of the channel's own bore and the rim.
+// (On main: 86-90 degrees, at the pad's flat end face.)
+describe("the channel pad blends into the collar (issue #133)", () => {
+  const MAX_CREASE_DEG = 25;
+  const cases: Array<[string, string]> = [
+    ["round", "#v=1&L=800&d=4&size=60&h=20"],
+    ["round, cap on", "#v=1&L=2000&d=4&size=60&h=20&cap=on"],
+    ["square", "#v=1&L=800&d=4&size=60&h=20&shape=sq&sq.rc=20"],
+    ["square, tight corners", "#v=1&L=800&d=4&size=60&h=20&shape=sq&sq.rc=3"],
+    ["triangle", "#v=1&L=800&d=4&size=60&h=20&shape=tri&tri.rc=20"],
+    ["round, 8 mm cable", "#v=1&L=300&d=8&size=60&h=30"],
+  ];
+  it.each(cases)("%s: no sharp crease on the flange's chamfers", async (_, hash) => {
+    const d = await design(parseHash(hash).spec, "draft");
+    const f = d.flangeSpec;
+    const zPlate = -f.thickness + (f.plateThickness ?? f.thickness);
+    expect(zPlate).toBeLessThan(-0.5); // there is a chamfer to check
+    const mesh = (d.parts.find((p) => p.role === "core") ?? d).mesh;
+    const p = mesh.positions;
+    const t = mesh.indices;
+    const R = (d.spec.wire.diameter + d.spec.tolerance) / 2;
+    const lead = d.innerEndLeadIn;
+    const nearBore = (x: number, y: number) => {
+      for (let i = 0; i + 5 < lead.length; i += 3) {
+        const ax = lead[i];
+        const ay = lead[i + 1];
+        const ex = lead[i + 3] - ax;
+        const ey = lead[i + 4] - ay;
+        const u = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey || 1)));
+        if (Math.hypot(x - ax - u * ex, y - ay - u * ey) < R + 0.1) return true;
+      }
+      return false;
+    };
+    // An edge on the chamfers: running down them (from the face to the
+    // plate at most), clear of the rim and the bore.
+    const onChamfer = (a: number, b: number) => {
+      const za = p[a * 3 + 2];
+      const zb = p[b * 3 + 2];
+      const mid = (za + zb) / 2;
+      if (Math.min(za, zb) < zPlate - 1e-3 || Math.max(za, zb) > 1e-3 || mid < zPlate + 0.05 || mid > -0.05) return false;
+      return [a, b].every((v) => outlineOffsetAt(f.outline, p[v * 3], p[v * 3 + 1]).offset < f.margin - 1 && !nearBore(p[v * 3], p[v * 3 + 1]));
+    };
+    const normal = (k: number) => {
+      const [a, b, c] = [t[k] * 3, t[k + 1] * 3, t[k + 2] * 3];
+      const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+      const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
+      const n = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+      const l = Math.hypot(n[0], n[1], n[2]);
+      return { n: n.map((q) => q / l), area: l / 2 };
+    };
+    // Vertices by position (the mesh may repeat them), each named by its first index.
+    const byPos = new Map<string, number>();
+    const vid = (v: number) => {
+      const key = `${p[v * 3].toFixed(4)},${p[v * 3 + 1].toFixed(4)},${p[v * 3 + 2].toFixed(4)}`;
+      if (!byPos.has(key)) byPos.set(key, v);
+      return byPos.get(key)!;
+    };
+    const faces = new Map<string, number[]>();
+    for (let k = 0; k < t.length; k += 3) {
+      for (let e = 0; e < 3; e++) {
+        const a = vid(t[k + e]);
+        const b = vid(t[k + ((e + 1) % 3)]);
+        const key = a < b ? `${a},${b}` : `${b},${a}`;
+        faces.set(key, [...(faces.get(key) ?? []), k]);
+      }
+    }
+    let worst = 0;
+    let where = "";
+    let checked = 0;
+    for (const [key, ks] of faces) {
+      if (ks.length !== 2) continue;
+      const [a, b] = key.split(",").map(Number);
+      if (!onChamfer(a, b)) continue;
+      const [n1, n2] = ks.map(normal);
+      // Slivers' normals are noise, not a crease.
+      if (n1.area < 1e-4 || n2.area < 1e-4) continue;
+      checked++;
+      const cos = n1.n[0] * n2.n[0] + n1.n[1] * n2.n[1] + n1.n[2] * n2.n[2];
+      const deg = (Math.acos(Math.max(-1, Math.min(1, cos))) * 180) / Math.PI;
+      if (deg > worst) {
+        worst = deg;
+        where = [a, b].map((v) => [p[v * 3], p[v * 3 + 1], p[v * 3 + 2]].map((q) => q.toFixed(2)).join(" ")).join(" -> ");
+      }
+    }
+    expect(checked).toBeGreaterThan(50);
+    expect(worst, `the sharpest crease, at ${where}`).toBeLessThan(MAX_CREASE_DEG);
   });
 });

@@ -665,6 +665,25 @@ function stadiumSketch(a: { x: number; y: number }, b: { x: number; y: number },
     .sketchOnPlane("XY", z) as R.Sketch;
 }
 
+/** Whether the 4 points of a quad lie in one plane (to well within OCCT's own tolerance). */
+function isPlanar(q: Array<{ x: number; y: number; z: number }>): boolean {
+  // Newell's normal, then every corner's distance from the mean plane.
+  let nx = 0;
+  let ny = 0;
+  let nz = 0;
+  for (let i = 0; i < q.length; i++) {
+    const a = q[i];
+    const b = q[(i + 1) % q.length];
+    nx += (a.y - b.y) * (a.z + b.z);
+    ny += (a.z - b.z) * (a.x + b.x);
+    nz += (a.x - b.x) * (a.y + b.y);
+  }
+  const l = Math.hypot(nx, ny, nz);
+  if (l < 1e-12) return false;
+  const c = q.reduce((s, p) => ({ x: s.x + p.x / q.length, y: s.y + p.y / q.length, z: s.z + p.z / q.length }), { x: 0, y: 0, z: 0 });
+  return q.every((p) => Math.abs(((p.x - c.x) * nx + (p.y - c.y) * ny + (p.z - c.z) * nz) / l) < 1e-6);
+}
+
 /**
  * One flange pad (flangePads.ts) as a solid, lofted (ruled) through its
  * three levels: the collar and the round pads from exact curves (the mesh
@@ -679,15 +698,20 @@ function padSolidStep(pad: FlangePad, levels: number[], outline: ShapeOutline): 
   } else if (shape.kind === "stadium") {
     sketches = levels.map((z) => stadiumSketch(shape.a, shape.b, offsetAtZ(shape.radius, z), z));
   } else {
-    // The channel pad's faces are all planar (mitred, see flangePads.ts):
-    // one flat quad per ring pair and side, and the two end rings.
+    // The channel pad and its fillet (flangePads.ts), from the same rings
+    // the mesh backend sweeps: the two end rings (each flat), and one face
+    // per ring pair and side -- a flat quad where it is one (most of the
+    // mitred pad, and every strip of the fillet's cone), else two triangles
+    // (where the pad's tail eases into the collar, issue #133).
     const pt = (p: { x: number; y: number; z: number }): [number, number, number] => [p.x, p.y, p.z];
     const { rings } = pad.sweep;
     const m = rings[0].length;
     const faces: R.Face[] = [R.makePolygon(rings[0].map(pt)), R.makePolygon(rings[rings.length - 1].map(pt))];
     for (let i = 0; i + 1 < rings.length; i++) {
       for (let j = 0; j < m; j++) {
-        faces.push(R.makePolygon([pt(rings[i][j]), pt(rings[i][(j + 1) % m]), pt(rings[i + 1][(j + 1) % m]), pt(rings[i + 1][j])]));
+        const quad = [rings[i][j], rings[i][(j + 1) % m], rings[i + 1][(j + 1) % m], rings[i + 1][j]];
+        if (isPlanar(quad)) faces.push(R.makePolygon(quad.map(pt)));
+        else faces.push(R.makePolygon([quad[0], quad[1], quad[2]].map(pt)), R.makePolygon([quad[0], quad[2], quad[3]].map(pt)));
       }
     }
     return R.makeSolid(faces);
