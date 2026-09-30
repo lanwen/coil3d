@@ -75,20 +75,10 @@ import {
   INNER_CHANNEL_MIN_SHELF,
   INNER_CHANNEL_WALL_SKIN,
   MARGIN,
-  SCREW_MOUNT_RECESS_DEPTH,
-  THROUGH_MOUNT_COUNTERBORE_DEPTH,
 } from "./constants";
 import { outlineOffsetAt, pointAt, sideLength } from "./shapes";
 import type { ShapeOutline } from "./shapes";
-import type { MountKind } from "./types";
 import { grooveStartHeight } from "./wall";
-
-/** How much depth a mount's own pocket/counterbore -- cut from the flange's OTHER (outer, wall-facing) face -- reserves against the inner-end channel below (see `resolveChannelDepth`). 0 for "none" and the clip-plate mounts (skadis/opengrid), which don't cut anything into that face at this depth. */
-function reservedMountDepth(mount: MountKind): number {
-  if (mount === "keyhole") return SCREW_MOUNT_RECESS_DEPTH;
-  if (mount === "through") return THROUGH_MOUNT_COUNTERBORE_DEPTH;
-  return 0;
-}
 
 /** Ideal channel recess depth for the given wire diameter (issue #8): roughly a full cable diameter, so the wound cable's first turn lies flush -- see INNER_CHANNEL_DEPTH_FACTOR's own doc comment. */
 export function idealChannelDepth(wireDiameter: number): number {
@@ -98,19 +88,16 @@ export function idealChannelDepth(wireDiameter: number): number {
 /**
  * The channel's ACTUAL recess depth (to the cable's bottom), given the
  * flange's own (already resolved) thickness: the ideal depth, capped to
- * whatever the flange's thickness leaves below a small shelf -- and, when
- * there's also a mount's own pocket/counterbore cut into the OTHER face
- * (issue #13's screw-keyhole mount, or issue #70's through-hole mount --
- * `reservedMountDepth`, a fixed depth reserved from the flange's
- * outer/z=-thickness side), below THAT cut too, so the two never meet in the
- * middle. design.ts warns when this caps the channel (flange.ts normally
- * provisions enough thickness). The round bore around the cable reaches
- * tolerance/2 deeper than this.
+ * whatever the flange's thickness leaves below a small shelf. design.ts
+ * warns when this caps the channel (flange.ts normally provisions enough
+ * thickness). Issue #122: a mount's pocket/counterbore on the OTHER face sits
+ * on its own pad, clear of the channel, so it reserves nothing here
+ * (design.ts stacks the two depths into the thickness if their footprints
+ * ever overlap). The round bore around the cable reaches tolerance/2 deeper
+ * than this.
  */
-export function resolveChannelDepth(wireDiameter: number, flangeThickness: number, mount: MountKind): number {
-  const ideal = idealChannelDepth(wireDiameter);
-  const reserved = INNER_CHANNEL_MIN_SHELF + reservedMountDepth(mount);
-  return Math.min(ideal, Math.max(0, flangeThickness - reserved));
+export function resolveChannelDepth(wireDiameter: number, flangeThickness: number): number {
+  return Math.min(idealChannelDepth(wireDiameter), Math.max(0, flangeThickness - INNER_CHANNEL_MIN_SHELF));
 }
 
 export interface XY {

@@ -94,14 +94,18 @@ describe("design().mesh is a valid, expected manifold", () => {
       // like the flange's outer radius just below reads the built flange's
       // own extent (issue #115: the margin can grow past the solver's
       // envelope-based `solution.flangeSize`, to fit the inner-end lead-in).
-      const flangeThickness = d.flangeSpec.thickness;
+      // Issue #122: the flange is a thin plate (`plateThickness`) with pads
+      // up to `thickness` under the wall, the channel and any mount cut, so
+      // its volume lies between the plate's and the full thickness's.
       const flangeOuterRadius = d.solution.flangeExtent!.acrossCorners / 2;
-      const flangeVolume = Math.PI * (flangeOuterRadius ** 2 - boreRadius ** 2) * flangeThickness;
-      const analyticVolume = tubeVolume - grooveVolume + flangeVolume;
+      const flangeArea = Math.PI * (flangeOuterRadius ** 2 - boreRadius ** 2);
+      const analyticVolume = tubeVolume - grooveVolume + flangeArea * d.flangeSpec.plateThickness!;
+      const analyticVolumeFull = tubeVolume - grooveVolume + flangeArea * d.flangeSpec.thickness;
 
       const actualVolume = manifold.volume();
       expect(actualVolume).toBeGreaterThan(0);
-      expect(Math.abs(actualVolume - analyticVolume) / analyticVolume).toBeLessThan(0.1);
+      expect(actualVolume).toBeGreaterThan(analyticVolume * 0.9);
+      expect(actualVolume).toBeLessThan(analyticVolumeFull * 1.1);
     } finally {
       manifold.delete();
     }
@@ -339,14 +343,16 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
       const flangeMargin = d.solution.flangeExtent!.acrossCorners / 2 - circumRadius(n, outerApothem, rc);
       const flangeApothem = outerApothem + flangeMargin;
       const flangeRc = rc + flangeMargin;
-      // Issue #43: no longer a fixed constant -- see the round-core test above.
-      const flangeThickness = d.flangeSpec.thickness;
-      const flangeVolume = (areaAt(n, flangeApothem, flangeRc, 0) - areaAt(n, boreApothem, boreRc, 0)) * flangeThickness;
+      // Issues #43, #122: between the plate's and the full thickness -- see the round-core test above.
+      const flangeArea = areaAt(n, flangeApothem, flangeRc, 0) - areaAt(n, boreApothem, boreRc, 0);
+      const analyticVolumeFull = tubeVolume - grooveVolume + flangeArea * d.flangeSpec.thickness;
+      const flangeVolume = flangeArea * d.flangeSpec.plateThickness!;
 
       const analyticVolume = tubeVolume - grooveVolume + flangeVolume;
       const actualVolume = manifold.volume();
       expect(actualVolume).toBeGreaterThan(0);
-      expect(Math.abs(actualVolume - analyticVolume) / analyticVolume).toBeLessThan(0.1);
+      expect(actualVolume).toBeGreaterThan(analyticVolume * 0.9);
+      expect(actualVolume).toBeLessThan(analyticVolumeFull * 1.1);
     } finally {
       manifold.delete();
     }

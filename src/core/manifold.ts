@@ -68,6 +68,7 @@ import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd, sweepMesh } from "./innerEnd";
 import type { CapClipLayout, InnerEndLayout, SweepSolid } from "./innerEnd";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
+import { layoutFlangePads, plateTopZ } from "./flangePads";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
 import { circumscribedRadius, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
@@ -93,7 +94,10 @@ export interface FlangeSpec {
   boreOutline: ShapeOutline;
   /** How far beyond `outline` the flange extends, mm (docs/research.md §1). */
   margin: number;
+  /** The full thickness, z = [-thickness, 0]: on the pads (issue #122), and the flange's overall thickness. */
   thickness: number;
+  /** Issue #122: the plate's own thickness away from the pads (flangePads.ts); omitted, or equal to `thickness`, means a plain full-thickness flange. */
+  plateThickness?: number;
   /** Columns around the circumference (mirrors WallSpec.columns). */
   columns: number;
   /** Issue #85: minimum corner-arc segments (mirrors WallSpec.minCornerSegments) -- see shapes.ts's `outlineColumnParams`. */
@@ -418,14 +422,34 @@ function buildInnerEndCutter(
   wasm: ManifoldToplevel,
   track: <T extends { delete(): void }>(m: T) => T,
   outline: ShapeOutline,
-  margin: number,
+  layout: InnerEndLayout,
   cut: InnerEndCut,
-): { cutter: Manifold; layout: InnerEndLayout } {
-  const layout = layoutInnerEnd(outline, margin, cut.wireDiameter, cut.tolerance, cut.bendRadius, cut.channelDepth);
+): Manifold {
   const raw = track(sweepSolid(wasm, layout.channel));
   const top = Math.max(...layout.channel.rings.flat().map((p) => p.z)) + 1;
   const blocker = track(outlineBlocker(wasm, outline, -cut.flangeThickness - 1, top));
-  return { cutter: track(raw.subtract(blocker)), layout };
+  return track(raw.subtract(blocker));
+}
+
+/**
+ * Issue #122: the flange ring thinned to its plate away from the pads
+ * (flangePads.ts): the slab above the plate's top face, minus every pad, is
+ * cut away. Returns `ring` unchanged when the plate is full thickness.
+ */
+function relieveFlange(
+  wasm: ManifoldToplevel,
+  track: <T extends { delete(): void }>(m: T) => T,
+  ring: Manifold,
+  flange: FlangeSpec,
+  innerEnd: InnerEndLayout | undefined,
+  mountPlateCut: MountPlateFlangeCut | undefined,
+): Manifold {
+  const zPlate = plateTopZ(flange);
+  if (zPlate === undefined) return ring;
+  const pads = layoutFlangePads(flange, innerEnd, mountPlateCut?.anchors, mountPlateCut?.tolerance);
+  const padSolid = track(wasm.Manifold.union(pads.map((pad) => track(sweepSolid(wasm, pad.sweep)))));
+  const slab = track(outlinePrismSolid(wasm, offsetOutline(flange.outline, flange.margin + 1), 1 - zPlate, zPlate, flange.columns, flange.minCornerSegments));
+  return track(ring.subtract(track(slab.subtract(padSolid))));
 }
 
 /** Fuse a bottom flange (shaped like `flange.outline`, offset out by `flange.margin`) onto the wall, cutting its own inner-end fixing (issues #8, #117: recessed channel + cable clip, always present), optionally a bayonet/snap joint feature into the top rim, then the screw-keyhole mount (issue #13) or the clip mount plate's alignment features (issue #14) if requested. */
@@ -456,7 +480,12 @@ export async function fuseFlange(
       throw new Error(`Flange mesh is not a valid manifold: ${ringManifold.status()}`);
     }
 
-    let fused = track(wallManifold.add(ringManifold));
+    // Laid out up front: the flange's pads (issue #122) follow the channel
+    // too, not just its cutter below.
+    const innerEndLayout = innerEnd ? layoutInnerEnd(flange.outline, flange.margin, innerEnd.wireDiameter, innerEnd.tolerance, innerEnd.bendRadius, innerEnd.channelDepth) : undefined;
+    const flangeManifold = relieveFlange(wasm, track, ringManifold, flange, innerEndLayout, mountPlateCut);
+
+    let fused = track(wallManifold.add(flangeManifold));
     // `applyCoreJointCut` already tracks its own returned manifold (like every other value it constructs) -- don't track it again here.
     if (coreJoint) fused = applyCoreJointCut(wasm, track, fused, coreJoint);
 
@@ -465,17 +494,14 @@ export async function fuseFlange(
       throw new Error(`Fused mesh is not a valid manifold: ${status}`);
     }
 
-    // Kept (not just consumed for its own cutter): issue #70's through-hole
-    // mount checks the SAME real, computed channel footprint the inner-end
-    // cutter actually cut, not a re-derivation, so the two can never
-    // silently disagree about where the channel is.
-    let innerEndLayout: InnerEndLayout | undefined;
-    if (innerEnd) {
+    // `innerEndLayout` is also what issue #70's through-hole mount checks
+    // below: the SAME real channel footprint the cutter cut, never a
+    // re-derivation.
+    if (innerEnd && innerEndLayout) {
       // `cutter` is already tracked (buildInnerEndCutter tracks every
       // intermediate it builds internally) -- don't track it again here.
-      const built = buildInnerEndCutter(wasm, track, flange.outline, flange.margin, innerEnd);
-      innerEndLayout = built.layout;
-      fused = track(fused.subtract(built.cutter));
+      const cutter = buildInnerEndCutter(wasm, track, flange.outline, innerEndLayout, innerEnd);
+      fused = track(fused.subtract(cutter));
       status = fused.status();
       if (status !== "NoError") {
         throw new Error(`Inner-end channel/clip cut is not a valid manifold: ${status}`);

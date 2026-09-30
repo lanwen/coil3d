@@ -57,6 +57,8 @@ import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
 import type { InnerEndLayout, SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "../mount";
+import { layoutFlangePads, offsetAtZ, padLevels, plateTopZ } from "../flangePads";
+import type { FlangePad } from "../flangePads";
 import type { KeyholeSlot, ThroughHole } from "../mount";
 import { mountPlateLayoutFor as layoutFor } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
@@ -75,7 +77,7 @@ function mountPlateLayoutFor(design: Design): MountPlateLayout {
     spec.wire.diameter,
     spec.tolerance,
     bendMultiplierOf(spec.wire) * spec.wire.diameter,
-    resolveChannelDepth(spec.wire.diameter, flangeSpec.thickness, flangeSpec.mount),
+    resolveChannelDepth(spec.wire.diameter, flangeSpec.thickness),
   );
   return layoutFor(spec.mount as "skadis" | "opengrid", offsetOutline(flangeSpec.outline, flangeSpec.margin), flangeSpec.boreOutline, innerEnd);
 }
@@ -123,18 +125,20 @@ function outlineSolid(o: ShapeOutline, height: number, zBase: number): R.Shape3D
  * this.
  */
 function outlineLoftSolid(bottomOutline: ShapeOutline, topOutline: ShapeOutline, zBottom: number, zTop: number): R.Shape3D {
-  const sketchAt = (o: ShapeOutline, z: number): R.Sketch => {
-    if (o.n === 4 && o.cornerRadius === o.apothem) {
-      return R.sketchCircle(o.apothem, { plane: "XY", origin: [0, 0, z] });
-    }
-    let pen = R.draw(polygonVertex(o, 0));
-    for (let i = 1; i < o.n; i++) {
-      pen = pen.lineTo(polygonVertex(o, i)).customCorner(o.cornerRadius);
-    }
-    const drawing = pen.closeWithCustomCorner(o.cornerRadius);
-    return drawing.sketchOnPlane("XY", z) as R.Sketch;
-  };
-  return sketchAt(bottomOutline, zBottom).loftWith(sketchAt(topOutline, zTop));
+  return outlineSketch(bottomOutline, zBottom).loftWith(outlineSketch(topOutline, zTop));
+}
+
+/** `o`'s own boundary as a sketch at height z (a plain circle when round). */
+function outlineSketch(o: ShapeOutline, z: number): R.Sketch {
+  if (o.n === 4 && o.cornerRadius === o.apothem) {
+    return R.sketchCircle(o.apothem, { plane: "XY", origin: [0, 0, z] });
+  }
+  let pen = R.draw(polygonVertex(o, 0));
+  for (let i = 1; i < o.n; i++) {
+    pen = pen.lineTo(polygonVertex(o, i)).customCorner(o.cornerRadius);
+  }
+  const drawing = pen.closeWithCustomCorner(o.cornerRadius);
+  return drawing.sketchOnPlane("XY", z) as R.Sketch;
 }
 
 /**
@@ -368,12 +372,16 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     flangeSpec.outline,
     flangeSpec.margin,
     flangeSpec.thickness,
-    resolveChannelDepth(design.spec.wire.diameter, flangeSpec.thickness, flangeSpec.mount),
+    resolveChannelDepth(design.spec.wire.diameter, flangeSpec.thickness),
     design.spec.wire.diameter,
     design.spec.tolerance,
     bendMultiplierOf(design.spec.wire) * design.spec.wire.diameter,
   );
-  let coreSolid = tube.fuse(checkedCut(kernel, flange, innerEndCutter.cutter));
+  // Issue #122: thinned to its plate away from the pads (manifold.ts's
+  // `relieveFlange`, from the same flangePads.ts layout and rings).
+  const anchors = design.parts.some((p) => p.role === "mountPlate") ? mountPlateLayoutFor(design).anchors : [];
+  const relieved = relieveFlangeSolid(kernel, flange, flangeSpec, innerEndCutter.layout, anchors, design.spec.tolerance);
+  let coreSolid = tube.fuse(checkedCut(kernel, relieved, innerEndCutter.cutter));
 
   // Issue #9: bayonet/snap cut a mating groove/relief into the core's own
   // top rim; press engages the bore's existing surface directly (no
@@ -630,6 +638,64 @@ function buildInnerEndCutterSolid(
   // razor-thin, exactly-coincident seam.
   const blocker = outlineSolid(offsetOutline(outline, INNER_CHANNEL_WALL_GUARD), top + flangeThickness + 1, -flangeThickness - 1);
   return { cutter: raw.cut(blocker), layout };
+}
+
+/** A stadium (a circle when `a` and `b` coincide) sketch at height z. */
+function stadiumSketch(a: { x: number; y: number }, b: { x: number; y: number }, r: number, z: number): R.Sketch {
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (len <= 1e-9) return R.sketchCircle(r, { plane: "XY", origin: [a.x, a.y, z] });
+  const nx = (-(b.y - a.y) / len) * r;
+  const ny = ((b.x - a.x) / len) * r;
+  const vx = ((b.x - a.x) / len) * r;
+  const vy = ((b.y - a.y) / len) * r;
+  return R.draw([a.x + nx, a.y + ny])
+    .lineTo([b.x + nx, b.y + ny])
+    .threePointsArcTo([b.x - nx, b.y - ny], [b.x + vx, b.y + vy])
+    .lineTo([a.x - nx, a.y - ny])
+    .threePointsArcTo([a.x + nx, a.y + ny], [a.x - vx, a.y - vy])
+    .close()
+    .sketchOnPlane("XY", z) as R.Sketch;
+}
+
+/**
+ * One flange pad (flangePads.ts) as a solid, lofted (ruled) through its
+ * three levels: the collar and the round pads from exact curves (the mesh
+ * backend samples the same shapes), the channel pad from the same rings the
+ * mesh backend sweeps.
+ */
+function padSolidStep(pad: FlangePad, levels: number[], outline: ShapeOutline): R.Shape3D {
+  const { shape } = pad;
+  let sketches: R.Sketch[];
+  if (shape.kind === "collar") {
+    sketches = levels.map((z) => outlineSketch(offsetOutline(outline, offsetAtZ(shape.offset, z)), z));
+  } else if (shape.kind === "stadium") {
+    sketches = levels.map((z) => stadiumSketch(shape.a, shape.b, offsetAtZ(shape.radius, z), z));
+  } else {
+    // The channel pad's faces are all planar (mitred, see flangePads.ts):
+    // one flat quad per ring pair and side, and the two end rings.
+    const pt = (p: { x: number; y: number; z: number }): [number, number, number] => [p.x, p.y, p.z];
+    const { rings } = pad.sweep;
+    const m = rings[0].length;
+    const faces: R.Face[] = [R.makePolygon(rings[0].map(pt)), R.makePolygon(rings[rings.length - 1].map(pt))];
+    for (let i = 0; i + 1 < rings.length; i++) {
+      for (let j = 0; j < m; j++) {
+        faces.push(R.makePolygon([pt(rings[i][j]), pt(rings[i][(j + 1) % m]), pt(rings[i + 1][(j + 1) % m]), pt(rings[i + 1][j])]));
+      }
+    }
+    return R.makeSolid(faces);
+  }
+  return sketches[0].loftWith(sketches.slice(1), { ruled: true });
+}
+
+/** Issue #122: the flange minus the slab above its plate's top face, less every pad -- mirrors manifold.ts's `relieveFlange`. `flange` unchanged when the plate is full thickness. */
+function relieveFlangeSolid(kernel: OpenCascadeInstance, flange: R.Shape3D, flangeSpec: Design["flangeSpec"], innerEnd: InnerEndLayout, anchors: AnchorPoint[], tolerance: number): R.Shape3D {
+  const zPlate = plateTopZ(flangeSpec);
+  if (zPlate === undefined) return flange;
+  const levels = padLevels(zPlate);
+  const pads = layoutFlangePads(flangeSpec, innerEnd, anchors, tolerance).map((pad) => padSolidStep(pad, levels, flangeSpec.outline));
+  const padSolid = pads.slice(1).reduce((all, pad) => all.fuse(pad), pads[0]);
+  const slab = outlineSolid(offsetOutline(flangeSpec.outline, flangeSpec.margin + 1), 1 - zPlate, zPlate);
+  return checkedCut(kernel, flange, checkedCut(kernel, slab, padSolid));
 }
 
 /**

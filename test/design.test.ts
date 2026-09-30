@@ -20,6 +20,7 @@ const CLEARANCE = 0.3;
 const GROOVE_DEPTH_FACTOR = 0.3;
 const MARGIN = 3;
 const FLANGE_THICKNESS = 3;
+const MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT = 5; // SCREW_MOUNT_RECESS_DEPTH + SCREW_MOUNT_MIN_SHELF
 const FLANGE_MARGIN = 4;
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
@@ -527,16 +528,24 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
     expect(d.warnings.some((w) => /thickness increased/i.test(w))).toBe(false);
   });
 
-  it("bumps the flange's thickness and margin (and warns) to fit the recessed mount, on a comfortably large core", async () => {
+  it("bumps the flange's margin (and warns), and its thickness only as far as the recess itself needs, to fit the recessed mount, on a comfortably large core", async () => {
     const baseGeometry = { coreSize: { locked: true, dimension: "outer", value: 100 } as const, height: { locked: true, value: 60 } };
     const none = await design(baseSpec({ ...baseGeometry, mount: "none" }));
     const d = await design(baseSpec({ ...baseGeometry, mount: "keyhole" }));
 
     expect(d.flangeSpec.mount).toBe("keyhole");
-    expect(d.flangeSpec.thickness).toBeGreaterThan(FLANGE_THICKNESS);
-    expect(d.flangeSpec.thickness).toBeGreaterThan(none.flangeSpec.thickness);
+    // Issue #122: the recess sits on its own pad, away from the channel, so
+    // the flange is only as thick as the deeper of the two -- here the
+    // 3.8 mm cable's channel (5.3 mm) already covers the 5 mm recess.
+    expect(d.flangeSpec.thickness).toBeCloseTo(Math.max(none.flangeSpec.thickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT), 9);
     expect(d.flangeSpec.margin).toBeGreaterThan(none.flangeSpec.margin);
-    expect(d.warnings.some((w) => /thickness increased/i.test(w))).toBe(true);
+    expect(d.warnings.some((w) => /thickness increased/i.test(w))).toBe(d.flangeSpec.thickness > none.flangeSpec.thickness);
+    // A thin cable's channel doesn't: the pads then grow to the recess's 5 mm (and it warns).
+    const thinNone = await design(baseSpec({ ...baseGeometry, wire: { length: 2000, diameter: 2, type: "usb" }, mount: "none" }));
+    const thin = await design(baseSpec({ ...baseGeometry, wire: { length: 2000, diameter: 2, type: "usb" }, mount: "keyhole" }));
+    expect(thin.flangeSpec.thickness).toBeGreaterThan(thinNone.flangeSpec.thickness);
+    expect(thin.flangeSpec.thickness).toBeCloseTo(MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT, 9);
+    expect(thin.warnings.some((w) => /thickness increased/i.test(w))).toBe(true);
     expect(d.warnings.some((w) => /margin increased/i.test(w))).toBe(true);
     // The mount fits at this size: no "too narrow"/skip warning.
     expect(d.warnings.some((w) => /too narrow/i.test(w))).toBe(false);

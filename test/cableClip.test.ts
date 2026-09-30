@@ -112,7 +112,7 @@ function tangentAt(points: Float32Array, i: number) {
 
 function layoutOf(d: Design) {
   const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-  const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness, d.spec.mount);
+  const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness);
   return { layout: layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, channelDepth), channelDepth };
 }
 

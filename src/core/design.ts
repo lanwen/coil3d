@@ -32,16 +32,18 @@ import {
   DRAFT_MIN_CORNER_SEGMENTS_PER_90,
   TAPER_TURNS,
   CLEARANCE,
+  INNER_CHANNEL_MIN_SHELF,
+  SCREW_MOUNT_HEAD_RADIUS,
   WALL_THICKNESS,
 } from "./constants";
 import { buildMountPlate, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
 import { printBBox } from "./plate";
-import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
+import { distanceToClosedPolygon, layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import type { MountLayout } from "./mount";
 import { mountPlateLayoutFor, skadisBoard } from "./mountPlate";
-import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
+import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing, stackedKeyholeThickness } from "./flange";
 import { circumscribedRadius, makeOutline, minCornerSegments, offsetOutline } from "./shapes";
 import { resolveLabel } from "./label";
 import { solve } from "./solve";
@@ -115,7 +117,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // can score candidates against these SAME real numbers instead of a
   // cruder envelope-only proxy.
   const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
-  const { margin, thickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness } = resolveFlangeSizing(
+  const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness } = resolveFlangeSizing(
     outline,
     boreOutline,
     solution.flangeSize,
@@ -134,12 +136,10 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (wantsKeyhole && mountMargin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
   }
-  if (wantsKeyhole && thickness > channelOnlyThickness + 1e-9) {
-    warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
-  }
   if (wantsThrough && mountMargin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the through-hole mount.`);
   }
+  let thickness = sizedThickness;
   if (wantsThrough && thickness > channelOnlyThickness + 1e-9) {
     warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the counterbored through-hole mount.`);
   }
@@ -151,13 +151,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   }
 
   // `resolveChannelDepth` caps the channel to whatever `thickness` leaves
-  // below a small shelf (and below the mount's own recess/counterbore on
-  // the OTHER face too, when one is present) -- with `thickness` now
+  // below a small shelf -- with `thickness` now
   // ALWAYS provisioned for the full ideal depth (see above), this never
   // actually caps it in the ordinary case; the warning below is now only
   // reachable for a genuinely exotic input this sizing doesn't anticipate.
   const idealDepth = idealChannelDepth(wireDiameter);
-  const channelDepth = resolveChannelDepth(wireDiameter, thickness, spec.mount);
+  const channelDepth = resolveChannelDepth(wireDiameter, thickness);
   if (channelDepth < idealDepth - 1e-6) {
     warnings.push(
       `The inner-end channel is only ${channelDepth.toFixed(1)} mm deep, limited by the flange's own thickness; the first turn may sit slightly proud of the surrounding flange face.`,
@@ -186,6 +185,23 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (wantsKeyhole) {
     mountLayout = layoutKeyholeMount(outline, boreOutline, margin, spec.keyholeRotation);
     if (mountLayout.warning) warnings.push(mountLayout.warning);
+    // Issue #122: the keyhole's pocket (wall face) and the channel (winding
+    // face) sit on separate pads, so the flange is only as thick as the
+    // deeper of the two. The keyhole layout doesn't steer around the
+    // channel, so if a slot ever lands on it, stack the two depths there
+    // (the pre-#122 sizing) rather than let them meet.
+    const clearance = SCREW_MOUNT_HEAD_RADIUS + INNER_CHANNEL_MIN_SHELF;
+    const onChannel = mountLayout.slots.some((slot) =>
+      Array.from({ length: 9 }, (_, i) => i / 8).some(
+        (k) =>
+          innerEndLayout.channelRibbon.length >= 3 &&
+          distanceToClosedPolygon(slot.head.x + (slot.shankEnd.x - slot.head.x) * k, slot.head.y + (slot.shankEnd.y - slot.head.y) * k, innerEndLayout.channelRibbon) < clearance,
+      ),
+    );
+    if (onChannel) thickness = stackedKeyholeThickness(wireDiameter, thickness);
+    if (thickness > channelOnlyThickness + 1e-9) {
+      warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
+    }
   }
   // Issue #70 PR review: reuses `solution.flangeSize / 2` as the wound
   // envelope's own radius -- mirrors flange.ts's `resolveFlangeSizing`
@@ -204,6 +220,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     boreOutline,
     margin,
     thickness,
+    plateThickness,
     columns,
     minCornerSegments: cornerSegs,
     mount: spec.mount,

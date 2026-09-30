@@ -65,7 +65,7 @@ async function assertManifold(mesh: { positions: Float32Array; indices: Uint32Ar
 /** The real layout design() cut, re-derived from its own public fields. */
 function layoutOf(d: Awaited<ReturnType<typeof design>>) {
   const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-  const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness, d.spec.mount);
+  const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness);
   return layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, channelDepth);
 }
 
@@ -126,7 +126,7 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
       for (const p of rings[rings.length - 1]) expect(outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset).toBeGreaterThan(d.flangeSpec.margin);
       // Its deepest cut is the bore's bottom around the cable resting in the
       // channel: channelDepth to the cable's bottom, tolerance/2 more for the bore.
-      const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness, d.spec.mount);
+      const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness);
       const deepest = Math.min(...rings.flat().map((p) => p.z));
       expect(deepest).toBeCloseTo(-channelDepth - d.spec.tolerance / 2, 3);
     }
@@ -201,10 +201,15 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
     // own public `wallSpec`/`flangeSpec`) and call the exported
     // `fuseFlange` a second time with no `innerEnd` cutter at all, so the
     // only difference between the two meshes is the cutout itself.
+    // Issue #122: on a full-thickness plate (no pads), so the channel's own
+    // pad -- present only with the cut -- doesn't muddy the comparison.
     const d = await design(baseSpec({ wire: { length: 2000, diameter: 3.8, type: "usb" } }));
     const wall = buildWall(d.wallSpec);
-    const withoutCut = await fuseFlange(wall, d.flangeSpec); // no innerEnd argument -- no cutout at all
-    const thick = await assertManifold(d.mesh, "3.8mm core, with cutout");
+    const flat = { ...d.flangeSpec, plateThickness: d.flangeSpec.thickness };
+    const diameter = d.spec.wire.diameter;
+    const cut = { wireDiameter: diameter, tolerance: d.spec.tolerance, bendRadius: bendMultiplierOf(d.spec.wire) * diameter, channelDepth: resolveChannelDepth(diameter, flat.thickness), flangeThickness: flat.thickness };
+    const withoutCut = await fuseFlange(wall, flat); // no innerEnd argument -- no cutout at all
+    const thick = await assertManifold(await fuseFlange(wall, flat, undefined, cut), "3.8mm core, with cutout");
     const thin = await assertManifold(withoutCut, "3.8mm core, no cutout (reference)");
     expect(thin - thick).toBeGreaterThan(20); // a few tens of mm^3, comfortably more than mesh noise
   });
@@ -234,7 +239,7 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
       // Level from its free end through the rim and the clip, resting on the
       // channel floor: its top is flush with the flange face (issue #43), not
       // proud of it.
-      const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness, d.spec.mount);
+      const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness);
       const zChannel = -channelDepth + d.spec.wire.diameter / 2;
       expect(lead[2] + d.spec.wire.diameter / 2).toBeLessThanOrEqual(1e-4);
       for (let i = 0; i < n; i++) {
