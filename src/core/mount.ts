@@ -461,7 +461,7 @@ export function requiredThroughMountMargin(
 }
 
 /** Point-to-closed-polygon minimum distance (mm) -- used to keep a through-hole clear of the inner-end cable channel's own cut footprint (issue #70 AC: "clear of ... the inner-end channel"). */
-function distanceToClosedPolygon(px: number, py: number, points: XY[]): number {
+export function distanceToClosedPolygon(px: number, py: number, points: XY[]): number {
   let best = Infinity;
   let inside = false;
   const n = points.length;

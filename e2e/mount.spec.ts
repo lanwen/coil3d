@@ -22,7 +22,9 @@ test("mount defaults to none, with no mount param in the hash", async ({ page })
 });
 
 test("switching to the screw-keyhole mount updates the hash + result panel, and reproduces on reload", async ({ page }) => {
-  await page.goto("/#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60");
+  // A 2 mm cable: its channel pad (3.5 mm) is thinner than the keyhole's
+  // own 5 mm, so the mount really does thicken the flange (issue #122).
+  await page.goto("/#v=1&L=2000&d=2&lock=outer,ly&size=100&h=60");
   await page.getByTestId("select-mount").selectOption("keyhole");
 
   await expect(async () => {
@@ -151,10 +153,12 @@ test.describe("keyhole mount rotation (issue #71)", () => {
 // these navigate via a base legacy link + the UI's own mount selector,
 // never a hand-written `&mount=through` legacy hash the codec can't read.
 const BASE_HASH = "#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60";
+/** A 2 mm cable: its channel pad (3.5 mm) is thinner than the counterbore's own 4 mm, so the mount really does thicken the flange (issue #122). */
+const THIN_CABLE_HASH = "#v=1&L=2000&d=2&lock=outer,ly&size=100&h=60";
 
 test.describe("through-hole mount (issue #70)", () => {
   test("switching to the through-hole mount updates the hash + result panel, shows the hole-diameter field, and reproduces on reload", async ({ page }) => {
-    await page.goto(`/${BASE_HASH}`);
+    await page.goto(`/${THIN_CABLE_HASH}`);
     await expect(page.getByTestId("input-throughHoleDiameter")).toHaveCount(0);
 
     await page.getByTestId("select-mount").selectOption("through");
