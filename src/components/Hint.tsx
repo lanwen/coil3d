@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 /**
  * The (i) hint button next to a control (issue #53): a short, plain-English
@@ -30,6 +30,20 @@ export function Hint({ text }: { text: string }) {
   const open = hovered || focused || tapped;
   const bubbleId = useId();
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const bubbleRef = useRef<HTMLSpanElement | null>(null);
+  // The bubble opens rightwards from its row by default; one that would run
+  // off the right edge of the window (the top-right projection switch, the
+  // second toggle in a phone strip row) opens leftwards instead, ending at
+  // its row's right edge. Measured before paint, on every open.
+  const [alignEnd, setAlignEnd] = useState(false);
+  useLayoutEffect(() => {
+    const bubble = bubbleRef.current;
+    if (!open || !bubble) return;
+    bubble.removeAttribute("data-align");
+    const overflows = bubble.getBoundingClientRect().right > document.documentElement.clientWidth - 4;
+    if (overflows) bubble.setAttribute("data-align", "end");
+    setAlignEnd(overflows);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -65,7 +79,15 @@ export function Hint({ text }: { text: string }) {
       >
         i
       </button>
-      <span id={bubbleId} role="tooltip" className="hint-bubble" data-testid="hint-bubble" data-open={open || undefined}>
+      <span
+        ref={bubbleRef}
+        id={bubbleId}
+        role="tooltip"
+        className="hint-bubble"
+        data-testid="hint-bubble"
+        data-open={open || undefined}
+        data-align={open && alignEnd ? "end" : undefined}
+      >
         {text}
       </span>
     </span>
