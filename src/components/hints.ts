@@ -27,7 +27,7 @@ export const HINTS = {
   layers:
     "This is how many layers of cable the coil has. A layer is one full row of turns from the bottom of the core to the top; the next layer winds on top of it. Lock it to set an exact count, or leave it free.",
   mount:
-    "This adds a way to hang the coil on a wall: a screw keyhole (hang it, then slide down to seat), plain through-holes (screw straight through, no sliding), or a clip plate for an IKEA SKÅDIS pegboard (a separate part, glued to the flange on two short pieces of filament).",
+    "This adds a way to hang the coil on a wall: a screw keyhole (hang it, then slide down to seat), plain through-holes (screw straight through, no sliding), or a clip plate for an IKEA SKÅDIS pegboard (a separate part, glued to the flange on two small printed pegs).",
   keyholeRotation: "This rotates the keyhole slot's own position on the core, in fixed steps. The coil still hangs level at every setting -- only which side faces up changes.",
   throughHoleDiameter: "This is the diameter of the screw-shank holes drilled straight through the flange. Match it to the screws you plan to mount with.",
   windingQuality:

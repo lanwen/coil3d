@@ -128,7 +128,7 @@ test.describe("Print layout view (issue #78)", () => {
   for (const [label, hash, names] of [
     ["one-part", ONE_PART, ["core"]],
     ["two-part", TWO_PART, ["core", "top-cap"]],
-    ["skadis", SKADIS, ["core", "mount-plate"]],
+    ["skadis", SKADIS, ["core", "mount-plate", "peg-1", "peg-2"]],
   ] as const) {
     test(`${label} design: view placement matches the 3MF export's own placement (shared function, issue #78 AC)`, async ({ page }) => {
       await gotoDesign(page, hash);

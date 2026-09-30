@@ -117,7 +117,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
     // independent re-import + volume check as glue.
     const PLATE_JOINTS: PlateJoint[] = ["glue", "snap"];
     it.each(PLATE_JOINTS)(
-      "STEP export produces one file with one solid per part (core + mount-plate), each volume matching its own mesh (plateJoint=%s)",
+      "STEP export produces one file with one solid per part (core + mount-plate + pegs), each volume matching its own mesh (plateJoint=%s)",
       async (plateJoint) => {
         const d = await design({ ...plateSpec, plateJoint });
         expect(d.parts.map((p) => p.role)).toContain("mountPlate");
@@ -127,7 +127,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
 
         const { valid, solidVolumes } = await reimportStep(stepBytes, `reimport-mount-plate-${plateJoint}`);
         expect(valid).toBe(true);
-        expect(solidVolumes.length).toBe(2); // core + mount-plate
+        expect(solidVolumes.length).toBe(4); // core + mount-plate + 2 pegs (issue #132)
 
         const totalVolume = solidVolumes.reduce((sum, v) => sum + v, 0);
         const expectedVolume = d.parts.reduce((sum, p) => sum + meshVolume(p.mesh), 0);

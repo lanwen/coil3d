@@ -18,7 +18,7 @@ wound wire will look, and exports print-ready STL / 3MF / STEP. The URL encodes 
 | Core | A **tube**: hollow and open, and the center stores the inner connector. The user can lock either the **inner diameter** (bore) or the **outer diameter** (winding surface); wall thickness links the two. |
 | Wire ends | **v1: no connector pocket; both connectors dangle outside.** Inner end: a **recessed channel on the bottom flange's inner face**, swept along the straight line the cable leaves the groove start along (issue #115: a tangential chord, so the cable never bends tighter than its bend radius) -- round, d + tolerance across, deepening with the cable's own drop (issue #117) -- so layers don't wind over a bump, ending in a **snap-in clip near the rim** (opening 0.75 of the bore, printable without supports) that the cable presses into and leaves the rim from sideways, along its own direction; the flange margin grows if the chord needs more room. Outer end: the same **clip, hanging under the top cap**, where the cable's run up from the last layer ends -- since issue #121 on a 45-degree chamfered, pyramid-like root (strong across the layer lines), just clear of the outermost layer rather than at the rim, and repeated every 90 degrees (round, square) or 120 degrees (triangle) so a cable end unwound a little further still has a clip; one is left out where it would stand in the drawn cable's way (the margin grows so the clips clear the wound cable). The cap's middle is a straight through-hole (issue #127): the collar is a 2 mm-walled tube and nothing prints as a bridge -- neither the pre-#121 blind pocket over a solid plug nor #121's filled-in solid face; with no top cap, the cable leaves the last turn as a straight tangential tail. v2: a clip on the cable to stop it unwinding. |
 | Connector sizes | **Not modelled in v1** (connectors dangle). The presets (USB-A/C, Lightning, 3.5 mm, Schuko straight/angled) come back when a pocket or clip needs them. |
-| Caps / parts | **The bottom flange is always present and printed as one piece with the core** (flat on the bed, core upright); it carries the mount. **Top cap separate**, auto-enabled when layers > 1, and the user can override. Flange size = final outer envelope + margin. **Clip mounts (SKÅDIS/openGrid) are a separate mount plate** glued or snapped onto the flange's outer face, so the core prints without supports. The screw keyhole is recessed straight into the flange; the through-hole mount cuts straight through it instead. Parts: core, plus top cap and mount plate as needed (max 3). |
+| Caps / parts | **The bottom flange is always present and printed as one piece with the core** (flat on the bed, core upright); it carries the mount. **Top cap separate**, auto-enabled when layers > 1, and the user can override. Flange size = final outer envelope + margin. **Clip mounts (SKÅDIS/openGrid) are a separate mount plate** glued or snapped onto the flange's outer face, so the core prints without supports. The screw keyhole is recessed straight into the flange; the through-hole mount cuts straight through it instead. Parts: core, plus top cap and mount plate (with its two printed alignment pegs, issue #132) as needed (max 5). |
 | Cap joint | Permanent after assembly. Options: press-fit, bayonet/twist-lock, snap clips (glue-friendly). |
 | Bend limit | Wire-type preset → min-bend-radius multiplier: USB/audio 4×, **flexible cord 4×**, stiff/solid 10×, custom. Corner-radius slider is clamped to it. |
 | Mounting | The axis points out of the wall; mount features sit on the bottom flange's outer face; the top cap and label face the room. Semi-permanent: **screw keyhole (wall)** -- issue #71 adds a `keyholeRotation` 0/45/90° option (which of the shape's own natural axes the slot lands on; the mount axis and the hang stay level at every setting) and a verified undercut behind the slot's own narrow surface opening, so the screw head is actually captured, not just wedged -- **through-holes** (issue #70, revised #129: plain, constant-radius screw-shank holes straight through the flange, no counterbore or pad, permanent/non-sliding, near the corners for sq/tri or evenly spaced for round), **IKEA SKÅDIS**, **openGrid**. Multiboard excluded. |
@@ -223,7 +223,7 @@ before a long print.
 
 1. ~~Size semantics~~ **Resolved:** square = across flats; triangle = inscribed-circle diameter. Round = diameter.
 2. ~~Inner vs outer diameter~~ **Resolved:** the core is a tube. Lock the bore (inner) or the winding surface (outer). Wall thickness links the two.
-3. ~~Parts~~ **Resolved:** the bottom flange is integral with the core (always present); the top cap is separate; clip mounts are a separate plate (clips can't point into the print bed). At most 3 parts.
+3. ~~Parts~~ **Resolved:** the bottom flange is integral with the core (always present); the top cap is separate; clip mounts are a separate plate (clips can't point into the print bed), aligned on two printed pegs (issue #132). At most 5 parts.
 4. ~~Pocket opening~~ **Superseded:** there is no pocket in v1; connectors dangle. (Option A stays the preferred design if a pocket returns.)
 5. ~~Keyhole~~ **Resolved:** on the rim (radial), one on the bottom flange and one on the top cap.
 6. ~~Label~~ **Resolved:** top cap face, only if there is space.
@@ -454,13 +454,31 @@ across independent sources):
   pegs/snap tabs on its FRONT face hung below the panel. Both mating faces
   now carry only blind holes, aligned with two 4.5 mm pieces of 1.75 mm
   filament, then glued. `pj=snap` links still parse and get the same plate
-  with a warning. Pin holes also move off the inner-end keyhole (one
+  with a warning. (Issue #132 replaced the filament with two printed pegs,
+  see below.) Pin holes also move off the inner-end keyhole (one
   grazing it added a tunnel through the core).
 - **Visibility.** Selecting SKÅDIS switches the viewer to a new "Mount side"
   view (offered only while a SKÅDIS plate exists): the plate face-on from
   behind the wall with the slot grid (`Design.pegboard`) drawn in grey. The
   Wall mount view draws the board's slots behind the coil. The guide gets a
   "Fit the mount plate" step and a SKÅDIS mount step with the same slot grid.
+
+**Alignment pegs (issue #132).** The two pins are now their own printed
+parts, `peg-1` and `peg-2`, in every export, the print layout, the exploded
+view and the guide. Each peg is a low-poly prism: a 3 mm square with its
+corners cut 0.5 mm at 45 degrees (an octagon whose 8 corners all lie on a
+1.80 mm circle), 4.5 mm long, with a 0.4 mm 45-degree lead-in on both ends.
+It prints lying on a 2 mm-wide flat (a quarter turn about X): the layers
+then run along the peg, so the only load across the joint (shear across the
+peg) never splits a layer line, and every other face is at 45 degrees or
+steeper. Standing up it would have a bigger footprint but shear straight
+along a layer line at the seam. The holes stay round (2.4 mm deep in each
+part) and grip the octagon's corners, so the peg goes in at any rotation:
+the hole radius is the corner circle plus half the print tolerance (1.90 mm
+at the default 0.2 mm), a diametral clearance equal to the tolerance. The
+mesh cuts the hole as a 24-gon whose flats sit on that radius, so its facets
+never pinch the corners. A hole pair needs 3.6 mm of flange annulus plus
+1 mm on each side, and keeps 3.3 mm clear of the inner-end channel.
 
 **How the clip engages** (checked in `test/skadisFit.test.ts` on the real
 plate mesh against a board built only from the facts above, for round,
