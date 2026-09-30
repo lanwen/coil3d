@@ -253,6 +253,33 @@ function validateLockTokens(tokens: Iterable<string>): string | undefined {
   return undefined;
 }
 
+/**
+ * Issue #119: the UI now enforces "at most 2 of {core size, height, layers}
+ * locked at once" (something has to stay free to fit the cable length), so
+ * a link asking to lock all three is no longer a state the app can produce
+ * itself. Rather than fail the whole link (`fallback`, which would also
+ * discard every OTHER field the link set), this drops one lock and keeps
+ * going: a documented, deterministic tie-break -- always "ly" (layers),
+ * since a locked core size + height already pins the tube's own geometry,
+ * and letting the solver pick the layer count is the same "free" that
+ * choosing objective="minVolume" already defaults to elsewhere. Only ever
+ * called from `parseDocHash` (the CURRENT `#s=` document): the legacy
+ * `#v=1&...` codec is a frozen, byte-for-byte-compatible format (see this
+ * file's own header comment) that this ticket doesn't touch, and no
+ * existing legacy link needs this -- see the many `lock=outer,h,ly` e2e
+ * fixtures, which deliberately over-pin all three to get fully
+ * deterministic geometry for screenshot baselines, predating this rule.
+ */
+function capMaxTwoLocked(tokens: Set<string>): { tokens: Set<string>; droppedLayers: boolean } {
+  const sizeLocked = tokens.has("outer") || tokens.has("inner");
+  if (sizeLocked && tokens.has("h") && tokens.has("ly")) {
+    const next = new Set(tokens);
+    next.delete("ly");
+    return { tokens: next, droppedLayers: true };
+  }
+  return { tokens, droppedLayers: false };
+}
+
 /** Shared by both codecs: builds the resolved `CoilSpec` + `showWire` once every raw field is validated and typed. */
 function buildParsed(p: {
   L?: number;
@@ -340,9 +367,12 @@ function parseDocHash(encoded: string): ParsedHash {
   }
   const p = result.data;
 
-  const lockTokens = new Set<string>(p.lock ?? DEFAULT_LOCK_TOKENS);
-  const lockNotice = validateLockTokens(lockTokens);
+  const requestedLockTokens = new Set<string>(p.lock ?? DEFAULT_LOCK_TOKENS);
+  const lockNotice = validateLockTokens(requestedLockTokens);
   if (lockNotice) return fallback(lockNotice);
+  // Issue #119: normalize (not fallback) a link locking all three -- see
+  // `capMaxTwoLocked`'s own doc comment for why this drops "ly" specifically.
+  const { tokens: lockTokens, droppedLayers } = capMaxTwoLocked(requestedLockTokens);
 
   if (p.wt !== "custom" && p.mbr !== undefined) {
     return fallback('The link sets a custom bend multiplier ("mbr") without wt=custom -- showing default values instead.');
@@ -357,7 +387,7 @@ function parseDocHash(encoded: string): ParsedHash {
     return fallback('The link sets a through-hole diameter ("thd") without mount=through -- showing default values instead.');
   }
 
-  return buildParsed({
+  const parsed = buildParsed({
     L: p.L,
     d: p.d,
     wt: p.wt,
@@ -384,6 +414,9 @@ function parseDocHash(encoded: string): ParsedHash {
     bz: p.bz,
     label: p.label,
   });
+  return droppedLayers
+    ? { ...parsed, notice: "This link locks core size, height and layers all at once -- something has to stay free to fit the cable length, so layers was left free." }
+    : parsed;
 }
 
 // --- the legacy (`#v=1&...`) flat query string --------------------------
