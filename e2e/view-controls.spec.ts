@@ -279,6 +279,7 @@ test.describe("preset bar layout (issue #141)", () => {
       await page.getByTestId(`preset-${id}`).click();
       await expect(page.getByTestId(`preset-${id}`)).toHaveAttribute("aria-pressed", "true");
       await expect(page.locator('.preset-btn[aria-pressed="true"]')).toHaveCount(1);
+      await expect(page.locator(".wire-toggle")).toHaveCount(id === "printLayout" ? 0 : 1); // settle the print layout's toggle unmount
       const [bg, fg] = await page.getByTestId(`preset-${id}`).evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color]);
       expect(bg).toBe("rgb(0, 0, 0)");
       expect(fg).toBe("rgb(255, 255, 255)");
@@ -314,6 +315,9 @@ test.describe("preset bar layout (issue #141)", () => {
       // The caption (the thing the bar is most likely to collide with at
       // the bottom) must be settled in before the overlap check.
       await expect(page.getByTestId("wall-view-caption")).toHaveCount(id === "iso" ? 0 : 1);
+      // Print layout unmounts the toggles (App's `isPrintLayout`) a render
+      // later; let that settle too, or boundingBox() waits on a gone node.
+      await expect(page.locator(".wire-toggle")).toHaveCount(id === "printLayout" ? 0 : 1);
       const bar = await expectBarClearOfOverlays(page);
       expect(Math.abs(bar.x + bar.width / 2 - (viewer.x + viewer.width / 2)), "horizontally centred").toBeLessThan(2);
       expect(viewer.y + viewer.height - (bar.y + bar.height), "at the bottom").toBeLessThan(12);
