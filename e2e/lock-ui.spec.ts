@@ -22,15 +22,19 @@ test("locking height updates the result panel and adds it to the hash's lock lis
   await page.goto("/");
   await expect(page.getByTestId("diagnosis-status")).toHaveText("ok"); // 1 free (height) by default
 
+  // Issue #119: the default already locks 2 (outer + layers) -- height's own
+  // lock toggle is disabled until one of those frees up.
+  await page.getByTestId("lock-layers").uncheck();
   await page.getByTestId("lock-height").check();
   await expect(page.getByTestId("input-height")).toBeEnabled();
 
-  // Now 0 free (outer + layers + height all locked): the hash must record it.
+  // Now outer + height locked (2, the new limit), layers free: the hash must record it.
   await expect(async () => {
     const lockTokens = decodeHashDoc(page.url()).lock;
     expect(lockTokens).toContain("h");
+    expect(lockTokens).not.toContain("ly");
   }).toPass();
-  await expect(page.getByTestId("diagnosis-status")).toHaveText(/ok|over-constrained/);
+  await expect(page.getByTestId("diagnosis-status")).toHaveText(/ok|over-constrained|under-constrained/);
 });
 
 test("changing the locked outer size value updates both the result panel and the hash", async ({ page }) => {
@@ -73,4 +77,87 @@ test("unlocking layers (2 free: height + layers) shows an alternate candidate", 
 
   await expect(page.getByTestId("select-objective")).toBeVisible();
   await expect(page.getByTestId("alternate-candidate")).toBeVisible();
+});
+
+// Issue #119 AC #1: at most 2 of {core size, height, layers} can be locked
+// at once -- something has to stay free so the solver can fit the cable
+// length. These tests fail on main (no such restriction exists there: main
+// lets `lock-height` be checked straight from the default state, making all
+// three locked).
+test.describe("at most 2 of core size / height / layers can be locked (issue #119)", () => {
+  test("the default state (2 locked) disables the third lock toggle, with an explanatory note", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("lock-outer")).toBeChecked();
+    await expect(page.getByTestId("lock-layers")).toBeChecked();
+    await expect(page.getByTestId("lock-height")).not.toBeChecked();
+
+    await expect(page.getByTestId("lock-height")).toBeDisabled();
+    await expect(page.getByTestId("height-lock-note")).toContainText(/free/i);
+    // The already-locked toggles stay enabled -- either can still be freed.
+    await expect(page.getByTestId("lock-outer")).toBeEnabled();
+    await expect(page.getByTestId("lock-layers")).toBeEnabled();
+  });
+
+  test("freeing one lock re-enables the third, and locking it disables whichever is now the odd one out", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("lock-layers").uncheck(); // 1 locked (outer), 2 free (height, layers)
+    await expect(page.getByTestId("lock-height")).toBeEnabled();
+    await expect(page.getByTestId("lock-layers")).toBeEnabled();
+
+    await page.getByTestId("lock-height").check(); // 2 locked (outer, height)
+    await expect(page.getByTestId("lock-layers")).toBeDisabled();
+    await expect(page.getByTestId("layers-lock-note")).toContainText(/free/i);
+    // outer and height stay freely toggleable.
+    await expect(page.getByTestId("lock-outer")).toBeEnabled();
+    await expect(page.getByTestId("lock-height")).toBeEnabled();
+  });
+
+  test("a link locking all three (current #s= format) parses to a valid, at-most-2-locked state and shows a notice, instead of crashing", async ({
+    page,
+  }) => {
+    // #s=<base64url({v:2, L:6000, lock:["outer","h","ly"], size:60, h:60, ly:2})>
+    const doc = { v: 2, L: 6000, lock: ["outer", "h", "ly"], size: 60, h: 60, ly: 2 };
+    const s = Buffer.from(JSON.stringify(doc)).toString("base64url");
+    await page.goto(`/#s=${s}`);
+
+    await expect(page.getByTestId("diagnosis-status")).toBeVisible(); // renders -- no crash
+    await expect(page.getByTestId("hash-notice")).toContainText(/layers/i);
+    // Normalized down to 2 locked: core size + height stay locked (as requested), layers ends up free.
+    await expect(page.getByTestId("lock-outer")).toBeChecked();
+    await expect(page.getByTestId("lock-height")).toBeChecked();
+    await expect(page.getByTestId("lock-layers")).not.toBeChecked();
+    // Still 2 locked (core size + height) -- layers stays free, and locking
+    // it back is disabled by the very same rule that dropped it.
+    await expect(page.getByTestId("lock-layers")).toBeDisabled();
+  });
+});
+
+// Issue #119 AC #2: the "Locked dimension" dropdown moves directly under the
+// core-size lock toggle, and shows only while core size is locked (it used
+// to always render, just disabled).
+test.describe("the locked-dimension dropdown only shows while core size is locked, directly under it (issue #119)", () => {
+  test("hidden while core size is free, appears immediately under the core-size field once locked", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("lock-outer").uncheck(); // 1 locked (layers), 2 free (outer, height)
+    await expect(page.getByTestId("select-coreSizeDimension")).toHaveCount(0);
+
+    await page.getByTestId("lock-outer").check();
+    await expect(page.getByTestId("select-coreSizeDimension")).toBeVisible();
+
+    // "Directly under the core-size lock": within the Core section, the
+    // dimension dropdown's own `.field` is the very next one after the
+    // core-size field (the one containing the `lock-outer` toggle).
+    const coreSection = page.locator(".ctl-section").filter({ has: page.getByTestId("lock-outer") });
+    const fields = coreSection.locator(".field");
+    const count = await fields.count();
+    let coreSizeIndex = -1;
+    for (let i = 0; i < count; i++) {
+      if (await fields.nth(i).locator('[data-testid="lock-outer"]').count()) {
+        coreSizeIndex = i;
+        break;
+      }
+    }
+    expect(coreSizeIndex).toBeGreaterThanOrEqual(0);
+    await expect(fields.nth(coreSizeIndex + 1).getByTestId("select-coreSizeDimension")).toBeVisible();
+  });
 });

@@ -85,6 +85,9 @@ test.describe("lock icon and borderless overlay toggles (issue #104)", () => {
     expect(await visibleLockIcon(page, "lock-outer")).toBe("closed");
     expect(await visibleLockIcon(page, "lock-height")).toBe("open");
 
+    // Issue #119: the default already locks 2 (outer + layers), so height's
+    // own lock toggle is disabled until one of those frees up.
+    await page.getByTestId("lock-layers").uncheck();
     await page.getByTestId("lock-height").check();
     expect(await visibleLockIcon(page, "lock-height")).toBe("closed");
   });

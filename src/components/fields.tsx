@@ -331,6 +331,7 @@ export function Switch({
   ariaLabel,
   checked,
   title,
+  disabled,
   onChange,
   showState = true,
   offContent = "0",
@@ -341,6 +342,10 @@ export function Switch({
   ariaLabel: string;
   checked: boolean;
   title?: string;
+  /** Issue #119: the lock toggle disables itself (rather than disappearing)
+   * once two of {core size, height, layers} are already locked -- see
+   * `LockToggle` below. */
+  disabled?: boolean;
   onChange: (checked: boolean) => void;
   /** False hides the track's state indicator entirely (issue #104: the
    * two-sided perspective toggle, whose own side labels already say what
@@ -366,6 +371,7 @@ export function Switch({
         aria-label={ariaLabel}
         aria-checked={checked}
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
       <span className="switch-track" aria-hidden="true">
@@ -407,19 +413,45 @@ function LockIcon({ locked }: { locked: boolean }) {
  * ambiguous which field it controlled), with an explicit "Lock {label}"
  * accessible name since the visible row carries only the switch, no text.
  */
-function LockToggle({ testId, label, checked, onChange }: { testId: string; label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+function LockToggle({
+  testId,
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  testId: string;
+  label: string;
+  checked: boolean;
+  /** Issue #119: at most 2 of {core size, height, layers} can be locked at
+   * once -- true here means this one is currently FREE and locking it would
+   * make a third, so the toggle is disabled (never for an already-locked
+   * field, which must always stay free to unlock). */
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
   return (
     <Switch
       testId={`lock-${testId}`}
       ariaLabel={`Lock ${label}`}
       checked={checked}
-      title={checked ? `Locked -- click to let ${label} be solved` : `Free -- click to lock ${label}`}
+      disabled={disabled}
+      title={
+        checked
+          ? `Locked -- click to let ${label} be solved`
+          : disabled
+            ? "Two dimensions are already locked -- something has to stay free to fit the cable length"
+            : `Free -- click to lock ${label}`
+      }
       onChange={onChange}
       offContent={<LockIcon locked={false} />}
       onContent={<LockIcon locked={true} />}
     />
   );
 }
+
+/** Issue #119: the note shown under a lock toggle disabled by the max-2-locked rule. */
+export const LOCK_LIMIT_NOTE = "Two of core size, height and layers are already locked -- something has to stay free to fit the cable length.";
 
 /** A lockable numeric range field: pairs {@link LockToggle} with {@link RangeField}. */
 export function LockRangeField({
@@ -433,6 +465,9 @@ export function LockRangeField({
   freeValue,
   hint,
   minNote,
+  /** Issue #119: disables the lock toggle (this field is currently free, and
+   * two others are already locked) and shows {@link LOCK_LIMIT_NOTE} below. */
+  lockDisabled,
   onChange,
 }: {
   testId: string;
@@ -445,6 +480,7 @@ export function LockRangeField({
   freeValue: number;
   hint?: string;
   minNote?: string;
+  lockDisabled?: boolean;
   onChange: (lock: Lock<number>) => void;
 }) {
   // Issue #72 AC: "the spec stores rounded values when the user edits" --
@@ -465,21 +501,29 @@ export function LockRangeField({
   const setValue = (value: number) => {
     if (lock.locked) onChange({ locked: true, value: Math.max(min, roundMm(value)) });
   };
+  const showLockNote = !lock.locked && lockDisabled;
   return (
-    <RangeField
-      testId={testId}
-      label={label}
-      unit={unit}
-      value={displayValue}
-      min={min}
-      max={max}
-      step={step}
-      disabled={!lock.locked}
-      leading={<LockToggle testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
-      hint={hint}
-      minNote={minNote}
-      onChange={setValue}
-    />
+    <>
+      <RangeField
+        testId={testId}
+        label={label}
+        unit={unit}
+        value={displayValue}
+        min={min}
+        max={max}
+        step={step}
+        disabled={!lock.locked}
+        leading={<LockToggle testId={testId} label={label} checked={lock.locked} disabled={showLockNote} onChange={toggle} />}
+        hint={hint}
+        minNote={minNote}
+        onChange={setValue}
+      />
+      {showLockNote && (
+        <p className="field-note" data-testid={`${testId}-lock-note`}>
+          {LOCK_LIMIT_NOTE}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -492,6 +536,8 @@ export function LockStepperField({
   max,
   freeValue,
   hint,
+  /** Issue #119: see {@link LockRangeField}'s own `lockDisabled`. */
+  lockDisabled,
   onChange,
 }: {
   testId: string;
@@ -501,24 +547,33 @@ export function LockStepperField({
   max: number;
   freeValue: number;
   hint?: string;
+  lockDisabled?: boolean;
   onChange: (lock: Lock<number>) => void;
 }) {
   const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? lock.value : freeValue } : { locked: false });
   const setValue = (value: number) => {
     if (lock.locked) onChange({ locked: true, value });
   };
+  const showLockNote = !lock.locked && lockDisabled;
   return (
-    <StepperField
-      testId={testId}
-      label={label}
-      value={lock.locked ? lock.value : Math.round(freeValue)}
-      min={min}
-      max={max}
-      disabled={!lock.locked}
-      leading={<LockToggle testId={testId} label={label} checked={lock.locked} onChange={toggle} />}
-      hint={hint}
-      onChange={setValue}
-    />
+    <>
+      <StepperField
+        testId={testId}
+        label={label}
+        value={lock.locked ? lock.value : Math.round(freeValue)}
+        min={min}
+        max={max}
+        disabled={!lock.locked}
+        leading={<LockToggle testId={testId} label={label} checked={lock.locked} disabled={showLockNote} onChange={toggle} />}
+        hint={hint}
+        onChange={setValue}
+      />
+      {showLockNote && (
+        <p className="field-note" data-testid={`${testId}-lock-note`}>
+          {LOCK_LIMIT_NOTE}
+        </p>
+      )}
+    </>
   );
 }
 
