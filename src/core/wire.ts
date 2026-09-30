@@ -27,7 +27,8 @@
 //   - the inner-end lead-in is innerEnd.ts's tangential chord;
 //   - the outer end: with the top cap on, a blend (searched the same way)
 //     to just under the cap, then on through the cap's clip (issue #117,
-//     laid out where that blend ends) and out past the rim; with the cap
+//     laid out where that blend ends; issue #121 repeats it around the
+//     cap) and out past the rim; with the cap
 //     off, a straight tail along the last turn's tangent.
 
 import {
@@ -246,6 +247,8 @@ export interface CableEnds {
   height: number;
   /** The flange (and top cap) margin, mm. */
   margin: number;
+  /** The wound cable's outer surface as an offset outside the outline (flange.ts), mm: the cap clips sit just outside it. */
+  envelopeOffset: number;
   tolerance: number;
   /** The cable's minimum bend radius, mm. */
   bendRadius: number;
@@ -364,11 +367,11 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
     }
   } else {
     // To just under the cap, arriving level along the outline at the cap
-    // clip's offset (inside the rim, clear of the wound cable -- innerEnd.ts's
+    // clip's offset (just clear of the wound cable -- innerEnd.ts's
     // `capClipOffset`); the clip then runs on from wherever this blend ends,
     // and the cable leaves through it past the rim (`layoutCapClip`).
     const d = wallSpec.wireDiameter;
-    const oKey = capClipOffset(ends.margin, d, ends.tolerance);
+    const oKey = capClipOffset(ends.envelopeOffset, d, ends.tolerance);
     const zKey = ends.height + capCableZ(d);
     const o0 = last.offset;
     const climbsAll = last.slope < 0; // ends at the bottom: climb the whole height outside the last layer
@@ -385,8 +388,11 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
       LEAD_OUT_TURNS_MAX,
     );
     if (!found.ok) warnings.push(`The cable's run up to the top cap's clip bends tighter than its ${ends.bendRadius.toFixed(1)} mm bend radius.`);
-    capClip = layoutCapClip(outline, ends.margin, d, ends.tolerance, ends.bendRadius, uEnd + found.turns);
-    const through = capClip.path.flatMap((p) => [p.x, p.y, zKey]);
+    // The lead-out, in the cap's local frame: repeated clips (issue #121)
+    // are left out where they would stand in its way.
+    const avoid = Array.from({ length: found.points.length / 3 }, (_, i) => ({ x: found.points[i * 3], y: found.points[i * 3 + 1], z: found.points[i * 3 + 2] - ends.height }));
+    capClip = layoutCapClip(outline, ends.margin, ends.envelopeOffset, d, ends.tolerance, ends.bendRadius, uEnd + found.turns, avoid);
+    const through = capClip.clips[0].path.flatMap((p) => [p.x, p.y, zKey]);
     outerEndLeadOut = joinPieces([found.points, new Float32Array(through)]);
   }
 

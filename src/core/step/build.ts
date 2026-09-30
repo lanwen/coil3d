@@ -473,13 +473,13 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
  * at all, reporting no error (replicad's own `cut` would pass that straight
  * on) -- so a cut that removes no volume counts as a failure too.
  */
-function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D): R.Shape3D {
+function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D | R.Shape3D[]): R.Shape3D {
   const before = R.measureVolume(shape);
   for (const fuzzy of FUZZY_CUTS) {
     const args = new kernel.NCollection_List_TopoDS_Shape();
     args.Append(shape.wrapped);
     const tools = new kernel.NCollection_List_TopoDS_Shape();
-    tools.Append(tool.wrapped);
+    for (const t of [tool].flat()) tools.Append(t.wrapped);
     const op = new kernel.BRepAlgoAPI_Cut();
     try {
       op.SetArguments(args);
@@ -496,6 +496,39 @@ function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape
     }
   }
   throw new Error("STEP export: a boolean cut failed (it removed nothing)");
+}
+
+/**
+ * `shape` fused with every one of `tool`, the same way as `checkedCut` (issue #121): the
+ * cap's swept clip blocks fused plainly into the plate gave a solid OCCT's
+ * own checker rejects, so each fuzzy value is tried in turn until the result
+ * checks valid.
+ */
+function checkedFuse(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D[]): R.Shape3D {
+  for (const fuzzy of FUZZY_CUTS) {
+    const args = new kernel.NCollection_List_TopoDS_Shape();
+    args.Append(shape.wrapped);
+    const tools = new kernel.NCollection_List_TopoDS_Shape();
+    for (const t of tool) tools.Append(t.wrapped);
+    const op = new kernel.BRepAlgoAPI_Fuse();
+    try {
+      op.SetArguments(args);
+      op.SetTools(tools);
+      op.SetFuzzyValue(fuzzy);
+      op.Build(new kernel.Message_ProgressRange());
+      if (op.HasErrors()) continue;
+      const result = R.cast(op.Shape()) as R.Shape3D;
+      const analyzer = new kernel.BRepCheck_Analyzer(result.wrapped, true, false, false);
+      const valid = analyzer.IsValid();
+      analyzer.delete();
+      if (valid) return result;
+    } finally {
+      op.delete();
+      args.delete();
+      tools.delete();
+    }
+  }
+  throw new Error("STEP export: a boolean fuse failed (no valid result)");
 }
 
 /** Validate one part's solid: manifold-valid, exactly one solid, and its volume matches the part's own mesh within tolerance. Throws with a descriptive message otherwise. */
@@ -688,9 +721,8 @@ async function buildLabelCutterSolid(label: ResolvedLabel): Promise<R.Shape3D | 
 async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
   const outerOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
-  const plateOuter = outlineSolid(outerOutline, CAP_THICKNESS, 0);
-  const plateInner = outlineSolid(flangeSpec.boreOutline, CAP_THICKNESS + 2, -1);
-  const plate = plateOuter.cut(plateInner);
+  // Issue #121: solid, no hole over the bore (mirrors manifold.ts).
+  const plate = outlineSolid(outerOutline, CAP_THICKNESS, 0);
 
   const { boreRadius, collarRadius, collarOutline, weldOutline } = jointGeometry(flangeSpec.boreOutline, spec.joint, spec.tolerance);
   const canCutJoint = boreRadius >= JOINT_MIN_BORE_RADIUS && solution.height >= JOINT_ENGAGE_DEPTH + 2;
@@ -719,17 +751,40 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   }
 
   let assembled = plate.fuse(collar);
-  // Issue #117: the cable clip under the rim (mirrors manifold.ts's
-  // `buildTopCap`, lofted through the same `Design.capClip` rings).
-  if (design.capClip) assembled = checkedCut(getOCSync(), assembled.fuse(sweepSolidStep(design.capClip.block)), sweepSolidStep(design.capClip.bore));
 
   // Mirrors design.ts's own call: the SAME `resolveLabel` the mesh backend
   // uses, against the SAME outline/boreOutline/margin, so the two backends
-  // can never fit the label text differently.
+  // can never fit the label text differently. Cut before the clips (issue
+  // #121): a plain cut after their fuzzy fuses gave an invalid solid.
   const { label } = await resolveLabel(spec.label, flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin, solution.topCapEnabled);
   if (label) {
     const labelCutter = await buildLabelCutterSolid(label);
     if (labelCutter) assembled = assembled.cut(labelCutter);
+  }
+
+  // Issue #117/#121: the cable clips under the cap (mirrors manifold.ts's
+  // `buildTopCap`, built from the same `Design.capClip` rings). Their bores
+  // are cut from the plate and from each block separately, then everything
+  // fused in one (fuzzy, `checkedFuse`) boolean: cutting a bore from the
+  // already-fused plate + block made OCCT remove the bore's WHOLE volume
+  // (about 100 mm^3 too much per clip for a 3.8 mm cable), even where it runs
+  // outside the part, and a plain fuse gave a solid OCCT's checker rejects.
+  const clips = design.capClip?.clips ?? [];
+  if (clips.length > 0) {
+    const kernel = getOCSync();
+    const bores = clips.map((clip) => sweepSolidStep(clip.bore));
+    const blocks = clips.map((clip, i) => {
+      const block = sweepSolidStep(clip.block);
+      const cut = checkedCut(kernel, block, bores[i]);
+      block.delete();
+      return cut;
+    });
+    const plateCut = checkedCut(kernel, assembled, bores);
+    const next = checkedFuse(kernel, plateCut, blocks);
+    // Freed right away: several clips' worth of many-faceted solids would
+    // otherwise pile up in OCCT's WASM heap until GC.
+    for (const shape of [...bores, ...blocks, plateCut, assembled]) shape.delete();
+    assembled = next;
   }
 
   return assembled.translate([0, 0, solution.height]);

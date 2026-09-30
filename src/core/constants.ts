@@ -151,11 +151,19 @@ export const CABLE_CLIP_WALL = 1; // mm
 export const CAP_CLIP_LIP = 0.6; // mm
 /** Cap clip: the bore also cuts this far up into the cap plate, so its top never grazes the plate's underside at a near-tangent angle (a fragile boolean case); the cable top still touches the underside. */
 export const CAP_CLIP_RELIEF = 0.5; // mm
-/** Cap clip: the block stops this far inside the cap's rim, so its outer face never coincides with the rim's own. */
+/**
+ * Cap clip (issue #121): the block joins the cap through a 45 degree
+ * chamfer this big on all four sides -- a pyramid-like base that widens
+ * toward the plate, so the layers at its root are not a narrow cantilever
+ * that snaps off along a layer line. In the cap's flipped print orientation
+ * the chamfer faces lean inward as they rise (no overhang at all), mm.
+ */
+export const CAP_CLIP_CHAMFER = 1.5; // mm
+/** Cap clip: the block's chamfered root stops at least this far inside the cap's rim, so its outer face never coincides with the rim's own. */
 export const CAP_CLIP_RIM_INSET = 0.2; // mm
 /** Cap end: the cable runs this far below the cap plate's underside (its top would otherwise sit exactly on that face, which the line art draws as a dashed seam). */
 export const CAP_CABLE_DROP = 0.1; // mm
-/** Cap clip: radial clearance between the clip's inner wall and the wound cable's outer surface; the flange (and cap) margin grows to keep it. */
+/** Cap clip: radial clearance between the clip's inner chamfer foot and the wound cable's outer surface (issue #121: the clips sit exactly this far out); the flange (and cap) margin grows to keep it. */
 export const CAP_CLIP_COIL_GAP = 0.3; // mm
 /** A clipped cable end's free tail past the rim, as a multiple of the wire diameter (at least CABLE_CLIPPED_TAIL_MIN). */
 export const CABLE_CLIPPED_TAIL_FACTOR = 3;

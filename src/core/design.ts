@@ -115,7 +115,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // can score candidates against these SAME real numbers instead of a
   // cruder envelope-only proxy.
   const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
-  const { margin, thickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, channelOnlyThickness } = resolveFlangeSizing(
+  const { margin, thickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness } = resolveFlangeSizing(
     outline,
     boreOutline,
     solution.flangeSize,
@@ -277,6 +277,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     topCapEnabled,
     height: solution.height,
     margin,
+    envelopeOffset,
     tolerance: spec.tolerance,
     bendRadius,
   });

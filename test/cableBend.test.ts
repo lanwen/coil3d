@@ -125,11 +125,21 @@ function expectFixPointsWithinBendLimit(d: Design, mbr: number, label: string) {
 
   if (d.capClip) {
     const out = d.outerEndLeadOut;
-    const n = d.capClip.path.length;
+    const n = d.capClip.clips[0].path.length;
     const capSegment = out.slice(out.length - 3 * n);
     for (let i = 2; i < capSegment.length; i += 3) expect(capSegment[i], `${label}: the outer end runs level through the cap clip and out`).toBeCloseTo(capSegment[2], 6);
     // With the lead-out's last sample before it, so the join is covered too.
     expectWithinBendLimit(out.slice(out.length - 3 * (n + 1)), mbr, `${label}: cap fix point`);
+    // Issue #121: the cap has several clips, each the first one's layout
+    // moved along the outline; a cable end through any of them runs level
+    // (by construction: its path is plan-view only) and out past the rim
+    // within the bend limit.
+    expect(d.capClip.clips.length, `${label}: clips around the cap`).toBeGreaterThanOrEqual(2);
+    d.capClip.clips.forEach((clip, i) => {
+      expectWithinBendLimit(new Float32Array(clip.path.flatMap((p) => [p.x, p.y, 0])), mbr, `${label}: cap clip ${i}`);
+      const end = clip.path[clip.path.length - 1];
+      expect(outlineOffsetAt(d.flangeSpec.outline, end.x, end.y).offset, `${label}: cap clip ${i} leads out past the rim`).toBeGreaterThan(d.flangeSpec.margin);
+    });
   }
 }
 
