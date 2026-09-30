@@ -89,6 +89,10 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // now a 3 mm plate, only 5.3 mm (this cable's channel depth + shelf) on
     // pads under the wall and along the channel -- material intentionally
     // removed, not a regression.
-    expect(meshVolume(d.mesh)).toBeCloseTo(33646.19380608499, 3);
+    //
+    // Issue #133 bumped it UP from 33646.19380608499: the channel pad now
+    // blends into that collar -- a fillet on the wall side, a tapering tail
+    // on the other -- instead of meeting it in a sharp corner.
+    expect(meshVolume(d.mesh)).toBeCloseTo(33772.23933421279, 3);
   });
 });
