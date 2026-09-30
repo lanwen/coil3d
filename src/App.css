@@ -1400,6 +1400,9 @@ header p {
   .explode-toggle,
   .projection-toggle-box {
     position: static;
+    /* Flex items with a z-index form their own stacking contexts, which
+       would paint each later box over an earlier one's open (i) bubble. */
+    z-index: auto;
     padding: 8px 0;
     background: none;
   }
