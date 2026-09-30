@@ -59,6 +59,8 @@ const DESIGNS: Array<{ label: string; spec: CoilSpec }> = [
   { label: "round, no mount, 3.8 mm", spec: spec({ coreSize: { locked: true, dimension: "outer", value: 60 } }) },
   { label: "sq, through-hole", spec: spec({ shape: { kind: "sq", cornerRadius: 10 }, coreSize: { locked: true, dimension: "outer", value: 60 }, mount: "through" }) },
   { label: "round, SKADIS plate", spec: spec({ coreSize: { locked: true, dimension: "outer", value: 80 }, mount: "skadis" }) },
+  // Issue #120's SKADIS repro (small solver-picked core, 2.4 mm cable, cap on).
+  { label: "#120 SKADIS repro", spec: parseHash("#s=eyJ2IjoyLCJMIjoxMDAwLCJkIjoyLjQsImgiOjMzLCJsb2NrIjpbImgiXSwiY2FwIjoib24iLCJtb3VudCI6InNrYWRpcyIsImJ4Ijo1NzYsImJ5Ijo1NDcsImJ6Ijo1NzV9").spec },
   { label: "round, 8 mm cable, keyhole", spec: spec({ wire: { length: 3000, diameter: 8, type: "custom" }, coreSize: { locked: true, dimension: "outer", value: 90 }, height: { locked: true, value: 120 }, mount: "keyhole" }) },
 ];
 
@@ -155,23 +157,25 @@ describe("thin bottom flange (issue #122)", () => {
     const through = await design(DESIGNS[2].spec, "draft");
     // The counterbore floor + shelf: the flange is its full thickness round every hole.
     expect(through.flangeSpec.thickness).toBeGreaterThanOrEqual(THROUGH_MOUNT_COUNTERBORE_DEPTH + 1);
-    const skadis = await design(DESIGNS[3].spec, "draft");
-    const f = skadis.flangeSpec;
-    expect(skadis.parts.some((p) => p.role === "mountPlate")).toBe(true);
-    const d = skadis.spec.wire.diameter;
-    const innerEnd = layoutInnerEnd(f.outline, f.margin, d, skadis.spec.tolerance, bendMultiplierOf(skadis.spec.wire) * d, resolveChannelDepth(d, f.thickness));
-    const layout = mountPlateLayoutFor("skadis", offsetOutline(f.outline, f.margin), f.boreOutline, innerEnd);
-    expect(layout.anchors.length).toBeGreaterThan(0);
-    for (const a of layout.anchors) {
-      // Just beside the pin hole: solid from the wall face up to the inner face.
-      const s = flangeSpans(skadis, a.x + 1.6, a.y);
-      expect(s).toHaveLength(1);
-      expect(s[0][1] - s[0][0]).toBeGreaterThanOrEqual(MIN_FLANGE_THICKNESS_FOR_PLATE - 1e-3);
-      // In it: the pin hole, then at least the anchor shelf above it.
-      const inHole = flangeSpans(skadis, a.x, a.y);
-      expect(inHole).toHaveLength(1);
-      expect(inHole[0][0]).toBeCloseTo(-f.thickness + MOUNT_PLATE_PIN_HOLE_DEPTH, 3);
-      expect(inHole[0][1]).toBeCloseTo(0, 3);
+    for (const { spec: plateSpec } of [DESIGNS[3], DESIGNS[4]]) {
+      const skadis = await design(plateSpec, "draft");
+      const f = skadis.flangeSpec;
+      expect(skadis.parts.some((p) => p.role === "mountPlate")).toBe(true);
+      const d = skadis.spec.wire.diameter;
+      const innerEnd = layoutInnerEnd(f.outline, f.margin, d, skadis.spec.tolerance, bendMultiplierOf(skadis.spec.wire) * d, resolveChannelDepth(d, f.thickness));
+      const layout = mountPlateLayoutFor("skadis", offsetOutline(f.outline, f.margin), f.boreOutline, innerEnd);
+      expect(layout.anchors.length).toBeGreaterThan(0);
+      for (const a of layout.anchors) {
+        // Just beside the pin hole: solid from the wall face up to the inner face.
+        const s = flangeSpans(skadis, a.x + 1.6, a.y);
+        expect(s).toHaveLength(1);
+        expect(s[0][1] - s[0][0]).toBeGreaterThanOrEqual(MIN_FLANGE_THICKNESS_FOR_PLATE - 1e-3);
+        // In it: the pin hole, then at least the anchor shelf above it.
+        const inHole = flangeSpans(skadis, a.x, a.y);
+        expect(inHole).toHaveLength(1);
+        expect(inHole[0][0]).toBeCloseTo(-f.thickness + MOUNT_PLATE_PIN_HOLE_DEPTH, 3);
+        expect(inHole[0][1]).toBeCloseTo(0, 3);
+      }
     }
   });
 });
