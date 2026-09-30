@@ -351,21 +351,15 @@ function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, zBase: numb
 
 /**
  * The manifold-3d cut for one through-hole mount hole (issue #70, mount.ts's
- * `layoutThroughHoleMount`): a plain cylinder (the screw-shank clearance)
- * spanning the flange's FULL thickness -- poking 1mm past BOTH faces --
- * unioned with a wider, shallower cylinder (the
- * counterbore, screw-head clearance) blind from the flange's outer face
- * inward by `counterboreDepth`, poking WELD_OVERLAP past that face at its
- * own mouth (mirrors `screwMountCutter`'s identical mouth reasoning). The
- * seam between the two (where the counterbore ends, inside solid material)
- * needs no such treatment: it's an ordinary counterbore-style union of two
- * coaxial cylinders of different radii, never a coincident TARGET face.
+ * `layoutThroughHoleMount`): a plain cylinder (the screw-shank clearance),
+ * the SAME radius through the flange's full depth -- poking WELD_OVERLAP
+ * past BOTH faces, the same "never a coincident target face" reasoning as
+ * every other through-cut here. Issue #129: no counterbore any more -- the
+ * screw head bears directly on the flange's own winding-side face.
  */
-function throughHoleCutter(wasm: ManifoldToplevel, hole: ThroughHole, holeRadius: number, counterboreRadius: number, counterboreDepth: number, flangeThickness: number): Manifold {
+function throughHoleCutter(wasm: ManifoldToplevel, hole: ThroughHole, holeRadius: number, flangeThickness: number): Manifold {
   const { Manifold } = wasm;
-  const shank = Manifold.cylinder(flangeThickness + 2 * WELD_OVERLAP, holeRadius, holeRadius, 32).translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP);
-  const counterbore = Manifold.cylinder(counterboreDepth + WELD_OVERLAP, counterboreRadius, counterboreRadius, 32).translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP);
-  return Manifold.union([shank, counterbore]);
+  return Manifold.cylinder(flangeThickness + 2 * WELD_OVERLAP, holeRadius, holeRadius, 32).translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP);
 }
 
 /** What `fuseFlange` needs to cut the clip mount plate's own filament-pin holes into the flange's outer (wall-facing) face (issue #14, #106) -- mirrors `CoreJointCut`'s "one shared description, cut by whichever backend needs it" role. Omitted entirely when the plate has no anchors to cut for (see mountPlate.ts's `MountPlateLayout.anchors`). */
@@ -527,7 +521,7 @@ export async function fuseFlange(
       const channelGuard = innerEndLayout ?? { channelRibbon: [] };
       const layout = layoutThroughHoleMount(flange.outline, flange.boreOutline, flange.margin, flange.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER, channelGuard, flange.envelopeRadius ?? 0);
       for (const hole of layout.holes) {
-        const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, layout.counterboreRadius, layout.counterboreDepth, flange.thickness));
+        const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, flange.thickness));
         fused = track(fused.subtract(cutter));
         status = fused.status();
         if (status !== "NoError") {

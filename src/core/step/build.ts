@@ -193,17 +193,15 @@ function screwMountCutterSolid(slot: KeyholeSlot, zBase: number): R.Shape3D {
 /**
  * The replicad solid for one through-hole mount hole (issue #70, mount.ts's
  * `layoutThroughHoleMount`): a plain, full-thickness cylinder (screw-shank
- * clearance) fused with a wider, shallower cylinder (the counterbore, screw-
- * head clearance) blind from the flange's outer face -- mirrors manifold.ts's
- * `throughHoleCutter` primitive-for-primitive, and `buildInnerEndCutterSolid`'s
- * own through-cut convention (poking 1mm past both faces).
+ * clearance), the SAME radius through the flange's full depth -- mirrors
+ * manifold.ts's `throughHoleCutter` primitive-for-primitive, and
+ * `buildInnerEndCutterSolid`'s own through-cut convention (poking 1mm past
+ * both faces). Issue #129: no counterbore any more.
  */
-function throughHoleCutterSolid(hole: ThroughHole, holeRadius: number, counterboreRadius: number, counterboreDepth: number, flangeThickness: number): R.Shape3D {
+function throughHoleCutterSolid(hole: ThroughHole, holeRadius: number, flangeThickness: number): R.Shape3D {
   const throughH = flangeThickness + 2;
   const throughZLo = -flangeThickness - 1;
-  const shank = R.makeCylinder(holeRadius, throughH, [hole.x, hole.y, throughZLo]);
-  const counterbore = R.makeCylinder(counterboreRadius, counterboreDepth + 1, [hole.x, hole.y, throughZLo]);
-  return shank.fuse(counterbore);
+  return R.makeCylinder(holeRadius, throughH, [hole.x, hole.y, throughZLo]);
 }
 
 // S2 RESULT.md: ~20 V-samples per helical pitch keeps the max fitting
@@ -421,7 +419,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
       flangeSpec.envelopeRadius ?? 0,
     );
     for (const hole of layout.holes) {
-      const cutter = throughHoleCutterSolid(hole, layout.holeRadius, layout.counterboreRadius, layout.counterboreDepth, flangeSpec.thickness);
+      const cutter = throughHoleCutterSolid(hole, layout.holeRadius, flangeSpec.thickness);
       coreSolid = coreSolid.cut(cutter);
     }
   }

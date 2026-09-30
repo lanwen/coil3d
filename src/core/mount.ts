@@ -102,8 +102,6 @@ import {
   SCREW_MOUNT_SLOT_TRAVEL,
   SCREW_MOUNT_TWO_SLOT_ANGLE,
   SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD,
-  THROUGH_MOUNT_COUNTERBORE_DEPTH,
-  THROUGH_MOUNT_COUNTERBORE_MARGIN,
   THROUGH_MOUNT_EDGE_MARGIN,
   THROUGH_MOUNT_ENVELOPE_MARGIN,
   THROUGH_MOUNT_ROUND_HOLE_COUNTS,
@@ -394,13 +392,19 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
 
 // --- Through-hole wall mount (issue #70, docs/research.md "Mounting") -----
 //
-// Plain, counterbored screw-shank holes cut straight through the bottom
+// Plain, constant-radius screw-shank holes cut straight through the bottom
 // flange -- a permanent, non-sliding alternative to the screw-keyhole mount
 // above. Unlike the keyhole mount, there's no "hang it, then slide to seat"
 // mechanics and so no gravity-driven "up" direction to search for: every
 // hole sits at a FIXED angle -- a corner's own centre for sq/tri (the
 // widest part of the margin annulus, shapes.ts's own corner-bulge
 // construction), or evenly spaced for round -- never searched or rotated.
+//
+// Issue #129: the hole has no counterbore and no pad -- just a straight
+// cylinder, the same radius through the flange's full depth, with the
+// flange staying its ordinary plate thickness right up to the hole's own
+// edge (flange.ts, flangePads.ts). The screw head bears directly on the
+// flange's winding-side face.
 //
 // Because every candidate angle here is exactly where `radiusAtAngle` is
 // additive in offset (round: `radiusAtAngle` is constant, any angle; sq/tri:
@@ -417,11 +421,7 @@ export interface ThroughHole {
 
 export interface ThroughMountLayout {
   holes: ThroughHole[];
-  /** Depth of the counterbore, cut inward from the flange's outer (wall-facing) face, mm. */
-  counterboreDepth: number;
-  /** Counterbore (screw-head clearance) radius, mm. */
-  counterboreRadius: number;
-  /** Through-hole (screw-shank clearance) radius, mm -- half of the user's own `throughHoleDiameter`. */
+  /** Through-hole (screw-shank clearance) radius, mm -- half of the user's own `throughHoleDiameter`, constant through the flange's full depth (issue #129: no counterbore). */
   holeRadius: number;
   /** Set when one or more corners (sq/tri) were skipped, or the mount didn't fit at all (empty `holes`). */
   warning?: string;
@@ -442,7 +442,7 @@ export function requiredThroughMountMargin(
   holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
   envelopeRadius = 0,
 ): number {
-  const counterboreRadius = holeDiameter / 2 + THROUGH_MOUNT_COUNTERBORE_MARGIN;
+  const holeRadius = holeDiameter / 2;
   const isRound = outline.cornerRadius === outline.apothem;
   const outlineR0 = isRound ? outline.apothem : circumscribedRadius(outline, 0);
   // The wall's own outer (winding) surface -- NOT the bore (issue #71 PR
@@ -455,7 +455,7 @@ export function requiredThroughMountMargin(
   // rounding can occasionally leave `layoutThroughHoleMount`'s later,
   // independent recomputation of this SAME "does it fit" check a few ULPs
   // short of the target it was solved against.
-  const target = innerBound0 + 2 * counterboreRadius + THROUGH_MOUNT_EDGE_MARGIN + 1e-6;
+  const target = innerBound0 + 2 * holeRadius + THROUGH_MOUNT_EDGE_MARGIN + 1e-6;
   const required = target - outlineR0;
   return Math.max(0, required);
 }
@@ -511,14 +511,13 @@ export function layoutThroughHoleMount(
   envelopeRadius = 0,
 ): ThroughMountLayout {
   const holeRadius = holeDiameter / 2;
-  const counterboreRadius = holeRadius + THROUGH_MOUNT_COUNTERBORE_MARGIN;
   const flangeOutline = offsetOutline(outline, margin);
   const isRound = outline.cornerRadius === outline.apothem;
-  const base = { counterboreDepth: THROUGH_MOUNT_COUNTERBORE_DEPTH, counterboreRadius, holeRadius };
+  const base = { holeRadius };
   const tooNarrowWarning = "The flange is too narrow (or too close to the inner-end cable channel) to fit the through-hole mount (increase the core size, or the mount was skipped).";
 
   const clearOfChannel = (x: number, y: number): boolean => {
-    const requiredClearance = counterboreRadius + THROUGH_MOUNT_EDGE_MARGIN;
+    const requiredClearance = holeRadius + THROUGH_MOUNT_EDGE_MARGIN;
     return innerEndChannel.channelRibbon.length < 3 || distanceToClosedPolygon(x, y, innerEndChannel.channelRibbon) >= requiredClearance;
   };
 
@@ -526,8 +525,8 @@ export function layoutThroughHoleMount(
   const holeAt = (phi: number): ThroughHole | null => {
     const wallBound = radiusAtAngle(outline, phi) + THROUGH_MOUNT_EDGE_MARGIN;
     const envelopeBound = envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN;
-    const innerLimit = Math.max(wallBound, envelopeBound) + counterboreRadius;
-    const outerLimit = radiusAtAngle(flangeOutline, phi) - THROUGH_MOUNT_EDGE_MARGIN - counterboreRadius;
+    const innerLimit = Math.max(wallBound, envelopeBound) + holeRadius;
+    const outerLimit = radiusAtAngle(flangeOutline, phi) - THROUGH_MOUNT_EDGE_MARGIN - holeRadius;
     if (outerLimit < innerLimit) return null;
     const R = (innerLimit + outerLimit) / 2;
     return { x: R * Math.cos(phi), y: R * Math.sin(phi) };

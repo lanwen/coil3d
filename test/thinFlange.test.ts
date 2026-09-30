@@ -2,8 +2,8 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design, parseHash } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
-import { FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PIN_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH, THROUGH_MOUNT_COUNTERBORE_DEPTH } from "../src/core/constants";
-import { layoutKeyholeMount } from "../src/core/mount";
+import { DEFAULT_THROUGH_HOLE_DIAMETER, FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PIN_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core/constants";
+import { layoutKeyholeMount, layoutThroughHoleMount } from "../src/core/mount";
 import { mountPlateLayoutFor } from "../src/core/mountPlate";
 import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
 import { offsetOutline, pointAt } from "../src/core/shapes";
@@ -153,10 +153,54 @@ describe("thin bottom flange (issue #122)", () => {
     }
   });
 
-  it("keeps each through-hole's counterbore shelf and each SKADIS pin hole's shelf on a pad", async () => {
+  // Issue #129: the through-hole mount no longer gets a counterbore or a
+  // pad -- every hole is a plain, constant-radius tunnel through the
+  // flange's full depth, and the flange right at the hole's own edge is
+  // just the plain plate thickness, exactly like everywhere else away from
+  // the wall/channel/keyhole pads. This is the "fails on main" regression
+  // guard: pre-#129, the ring just outside `holeRadius` sat inside the
+  // counterbore's own wider radius and was cut away (void) down to a thin
+  // shelf near the wall face instead of being solid, plain-thickness plate.
+  it("cuts a plain, constant-radius through-hole with no counterbore -- the flange stays the plain plate thickness right at the hole's own edge", async () => {
     const through = await design(DESIGNS[2].spec, "draft");
-    // The counterbore floor + shelf: the flange is its full thickness round every hole.
-    expect(through.flangeSpec.thickness).toBeGreaterThanOrEqual(THROUGH_MOUNT_COUNTERBORE_DEPTH + 1);
+    const none = await design({ ...DESIGNS[2].spec, mount: "none" }, "draft");
+    // No thickness bump any more: exactly as thick as with no mount at all.
+    expect(through.flangeSpec.thickness).toBeCloseTo(none.flangeSpec.thickness, 9);
+
+    const f = through.flangeSpec;
+    const wireDiameter = through.spec.wire.diameter;
+    const bendRadius = bendMultiplierOf(through.spec.wire) * wireDiameter;
+    const innerEndLayout = layoutInnerEnd(f.outline, f.margin, wireDiameter, through.spec.tolerance, bendRadius);
+    const layout = layoutThroughHoleMount(f.outline, f.boreOutline, f.margin, f.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER, innerEndLayout, f.envelopeRadius ?? 0);
+    expect(layout.holes.length).toBeGreaterThan(0);
+
+    for (const hole of layout.holes) {
+      // Inside the hole, at several radii and angles: a clear tunnel all the
+      // way through, no material at any depth.
+      for (const frac of [0.2, 0.6, 0.95]) {
+        for (const angleDeg of [0, 90, 180, 270]) {
+          const a = (angleDeg * Math.PI) / 180;
+          const x = hole.x + frac * layout.holeRadius * Math.cos(a);
+          const y = hole.y + frac * layout.holeRadius * Math.sin(a);
+          expect(flangeSpans(through, x, y)).toHaveLength(0);
+        }
+      }
+      // Just outside the hole (well inside the pre-#129 counterbore's own
+      // extra 1.5 mm margin): ordinary, full-thickness plate, flush with
+      // the wall face -- no step, no shelf.
+      for (const angleDeg of [0, 90, 180, 270]) {
+        const a = (angleDeg * Math.PI) / 180;
+        const x = hole.x + (layout.holeRadius + 0.3) * Math.cos(a);
+        const y = hole.y + (layout.holeRadius + 0.3) * Math.sin(a);
+        const s = flangeSpans(through, x, y);
+        expect(s).toHaveLength(1);
+        expect(s[0][0]).toBeCloseTo(-f.thickness, 3);
+        expect(s[0][1] - s[0][0]).toBeCloseTo(f.plateThickness ?? f.thickness, 3);
+      }
+    }
+  });
+
+  it("keeps each SKADIS pin hole's shelf on a pad", async () => {
     for (const { spec: plateSpec } of [DESIGNS[3], DESIGNS[4]]) {
       const skadis = await design(plateSpec, "draft");
       const f = skadis.flangeSpec;
