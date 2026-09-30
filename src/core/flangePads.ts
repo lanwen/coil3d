@@ -14,8 +14,9 @@
 //   - the collar: under the wall and a little beyond it (the wall starts at
 //     z = 0 and needs solid flange under it);
 //   - the channel pad: along the inner-end channel and clip, to the rim;
-//   - a pad around each mount cut: keyhole slot, through-hole counterbore,
-//     mount-plate pin hole.
+//   - a pad around each mount cut that still needs one: the keyhole slot,
+//     the mount-plate pin hole. The through-hole mount (issue #129) gets no
+//     pad -- a plain hole needs no relief beyond the ordinary plate.
 // Every pad has a 45 degree chamfer down to the plate. The wound cable never
 // reaches down to the face outside the channel (its first turn starts MARGIN
 // above it), so the lower plate top changes nothing for the winding.
@@ -27,7 +28,7 @@
 
 import { CABLE_BRIDGE_STEP, FLANGE_PAD_COLLAR, FLANGE_PAD_COLLAR_COLUMNS, FLANGE_PAD_EMBED, FLANGE_PAD_RISE, FLANGE_PAD_STEP, FLANGE_PAD_WALL, MOUNT_PLATE_PIN_DIAMETER, MOUNT_PLATE_PIN_HOLE_CLEARANCE, SCREW_MOUNT_HEAD_RADIUS } from "./constants";
 import type { InnerEndLayout, SweepSolid, XY, XYZ } from "./innerEnd";
-import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
+import { layoutKeyholeMount } from "./mount";
 import { outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { MountKind } from "./types";
@@ -171,10 +172,9 @@ export function layoutFlangePads(flange: PaddedFlange, innerEnd: InnerEndLayout 
       pads.push(stadiumPad(slot.head, slot.shankEnd, SCREW_MOUNT_HEAD_RADIUS, FLANGE_PAD_WALL, zPlate));
     }
   }
-  if (flange.mount === "through") {
-    const layout = layoutThroughHoleMount(flange.outline, flange.boreOutline, flange.margin, flange.throughHoleDiameter, innerEnd ?? { channelRibbon: [] }, flange.envelopeRadius ?? 0);
-    for (const hole of layout.holes) pads.push(stadiumPad(hole, hole, layout.counterboreRadius, FLANGE_PAD_WALL, zPlate));
-  }
+  // Issue #129: the through-hole mount gets no pad any more -- it's a
+  // plain, constant-radius hole with the flange staying its ordinary plate
+  // thickness right up to the hole's own edge, flat on the wall face.
   const pinRadius = MOUNT_PLATE_PIN_DIAMETER / 2 + MOUNT_PLATE_PIN_HOLE_CLEARANCE + tolerance / 2;
   for (const anchor of anchors) pads.push(stadiumPad(anchor, anchor, pinRadius, FLANGE_PAD_WALL, zPlate));
   return pads;

@@ -90,7 +90,7 @@ export function idealChannelDepth(wireDiameter: number): number {
  * flange's own (already resolved) thickness: the ideal depth, capped to
  * whatever the flange's thickness leaves below a small shelf. design.ts
  * warns when this caps the channel (flange.ts normally provisions enough
- * thickness). Issue #122: a mount's pocket/counterbore on the OTHER face sits
+ * thickness). Issue #122: the keyhole mount's pocket, on the OTHER face, sits
  * on its own pad, clear of the channel, so it reserves nothing here
  * (design.ts stacks the two depths into the thickness if their footprints
  * ever overlap). The round bore around the cable reaches tolerance/2 deeper

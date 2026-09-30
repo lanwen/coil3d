@@ -26,7 +26,6 @@ import {
   MIN_BORE_RADIUS,
   MIN_FLANGE_THICKNESS_FOR_PLATE,
   MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
-  MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT,
   SCREW_MOUNT_RECESS_DEPTH,
   WALL_THICKNESS,
 } from "./constants";
@@ -130,18 +129,20 @@ export function resolveFlangeSizing(
         : baseMargin;
 
   // Issue #122: the channel and the mount's cut sit on separate pads (the
-  // keyhole/through-hole on the wall face, the channel on the winding face;
-  // the through-hole and pin-hole layouts keep clear of the channel, and
-  // design.ts checks the keyhole), so the thickness is the deeper of the two,
-  // not their sum. Away from the pads the plate is FLANGE_PLATE_THICKNESS.
+  // keyhole on the wall face, the channel on the winding face; the pin-hole
+  // layout keeps clear of the channel, and design.ts checks the keyhole), so
+  // the thickness is the deeper of the two, not their sum. Away from the
+  // pads the plate is FLANGE_PLATE_THICKNESS. Issue #129: the through-hole
+  // mount no longer needs its own thickness floor -- it's a plain,
+  // constant-radius hole with no counterbore, so it fits in the ordinary
+  // channel-driven thickness (or the plain plate, wherever the channel
+  // doesn't reach) exactly like `mount === "none"`.
   const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
   const thickness = wantsKeyhole
     ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT)
-    : wantsThrough
-      ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT)
-      : mountKindForPlate
-        ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_PLATE)
-        : channelOnlyThickness;
+    : mountKindForPlate
+      ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_PLATE)
+      : channelOnlyThickness;
 
   // Issue #115: wide enough for the inner-end lead-in's straight chord to
   // hold the clip past the end of its drop into the channel.
