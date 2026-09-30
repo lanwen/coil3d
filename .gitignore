@@ -29,3 +29,7 @@ pnpm-debug.log*
 # Sandbox-only scratch files (never part of this ticket's scope)
 /spikes/
 /sbxenv.yaml
+
+# Local agent notes and worktrees
+CLAUDE.local.md
+/.claude/worktrees/

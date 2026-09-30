@@ -20,9 +20,9 @@ interface is exactly `parseHash`/`toHash`, `design(spec)` and
 ```sh
 npm install
 
-npm run dev       # dev server on :5180
+npm run dev       # dev server on :5182
 npm run build     # typecheck + production build
-npm run preview   # serve the production build on :5180
+npm run preview   # serve the production build on :5182
 
 npm test          # vitest — the coil core's public interface
 npm run e2e       # playwright — URL hash -> UI -> STL download
