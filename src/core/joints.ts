@@ -29,7 +29,7 @@
 // -- and fully overlaps -- the plate's hole edge at EVERY angle, flats and
 // corners alike, for any shape.
 
-import { JOINT_FIT_GAP, BAYONET_GAP, SNAP_GAP, SHAPE_ROUNDING_EPS, WELD_OVERLAP } from "./constants";
+import { CAP_COLLAR_WALL, JOINT_FIT_GAP, BAYONET_GAP, SNAP_GAP, SHAPE_ROUNDING_EPS, WELD_OVERLAP } from "./constants";
 import { inscribedRadius, offsetOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { JointKind } from "./types";
@@ -60,6 +60,14 @@ export interface JointGeometry {
    * -- guaranteeing one connected, printable part regardless of shape.
    */
   weldOutline: ShapeOutline;
+  /**
+   * Issue #127: the through-hole in the cap's middle -- `collarOutline`
+   * offset inward by CAP_COLLAR_WALL, cut straight through the collar and
+   * the plate, so the collar is a tube and nothing prints as a bridge over
+   * a hollow. Undefined when the collar is too thin to be a tube (a hole
+   * under 1 mm across the flats); the collar then stays a solid plug.
+   */
+  holeOutline?: ShapeOutline;
 }
 
 export function jointGeometry(boreOutline: ShapeOutline, kind: JointKind, tolerance: number): JointGeometry {
@@ -77,5 +85,10 @@ export function jointGeometry(boreOutline: ShapeOutline, kind: JointKind, tolera
     cornerRadius: Math.max(SHAPE_ROUNDING_EPS, boreOutline.cornerRadius - (boreRadius - collarRadius)),
   };
   const weldOutline = offsetOutline(boreOutline, WELD_OVERLAP);
-  return { boreRadius, jointRadius, collarRadius, collarOutline, weldOutline };
+  const holeApothem = collarRadius - CAP_COLLAR_WALL;
+  const holeOutline: ShapeOutline | undefined =
+    holeApothem >= 1
+      ? { n: boreOutline.n, apothem: holeApothem, cornerRadius: Math.max(SHAPE_ROUNDING_EPS, collarOutline.cornerRadius - CAP_COLLAR_WALL) }
+      : undefined;
+  return { boreRadius, jointRadius, collarRadius, collarOutline, weldOutline, holeOutline };
 }
