@@ -84,12 +84,32 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(parseHash(toHash(spec))).toEqual({ ...DESIGN, spec });
   });
 
-  it("round-trips a fully free (0-locked) and a fully locked (3-locked) spec", () => {
+  it("round-trips a fully free (0-locked) spec", () => {
     const free: CoilSpec = { ...DEFAULT_SPEC, coreSize: { locked: false }, layers: { locked: false } };
     expect(parseHash(toHash(free))).toEqual({ ...DESIGN, spec: free });
+  });
 
+  // Issue #119: at most 2 of {core size, height, layers} may be locked at
+  // once -- the UI itself can no longer produce a 3-locked spec (the third
+  // lock toggle disables itself), but an `#s=` link predating that rule (or
+  // hand-crafted) can still ask for all three. `parseHash` normalizes it
+  // instead of falling back to full defaults: it drops the "ly" (layers)
+  // lock -- a documented, deterministic tie-break (see hash.ts's
+  // `capMaxTwoLocked`) -- and reports why via `notice`, keeping every other
+  // field the link set.
+  it("normalizes a link locking all three by dropping the layers lock, with a notice", () => {
     const fullyLocked: CoilSpec = { ...DEFAULT_SPEC, height: { locked: true, value: 45 } };
-    expect(parseHash(toHash(fullyLocked))).toEqual({ ...DESIGN, spec: fullyLocked });
+    const { spec, notice } = parseHash(toHash(fullyLocked));
+    expect(spec).toEqual({ ...fullyLocked, layers: { locked: false } });
+    expect(notice).toMatch(/layers/i);
+  });
+
+  it("does not touch a legacy (#v=1) link locking all three -- that codec is frozen, byte-for-byte compatible", () => {
+    const { spec, notice } = parseHash("#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2");
+    expect(spec.coreSize).toEqual({ locked: true, dimension: "outer", value: 60 });
+    expect(spec.height).toEqual({ locked: true, value: 60 });
+    expect(spec.layers).toEqual({ locked: true, value: 2 });
+    expect(notice).toBeUndefined();
   });
 
   it("falls back to defaults with a notice on an unsupported document version", () => {
@@ -138,6 +158,29 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, lock: ["outer", "inner"], size: 40 })).toString("base64url")}`);
     expect(spec).toEqual(DEFAULT_SPEC);
     expect(notice).toBeDefined();
+  });
+
+  // Issue #119: a hand-crafted `#s=` document (not just one round-tripped
+  // through `toHash`) locking all three must still parse -- never crash --
+  // and land in a valid (at most 2 locked) state, keeping the rest of the
+  // link (here, the wire length) rather than discarding it.
+  it("normalizes a hand-crafted doc locking all three, keeping the rest of the link", () => {
+    const { spec, notice } = parseHash(
+      `#s=${Buffer.from(JSON.stringify({ v: 2, L: 6000, lock: ["outer", "h", "ly"], size: 60, h: 60, ly: 2 })).toString("base64url")}`,
+    );
+    expect(spec.wire.length).toBe(6000);
+    expect(spec.coreSize).toEqual({ locked: true, dimension: "outer", value: 60 });
+    expect(spec.height).toEqual({ locked: true, value: 60 });
+    expect(spec.layers).toEqual({ locked: false });
+    expect(notice).toMatch(/layers/i);
+  });
+
+  it("does not touch a doc locking only 2 of the 3 (no notice)", () => {
+    const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, lock: ["outer", "h"], size: 60, h: 60 })).toString("base64url")}`);
+    expect(spec.coreSize.locked).toBe(true);
+    expect(spec.height.locked).toBe(true);
+    expect(spec.layers.locked).toBe(false);
+    expect(notice).toBeUndefined();
   });
 
   it("round-trips a rounded-square shape, with the corner radius as 'rc' (issue #6)", () => {
@@ -442,9 +485,14 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     // the NEW one, must resolve to the exact same spec + showWire + view.
     // This is the migration `App.tsx` relies on (parse the old hash once,
     // then `toHash` immediately rewrites the URL bar to the new format).
+    // Issue #119: a legacy link locking all three is deliberately EXCLUDED
+    // from this "losslessly" list -- see the dedicated test right below it.
+    // The legacy codec itself still reads it unchanged (frozen, byte-for-
+    // byte), but migrating it forward through `toHash` now produces an
+    // `#s=` document, and re-parsing THAT applies the new max-2-locked
+    // normalization (`capMaxTwoLocked`), which this specific input triggers.
     const LEGACY_LINKS = [
       "#v=1&L=1000&d=4&size=40",
-      "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2",
       "#v=1&L=2000&d=4&wt=stiff&lock=outer,ly&size=60&ly=1",
       "#v=1&L=3000&d=4&wt=custom&mbr=7&lock=inner&size=25",
       "#v=1&shape=sq&sq.rc=20&lock=outer,ly&size=60",
@@ -470,6 +518,23 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
 
       const second = parseHash(migratedHash);
       expect(second).toEqual(first);
+    });
+
+    // Issue #119: the one legacy shape that does NOT migrate losslessly any
+    // more -- the legacy codec itself still parses all three locks
+    // unchanged (first), but migrating forward to the current `#s=` format
+    // and re-parsing normalizes it to 2 locked (dropping "ly"), with a
+    // notice explaining why.
+    it("a legacy link locking all three migrates forward with the layers lock dropped, and a notice", () => {
+      const legacyHash = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2";
+      const first = parseHash(legacyHash);
+      expect(first.notice).toBeUndefined();
+      expect(first.spec.layers).toEqual({ locked: true, value: 2 });
+
+      const migratedHash = toHash(first.spec, first.showWire, first.view);
+      const second = parseHash(migratedHash);
+      expect(second.notice).toMatch(/layers/i);
+      expect(second.spec).toEqual({ ...first.spec, layers: { locked: false } });
     });
   });
 

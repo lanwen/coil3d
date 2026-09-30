@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, Objective, ShapeKind, Solution, TopCapMode, WireTypeId } from "../core";
+import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, Objective, ShapeKind, Solution, WireTypeId } from "../core";
 import {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
@@ -22,12 +22,6 @@ import { ShapePicker } from "./ShapePicker";
 /** Slider bounds in cm (issue #51 AC: "20-1500 cm"); converted to the mm `CoilSpec` stores. */
 const WIRE_LENGTH_MIN_CM = 20;
 const WIRE_LENGTH_MAX_CM = 1500;
-
-const TOP_CAP_OPTIONS: Array<{ id: TopCapMode; label: string }> = [
-  { id: "auto", label: "Auto (on when layers > 1)" },
-  { id: "on", label: "On" },
-  { id: "off", label: "Off" },
-];
 
 const JOINT_OPTIONS: Array<{ id: JointKind; label: string }> = [
   { id: "press", label: "Press-fit" },
@@ -131,11 +125,35 @@ export function ControlsForm({
   const mountId = useId();
   const keyholeRotationId = useId();
   const objectiveId = useId();
-  const topCapId = useId();
   const jointId = useId();
 
   const freeCount = [spec.coreSize.locked, spec.height.locked, spec.layers.locked].filter((locked) => !locked).length;
   const showObjective = freeCount >= 2;
+
+  // Issue #119 AC #1: at most 2 of {core size, height, layers} can be locked
+  // at once -- something has to stay free so the solver can fit the cable
+  // length. `lockedCount >= 2` disables locking any dimension that ISN'T
+  // already locked (an already-locked one must always stay toggleable back
+  // to free); `LockRangeField`/`LockStepperField` render the explanatory
+  // note themselves (see fields.tsx's `LOCK_LIMIT_NOTE`) once disabled.
+  const lockedCount = [spec.coreSize.locked, spec.height.locked, spec.layers.locked].filter(Boolean).length;
+  const coreSizeLockDisabled = !spec.coreSize.locked && lockedCount >= 2;
+  const heightLockDisabled = !spec.height.locked && lockedCount >= 2;
+  const layersLockDisabled = !spec.layers.locked && lockedCount >= 2;
+
+  // Issue #119 AC #3: the top-cap switch is "auto" (untouched) exactly when
+  // `spec.topCap === "auto"` -- `TopCapMode` already distinguishes that from
+  // an explicit "on"/"off" (issue #9), so no new field is needed. While
+  // auto, the switch shows the CURRENT automatic recommendation
+  // (`solution.capsAuto`, layers > 1); `solution` is undefined only before
+  // the very first solve, when "no cap yet" (false) is as good a placeholder
+  // as any (matches the default layers=1). Touching the switch writes an
+  // explicit "on"/"off" (stored in the hash, see hash.ts's `doc.cap`); the
+  // "Reset to auto" link is the documented way back.
+  const topCapAuto = spec.topCap === "auto";
+  const topCapOn = topCapAuto ? (solution?.capsAuto ?? false) : spec.topCap === "on";
+  const setTopCapExplicit = (checked: boolean) => onChange({ ...spec, topCap: checked ? "on" : "off" });
+  const resetTopCapToAuto = () => onChange({ ...spec, topCap: "auto" });
 
   // Issue #54/#58: for a square or triangle core, this cable's bend limit
   // can force a bigger minimum core size than a round core needs (a bigger
@@ -260,20 +278,6 @@ export function ControlsForm({
       </Section>
 
       <Section title="Core">
-        <div className="field">
-          <FieldTop label="Locked dimension" hint={HINTS.coreSizeDimension} htmlFor={coreSizeDimensionId} />
-          <select
-            id={coreSizeDimensionId}
-            className="field-select"
-            data-testid="select-coreSizeDimension"
-            value={spec.coreSize.locked ? spec.coreSize.dimension : "outer"}
-            disabled={!spec.coreSize.locked}
-            onChange={(e) => setCoreSizeDimension(e.target.value as "outer" | "inner")}
-          >
-            <option value="outer">Outer (winding surface)</option>
-            <option value="inner">Inner (bore)</option>
-          </select>
-        </div>
         <LockRangeField
           testId="outer"
           label="Core size"
@@ -284,8 +288,28 @@ export function ControlsForm({
           step={1}
           freeValue={solution?.outerSize ?? 30}
           hint={HINTS.outer}
+          lockDisabled={coreSizeLockDisabled}
           onChange={setCoreSizeLock}
         />
+        {/* Issue #119 AC #2: directly under the core-size lock, and only
+            while core size is locked -- a free core size has no "locked
+            dimension" to speak of (the dropdown was previously always
+            rendered, just disabled). */}
+        {spec.coreSize.locked && (
+          <div className="field">
+            <FieldTop label="Locked dimension" hint={HINTS.coreSizeDimension} htmlFor={coreSizeDimensionId} />
+            <select
+              id={coreSizeDimensionId}
+              className="field-select"
+              data-testid="select-coreSizeDimension"
+              value={spec.coreSize.dimension}
+              onChange={(e) => setCoreSizeDimension(e.target.value as "outer" | "inner")}
+            >
+              <option value="outer">Outer (winding surface)</option>
+              <option value="inner">Inner (bore)</option>
+            </select>
+          </div>
+        )}
         {coreSizeRaised && (
           <p className="field-note" data-testid="core-size-raised-note">
             Minimum for this {SHAPES[spec.shape.kind].label.toLowerCase()} shape and cable: {outerSizeMin} mm. Your value was raised to it.
@@ -301,6 +325,7 @@ export function ControlsForm({
           step={1}
           freeValue={solution?.height ?? 40}
           hint={HINTS.height}
+          lockDisabled={heightLockDisabled}
           onChange={(lock) => onChange({ ...spec, height: lock })}
         />
         <LockStepperField
@@ -311,6 +336,7 @@ export function ControlsForm({
           max={40}
           freeValue={solution?.layers ?? 1}
           hint={HINTS.layers}
+          lockDisabled={layersLockDisabled}
           onChange={(lock) => onChange({ ...spec, layers: lock })}
         />
       </Section>
@@ -393,14 +419,34 @@ export function ControlsForm({
 
       <Section title="Top cap & joint">
         <div className="field">
-          <FieldTop label="Top cap" hint={HINTS.topCap} htmlFor={topCapId} />
-          <select id={topCapId} className="field-select" data-testid="select-topCap" value={spec.topCap} onChange={(e) => onChange({ ...spec, topCap: e.target.value as TopCapMode })}>
-            {TOP_CAP_OPTIONS.map((opt) => (
-              <option key={opt.id} value={opt.id}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          <div className="field-top">
+            <FieldTop label="Top cap" hint={HINTS.topCap} />
+            <span className="cap-toggle-row">
+              <Switch
+                testId="topCap"
+                ariaLabel="Top cap"
+                checked={topCapOn}
+                title={
+                  topCapAuto
+                    ? `Auto -- currently ${topCapOn ? "on" : "off"} (on once there's more than one layer). Touch to set it explicitly.`
+                    : `${topCapOn ? "On" : "Off"} (explicit) -- click to change`
+                }
+                onChange={setTopCapExplicit}
+              />
+              {topCapAuto && (
+                <span className="tag-auto" data-testid="topCap-auto-tag">
+                  auto
+                </span>
+              )}
+            </span>
+          </div>
+          {/* Issue #119 AC #3: the way back to auto, shown only once the
+              user has actually touched the switch (an explicit "on"/"off"). */}
+          {!topCapAuto && (
+            <button type="button" className="reset-auto-btn" data-testid="topCap-reset-auto" onClick={resetTopCapToAuto}>
+              Reset to auto
+            </button>
+          )}
         </div>
         <div className="field">
           <FieldTop label="Joint" hint={HINTS.joint} htmlFor={jointId} />

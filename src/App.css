@@ -693,6 +693,21 @@ header p {
   outline-offset: 2px;
 }
 
+/* Issue #119: a lock toggle disabled by the max-2-locked rule (or any other
+   disabled switch) reads as plainly non-interactive, matching every other
+   `:disabled` control in the app (`.field-select:disabled` etc.). */
+.switch-input:disabled {
+  cursor: not-allowed;
+}
+
+.switch-input:disabled ~ .switch-track {
+  opacity: 0.4;
+}
+
+.switch:has(.switch-input:disabled) {
+  cursor: not-allowed;
+}
+
 /* The state indicator itself (issue #104): a fixed-width zone sized to
    exactly match the knob's own travel (the track's inner width minus the
    knob and its 1px margins), pinned to whichever side the knob ISN'T
@@ -842,6 +857,41 @@ header p {
 
 .two-sided-toggle-text-active {
   color: var(--ink);
+}
+
+/* Top-cap auto/explicit toggle (issue #119): the switch plus an "auto" tag
+   shown only while `spec.topCap === "auto"` (untouched), and a small text
+   link back to auto shown only once the user has touched it (explicit
+   "on"/"off"). Mirrors `.eye-toggle-row`'s layout (switch + trailing
+   content as row siblings, never nested in the switch's own `<label>`). */
+.cap-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tag-auto {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1.3px solid var(--ink);
+  border-radius: 8px;
+  flex: none;
+}
+
+.reset-auto-btn {
+  margin: -4px 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 0.76rem;
+  color: var(--ink);
+  text-decoration: underline;
+  cursor: pointer;
+  align-self: flex-start;
 }
 
 /* ---------- Camera view controls (issue #15) ---------- */

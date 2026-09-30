@@ -31,6 +31,12 @@ test.describe("top cap controls and auto-decision (issue #9)", () => {
     await expect(page.getByTestId("caps")).toContainText("off");
     await expect(page.getByTestId("toggle-exploded")).toHaveCount(0);
     await expect(page.getByTestId("mesh-detail")).toContainText("1 part");
+    // Issue #119: untouched, the top-cap switch shows the auto tag and the
+    // CURRENT automatic state (off, since layers === 1) -- and no "reset to
+    // auto" link, since it's already auto.
+    await expect(page.getByTestId("topCap")).not.toBeChecked();
+    await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
+    await expect(page.getByTestId("topCap-reset-auto")).toHaveCount(0);
   });
 
   test("layers=2 (auto): a top cap is added, and the exploded-view toggle appears", async ({ page }) => {
@@ -38,13 +44,44 @@ test.describe("top cap controls and auto-decision (issue #9)", () => {
     await expect(page.getByTestId("caps")).toContainText("on");
     await expect(page.getByTestId("toggle-exploded")).toBeVisible();
     await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
+    // Issue #119: still auto, but now showing "on" (layers > 1).
+    await expect(page.getByTestId("topCap")).toBeChecked();
+    await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
+    await expect(page.getByTestId("topCap-reset-auto")).toHaveCount(0);
   });
 
   test("overriding the top cap off removes it even with layers=2", async ({ page }) => {
     await gotoDesign(page, `${TWO_LAYER}&cap=off`);
-    await expect(page.getByTestId("select-topCap")).toHaveValue("off");
+    // Issue #119: an explicit override -- unchecked, no auto tag, and a way
+    // back to auto.
+    await expect(page.getByTestId("topCap")).not.toBeChecked();
+    await expect(page.getByTestId("topCap-auto-tag")).toHaveCount(0);
+    await expect(page.getByTestId("topCap-reset-auto")).toBeVisible();
     await expect(page.getByTestId("caps")).toContainText("off");
     await expect(page.getByTestId("toggle-exploded")).toHaveCount(0);
+  });
+
+  test("touching the top-cap switch makes it explicit (stored in the hash), and 'reset to auto' restores auto (issue #119)", async ({ page }) => {
+    await gotoDesign(page, TWO_LAYER); // auto -> currently "on" (layers=2)
+    await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
+    expect(decodeHashDoc(page.url()).cap).toBeUndefined(); // auto is never written to the hash
+
+    // Touching it while it already reads "on" flips it OFF (a real state
+    // change), and that becomes an explicit, hash-stored override.
+    await page.getByTestId("topCap").uncheck();
+    await expect(page.getByTestId("topCap-auto-tag")).toHaveCount(0);
+    await expect(page.getByTestId("caps")).toContainText("off");
+    await expect(async () => expect(decodeHashDoc(page.url()).cap).toBe("off")).toPass();
+
+    await page.getByTestId("topCap-reset-auto").click();
+    await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
+    await expect(page.getByTestId("topCap-reset-auto")).toHaveCount(0);
+    await expect(page.getByTestId("caps")).toContainText("on"); // back to the automatic layers>1 decision
+    await expect(async () => expect(decodeHashDoc(page.url()).cap).toBeUndefined()).toPass();
+
+    await page.reload();
+    await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
+    await expect(page.getByTestId("topCap")).toBeChecked();
   });
 
   test("changing the joint and tolerance controls updates the hash, and reloading reproduces them", async ({ page }) => {
