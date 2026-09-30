@@ -21,7 +21,6 @@ import {
   SCREW_MOUNT_SHANK_DIAMETER,
   SCREW_MOUNT_SLOT_DEPTH,
   SCREW_MOUNT_UNDERCUT_DEPTH,
-  THROUGH_MOUNT_COUNTERBORE_MARGIN,
 } from "../src/core/constants";
 import { layoutKeyholeMount, layoutThroughHoleMount, requiredFlangeMargin, requiredThroughMountMargin } from "../src/core/mount";
 import { layoutInnerEnd } from "../src/core/innerEnd";
@@ -289,8 +288,8 @@ describe("through-hole mount layout (issue #70)", () => {
     const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
     for (const h of layout.holes) {
       const r = Math.hypot(h.x, h.y);
-      expect(r - layout.counterboreRadius).toBeGreaterThan(outline.apothem); // clear of the wall's own outer surface, not just the bore
-      expect(r + layout.counterboreRadius).toBeLessThan(outline.apothem + margin); // inside the flange's own outer edge
+      expect(r - layout.holeRadius).toBeGreaterThan(outline.apothem); // clear of the wall's own outer surface, not just the bore
+      expect(r + layout.holeRadius).toBeLessThan(outline.apothem + margin); // inside the flange's own outer edge
     }
   });
 
@@ -302,12 +301,16 @@ describe("through-hole mount layout (issue #70)", () => {
     expect(big).toBeGreaterThan(small);
   });
 
-  it("design() bumps the flange margin/thickness (and warns) to fit the through-hole mount, and every hole is placed with no warning on a comfortably large core", async () => {
+  it("design() bumps the flange margin (never the thickness -- issue #129, no counterbore) to fit the through-hole mount, and every hole is placed with no warning on a comfortably large core", async () => {
     const none = await design(baseSpec({ shape: { kind: "sq", cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 100 } }));
     const d = await design(baseSpec({ shape: { kind: "sq", cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 100 }, mount: "through" }));
     expect(d.flangeSpec.mount).toBe("through");
-    expect(d.flangeSpec.thickness).toBeGreaterThanOrEqual(none.flangeSpec.thickness);
+    // Issue #129: the through-hole mount is a plain hole with no counterbore
+    // any more, so it needs no thickness floor of its own -- the flange is
+    // exactly as thick as it would be with no mount at all.
+    expect(d.flangeSpec.thickness).toBeCloseTo(none.flangeSpec.thickness, 9);
     expect(d.warnings.some((w) => /too narrow/i.test(w))).toBe(false);
+    expect(d.warnings.some((w) => /thickness increased/i.test(w))).toBe(false);
 
     const layout = layoutThroughHoleMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
     expect(layout.holes).toHaveLength(4);
@@ -337,15 +340,14 @@ describe("through-hole mount layout (issue #70)", () => {
     expect(layout.holes.length).toBe(3); // corner 0 skipped, the other 3 corners keep their own holes
     expect(layout.warning).toMatch(/skipped/i);
     for (const h of layout.holes) {
-      expect(Math.hypot(h.x - corner0Hole.x, h.y - corner0Hole.y)).toBeGreaterThan(layout.counterboreRadius);
+      expect(Math.hypot(h.x - corner0Hole.x, h.y - corner0Hole.y)).toBeGreaterThan(layout.holeRadius);
     }
   });
 
-  it("counterboreRadius grows with the requested hole diameter (THROUGH_MOUNT_COUNTERBORE_MARGIN added on top)", () => {
+  it("holeRadius is exactly half the requested hole diameter (issue #129: no counterbore margin added on top)", () => {
     const outline = makeOutline("round", 100, 50);
     const boreOutline = makeOutline("round", 90, 45);
     const layout = layoutThroughHoleMount(outline, boreOutline, 10, 6, noChannel);
-    expect(layout.counterboreRadius).toBeCloseTo(6 / 2 + THROUGH_MOUNT_COUNTERBORE_MARGIN, 9);
     expect(layout.holeRadius).toBeCloseTo(3, 9);
   });
 });
@@ -448,9 +450,9 @@ describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge, t
           const phi = Math.atan2(h.y, h.x);
           const wallR = radiusAtAngle(d.flangeSpec.outline, phi);
           const flangeR = radiusAtAngle(flangeOutline, phi);
-          expect(r - layout.counterboreRadius - wallR).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
-          expect(r - layout.counterboreRadius - envelopeRadius).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6); // reachable with a screwdriver, outside the wound cable
-          expect(flangeR - (r + layout.counterboreRadius)).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+          expect(r - layout.holeRadius - wallR).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+          expect(r - layout.holeRadius - envelopeRadius).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6); // reachable with a screwdriver, outside the wound cable
+          expect(flangeR - (r + layout.holeRadius)).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
         }
       });
     });
@@ -527,8 +529,8 @@ describe("hard clearance holds through requiredFlangeMargin/requiredThroughMount
               const phi = Math.atan2(h.y, h.x);
               const wallR = bruteForceRadiusAtAngle(wallScan, outline, 0, phi);
               const flangeR = bruteForceRadiusAtAngle(flangeScan, outline, margin, phi);
-              expect(r - layout.counterboreRadius - wallR, `wall clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
-              expect(flangeR - (r + layout.counterboreRadius), `flange-edge clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+              expect(r - layout.holeRadius - wallR, `wall clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+              expect(flangeR - (r + layout.holeRadius), `flange-edge clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
             }
           });
         });

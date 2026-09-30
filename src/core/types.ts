@@ -88,10 +88,10 @@ export interface PrintSpec {
 /**
  * Wall mount (issue #13/#14/#70, docs/research.md "Mounting"): `"keyhole"`
  * recesses a screw-keyhole slot into the bottom flange's outer (wall-facing)
- * face. `"through"` (issue #70) instead cuts plain, counterbored
- * screw-shank holes straight through the flange (near the corners for
- * sq/tri, evenly spaced for round), for a permanent, non-sliding screw
- * mount. `"skadis"`/`"opengrid"` (issue #14) instead produce a SEPARATE
+ * face. `"through"` (issue #70, revised #129) instead cuts plain,
+ * constant-radius screw-shank holes straight through the flange (near the
+ * corners for sq/tri, evenly spaced for round), with no counterbore or pad,
+ * for a permanent, non-sliding screw mount. `"skadis"`/`"opengrid"` (issue #14) instead produce a SEPARATE
  * named "mount plate" part with pegboard clips, which glues or snaps onto
  * that same flange face (see `PlateJoint`, mountPlate.ts) -- the core keeps
  * printing flat with no clip features of its own. `"none"` is the default.

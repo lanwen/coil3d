@@ -382,25 +382,20 @@ export const SCREW_MOUNT_AXIS_SEARCH_MAX_DEG = 60;
 export const KEYHOLE_ROTATION_OPTIONS = [0, 45] as const;
 
 // Through-hole wall mount (issue #70, docs/research.md "Mounting"): plain,
-// counterbored screw-shank holes cut straight through the bottom flange's
-// full thickness -- a permanent, non-sliding alternative to the
+// constant-radius screw-shank holes cut straight through the bottom
+// flange's full thickness -- a permanent, non-sliding alternative to the
 // screw-keyhole mount (see src/core/mount.ts's `layoutThroughHoleMount`).
 // Unlike the keyhole mount's fixed screw size, the hole diameter is a real
 // user parameter (AC: "sized for common wood screws (a parameter)").
+// Issue #129: no counterbore and no pad any more -- the screw head bears
+// directly on the flange's own winding-side face, and the flange around
+// each hole is just the ordinary plate thickness (flange.ts, flangePads.ts).
 export const THROUGH_HOLE_DIAMETER_MIN = 2.5; // mm
 export const THROUGH_HOLE_DIAMETER_MAX = 8; // mm
 export const DEFAULT_THROUGH_HOLE_DIAMETER = 4.5; // mm: shank clearance for a common wood screw (e.g. a #8)
-/** Added to the through-hole's own radius for the counterbore (screw-head clearance) radius. */
-export const THROUGH_MOUNT_COUNTERBORE_MARGIN = 1.5; // mm
-/** Depth of the counterbore, cut inward from the flange's outer (wall-facing) face -- the screw head seats here, flush with (or below) that face; the narrower hole continues straight through the rest of the flange. */
-export const THROUGH_MOUNT_COUNTERBORE_DEPTH = 3; // mm
-/** Minimum flange material left between the counterbore and the rest of the through-hole, so the counterbore is a real, distinct step rather than the full hole width running the flange's whole thickness. */
-export const THROUGH_MOUNT_MIN_SHELF = 1; // mm
-/** design.ts bumps FLANGE_THICKNESS up to this (and warns) whenever mount === "through". */
-export const MIN_FLANGE_THICKNESS_FOR_THROUGH_MOUNT = THROUGH_MOUNT_COUNTERBORE_DEPTH + THROUGH_MOUNT_MIN_SHELF; // 4 mm
 /** Minimum flange material left around each hole, to the wall's own outer (winding) surface and to the flange's own outer edge (mirrors SCREW_MOUNT_EDGE_MARGIN) -- a hard 2mm floor, verified by vitest against the ACTUAL resolved geometry. */
 export const THROUGH_MOUNT_EDGE_MARGIN = 2; // mm
-/** Minimum clearance kept between a through-hole's own counterbore and the wound cable's outer envelope, so the hole is genuinely reachable with a screwdriver from outside the winding (issue #70 AC). */
+/** Minimum clearance kept between a through-hole and the wound cable's outer envelope, so the hole is genuinely reachable with a screwdriver from outside the winding (issue #70 AC). */
 export const THROUGH_MOUNT_ENVELOPE_MARGIN = 2; // mm
 /** Evenly-spaced hole counts tried on a round flange, widest first (issue #70 AC: "evenly spaced (3 or 4) on round"). */
 export const THROUGH_MOUNT_ROUND_HOLE_COUNTS = [4, 3] as const;

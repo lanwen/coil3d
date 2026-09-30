@@ -140,9 +140,10 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the through-hole mount.`);
   }
   let thickness = sizedThickness;
-  if (wantsThrough && thickness > channelOnlyThickness + 1e-9) {
-    warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the counterbored through-hole mount.`);
-  }
+  // Issue #129: the through-hole mount no longer needs a thickness floor of
+  // its own (no counterbore) -- `thickness` is always `channelOnlyThickness`
+  // for it, exactly like `mount === "none"`, so there is nothing to warn
+  // about here any more.
   if (mountKindForPlate && mountMargin > baseMargin) {
     warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the ${mountKindForPlate === "skadis" ? "SKÅDIS" : "openGrid"} clip mount plate's grid.`);
   }
