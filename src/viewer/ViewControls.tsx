@@ -1,6 +1,7 @@
 import { TwoSidedToggle } from "../components/fields";
 import { HINTS } from "../components/hints";
 import { VIEW_PRESETS, type PresetId } from "./lineArt/presets";
+import { PresetIcon } from "./presetIcons";
 import type { Projection } from "./lineArt/LineArtRenderer";
 
 export interface ViewControlsProps {
@@ -32,11 +33,19 @@ export interface ViewControlsProps {
  * LineArtRenderer owns the actual camera math this drives (see its
  * `preset`/`projection` props); CoilViewer owns the wall-mount geometry
  * rotation the "Wall mount" preset also triggers (see its `handlePresetChange`).
+ *
+ * Issue #141: the preset buttons moved out of the old outlined box next to
+ * the projection switch into their own borderless bar at the top centre of
+ * the viewport (bottom centre when the viewport is too narrow -- see
+ * App.css's `.preset-bar`), each with a line-art pictogram of that view
+ * (presetIcons.tsx), a Switch-style black pill behind the active one and a
+ * visible label on hover/focus. Both groups keep the shared `view-controls`
+ * class, so e2e's overlay-avoidance checks treat them alike.
  */
 export function ViewControls({ preset, onPresetChange, projection, onProjectionChange, showMountSide = false }: ViewControlsProps) {
   return (
-    <div className="view-controls">
-      <div className="preset-group" role="group" aria-label="Camera view">
+    <>
+      <div className="view-controls preset-bar" role="group" aria-label="Camera view">
         {VIEW_PRESETS.filter((p) => p.id !== "mountSide" || showMountSide).map((p) => (
           <button
             key={p.id}
@@ -44,14 +53,17 @@ export function ViewControls({ preset, onPresetChange, projection, onProjectionC
             className={`preset-btn preset-btn-${p.id}${preset === p.id ? " active" : ""}`}
             data-testid={`preset-${p.id}`}
             aria-pressed={preset === p.id}
-            title={`${p.label} view`}
+            aria-label={`${p.label} view`}
             onClick={() => onPresetChange(p.id)}
           >
-            <span className={`preset-icon preset-icon-${p.id}`} aria-hidden="true" />
+            <PresetIcon id={p.id} />
+            <span className="preset-tip" aria-hidden="true">
+              {p.label}
+            </span>
           </button>
         ))}
       </div>
-      <div className="projection-toggle-box">
+      <div className="view-controls projection-toggle-box">
         <TwoSidedToggle
           testId="projection"
           leftLabel="Isometric"
@@ -63,6 +75,6 @@ export function ViewControls({ preset, onPresetChange, projection, onProjectionC
           onChange={(checked) => onProjectionChange(checked ? "perspective" : "ortho")}
         />
       </div>
-    </div>
+    </>
   );
 }
