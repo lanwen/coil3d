@@ -100,6 +100,84 @@ test.describe("top cap controls and auto-decision (issue #9)", () => {
   });
 });
 
+// Issue #131 AC #4: the joint/tolerance/label controls only apply to a cap
+// that actually exists -- hidden whenever the cap is off, whether that's
+// the current automatic (layers <= 1) decision or an explicit override, and
+// shown again the moment the cap comes back (auto or explicit).
+test.describe("cap-only controls hide when the cap is off (issue #131)", () => {
+  test("layers=1 (auto-off): joint, tolerance and label are all hidden; touching the cap on reveals them, and 'reset to auto' hides them again", async ({ page }) => {
+    await gotoDesign(page, ONE_LAYER);
+    await expect(page.getByTestId("caps")).toContainText("off");
+    await expect(page.getByTestId("select-joint")).toHaveCount(0);
+    await expect(page.getByTestId("input-tolerance")).toHaveCount(0);
+    await expect(page.getByTestId("label-enabled")).toHaveCount(0);
+
+    await page.getByTestId("topCap").check(); // touch it on -> explicit "on"
+    await expect(page.getByTestId("select-joint")).toBeVisible();
+    await expect(page.getByTestId("input-tolerance")).toBeVisible();
+    await expect(page.getByTestId("label-enabled")).toBeVisible();
+
+    await page.getByTestId("topCap-reset-auto").click(); // back to auto -> off again (layers=1)
+    await expect(page.getByTestId("select-joint")).toHaveCount(0);
+    await expect(page.getByTestId("input-tolerance")).toHaveCount(0);
+    await expect(page.getByTestId("label-enabled")).toHaveCount(0);
+  });
+
+  test("layers=2 with an explicit cap=off override: joint, tolerance and label stay hidden even though there's more than one layer", async ({ page }) => {
+    await gotoDesign(page, `${TWO_LAYER}&cap=off`);
+    await expect(page.getByTestId("caps")).toContainText("off");
+    await expect(page.getByTestId("select-joint")).toHaveCount(0);
+    await expect(page.getByTestId("input-tolerance")).toHaveCount(0);
+    await expect(page.getByTestId("label-enabled")).toHaveCount(0);
+  });
+
+  test("hiding the controls does not reset their values -- they come back exactly as left once the cap is back on", async ({ page }) => {
+    await gotoDesign(page, TWO_LAYER); // auto -> on
+    await page.getByTestId("select-joint").selectOption("bayonet");
+    await page.getByTestId("input-tolerance").fill("0.35");
+    await page.getByTestId("input-tolerance").blur();
+    await expect(async () => expect(decodeHashDoc(page.url()).tol).toBe(0.35)).toPass();
+
+    await page.getByTestId("topCap").uncheck(); // explicit off -- controls hide
+    await expect(page.getByTestId("select-joint")).toHaveCount(0);
+
+    await page.getByTestId("topCap").check(); // explicit on again -- controls come back, unchanged
+    await expect(page.getByTestId("select-joint")).toHaveValue("bayonet");
+    await expect(page.getByTestId("input-tolerance")).toHaveValue("0.35");
+  });
+});
+
+// Issue #131: the "auto"/"reset" slot moved from a separate line below the
+// switch to sit inline BEFORE it (same row, same height as the pill).
+test.describe("top-cap toggle row layout (issue #131)", () => {
+  test("the auto tag sits before the switch and matches its own height; touching the switch swaps it for a 'reset' link in the same slot", async ({ page }) => {
+    await gotoDesign(page, ONE_LAYER);
+    const tag = page.getByTestId("topCap-auto-tag");
+    const capSwitch = page.getByTestId("topCap");
+
+    const tagBox = (await tag.boundingBox())!;
+    const switchBox = (await capSwitch.boundingBox())!;
+    expect(tagBox.x + tagBox.width).toBeLessThanOrEqual(switchBox.x + 1); // the tag sits to the LEFT of the switch
+    // "Matches the pill's height" -- the switch's own hit target is
+    // deliberately oversized past the visible pill (`.switch-input`'s
+    // negative `inset`, fields.tsx), so compare against the visible track,
+    // not the checkbox's own inflated bounding box.
+    const trackBox = (await page.locator(".switch-track").first().boundingBox())!;
+    expect(Math.abs(tagBox.height - trackBox.height)).toBeLessThanOrEqual(1);
+
+    // No separate line below the row any more.
+    await expect(page.getByTestId("topCap-reset-auto")).toHaveCount(0);
+
+    await capSwitch.check();
+    const resetLink = page.getByTestId("topCap-reset-auto");
+    await expect(resetLink).toBeVisible();
+    await expect(tag).toHaveCount(0);
+    const resetBox = (await resetLink.boundingBox())!;
+    const switchBoxAfter = (await capSwitch.boundingBox())!;
+    expect(resetBox.x + resetBox.width).toBeLessThanOrEqual(switchBoxAfter.x + 1);
+  });
+});
+
 // This describe (and "assembled and exploded screenshots per joint" below)
 // is specifically ABOUT the exploded-view animation, so both opt back into
 // real motion over the suite-wide `reducedMotion: "reduce"` default
