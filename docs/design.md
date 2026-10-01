@@ -59,7 +59,9 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   supports: overhangs of at most 45 degrees and no large bridges. This is why
   the clip mount is a separate plate (clips cannot point into the print bed),
   why the label is engraved (a raised label would sit below the bed plane in
-  the cap's print orientation), and why the plate and the flange are joined
+  the cap's print orientation), why the label's letters are at most about
+  5.6 mm tall (each letter's floor prints as a bridge as wide as its stroke,
+  so strokes stay under 1.8 mm), and why the plate and the flange are joined
   with blind holes and printed pegs.
 - One accepted exception (#175): the keyhole mount's undercut roof is a flat
   bridge as wide as the screw head (8 mm). Most printers bridge it, and a

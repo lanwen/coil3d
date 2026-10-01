@@ -28,7 +28,7 @@
 
 import opentype from "opentype.js";
 import { ARCHIVO_BLACK_TTF_BASE64 } from "./label-font-data";
-import { LABEL_CURVE_SEGMENTS, LABEL_MARGIN, LABEL_MAX_HEIGHT, LABEL_MIN_HEIGHT } from "./constants";
+import { LABEL_CURVE_SEGMENTS, LABEL_MARGIN, LABEL_MAX_FONT_SIZE, LABEL_MIN_HEIGHT } from "./constants";
 import { evalOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 
@@ -221,8 +221,9 @@ function sideBearingDeg(outline: ShapeOutline): number {
 }
 
 /**
- * The largest font size (as ink bounding-box height, clamped to
- * [minHeight, maxHeight]) that fits the annulus between `innerExclusion` and
+ * The largest font size (from the one that renders at ink height
+ * `minHeight` up to `maxFontSize`, issue #176's stroke cap) that fits the
+ * annulus between `innerExclusion` and
  * `outerSafe` (mm, both measured along the band's own radial bearing --
  * see `sideBearingDeg`). For round, or for sq/tri aligned to a flat side's
  * own bearing (the only way this is called -- `resolveLabel` always passes
@@ -236,11 +237,15 @@ function sideBearingDeg(outline: ShapeOutline): number {
  * bearing), its near edge at `innerExclusion + margin`: as fontSize grows,
  * both the band's ink height and width grow (worse) while the outer radius
  * budget for width shrinks (also worse) -- monotonic, so a bisection
- * between a size that fits (`minHeight`) and one that may not (`maxHeight`)
- * finds the threshold. Returns undefined if even `minHeight` doesn't fit --
- * the ticket's "hide it and emit a warning" case.
+ * between the smallest size and `maxFontSize` finds the threshold. Text
+ * whose ink is short for its font size (lowercase without ascenders, a lone
+ * "-") would need a font above `maxFontSize`, with strokes too wide to print,
+ * to reach `minHeight`; its smallest size is `maxFontSize` instead, so it is
+ * the same letter size as capitals at their largest. Returns undefined if
+ * even the smallest size doesn't fit -- the ticket's "hide it and emit a
+ * warning" case.
  */
-export function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSafe: number, minHeight: number = LABEL_MIN_HEIGHT, maxHeight: number = LABEL_MAX_HEIGHT, margin: number = LABEL_MARGIN): LabelFit | undefined {
+export function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSafe: number, minHeight: number = LABEL_MIN_HEIGHT, maxFontSize: number = LABEL_MAX_FONT_SIZE, margin: number = LABEL_MARGIN): LabelFit | undefined {
   if (metrics.heightPerUnit <= 0 || metrics.widthPerUnit <= 0) return undefined;
 
   const fits = (fontSize: number): boolean => {
@@ -253,8 +258,8 @@ export function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSaf
     return w / 2 <= halfWidthMax;
   };
 
-  const fMin = minHeight / metrics.heightPerUnit;
-  const fMax = maxHeight / metrics.heightPerUnit;
+  const fMax = maxFontSize;
+  const fMin = Math.min(minHeight / metrics.heightPerUnit, fMax);
   if (!fits(fMin)) return undefined;
 
   let fontSize = fMax;
