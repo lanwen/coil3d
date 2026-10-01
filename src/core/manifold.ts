@@ -18,8 +18,9 @@
 // engagement collar that reaches down into the core's bore. All three joints (press/bayonet/snap) share ONE circular
 // collar centered on the coil axis regardless of the core's own
 // round/sq/tri cross-section -- see joints.ts for why. `applyCoreJointCut`
-// cuts the matching bayonet groove/entry-slots or snap relief/ridge into the
-// core's own top rim; press needs no core-side cut at all (the collar simply
+// adds the bayonet's lugs (issue #167; its L-slots are in the cap's collar)
+// or cuts the snap relief/ridge into the core's own top rim; press needs no
+// core-side feature at all (the collar simply
 // presses against the bore's existing inner surface). Every feature here is
 // built from manifold-3d PRIMITIVES (cylinder/cube + boolean ops), never a
 // hand-rolled triangle mesh, so winding/orientation is always correct.
@@ -207,11 +208,11 @@ function revolvedFeature(wasm: ManifoldToplevel, f: RevolvedFeature, dz: number)
 }
 
 /**
- * Cut the bayonet's or snap's mating feature into an already-fused core
- * manifold, near its top rim (docs/design.md, Parts and printing; ticket:
- * "3 bayonet lugs + L-slots in the core's top rim"). Bayonet: 3 straight
- * entry slots (open at the top edge) leading into a full twist-lock groove.
- * Snap: a stepped relief (wide everywhere except one narrow retaining ridge
+ * Add the bayonet's or cut the snap's mating feature into an already-fused
+ * core manifold, near its top rim (docs/design.md, Parts and printing).
+ * Bayonet (issue #167): the lugs from joints.ts's `bayonetLayout`, standing
+ * in the bore just under the rim; design.ts only asks for them once that
+ * layout said the core can take them. Snap: a stepped relief (wide everywhere except one narrow retaining ridge
  * band) that a hook's barb must flex past, then springs back under. Skips
  * silently (returns the manifold unchanged) when the bore is too small or
  * the core too short for these features to fit inside the 3 mm wall without

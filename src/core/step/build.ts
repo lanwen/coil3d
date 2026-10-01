@@ -730,7 +730,7 @@ function relieveFlangeSolid(kernel: OpenCascadeInstance, flange: R.Shape3D, flan
 }
 
 /**
- * Cut the bayonet's or snap's mating feature into the core solid's top rim
+ * Add the bayonet's lugs (issue #167) or cut the snap's mating feature into the core solid's top rim
  * (mirrors manifold.ts's `applyCoreJointCut` primitive-for-primitive, so the
  * mesh and STEP backends can't drift on fit). Returns `core` unchanged when
  * the bore/height are too small for these features -- see JOINT_MIN_BORE_RADIUS.

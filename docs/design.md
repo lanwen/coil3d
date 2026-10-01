@@ -20,7 +20,7 @@ This file records why the app works the way it does. The mount geometry is in
 | Shapes | Round, rounded square, rounded triangle. Round is a diameter, square is across flats, triangle is the inscribed-circle diameter. |
 | Cable | Round cross-section only. Bend limit: USB/audio 4x the diameter, flexible cord 4x, stiff or solid 10x, or a custom multiplier. |
 | Parts | A core with the bottom flange printed as one piece. A separate top cap, on by default when there is more than one layer. A separate mount plate with two alignment pegs for SKÅDIS and openGrid. At most five parts. |
-| Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. |
+| Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core; elsewhere the cap gets the press-fit collar, with a warning. |
 | Label | Text engraved into the top cap's room-facing face. It is hidden, with a warning, when it does not fit. |
 | Printer | A bed-size setting. It only produces warnings. The app never rearranges parts to fit. |
 | Units | Metric only. English only. |
