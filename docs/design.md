@@ -312,7 +312,8 @@ It does not use lighting.
 3. A dilate ("thicken") pass makes pixels black near a line pixel. The
    thickness is recomputed each time the model is framed, from the diagonal of
    its projected bounding box, so the line weight follows the on-screen size
-   of the model and stays a thin pen line.
+   of the model and stays a thin pen line. The pass only samples the circle
+   the pens can reach, not the whole square of the largest pen.
 4. FXAA runs last.
 
 The engraved label is drawn differently, because its letters are only a few
@@ -335,6 +336,13 @@ the tube's facets do not draw lines. A layer with many turns (over 60) is
 drawn as a plain envelope shell plus a few real turns, because the occlusion
 lines between hundreds of adjacent turns would merge into a black band. When
 the final mesh replaces the draft, it fades in over a quarter of a second.
+
+Every canvas renders on demand. The assembly guide has about a dozen figures,
+and each one runs this whole pipeline, so a guide figure only renders while it
+is within 200 px of the viewport (`GuideFigure`; its `data-rendered` attribute
+turns `true` after the first draw). The canvas keeps its last picture while it
+is away. The print button draws every figure first
+(`renderAllGuideFigures`), because a browser prints the canvases as they are.
 
 The look and the pass structure follow
 [nmattia/skapa](https://github.com/nmattia/skapa), a SKÅDIS box generator.

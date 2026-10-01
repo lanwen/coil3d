@@ -138,9 +138,13 @@ export function useDesignPreview(spec: CoilSpec): DesignPreview {
           // Safety valve: if that final is slow, show a draft rather than
           // leave the (now stale) previous final up indefinitely. Started
           // only once the edit has already settled, so this never fires
-          // mid-drag. `applyDraft`'s own `finalArrived` check makes this a
-          // no-op if the final has already landed by the time it fires.
-          timers.push(window.setTimeout(() => client?.request(spec, "draft").then(applyDraft, fail), DRAFT_FALLBACK_MS));
+          // mid-drag. If the final has already landed by the time it fires,
+          // the draft would be built just to be thrown away, so skip it.
+          timers.push(
+            window.setTimeout(() => {
+              if (!finalArrived) client?.request(spec, "draft").then(applyDraft, fail);
+            }, DRAFT_FALLBACK_MS),
+          );
         }, EDIT_DEBOUNCE_MS),
       );
     }

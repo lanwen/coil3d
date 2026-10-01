@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { decodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #17 (the printable, IKEA-style assembly
@@ -23,7 +23,19 @@ const TWO_LAYER_CAP = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2"; // 
 // not this per-assertion one.
 const GUIDE_SCREENSHOT_TIMEOUT = process.env.CI ? 120_000 : 25_000;
 
-async function gotoGuide(page: Page, hash: string) {
+// A guide figure only renders while it is near the viewport (GuideFigure), and
+// `data-rendered` says it has drawn. A screenshot of the whole guide, or of a
+// figure far down the page, has to scroll each figure in first.
+async function revealFigures(page: Page, scope: Locator = page.locator("body")) {
+  const figures = scope.locator("xpath=descendant-or-self::*[@data-rendered]");
+  const count = await figures.count();
+  for (let i = 0; i < count; i++) {
+    await figures.nth(i).scrollIntoViewIfNeeded();
+    await expect(figures.nth(i)).toHaveAttribute("data-rendered", "true", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+  }
+}
+
+async function gotoGuide(page: Page, hash: string, { reveal = false } = {}) {
   await page.goto(`/${hash}&view=guide`);
   await expect(page.getByTestId("guide-view")).toBeVisible();
   // Wait for the FINAL-resolution design, not just the fast draft the guide
@@ -34,6 +46,7 @@ async function gotoGuide(page: Page, hash: string) {
   // `data-resolution` since the design view's own `download-stl` isn't in
   // the DOM while viewing the guide).
   await expect(page.getByTestId("guide-view")).toHaveAttribute("data-resolution", "final", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+  if (reveal) await revealFigures(page);
 }
 
 test.describe("printable assembly guide (issue #17)", () => {
@@ -124,6 +137,8 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.getByTestId("guide-step-5")).not.toContainText("coming soon");
     await expect(page.getByTestId("guide-step-5").locator(".guide-overlay-slot").first()).toBeVisible();
     await expect(page.getByTestId("guide-step-6")).toContainText(/unwind/i);
+    await revealFigures(page, page.getByTestId("guide-step-4"));
+    await revealFigures(page, page.getByTestId("guide-step-5"));
     await expect(page.getByTestId("guide-step-4")).toHaveScreenshot("guide-skadis-fit-plate.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     await expect(page.getByTestId("guide-step-5")).toHaveScreenshot("guide-skadis-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
   });
@@ -176,22 +191,55 @@ test.describe("printable assembly guide (issue #17)", () => {
   // heavy parallel SwiftShader contention. `test.slow()` triples this
   // test's own overall timeout (not just the assertion's), on top of the
   // generous `toHaveScreenshot` timeout below.
+  test("a figure far below the viewport does not render until it scrolls into view", async ({ page }) => {
+    await gotoGuide(page, TWO_LAYER_CAP);
+    const figures = page.locator("[data-rendered]");
+    const first = figures.first();
+    const last = figures.last();
+    await expect(first).toHaveAttribute("data-rendered", "true", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+    expect(await figures.count()).toBeGreaterThan(3);
+    // Give a wrongly eager figure time to draw before asserting it did not.
+    await page.waitForTimeout(1000);
+    await expect(last).toHaveAttribute("data-rendered", "false");
+    expect(await last.evaluate((el) => (el.querySelector("canvas") as HTMLCanvasElement).toDataURL().length)).toBeLessThan(
+      await first.evaluate((el) => (el.querySelector("canvas") as HTMLCanvasElement).toDataURL().length),
+    );
+
+    await last.scrollIntoViewIfNeeded();
+    await expect(last).toHaveAttribute("data-rendered", "true", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+  });
+
+  test("the print button draws every figure before it opens the print dialog", async ({ page }) => {
+    // A browser prints the canvases as they are, so a figure still waiting to scroll into view would print blank.
+    await page.addInitScript(() => {
+      window.print = () => {
+        const figures = Array.from(document.querySelectorAll("[data-rendered]"));
+        (window as unknown as { __printState: string }).__printState = `${figures.filter((f) => f.getAttribute("data-rendered") === "true").length}/${figures.length}`;
+      };
+    });
+    await gotoGuide(page, TWO_LAYER_CAP);
+    const total = await page.locator("[data-rendered]").count();
+    await expect(page.locator("[data-rendered='false']")).not.toHaveCount(0);
+    await page.getByTestId("guide-print").click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __printState?: string }).__printState), { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toBe(`${total}/${total}`);
+  });
+
   test.describe("screenshots (visual review)", () => {
     test("1-layer design (no cap)", async ({ page }) => {
       test.slow();
-      await gotoGuide(page, ONE_LAYER);
+      await gotoGuide(page, ONE_LAYER, { reveal: true });
       await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-one-layer.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
     test("2-layer design with a top cap (bayonet joint)", async ({ page }) => {
       test.slow();
-      await gotoGuide(page, `${TWO_LAYER_CAP}&joint=bayonet`);
+      await gotoGuide(page, `${TWO_LAYER_CAP}&joint=bayonet`, { reveal: true });
       await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-two-layer-cap.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
     test("with the screw-keyhole wall mount", async ({ page }) => {
       test.slow();
-      await gotoGuide(page, `${ONE_LAYER}&mount=keyhole`);
+      await gotoGuide(page, `${ONE_LAYER}&mount=keyhole`, { reveal: true });
       await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-keyhole-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
@@ -204,7 +252,7 @@ test.describe("printable assembly guide (issue #17)", () => {
       test(`with the screw-keyhole wall mount, rotated ${kr} degrees`, async ({ page }) => {
         test.slow();
         const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
-        await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+        await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`, { reveal: true });
         await expect(page.getByTestId("guide-view")).toHaveScreenshot(`guide-keyhole-mount-rotated-${kr}.png`, { timeout: GUIDE_SCREENSHOT_TIMEOUT });
       });
     }
@@ -215,7 +263,7 @@ test.describe("printable assembly guide (issue #17)", () => {
     test("with the through-hole wall mount", async ({ page }) => {
       test.slow();
       const doc = { v: 2, L: 1000, d: 4, size: 60, mount: "through" };
-      await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+      await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`, { reveal: true });
       await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-through-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
@@ -233,6 +281,7 @@ test.describe("printable assembly guide (issue #17)", () => {
           test.slow();
           const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
           await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+          await revealFigures(page, page.getByTestId("guide-mount-inset"));
           await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-keyhole-rotated-${kr}.png`, { timeout: GUIDE_SCREENSHOT_TIMEOUT });
         });
       }
@@ -243,6 +292,7 @@ test.describe("printable assembly guide (issue #17)", () => {
           test.slow();
           const doc = { v: 2, L: 1000, d: 4, size: 60, mount: "through", ...(shape !== "round" ? { shape, rc: 15 } : {}) };
           await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+          await revealFigures(page, page.getByTestId("guide-mount-inset"));
           await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-through-${shape}.png`, { timeout: GUIDE_SCREENSHOT_TIMEOUT });
         });
       }
