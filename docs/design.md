@@ -61,6 +61,9 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   why the label is engraved (a raised label would sit below the bed plane in
   the cap's print orientation), and why the plate and the flange are joined
   with blind holes and printed pegs.
+- One accepted exception (#175): the keyhole mount's undercut roof is a flat
+  bridge as wide as the screw head (8 mm). Most printers bridge it, and a
+  45 degree roof would need a 3.5 mm thicker pad. The tests cap it at 8.5 mm.
 - The flange is the final outer envelope of the wound cable plus a margin.
 - Print orientation hints appear in the guide and in the 3MF placement.
 
