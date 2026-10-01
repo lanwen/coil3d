@@ -295,6 +295,8 @@ export interface CoilMesh {
   positions: Float32Array;
   /** 3 indices per triangle. */
   indices: Uint32Array;
+  /** The triangles (numbered as in `indices`, 3 entries each) that form the engraved label's pockets, walls and floors (top cap only, issue #176). The viewer draws their outline with a finer line, because the letters are small. */
+  labelTriangles?: Uint32Array;
 }
 
 /**

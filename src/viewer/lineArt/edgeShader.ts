@@ -21,8 +21,16 @@ import { Vector2 } from "three";
  *   hard edges (toCreasedNormals), so a crease is a clean jump in the normal
  *   buffer at any zoom, and smooth curves never reach the threshold.
  *
- * Output: r = ink (1 on a line pixel), g = model coverage, a = 1. The thicken
- * pass turns that into the final white fill, black line and alpha.
+ * The engraved label (issue #176) is the exception: its letters are a few
+ * millimetres tall, so the pocket walls and floors would fuse the usual lines
+ * into solid blobs. The normal+depth pass marks the label's pocket faces with
+ * alpha 0.5 (see LineArtRenderer's `LABEL_ATTRIBUTE`). Around them only the
+ * pocket's outline is marked, in its own channel, and the thicken pass draws
+ * it with a finer pen.
+ *
+ * Output: r = ink (1 on a line pixel), g = model coverage, b = fine ink (the
+ * label's outline), a = 1. The thicken pass turns that into the final white
+ * fill, black line and alpha.
  */
 export const EdgeShader = {
   name: "EdgeShader",
@@ -59,6 +67,7 @@ export const EdgeShader = {
 
     float depthAt(vec2 uv) { return texture2D(tDepth, uv).x; }
     vec3 normalAt(vec2 uv) { return normalize(texture2D(tNormal, uv).rgb * 2.0 - 1.0); }
+    float labelAt(vec2 uv) { return step(texture2D(tNormal, uv).a, 0.75); }
 
     void main() {
       float d0 = depthAt(vUv);
@@ -77,8 +86,15 @@ export const EdgeShader = {
       float du = depthAt(vUv + dy);
 
       float ink = 0.0;
+      float fine = 0.0;
+      float l0 = labelAt(vUv);
+      float lr = labelAt(vUv + dx);
+      float lu = labelAt(vUv + dy);
       if (max(max(dl, dr), max(dd, du)) >= 1.0) {
         ink = 1.0;
+      } else if (max(max(l0, lr), max(lu, max(labelAt(vUv - dx), labelAt(vUv - dy)))) > 0.5) {
+        // At or in the label's pockets: only the outline, one pixel where the label starts.
+        if (l0 != lr || l0 != lu) fine = 1.0;
       } else {
         // Positive only on the near side of a step: the far side reads
         // negative, so each step marks one pixel, on the occluding surface.
@@ -92,7 +108,7 @@ export const EdgeShader = {
         }
       }
 
-      gl_FragColor = vec4(ink, 1.0, 0.0, 1.0);
+      gl_FragColor = vec4(ink, 1.0, fine, 1.0);
     }
   `,
 };

@@ -245,3 +245,30 @@ describe("label letter floors bridge at most 2 mm (issue #176)", () => {
     expect(await maxChars(SMALL_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(6);
   });
 });
+
+// Issue #176: the viewer draws the label's outline with a finer line, from the
+// pocket faces the top cap mesh marks. They must be exactly the pocket's walls
+// and floors: every face below the room face and within the engraving depth.
+describe("the top cap marks its label pocket faces (labelTriangles)", () => {
+  it("absent without a label", async () => {
+    expect(capMesh(await design(ROOMY_CAP)).labelTriangles).toBeUndefined();
+  });
+
+  it("exactly the faces inside the engraving", async () => {
+    const d = await design({ ...ROOMY_CAP, label: "USB-C 2m" });
+    const mesh = capMesh(d);
+    const top = d.solution.height + CAP_THICKNESS;
+    const zOf = (t: number) => [0, 1, 2].map((k) => mesh.positions[mesh.indices[t * 3 + k] * 3 + 2] - top);
+    // The engraving depth: the deepest marked vertex.
+    const marked = new Set(mesh.labelTriangles);
+    expect(marked.size).toBeGreaterThan(0);
+    const depth = -Math.min(...[...marked].flatMap(zOf));
+    expect(depth).toBeGreaterThan(0.1);
+    expect(depth).toBeLessThan(CAP_THICKNESS);
+    for (let t = 0; t < mesh.indices.length / 3; t++) {
+      const z = zOf(t);
+      const inPocket = z.every((v) => v > -depth - 1e-4 && v < 1e-4) && !z.every((v) => v > -1e-4);
+      expect(marked.has(t), `triangle ${t} at z ${z.map((v) => v.toFixed(3)).join(", ")}`).toBe(inPocket);
+    }
+  });
+});

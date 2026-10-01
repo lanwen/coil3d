@@ -613,8 +613,12 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       assembled = track(track(assembled.add(block)).subtract(bore));
     }
 
+    // The cutter gets its own original ID, so the faces it leaves behind
+    // (the pockets' walls and floors) can be told apart in the result.
+    let labelId: number | undefined;
     if (label) {
-      const labelCutter = track(await buildLabelCutter(wasm, label));
+      const labelCutter = track(track(await buildLabelCutter(wasm, label)).asOriginal());
+      labelId = labelCutter.originalID();
       assembled = track(assembled.subtract(labelCutter));
     }
 
@@ -623,10 +627,21 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     }
 
     const outMesh = assembled.getMesh();
-    return {
+    const mesh: CoilMesh = {
       positions: new Float32Array(outMesh.vertProperties),
       indices: new Uint32Array(outMesh.triVerts),
     };
+    if (labelId !== undefined) {
+      const labelTriangles: number[] = [];
+      const runIndex = outMesh.runIndex!;
+      const runOriginalID = outMesh.runOriginalID!;
+      for (let r = 0; r < runOriginalID.length; r++) {
+        if (runOriginalID[r] !== labelId) continue;
+        for (let t = runIndex[r] / 3; t < runIndex[r + 1] / 3; t++) labelTriangles.push(t);
+      }
+      mesh.labelTriangles = new Uint32Array(labelTriangles);
+    }
+    return mesh;
   } finally {
     for (const m of trash) m.delete();
   }

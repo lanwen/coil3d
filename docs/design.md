@@ -299,6 +299,13 @@ It does not use lighting.
    of the model and stays a thin pen line.
 4. FXAA runs last.
 
+The engraved label is drawn differently, because its letters are only a few
+millimetres tall: the usual lines on its pocket walls and floors would fill
+the letters in. The top cap mesh marks the label's pocket faces
+(`CoilMesh.labelTriangles`), the normal pass writes that mark into its alpha,
+and the edge shader draws only the outline of the marked area, with a finer
+pen than the other lines.
+
 The camera is refitted to the projected bounds when the geometry changes.
 The wound cable is drawn as one merged tube per layer, with smooth normals so
 the tube's facets do not draw lines. A layer with many turns (over 60) is

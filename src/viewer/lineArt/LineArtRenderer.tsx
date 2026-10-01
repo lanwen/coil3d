@@ -5,7 +5,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { FXAAShader } from "three/examples/jsm/shaders/FXAAShader.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import type { Resolution } from "../../core";
+import type { CoilMesh, Resolution } from "../../core";
 import { EdgeShader } from "./edgeShader";
 import { MAX_THICKEN_RADIUS, ThickenShader } from "./thickenShader";
 import { directionAndUpOf, getPreset, presetQuaternion, type PresetId } from "./presets";
@@ -69,6 +69,9 @@ export const MODEL_DEPTH_UNIFORM: { value: THREE.Texture | null } = { value: nul
 const LINE_WEIGHT_PER_DIAGONAL_PX = 1 / 500;
 const MIN_LINE_WEIGHT = 1.0;
 const MAX_LINE_WEIGHT = 1.6;
+// The engraved label's outline (issue #176), CSS px: its letters are only a
+// few millimetres tall, so the normal pen would fill them in.
+const FINE_LINE_WEIGHT = 0.8;
 // A depth step counts as an occlusion edge when it exceeds this many
 // line-pass pixels' worth of world-space distance.
 const DEPTH_STEP_PX = 4;
@@ -142,6 +145,36 @@ function kickInvalidate(invalidate: () => void) {
  */
 function linePixelRatio(dpr: number): number {
   return dpr >= 2 ? dpr : 2 * dpr;
+}
+
+/**
+ * Per-vertex attribute, 1 on the engraved label's pocket faces (issue #176).
+ * The normal+depth pass writes it to the normal target's alpha (0.5 there,
+ * 1 elsewhere), and the edge shader draws the label's outline with a fine
+ * pen from it.
+ */
+const LABEL_ATTRIBUTE = "labelFace";
+
+/** Marks `mesh.labelTriangles` on `geometry`, the non-indexed geometry `toCreasedNormals` made from `mesh` (it keeps the triangle order). */
+export function markLabelFaces(geometry: THREE.BufferGeometry, mesh: CoilMesh) {
+  if (!mesh.labelTriangles?.length) return;
+  const flags = new Float32Array(geometry.getAttribute("position").count);
+  for (const t of mesh.labelTriangles) flags.fill(1, t * 3, t * 3 + 3);
+  geometry.setAttribute(LABEL_ATTRIBUTE, new THREE.BufferAttribute(flags, 1));
+}
+
+/** The normal+depth pass's material: view-space normals, plus the label flag in alpha (geometry without it reads 0). */
+function createNormalMaterial(): THREE.MeshNormalMaterial {
+  const material = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
+  (material as unknown as { defaultAttributeValues: Record<string, number[]> }).defaultAttributeValues = { [LABEL_ATTRIBUTE]: [0] };
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace("void main() {", `attribute float ${LABEL_ATTRIBUTE};\nvarying float vLabelFace;\nvoid main() {\n\tvLabelFace = ${LABEL_ATTRIBUTE};`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace("void main() {", "varying float vLabelFace;\nvoid main() {")
+      .replace(/}\s*$/, "\tgl_FragColor.a = vLabelFace > 0.5 ? 0.5 : 1.0;\n}\n");
+  };
+  material.customProgramCacheKey = () => "lineArtNormal";
+  return material;
 }
 
 function disableBlendAndDepth(material: THREE.ShaderMaterial) {
@@ -313,6 +346,7 @@ function applyFraming(
   const diagonalCss = Math.hypot(fit.extentX, fit.extentY) * cssPerWorld;
   const weight = THREE.MathUtils.clamp(diagonalCss * LINE_WEIGHT_PER_DIAGONAL_PX, MIN_LINE_WEIGHT, MAX_LINE_WEIGHT);
   thickenPass.uniforms.thicknessPx.value = Math.min(weight * linePixelRatio(gl.getPixelRatio()), MAX_THICKEN_RADIUS - 0.5);
+  thickenPass.uniforms.fineThicknessPx.value = FINE_LINE_WEIGHT * linePixelRatio(gl.getPixelRatio());
 
   void projection; // kept in the signature for callers' clarity; behaviour above is driven by `camera`'s own type.
 }
@@ -401,7 +435,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
   }, []);
   const activeCamera = projection === "ortho" ? orthoCamera : perspectiveCamera;
 
-  const normalMaterial = useMemo(() => new THREE.MeshNormalMaterial({ side: THREE.DoubleSide }), []);
+  const normalMaterial = useMemo(createNormalMaterial, []);
 
   const targets = useMemo(() => {
     const depthTexture = new THREE.DepthTexture(1, 1);
