@@ -29,6 +29,7 @@ import { mountPlateLayoutFor } from "../src/core/mountPlate";
 import { makeOutline, offsetOutline, radiusAtAngle } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 import { bruteForceRadiusAtAngle, coarseOutlineScan } from "./support/bruteForceRadius";
+import { KEYHOLE_ROOF_MAX_SPAN } from "./support/keyholeBridge";
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {
@@ -247,6 +248,71 @@ describe("keyhole mount undercut (issue #71): verified against the built mesh, n
     }
 
     manifold.delete();
+  });
+});
+
+// --- Issue #175: the undercut's roof, an accepted bridge -----------------
+
+describe("keyhole mount undercut roof (issue #175): the only overhang is the accepted flat roof, at most KEYHOLE_ROOF_MAX_SPAN across", () => {
+  // The core prints flange down, so the keyhole is cut into the bed face and
+  // its undercut's flat roof is a bridge over a closed chamber, as wide as
+  // the screw head. That bridge is accepted by design (maintainer decision,
+  // #175; see test/support/keyholeBridge.ts). This guard keeps it that way:
+  // every face in the cut that faces down, sits above the bed and leans past
+  // 45 deg (with test/printability's tessellation slack) must be the roof
+  // itself -- flat, at SCREW_MOUNT_RECESS_DEPTH above the bed -- and the
+  // roof spans at most KEYHOLE_ROOF_MAX_SPAN across the slot's axis.
+  const MAX_OVERHANG_DEG = 45 + 1.5;
+  const SHAPES: CoilSpec["shape"][] = [{ kind: "round" }, { kind: "sq", cornerRadius: 12 }, { kind: "tri", cornerRadius: 12 }];
+  const CASES = SHAPES.flatMap((shape) =>
+    [0, 45].flatMap((keyholeRotation) => [50, 100].map((size) => ({ label: `${shape.kind}, rotation ${keyholeRotation}, ${size} mm`, shape, keyholeRotation, size }))),
+  );
+
+  it.each(CASES)("$label", async ({ shape, keyholeRotation, size }) => {
+    const d = await design(baseSpec({ shape, mount: "keyhole", keyholeRotation: keyholeRotation as 0 | 45, coreSize: { locked: true, dimension: "outer", value: size } }));
+    const f = d.flangeSpec;
+    const { slots } = layoutKeyholeMount(f.outline, f.boreOutline, f.margin, f.keyholeRotation);
+    expect(slots.length).toBeGreaterThan(0);
+    const core = d.parts.find((p) => p.role === "core")!;
+    // The core prints as assembled, flange face on the bed (z = -thickness).
+    const bedZ = -f.thickness;
+    const p = core.mesh.positions;
+    const tris = core.mesh.indices;
+    // Distance in XY from the slot's axis segment (head -> shankEnd).
+    const fromAxis = (x: number, y: number, s: (typeof slots)[number]) => {
+      const ex = s.shankEnd.x - s.head.x;
+      const ey = s.shankEnd.y - s.head.y;
+      const t = Math.max(0, Math.min(1, ((x - s.head.x) * ex + (y - s.head.y) * ey) / (ex * ex + ey * ey)));
+      return Math.hypot(x - s.head.x - t * ex, y - s.head.y - t * ey);
+    };
+    const roofZ = bedZ + SCREW_MOUNT_RECESS_DEPTH;
+    let span = 0;
+    let flagged = 0;
+    let offRoof = 0;
+    for (let t3 = 0; t3 < tris.length; t3 += 3) {
+      const [a, b, c] = [tris[t3] * 3, tris[t3 + 1] * 3, tris[t3 + 2] * 3];
+      const minZ = Math.min(p[a + 2], p[b + 2], p[c + 2]);
+      if (minZ <= bedZ + 0.05 || minZ > 0) continue; // on the bed itself, or above the flange
+      const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+      const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
+      const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+      const len = Math.hypot(nx, ny, nz);
+      if (len < 2e-3 || nz >= 0) continue;
+      if ((Math.asin(Math.min(1, -nz / len)) * 180) / Math.PI <= MAX_OVERHANG_DEG) continue;
+      const cx = (p[a] + p[b] + p[c]) / 3;
+      const cy = (p[a + 1] + p[b + 1] + p[c + 1]) / 3;
+      const slot = slots.find((s) => fromAxis(cx, cy, s) < SCREW_MOUNT_HEAD_DIAMETER);
+      if (!slot) continue;
+      flagged++;
+      for (const v of [a, b, c]) {
+        span = Math.max(span, 2 * fromAxis(p[v], p[v + 1], slot));
+        if (Math.abs(p[v + 2] - roofZ) > 1e-3) offRoof++;
+      }
+    }
+    expect(flagged).toBeGreaterThan(0); // the cut is there, and its roof is found
+    expect(offRoof).toBe(0); // nothing else in the keyhole overhangs
+    expect(span).toBeGreaterThanOrEqual(SCREW_MOUNT_HEAD_DIAMETER - 1e-3); // the head-width roof, measured
+    expect(span).toBeLessThanOrEqual(KEYHOLE_ROOF_MAX_SPAN);
   });
 });
 

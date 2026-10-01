@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { design, JOINT_ENGAGE_DEPTH, printPlacements, TOLERANCE_MAX, TOLERANCE_MIN } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, JointKind, MountKind, PartRole, RigidTransform, ShapeSpec } from "../src/core";
+import { SCREW_MOUNT_RECESS_DEPTH, SCREW_MOUNT_SLOT_TRAVEL } from "../src/core/constants";
+import { layoutKeyholeMount } from "../src/core/mount";
+import { KEYHOLE_ROOF_MAX_SPAN } from "./support/keyholeBridge";
 
 // Issue #168: AGENTS.md's printability rule -- "every part prints flat on the
 // bed without supports: overhangs at most 45 deg, no large bridges" -- as one
@@ -36,6 +39,9 @@ interface Patch {
   width: number;
   /** Boundary length whose neighbouring face rises from the edge (not resting on anything). */
   freeLength: number;
+  /** Bounding box of the patch's vertices, in the part's own (assembled) frame. */
+  min: [number, number, number];
+  max: [number, number, number];
 }
 
 function place(mesh: CoilMesh, t: RigidTransform): Float32Array {
@@ -143,9 +149,17 @@ function overhangs(mesh: CoilMesh, t: RigidTransform): Patch[] {
     let perimeter = 0;
     let freeLength = 0;
     let worst = group[0];
+    const min: [number, number, number] = [Infinity, Infinity, Infinity];
+    const max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
     for (const t3 of group) {
       if (fails.get(t3)! > fails.get(worst)!) worst = t3;
       const [a, b, c] = [tris[t3] * 3, tris[t3 + 1] * 3, tris[t3 + 2] * 3];
+      for (const v of [a, b, c]) {
+        for (let k = 0; k < 3; k++) {
+          min[k] = Math.min(min[k], src[v + k]);
+          max[k] = Math.max(max[k], src[v + k]);
+        }
+      }
       area += Math.abs((p[b] - p[a]) * (p[c + 1] - p[a + 1]) - (p[b + 1] - p[a + 1]) * (p[c] - p[a])) / 2;
       const nrm = normals.get(t3)!;
       for (let k = 0; k < 3; k++) {
@@ -170,7 +184,7 @@ function overhangs(mesh: CoilMesh, t: RigidTransform): Patch[] {
     const [a, b, c] = [tris[worst] * 3, tris[worst + 1] * 3, tris[worst + 2] * 3];
     const at: [number, number, number] = [0, 1, 2].map((k) => (src[a + k] + src[b + k] + src[c + k]) / 3) as [number, number, number];
     const width = perimeter > 0 ? (2 * area) / perimeter : 0;
-    patches.push({ worstDeg: fails.get(worst)!, at, printZ: (p[a + 2] + p[b + 2] + p[c + 2]) / 3, area, width, freeLength });
+    patches.push({ worstDeg: fails.get(worst)!, at, printZ: (p[a + 2] + p[b + 2] + p[c + 2]) / 3, area, width, freeLength, min, max });
   }
   return patches;
 }
@@ -252,10 +266,38 @@ CASES.push({ name: "round, press, mount skadis, snap plate joint", spec: baseSpe
  * pass.
  */
 const KNOWN: Array<{ issue: string; applies: (spec: CoilSpec) => boolean; matches: (role: PartRole, patch: Patch, d: Design) => boolean }> = [
-  // See #175: the keyhole's undercut has a flat roof, a bridge as wide as the screw head.
-  { issue: "#175", applies: (spec) => spec.mount === "keyhole", matches: (role, q) => role === "core" && q.at[2] < 0 },
   // See #176: the engraved label's letter floors, face down on the bed, bridge more than 2 mm on the bigger caps.
   { issue: "#176", applies: (spec) => spec.label !== undefined, matches: (role, q) => role === "topCap" && q.printZ < 1 && q.freeLength === 0 },
+];
+
+/**
+ * Accepted by design, unlike KNOWN: a matching patch passes only while it
+ * stays `within` its bound, so it still fails if it grows.
+ */
+const ACCEPTED: Array<{ reason: string; applies: (spec: CoilSpec) => boolean; matches: (role: PartRole, patch: Patch, d: Design) => boolean; within: (patch: Patch) => boolean }> = [
+  // Keyhole undercut roof: an accepted bridge (maintainer decision, #175).
+  // Most printers bridge this span; the alternative was a 3.5 mm thicker pad.
+  // Only the flat roof itself: on the core, at the roof's height above the
+  // bed, over one slot. Its span across the channel (local x -- every slot's
+  // channel runs along local +y) and along it stay within the head-width
+  // stadium plus a small margin. Any other keyhole overhang still fails.
+  {
+    reason: "keyhole undercut roof, accepted bridge (#175)",
+    applies: (spec) => spec.mount === "keyhole",
+    matches: (role, q, d) => {
+      if (role !== "core" || q.worstDeg < 89 || Math.abs(q.printZ - SCREW_MOUNT_RECESS_DEPTH) > 0.1) return false;
+      const f = d.flangeSpec;
+      const { slots } = layoutKeyholeMount(f.outline, f.boreOutline, f.margin, f.keyholeRotation);
+      const cx = (q.min[0] + q.max[0]) / 2;
+      const cy = (q.min[1] + q.max[1]) / 2;
+      return slots.some((s) => Math.abs(cx - s.head.x) < 0.5 && Math.abs(cy - (s.head.y + s.shankEnd.y) / 2) < 0.5);
+    },
+    within: (q) =>
+      q.freeLength === 0 &&
+      q.max[2] - q.min[2] < 0.01 &&
+      q.max[0] - q.min[0] <= KEYHOLE_ROOF_MAX_SPAN &&
+      q.max[1] - q.min[1] <= KEYHOLE_ROOF_MAX_SPAN + SCREW_MOUNT_SLOT_TRAVEL,
+  },
 ];
 
 const designs = new Map<string, Promise<Design>>();
@@ -272,6 +314,11 @@ describe("issue #168: every printed part prints without supports (overhangs <= 4
     for (const { part, transform } of printPlacements(d.parts, d.spec.print)) {
       for (const q of overhangs(part.mesh, transform)) {
         if (isNarrowBridge(q)) continue;
+        const accepted = ACCEPTED.find((k) => k.applies(c.spec) && k.matches(part.role, q, d));
+        if (accepted) {
+          if (!accepted.within(q)) failures.push(`${describePatch(part.name, c.name, q)} -- larger than the ${accepted.reason}`);
+          continue;
+        }
         const known = KNOWN.find((k) => k.applies(c.spec) && k.matches(part.role, q, d));
         if (known) console.info(`known failure, ${known.issue}: ${describePatch(part.name, c.name, q)}`);
         else failures.push(describePatch(part.name, c.name, q));
