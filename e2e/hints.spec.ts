@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openAdvanced } from "./advanced";
 
 // Issue #53 acceptance criteria: every control (including advanced settings,
 // cap/joint, label, mount, print bed and the viewer toggles) has an (i)
@@ -73,7 +74,7 @@ test("advanced settings and the top-cap/joint/label/mount/print-bed controls all
   // fields are actually in the DOM to check.
   await page.goto("/#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2");
   await expect(page.getByTestId("diagnosis-status")).toBeVisible();
-  await page.getByText("Advanced settings").click();
+  await openAdvanced(page);
   for (const heading of ["Winding quality"]) {
     const field = page.locator(".field").filter({ hasText: heading });
     await expect(field.getByTestId("hint-btn")).toBeVisible();
@@ -95,6 +96,7 @@ test("the conditional advanced fields (custom bend multiplier, objective) have h
   const customField = page.locator(".field").filter({ hasText: "Custom bend multiplier" });
   await expect(customField.getByTestId("hint-btn")).toBeVisible();
 
+  await openAdvanced(page);
   const objectiveField = page.locator(".field").filter({ hasText: "Objective" });
   await expect(objectiveField.getByTestId("hint-btn")).toBeVisible();
 });

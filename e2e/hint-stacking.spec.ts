@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { openAdvanced } from "./advanced";
 
 // An open (i) hint bubble must be painted on top of everything around it --
 // in particular the next viewport-toggle row, whose own box (a separate
@@ -67,7 +68,7 @@ for (const [name, viewport] of [
     await page.goto(`/${SKADIS}`);
     await expect(page.getByTestId("download-stl")).toBeEnabled();
     // Open the advanced disclosure too, so its hints are checked as well.
-    for (const summary of await page.locator(".sidebar summary").all()) await summary.click();
+    await openAdvanced(page);
     await checkEveryHint(page, page.locator(".sidebar"), "controls panel");
   });
 }

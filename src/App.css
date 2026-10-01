@@ -1071,14 +1071,22 @@ header p {
 /* ---------- Advanced disclosure ---------- */
 
 .advanced {
-  padding: 14px 0 18px;
+  /* Same divider as `.ctl-section`. The 44px summary below is a comfortable
+     tap target; 6px here puts its title about where a section title sits. */
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline-soft);
 }
 
 .advanced-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0;
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--muted);
   list-style: none;
@@ -1088,27 +1096,35 @@ header p {
   display: none;
 }
 
-.advanced-summary::before {
-  content: "+";
-  display: inline-block;
-  width: 1em;
-  font-weight: 800;
-  color: var(--ink);
+/* Chevron: points down when collapsed, up when open. */
+.advanced-summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-right: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  transform: translateY(-2px) rotate(45deg);
 }
 
-.advanced[open] > .advanced-summary::before {
-  content: "\2212";
+.advanced[open] > .advanced-summary::after {
+  transform: translateY(2px) rotate(-135deg);
 }
 
 .advanced-summary:hover {
   color: var(--ink);
 }
 
+.advanced-summary:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
 .advanced-body {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  margin-top: 14px;
+  padding: 6px 0 12px;
 }
 
 /* ---------- Result ---------- */
