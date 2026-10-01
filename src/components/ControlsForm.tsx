@@ -228,7 +228,9 @@ export function ControlsForm({
 
   // Issue #54/#58: for a square or triangle core, this cable's bend limit
   // can force a bigger minimum core size than a round core needs (a bigger
-  // corner radius, at a fixed size, erodes the straight sides). The size
+  // corner radius, at a fixed size, erodes the straight sides). A round core
+  // has its own floor, the bend limit alone (issue #195; for round
+  // `minOuterSizeForShape` is `minOuterSizeForBend`). The size
   // slider's own minimum follows that (never lets the user drag below a
   // size the solver would just raise anyway); `solution` is undefined only
   // before the very first solve, when 5mm is as good a placeholder as any.
@@ -244,14 +246,14 @@ export function ControlsForm({
   // hair's-width under the solver's own unrounded floor after this rounding
   // -- the solver's existing "Core size raised from X to Y" warning already
   // covers that residual, sub-millimetre gap.)
-  const outerSizeMin = spec.shape.kind === "round" ? 5 : roundMm(Math.max(5, solution?.minOuterSizeForShape ?? 5));
+  const outerSizeMin = roundMm(Math.max(5, solution?.minOuterSizeForShape ?? 5));
   // A LOCKED size below that floor only reaches the spec via a shared link
   // predating this clamp (any edit through the UI is clamped immediately,
   // by `LockRangeField` above) -- this note explains why the field's own
   // displayed value doesn't match what that link asked for. Both the field
   // and this note read off the SAME `outerSizeMin`, so they can never
   // disagree (issue #105 PR review).
-  const coreSizeRaised = spec.shape.kind !== "round" && spec.coreSize.locked && spec.coreSize.value < outerSizeMin - 0.05;
+  const coreSizeRaised = spec.coreSize.locked && spec.coreSize.value < outerSizeMin - 0.05;
 
   return (
     <form className="controls" onSubmit={(e) => e.preventDefault()}>

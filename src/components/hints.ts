@@ -22,7 +22,7 @@ export const HINTS = {
   coreSizeDimension:
     "This chooses which core measurement you lock: the outer size (the winding surface) or the inner bore (the hollow center). The solver then works out the other one for you.",
   outer:
-    "This is the size of the core, in millimetres. Lock it to set an exact size, or leave it free and let the solver pick a size that fits your cable. For a square or triangle core, a stiffer or thicker cable needs bigger rounded corners, so the minimum size can be bigger than for a round core.",
+    "This is the size of the core, in millimetres. Lock it to set an exact size, or leave it free and let the solver pick a size that fits your cable. The cable's bend limit sets a minimum size. For a square or triangle core, a stiffer or thicker cable needs bigger rounded corners, so the minimum size can be bigger than for a round core.",
   height: "This is how tall the core stands, in millimetres. Lock it to set an exact height, or leave it free and let the solver pick one.",
   layers:
     "This is how many layers of cable the coil has. A layer is one full row of turns from the bottom of the core to the top; the next layer winds on top of it. Lock it to set an exact count, or leave it free.",

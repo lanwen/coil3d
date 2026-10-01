@@ -92,6 +92,33 @@ function expectWithinBendLimit(points: Float32Array, mbr: number, label: string)
 }
 
 /**
+ * Issue #195: every named piece of the wound cable -- lead-in, each layer,
+ * each layer-to-layer step, lead-out -- checked on its own, with the
+ * neighbouring pieces' adjoining samples so the joins are covered too, plus
+ * the whole `cablePath`. A failure names the piece.
+ */
+function expectEveryBendWithinLimit(d: Design, mbr: number) {
+  const pieces: Array<{ name: string; points: Float32Array }> = [{ name: "lead-in", points: d.innerEndLeadIn }];
+  d.wirePaths.forEach((p, i) => {
+    pieces.push({ name: `layer ${p.layer}`, points: p.points });
+    if (d.layerTransitions[i]) pieces.push({ name: `step from layer ${p.layer} to layer ${p.layer + 1}`, points: d.layerTransitions[i] });
+  });
+  pieces.push({ name: "lead-out", points: d.outerEndLeadOut });
+  const same = (a: ArrayLike<number>, i: number, b: ArrayLike<number>, j: number) => Math.hypot(a[i] - b[j], a[i + 1] - b[j + 1], a[i + 2] - b[j + 2]) < 1e-4;
+  pieces.forEach(({ name, points }, i) => {
+    const before = pieces[i - 1]?.points;
+    const after = pieces[i + 1]?.points;
+    const out: number[] = [];
+    // The previous piece's last sample that isn't this piece's first.
+    if (before && before.length >= 6) out.push(...before.slice(same(before, before.length - 3, points, 0) ? before.length - 6 : before.length - 3, before.length - (same(before, before.length - 3, points, 0) ? 3 : 0)));
+    out.push(...points);
+    if (after && after.length >= 6) out.push(...after.slice(same(after, 0, points, points.length - 3) ? 3 : 0, same(after, 0, points, points.length - 3) ? 6 : 3));
+    expectWithinBendLimit(new Float32Array(out), mbr, name);
+  });
+  expectWithinBendLimit(d.cablePath, mbr, "cablePath");
+}
+
+/**
  * Issue #117: the fix points. The cable is clipped along its own direction
  * and leaves the part through the rim with no extra bend: from the clip to
  * its free end past the rim it runs level (no turn up or down into a hole)
@@ -167,6 +194,24 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
     expectFixPointsWithinBendLimit(d, 36, "repro");
   });
 
+  // Issue #195: the solver reported "ok" for a round core locked below the
+  // bend limit's size floor. Minimal repro: the default design (round, outer
+  // 30 mm locked) with a stiff cable and 2 layers -- layer 1 and the step to
+  // layer 2 bent at ~15 mm against a 36 mm bend radius.
+  it("the default round 30 mm core with a stiff cable and 2 layers (issue #195)", async () => {
+    const spec = baseSpec({
+      wire: { length: 2000, diameter: 3.6, type: "stiff" },
+      coreSize: { locked: true, dimension: "outer", value: 30 },
+      layers: { locked: true, value: 2 },
+    });
+    const d = await design(spec);
+    expect(d.solution.diagnosis.status).toBe("ok");
+    expectEveryBendWithinLimit(d, 36);
+    expect(d.warnings.filter((w) => /bends tighter/i.test(w))).toEqual([]);
+    expect(d.solution.outerSize, "the locked size is raised to the bend-limit floor").toBeCloseTo(d.solution.minOuterSizeForBend, 6);
+    expect(d.warnings.some((w) => /core size raised/i.test(w))).toBe(true);
+  });
+
   let caseIndex = 0;
   for (const shape of SHAPES) {
     for (const { type, diameter } of TYPES) {
@@ -192,4 +237,38 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
       }
     }
   }
+});
+
+// Issue #195: "ok" means the cable fits within its bend radius everywhere --
+// including where it steps from one layer to the next -- not only for a free
+// core size the solver chose itself, but also for a locked one (round, square
+// and triangle, locked below and above the bend limit's size floor).
+describe("an ok design never bends the cable tighter than its bend radius (issue #195)", () => {
+  const CORES: Array<CoilSpec["coreSize"]> = [
+    { locked: false },
+    { locked: true, dimension: "outer", value: 30 },
+    { locked: true, dimension: "inner", value: 60 },
+  ];
+  const BEND_SHAPES: ShapeSpec[] = [{ kind: "round" }, { kind: "sq", cornerRadius: 2 }, { kind: "tri", cornerRadius: 2 }];
+  let ok = 0;
+  for (const shape of BEND_SHAPES) {
+    for (const { type, diameter } of TYPES) {
+      for (const coreSize of CORES) {
+        for (const layers of [2, 3]) {
+          const core = coreSize.locked ? `${coreSize.dimension} ${coreSize.value} mm` : "free";
+          it(`shape=${shape.kind} type=${type} core=${core} layers=${layers}`, async () => {
+            const spec = baseSpec({ shape, wire: { length: 2000, diameter, type }, coreSize, layers: { locked: true, value: layers } });
+            const d = await design(spec);
+            if (d.solution.diagnosis.status !== "ok") return;
+            ok++;
+            expectEveryBendWithinLimit(d, bendMultiplierOf(spec.wire) * diameter);
+            expect(d.warnings.filter((w) => /bends tighter/i.test(w))).toEqual([]);
+          });
+        }
+      }
+    }
+  }
+  it("checked enough ok designs to mean something", () => {
+    expect(ok).toBeGreaterThanOrEqual(40);
+  });
 });
