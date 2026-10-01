@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #48 (zoom limits): wheel/pinch zoom is
 // clamped to a sensible multiple of the current fitted framing (0.3x-4x,
@@ -40,7 +41,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 //   machine is idle, and correspondingly patient under load, rather than
 //   racing a guessed constant either way.
 
-const SQUAT = "#v=1&L=1000&d=4&size=40";
+const SQUAT = encodeHashDoc({ L: 1000, d: 4, size: 40 });
 // Comfortably more than the ~30-40 events three's own ~5%-per-event scale
 // needs to cross the 0.3x-4x range from a fitted start; the SECOND batch
 // below (same size again) is the "well past the limit" half of the check.

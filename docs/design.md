@@ -292,8 +292,9 @@ The hash is `#s=<base64url(JSON)>` (`src/core/hash.ts`).
   dependency, and links are already short.
 - `openGrid` is never accepted from a link, because its connector is a
   placeholder (see [mounts.md](mounts.md)).
-- The legacy flat form `#v=1&L=...&d=...` still parses. On load the app
-  rewrites it as `#s=...`, so old links migrate.
+- coil3d is in beta, so links are not guaranteed to survive spec changes and
+  there is no migration code. A link that is not a readable `#s=` document
+  (including the old flat query-string form) falls back to the defaults.
 - The hash never reaches the server.
 
 ## Rendering

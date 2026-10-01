@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // A small "lanwen" GitHub link sits in the viewport's bottom-right corner.
 test("the author link points at github.com/lanwen and sits inside the viewport", async ({ page }) => {
-  await page.goto("/#v=1&L=1000&d=4&size=40");
+  await page.goto(`/${encodeHashDoc({ L: 1000, d: 4, size: 40 })}`);
   await expect(page.getByTestId("download-stl")).toBeEnabled();
 
   const link = page.getByTestId("author-link");

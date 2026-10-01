@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // STEP export (issue #11): replicad (OpenCascade WASM) must load lazily,
 // in a Worker, only once the user clicks "Download STEP" — never on
@@ -13,7 +14,7 @@ test("replicad's WASM is not requested on initial load, only after Download STEP
     if (msg.type() === "error") consoleErrors.push(msg.text());
   });
 
-  await page.goto("/#v=1&L=1000&d=4&size=40");
+  await page.goto(`/${encodeHashDoc({ L: 1000, d: 4, size: 40 })}`);
   await expect(page.getByTestId("download-step")).toBeVisible();
   // Give any stray background fetches a moment to show up before we snapshot.
   await page.waitForTimeout(300);

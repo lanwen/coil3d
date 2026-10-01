@@ -108,7 +108,7 @@ export default function App() {
   };
 
   // The guide (issue #17) is generated straight from the current solved
-  // Design -- same hash, same spec -- so a shared `&view=guide` link opens
+  // Design -- same hash, same spec -- so a shared link with `ui.view` = "guide" opens
   // it directly. Before the first design resolves (a brand-new page load),
   // show a plain placeholder rather than nothing: `result` starts null even
   // for the very first draft (useDesignPreview.ts), and the guide has no

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 
 // Issue #13 acceptance criteria: a `mount` option (none|keyhole) in the UI
 // and hash, the core still prints flat (no supports) with a recessed
@@ -12,7 +12,7 @@ import { decodeHashDoc } from "./hashDoc";
 // A comfortably large, fully-locked core: big enough that the mount
 // actually fits (see test/design.test.ts's "too narrow" case for the small
 // end), so these checks exercise the real cut, not the graceful skip.
-const KEYHOLE_HASH = "#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60&mount=keyhole";
+const KEYHOLE_HASH = encodeHashDoc({ L: 2000, d: 4, size: 100, h: 60, mount: "keyhole" });
 
 test("mount defaults to off (no dropdown, toggle unchecked), with no mount param in the hash", async ({ page }) => {
   await page.goto("/");
@@ -27,7 +27,7 @@ test("mount defaults to off (no dropdown, toggle unchecked), with no mount param
 test("switching to the screw-keyhole mount updates the hash + result panel, and reproduces on reload", async ({ page }) => {
   // A 2 mm cable: its channel pad (3.5 mm) is thinner than the keyhole's
   // own 5 mm, so the mount really does thicken the flange (issue #122).
-  await page.goto("/#v=1&L=2000&d=2&lock=outer,ly&size=100&h=60");
+  await page.goto(`/${encodeHashDoc({ L: 2000, d: 2, size: 100, h: 60 })}`);
   // Issue #131: the kind picker only appears once the wall-mount toggle is
   // switched on (defaulting to keyhole, the first time).
   await page.getByTestId("mount-enabled").check();
@@ -49,7 +49,7 @@ test("switching to the screw-keyhole mount updates the hash + result panel, and 
 });
 
 test("turning the mount toggle off and back on remembers the last chosen kind (issue #131)", async ({ page }) => {
-  await page.goto("/#v=1&L=2000&d=2&lock=outer,ly&size=100&h=60");
+  await page.goto(`/${encodeHashDoc({ L: 2000, d: 2, size: 100, h: 60 })}`);
   await page.getByTestId("mount-enabled").check();
   await page.getByTestId("select-mount").selectOption("through");
   await expect(async () => expect(decodeHashDoc(page.url()).mount).toBe("through")).toPass();
@@ -72,7 +72,7 @@ test("a tiny, sharp core still fits the mount by growing the flange (warned abou
 
   // design.ts's requiredFlangeMargin has no ceiling: even a tiny, sharp core
   // gets a flange grown just wide enough to fit the mount, not a silent skip.
-  await page.goto("/#v=1&L=20&d=1&lock=outer,ly&size=6&h=20&mount=keyhole");
+  await page.goto(`/${encodeHashDoc({ L: 20, d: 1, size: 6, h: 20, mount: "keyhole" })}`);
   await expect(page.getByTestId("select-mount")).toHaveValue("keyhole");
   await expect(page.getByTestId("warnings")).toContainText(/margin increased/i);
   await expect(page.getByTestId("warnings")).not.toContainText(/too narrow/i);
@@ -130,7 +130,7 @@ test("the keyhole-mount core renders, stays manifold end to end, and both STL an
 // test.ts) covers the actual placement math; these check the UI wiring.
 test.describe("keyhole mount rotation (issue #71)", () => {
   test("the rotation field only shows for the keyhole mount, defaults to 0 (omitted from the hash), and updates on change", async ({ page }) => {
-    await page.goto("/#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60");
+    await page.goto(`/${encodeHashDoc({ L: 2000, d: 4, size: 100, h: 60 })}`);
     await expect(page.getByTestId("select-keyholeRotation")).toHaveCount(0);
 
     await page.getByTestId("mount-enabled").check();
@@ -153,7 +153,7 @@ test.describe("keyhole mount rotation (issue #71)", () => {
       if (msg.type() === "error") consoleErrors.push(msg.text());
     });
 
-    await page.goto("/#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60&mount=keyhole&shape=sq");
+    await page.goto(`/${encodeHashDoc({ L: 2000, d: 4, size: 100, h: 60, mount: "keyhole", shape: "sq" })}`);
     await page.getByTestId("select-keyholeRotation").selectOption("45");
     await expect(async () => {
       expect(decodeHashDoc(page.url()).kr).toBe(45);
@@ -173,12 +173,8 @@ test.describe("keyhole mount rotation (issue #71)", () => {
 // constant-radius through-holes (near the corners for sq/tri, evenly spaced
 // for round), no counterbore and no pad -- vitest (test/mount.test.ts)
 // covers the placement/manifold math; these check the UI wiring end to end.
-// "through" is a NEW mount kind, added long after issue #56's `#v=1&...`
-// legacy format was frozen (mirrors "opengrid", which never reached that
-// format either -- see hash.ts's own comment), so these navigate via a base
-// legacy link + the UI's own mount selector, never a hand-written
-// `&mount=through` legacy hash the codec can't read.
-const BASE_HASH = "#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60";
+// These navigate via a base link + the UI's own mount selector.
+const BASE_HASH = encodeHashDoc({ L: 2000, d: 4, size: 100, h: 60 });
 
 test.describe("through-hole mount (issue #70)", () => {
   test("switching to the through-hole mount updates the hash + result panel, shows the hole-diameter field, and reproduces on reload", async ({ page }) => {

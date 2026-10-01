@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { design, parseHash } from "../src/core";
+import { encodeHashDoc } from "../e2e/hashDoc";
 
 // Regression guard (PR #24 review): issue #6 generalises the round core's
 // geometry construction (shapes.ts/wall.ts/manifold.ts) to share code with
@@ -32,8 +33,8 @@ function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): nu
 }
 
 describe("round core matches main's golden numbers for a fixed hash (issue #6 regression)", () => {
-  it("#v=1&L=2000&d=3.8&lock=outer,ly&size=60", async () => {
-    const { spec, notice } = parseHash("#v=1&L=2000&d=3.8&lock=outer,ly&size=60");
+  it("L=2000, d=3.8, outer size 60", async () => {
+    const { spec, notice } = parseHash(encodeHashDoc({ L: 2000, d: 3.8, size: 60 }));
     expect(notice).toBeUndefined();
     const d = await design(spec);
 

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #9 (top cap, joints, exploded view,
 // docs/design.md, Parts and printing and Tolerances). Solver/geometry
@@ -11,8 +11,8 @@ import { decodeHashDoc } from "./hashDoc";
 // outer=60, height=60 (both locked), layers=2 locked -> layers > 1, so the
 // top cap is auto-on and every joint has room for its features (>= the
 // JOINT_ENGAGE_DEPTH + margin floor in src/core/constants.ts).
-const TWO_LAYER = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2";
-const ONE_LAYER = "#v=1&L=1000&d=4&size=40"; // layers=1 (default): no top cap
+const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 });
+const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 }); // layers=1 (default): no top cap
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -51,7 +51,7 @@ test.describe("top cap controls and auto-decision (issue #9)", () => {
   });
 
   test("overriding the top cap off removes it even with layers=2", async ({ page }) => {
-    await gotoDesign(page, `${TWO_LAYER}&cap=off`);
+    await gotoDesign(page, withHashDoc(TWO_LAYER, { cap: "off" }));
     // Issue #119: an explicit override -- unchecked, no auto tag, and a way
     // back to auto.
     await expect(page.getByTestId("topCap")).not.toBeChecked();
@@ -124,7 +124,7 @@ test.describe("cap-only controls hide when the cap is off (issue #131)", () => {
   });
 
   test("layers=2 with an explicit cap=off override: joint, tolerance and label stay hidden even though there's more than one layer", async ({ page }) => {
-    await gotoDesign(page, `${TWO_LAYER}&cap=off`);
+    await gotoDesign(page, withHashDoc(TWO_LAYER, { cap: "off" }));
     await expect(page.getByTestId("caps")).toContainText("off");
     await expect(page.getByTestId("select-joint")).toHaveCount(0);
     await expect(page.getByTestId("input-tolerance")).toHaveCount(0);
@@ -216,7 +216,7 @@ test.describe("exploded-view animation (issue #9)", () => {
 // Issue #167: the twist lock needs a round core.
 test.describe("bayonet is for round cores only (issue #167)", () => {
   test("on a square core the bayonet option is greyed out, with the reason in the hint", async ({ page }) => {
-    await gotoDesign(page, `${TWO_LAYER}&shape=sq`);
+    await gotoDesign(page, withHashDoc(TWO_LAYER, { shape: "sq" }));
     await expect(page.getByTestId("select-joint").locator('option[value="bayonet"]')).toBeDisabled();
     await expect(page.getByTestId("select-joint").locator('option[value="bayonet"]')).toContainText("round core only");
     await expect(page.getByTestId("select-joint").locator('option[value="press"]')).toBeEnabled();
@@ -224,7 +224,7 @@ test.describe("bayonet is for round cores only (issue #167)", () => {
   });
 
   test("switching a bayonet design to a square core keeps joint=bayonet, builds press fit and says so", async ({ page }) => {
-    await gotoDesign(page, `${TWO_LAYER}&joint=bayonet`);
+    await gotoDesign(page, withHashDoc(TWO_LAYER, { joint: "bayonet" }));
     await expect(page.getByTestId("select-joint").locator('option[value="bayonet"]')).toBeEnabled();
     await page.getByTestId("shape-option-sq").check();
     await expect(page.getByTestId("warnings")).toContainText("Twist lock needs a round core");
@@ -235,7 +235,7 @@ test.describe("bayonet is for round cores only (issue #167)", () => {
   });
 
   test("a link with joint=bayonet on a square core still loads, unchanged, with the warning", async ({ page }) => {
-    await gotoDesign(page, `${TWO_LAYER}&shape=sq&joint=bayonet`);
+    await gotoDesign(page, withHashDoc(TWO_LAYER, { shape: "sq", joint: "bayonet" }));
     await expect(page.getByTestId("select-joint")).toHaveValue("bayonet");
     await expect(page.getByTestId("warnings")).toContainText("Twist lock needs a round core");
     expect(decodeHashDoc(page.url())).toMatchObject({ shape: "sq", joint: "bayonet" });
@@ -258,7 +258,7 @@ test.describe("assembled and exploded screenshots per joint (issue #9)", () => {
 
   for (const { id, label } of JOINTS) {
     test(`joint=${id}: assembled and exploded views`, async ({ page }) => {
-      await gotoDesign(page, `${TWO_LAYER}&joint=${id}`);
+      await gotoDesign(page, withHashDoc(TWO_LAYER, { joint: id }));
       await expect(page.getByTestId("select-joint")).toHaveValue(id);
       const canvas = page.getByTestId("coil-viewer").locator("canvas");
 

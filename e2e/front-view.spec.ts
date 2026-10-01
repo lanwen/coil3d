@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #79: the "Front" preset must face a FLAT side
 // for square/triangle cores, not a corner. Before this fix, shapes.ts's own
@@ -25,8 +26,8 @@ import { expect, test, type Page } from "@playwright/test";
 // actual rendered silhouette under the live Front/Iso camera, which is
 // exactly what regresses if a corner faces the camera again.
 
-const SQUARE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=sq&sq.rc=15";
-const TRIANGLE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=tri&tri.rc=15";
+const SQUARE = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "sq", rc: 15 });
+const TRIANGLE = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "tri", rc: 15 });
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);

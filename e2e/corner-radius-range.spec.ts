@@ -1,6 +1,7 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
 import { hoverHint } from "./hint";
+import { encodeHashDoc } from "./hashDoc";
 
 // Issue #140 ("gray out the slider ... show the max value under the slider
 // end"), follow-up to #134 (corner-radius-max.spec.ts's own useful-max
@@ -24,12 +25,12 @@ import { hoverHint } from "./hint";
 // (solve.ts's own doc comment on `minOuterSizeForShapeFlats`/
 // `usefulMaxCornerRadius` sharing one feasibility boundary) -- so the
 // raised size leaves `cornerRadiusRange` a single point, not a range.
-const TOO_SMALL_SQUARE = "/#v=1&shape=sq&sq.rc=5&lock=outer,ly&size=20&h=40";
+const TOO_SMALL_SQUARE = `/${encodeHashDoc({ shape: "sq", rc: 5, size: 20, h: 40 })}`;
 
 // A comfortably larger square core (same fixture corner-radius-max.spec.ts
 // already uses): well clear of the boundary above, so the slider has a real
 // range to show a max label for and to drag across.
-const SQUARE_100 = "/#v=1&shape=sq&lock=outer,ly&size=100";
+const SQUARE_100 = `/${encodeHashDoc({ shape: "sq", size: 100 })}`;
 
 function cornerRadiusSlider(page: Page): Locator {
   return page.locator('input[type="range"][aria-label="Corner radius"]');

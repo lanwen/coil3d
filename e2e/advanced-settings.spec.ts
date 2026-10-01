@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { openAdvanced } from "./advanced";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 
 // Issue #169: "Advanced settings" starts collapsed (it is rarely needed and
 // makes the panel long), expands and collapses again, and its open state is
@@ -55,7 +55,7 @@ test("a hash with advanced values stays collapsed, and the values still apply", 
   // which forced it open. Issue #192 replaced the picker with the option
   // cards: an old link's obj=ar now shows as the active "Even proportions"
   // card. Winding quality still comes from the hash.
-  await page.goto("/#v=1&L=2000&d=3.8&lock=outer&size=30&q=0.3&obj=ar");
+  await page.goto(`/${encodeHashDoc({ L: 2000, d: 3.8, lock: ["outer"], size: 30, q: 0.3, obj: "ar" })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
   await expect(details(page)).not.toHaveAttribute("open", "");
   await expect(page.getByTestId("select-objective")).toHaveCount(0);

@@ -3,15 +3,16 @@ import * as THREE from "three";
 import { design, parseHash } from "../src/core";
 import { dimensionAxesGeometry, measureDimensionFrame } from "../src/viewer/dimensionGeometry";
 import { frontFacingDimensionSpin } from "../src/viewer/frontFacing";
+import { encodeHashDoc } from "../e2e/hashDoc";
 
 // Issue #93: the viewer's dimension axes are fixed geometry on the model's
 // flats-aligned bounding box. Built here from real design() parts, the same
 // way CoilViewer builds them for the standing view (Front/Iso).
 
 const CASES = [
-  ["round", "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on"],
-  ["sq", "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=sq&sq.rc=15"],
-  ["tri", "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=tri&tri.rc=15"],
+  ["round", encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on" })],
+  ["sq", encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "sq", rc: 15 })],
+  ["tri", encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "tri", rc: 15 })],
 ] as const;
 
 // The Iso camera (presets.ts: from (1, -1, 0.9), z up), screen right and toward it.

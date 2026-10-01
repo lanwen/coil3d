@@ -9,6 +9,7 @@ import { mountPlateLayoutFor, pegHoleRadius } from "../src/core/mountPlate";
 import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
 import { offsetOutline, outlineOffsetAt, pointAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
+import { encodeHashDoc } from "../e2e/hashDoc";
 
 // Issue #122: the bottom flange is a thin plate with its wall-facing face
 // flat, thickened (on pads) only under the wall, the inner-end channel and
@@ -237,12 +238,12 @@ describe("thin bottom flange (issue #122)", () => {
 describe("the channel pad blends into the collar (issue #133)", () => {
   const MAX_CREASE_DEG = 25;
   const cases: Array<[string, string]> = [
-    ["round", "#v=1&L=800&d=4&size=60&h=20"],
-    ["round, cap on", "#v=1&L=2000&d=4&size=60&h=20&cap=on"],
-    ["square", "#v=1&L=800&d=4&size=60&h=20&shape=sq&sq.rc=20"],
-    ["square, tight corners", "#v=1&L=800&d=4&size=60&h=20&shape=sq&sq.rc=3"],
-    ["triangle", "#v=1&L=800&d=4&size=60&h=20&shape=tri&tri.rc=20"],
-    ["round, 8 mm cable", "#v=1&L=300&d=8&size=60&h=30"],
+    ["round", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20 })],
+    ["round, cap on", encodeHashDoc({ L: 2000, d: 4, size: 60, h: 20, cap: "on" })],
+    ["square", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 20 })],
+    ["square, tight corners", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 3 })],
+    ["triangle", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "tri", rc: 20 })],
+    ["round, 8 mm cable", encodeHashDoc({ L: 300, d: 8, size: 60, h: 30 })],
   ];
   it.each(cases)("%s: no sharp crease on the flange's chamfers", async (_, hash) => {
     const d = await design(parseHash(hash).spec, "draft");

@@ -2,6 +2,7 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design, exportDesign, parseHash } from "../src/core";
 import type { CoilSpec } from "../src/core";
+import { encodeHashDoc } from "../e2e/hashDoc";
 
 // Issue #10 acceptance criteria: "A hand-written 3MF (zip) with one object
 // and one build item per part, units mm, parts side by side in print
@@ -285,13 +286,13 @@ describe("exportDesign(design, '3mf')", () => {
     expect(centerY).toBeCloseTo(bed.bedY / 2, 3);
   });
 
-  // PR #31 review: an independent bounds check on `#v=1&L=3000&d=4&size=40&ly=2&cap=on`
+  // PR #31 review: an independent bounds check on L=3000, d=4, size=40, ly=2, cap=on
   // found the core placed at z ∈ [-3.0, 54.8] -- 3mm below the plate --
   // while the top cap was fine. Pin exactly that hash (explicit `cap=on`,
   // not just the auto top-cap decision already covered above) so this
   // never regresses.
   it("cap=on (issue #10 review): every placed part's min Z is exactly 0, not just non-overlapping in X/Y", async () => {
-    const { spec, notice } = parseHash("#v=1&L=3000&d=4&size=40&ly=2&cap=on");
+    const { spec, notice } = parseHash(encodeHashDoc({ L: 3000, d: 4, size: 40, ly: 2, cap: "on" }));
     expect(notice).toBeUndefined();
     const d = await design(spec);
     expect(d.parts.map((p) => p.role)).toEqual(["core", "topCap"]);

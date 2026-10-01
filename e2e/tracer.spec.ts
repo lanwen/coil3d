@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for the coil core's URL-hash <-> UI <-> solver loop.
 // Solver math itself is covered by vitest against the public `design()`
@@ -13,7 +14,7 @@ test("a hash URL with explicit locks drives the result panel and the STL downloa
     if (msg.type() === "error") consoleErrors.push(msg.text());
   });
 
-  await page.goto("/#v=1&L=1000&d=4&lock=outer,ly&size=40");
+  await page.goto(`/${encodeHashDoc({ L: 1000, d: 4, size: 40 })}`);
 
   await expect(page.getByTestId("hash-notice")).toHaveCount(0);
   await expect(page.getByTestId("outer-size")).toHaveText("40.0 mm");
@@ -39,7 +40,7 @@ test("a hash URL with explicit locks drives the result panel and the STL downloa
 });
 
 test("a garbage hash falls back to defaults with a visible notice", async ({ page }) => {
-  await page.goto("/#v=1&L=not-a-number");
+  await page.goto(`/${encodeHashDoc({ L: "not-a-number" })}`);
   await expect(page.getByTestId("hash-notice")).toBeVisible();
   // Cable length is entered/shown in centimetres (issue #51); the default
   // 2000mm CoilSpec value displays as 200cm.
@@ -47,6 +48,12 @@ test("a garbage hash falls back to defaults with a visible notice", async ({ pag
 });
 
 test("an unknown lock token in the hash falls back to defaults with a notice", async ({ page }) => {
-  await page.goto("/#v=1&lock=bogus");
+  await page.goto(`/${encodeHashDoc({ lock: ["bogus"] })}`);
   await expect(page.getByTestId("hash-notice")).toBeVisible();
+});
+
+test("an old flat #v=1 link falls back to defaults with the same notice", async ({ page }) => {
+  await page.goto("/#v=1&L=1234&d=4&size=40");
+  await expect(page.getByTestId("hash-notice")).toBeVisible();
+  await expect(page.getByTestId("input-wireLength")).toHaveValue("200");
 });

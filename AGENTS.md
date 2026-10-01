@@ -14,7 +14,9 @@ STEP pitfalls in `docs/step-notes.md`.
   must build from the same shared layouts and agree with each other.
 - The URL hash is `#s=<base64url JSON>` (`src/core/hash.ts`). New spec fields
   go into the zod doc schema, are left out at their default, and get a
-  round-trip test. The legacy `#v=1&…` form still parses.
+  round-trip test.
+- coil3d is in beta: share links aren't guaranteed to survive spec changes, so
+  spec changes need no migration code.
 - Keep it simple, match the surrounding code, and add no speculative abstractions.
 
 ## Commands

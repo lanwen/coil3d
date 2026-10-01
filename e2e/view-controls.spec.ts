@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // This whole file is ABOUT the transition system itself, so it opts back
 // into real motion over the suite-wide `reducedMotion: "reduce"` default
@@ -19,16 +20,16 @@ test.use({ contextOptions: { reducedMotion: "no-preference" } });
 // orthographic toggle, and prefers-reduced-motion turning every transition
 // instant.
 
-const SQUAT = "#v=1&L=1000&d=4&size=40";
+const SQUAT = encodeHashDoc({ L: 1000, d: 4, size: 40 });
 // layers=2 locked, so the exploded-view toggle is present too (issue #9),
 // letting the explode-toggle's own camera reframe (issue #9 review) share
 // coverage with the preset/projection tests below.
-const TWO_LAYER = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2";
+const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 });
 // A screw-keyhole mount so the "Wall mount" preset actually rotates the
 // geometry into a real hung pose (unmounted designs still show the room-side
 // preset -- it's just a plain standing-on-the-flange rotation with no real
 // mount feature to look at).
-const KEYHOLE = "#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60&mount=keyhole";
+const KEYHOLE = encodeHashDoc({ L: 2000, d: 4, size: 100, h: 60, mount: "keyhole" });
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -247,7 +248,7 @@ test.describe("perspective/orthographic toggle (issue #15)", () => {
 // Issue #141: the preset picker is its own borderless bar -- top centre of
 // the viewport, clear of the top-left toggles and the top-right projection
 // switch, or bottom centre when the viewport is too narrow for that (phone).
-const SKADIS = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis";
+const SKADIS = encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60, mount: "skadis" });
 const OVERLAYS = [".wire-toggle", ".dimensions-toggle", ".explode-toggle", ".projection-toggle-box", ".wall-view-caption"];
 
 async function expectBarClearOfOverlays(page: Page) {

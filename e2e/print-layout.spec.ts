@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #78: a "Print layout" view showing every part
 // exactly as it lies on the print bed -- the SAME transform the 3MF export
@@ -13,10 +14,10 @@ import { expect, test, type Page } from "@playwright/test";
 // per-part transform (mirrored as accessible text, like DimensionAxes' own
 // hidden list) EXACTLY matches the 3MF export's own per-item transform.
 
-const ONE_PART = "#v=1&L=1000&d=4&lock=outer,ly&size=50&h=40&ly=1&cap=off"; // core only
-const TWO_PART = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on"; // core + top cap
-const SKADIS = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis"; // core + mount plate
-const TRIANGLE_TWO_PART = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=tri&tri.rc=15";
+const ONE_PART = encodeHashDoc({ L: 1000, d: 4, size: 50, h: 40, ly: 1, cap: "off" }); // core only
+const TWO_PART = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on" }); // core + top cap
+const SKADIS = encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60, mount: "skadis" }); // core + mount plate
+const TRIANGLE_TWO_PART = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "tri", rc: 15 });
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);

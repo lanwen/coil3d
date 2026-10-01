@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // This file is specifically ABOUT the camera-framing tween itself (issue
 // #72's own AC: "produces exactly one framing tween"), so -- like
@@ -32,7 +33,7 @@ type InstrumentedWindow = Window & { __framingTweenCount?: number };
 // resolution text, LineArtRenderer's tween counter) rather than guessing at
 // timings.
 
-const LOCKED = "#v=1&L=1000&d=4&lock=outer,h&size=40&h=40";
+const LOCKED = encodeHashDoc({ L: 1000, d: 4, lock: ["outer", "h"], size: 40, h: 40 });
 
 test("a rapid drag settles into exactly one framing tween, never shows a draft frame, and the value label updates immediately", async ({ page }) => {
   await page.goto(`/${LOCKED}`);

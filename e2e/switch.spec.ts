@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #104 (switch polish): the shared pill
 // {@link Switch} (src/components/fields.tsx) redesigned so its knob is
@@ -10,7 +11,7 @@ import { expect, test, type Page } from "@playwright/test";
 // AC's own automated check: "the knob is centred (Playwright bbox check:
 // knob centre y = track centre y ± 0.5 px)".
 
-const TWO_LAYER = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2";
+const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 });
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);

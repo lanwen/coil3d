@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // A "Licenses" link next to the author link opens the third-party notices
 // that ship with the site (public/THIRD_PARTY_NOTICES.txt).
 test("the licenses link opens the served third-party notices", async ({ page, context }) => {
-  await page.goto("/#v=1&L=1000&d=4&size=40");
+  await page.goto(`/${encodeHashDoc({ L: 1000, d: 4, size: 40 })}`);
   await expect(page.getByTestId("download-stl")).toBeEnabled();
 
   const link = page.getByTestId("licenses-link");

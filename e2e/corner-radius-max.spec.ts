@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // Issue #134: "with the square or triangle shape corner radius after some
 // point doesn't change anything and makes it look like a circle -- is there
@@ -20,7 +21,7 @@ import { expect, test } from "@playwright/test";
 // cable, 2000mm x 3.8mm): comfortably above `minOuterSizeForShapeFlats` for
 // this wire (no "core size raised" side effect), so `cornerRadiusRange`
 // reflects a plain, un-raised 100mm core.
-const SQUARE_100 = "/#v=1&shape=sq&lock=outer,ly&size=100";
+const SQUARE_100 = `/${encodeHashDoc({ shape: "sq", size: 100 })}`;
 
 test("the corner-radius slider's max is well short of a literal circle (outerSize/2), for a rounded square", async ({ page }) => {
   await page.goto(SQUARE_100);
@@ -52,7 +53,7 @@ test("a shared link requesting a corner radius above the useful max loads clampe
   // 49mm: within the OLD `outerSize/2` ceiling (50mm) -- so this link used
   // to be honored as-is, right up against a near-exact circle -- but past
   // the new useful max.
-  await page.goto("/#v=1&shape=sq&sq.rc=49&lock=outer,ly&size=100");
+  await page.goto(`/${encodeHashDoc({ shape: "sq", rc: 49, size: 100 })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");

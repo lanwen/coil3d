@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { hoverHint } from "./hint";
 import { openAllNumbers } from "./advanced";
+import { encodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for the overall-dimension axes: issue #50's IKEA-style
 // dimensions (values fixed by #63), redrawn by issue #69 as 3D axes inside
@@ -13,18 +14,18 @@ import { openAllNumbers } from "./advanced";
 // is really drawn, stays in the frame and clear of the controls, moves with
 // an orbit, and is gone in exploded view.
 
-const ROUND_NO_CAP = "#v=1&L=1000&d=4&lock=outer,ly&size=50&h=40&ly=1&cap=off";
-const ROUND_CAP = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on";
-const ROUND_CAP_OFF = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=off";
-const SQUARE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=sq&sq.rc=15";
-const TRIANGLE = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2&cap=on&shape=tri&tri.rc=15";
+const ROUND_NO_CAP = encodeHashDoc({ L: 1000, d: 4, size: 50, h: 40, ly: 1, cap: "off" });
+const ROUND_CAP = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on" });
+const ROUND_CAP_OFF = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "off" });
+const SQUARE = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "sq", rc: 15 });
+const TRIANGLE = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "tri", rc: 15 });
 // A slim, tall coil -- the same proportions as e2e/wire.spec.ts's own
 // MANY_TURN fixture (Ø 2.4 cm x 26.1 cm), which is where issue #99 was
 // spotted: width and depth start from the same origin corner, so a small
 // footprint under a tall body is exactly where their labels can collide.
-const SLIM_ROUND = "#v=1&L=15000&d=0.5&size=15";
-const SLIM_SQUARE = "#v=1&L=15000&d=0.5&size=15&shape=sq&sq.rc=3";
-const SLIM_TRIANGLE = "#v=1&L=15000&d=0.5&size=15&shape=tri&tri.rc=3";
+const SLIM_ROUND = encodeHashDoc({ L: 15000, d: 0.5, size: 15 });
+const SLIM_SQUARE = encodeHashDoc({ L: 15000, d: 0.5, size: 15, shape: "sq", rc: 3 });
+const SLIM_TRIANGLE = encodeHashDoc({ L: 15000, d: 0.5, size: 15, shape: "tri", rc: 3 });
 const PRESETS = ["front", "iso", "wallRoom"] as const;
 
 interface LabelRect {
