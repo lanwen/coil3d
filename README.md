@@ -79,7 +79,8 @@ coil3d is released under the [MIT License](LICENSE).
 
 The OpenCascade WASM used for STEP export is licensed under LGPL-2.1. It ships
 as a separate file that you can replace. The Archivo Black font used for
-labels is licensed under the SIL Open Font License 1.1. See
+labels and the Kanit font of the interface (served from the app's own files,
+not from Google) are licensed under the SIL Open Font License 1.1. See
 [THIRD_PARTY_NOTICES.txt](public/THIRD_PARTY_NOTICES.txt) (also served by the
 app at `/THIRD_PARTY_NOTICES.txt`) for these and all other third-party
 licenses. [docs/occt-source.md](docs/occt-source.md) explains where to get the
