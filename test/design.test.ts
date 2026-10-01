@@ -82,7 +82,7 @@ describe("design() solver (round core)", () => {
 
   it("reports over-constrained and names the locks to release when the fully-locked geometry misses the target", async () => {
     const spec = baseSpec({
-      wire: { length: 50, diameter: 3.8, type: "usb" }, // far too short for this core
+      wire: { length: 5000, diameter: 3.8, type: "usb" }, // far too long for this core
       coreSize: { locked: true, dimension: "outer", value: 64 },
       height: { locked: true, value: 40 },
       layers: { locked: true, value: 1 },
@@ -188,17 +188,20 @@ describe("design() solver (round core)", () => {
     expect(stiff.solution.minOuterSizeForBend).toBeGreaterThan(usb.solution.minOuterSizeForBend);
   });
 
-  it("reports infeasible when the bend limit's minimum size already overshoots a short target (stiff cord)", async () => {
+  it("is ok, with a note naming the bend limit, when the bend limit's minimum size already overshoots a short target (stiff cord; issue #199)", async () => {
     const spec = baseSpec({
       wire: { length: 200, diameter: 8, type: "stiff" }, // 10x -> large minimum core, tiny target
       coreSize: { locked: false },
-      height: { locked: true, value: 40 },
+      height: { locked: true, value: 15 }, // room for one turn only
       layers: { locked: true, value: 1 },
     });
     const d = await design(spec);
-    expect(d.solution.diagnosis.status).toBe("infeasible");
-    expect(d.solution.diagnosis.message).toMatch(/bend limit/i);
-    expect(d.solution.diagnosis.message).toMatch(/cannot be made smaller/i);
+    expect(d.solution.diagnosis.status).toBe("ok");
+    expect(d.solution.totalWireLength).toBeGreaterThan(200);
+    const note = d.notices.find((n) => /more cable than you need/.test(n.message));
+    expect(note?.severity).toBe("note");
+    expect(note?.message).toMatch(/bend radius needs a core of at least/i);
+    expect(note?.message).toMatch(/smallest coil for this cable/i);
   });
 
   it("rejects cords above 15 m with a warning and caps the target at 15000 mm", async () => {

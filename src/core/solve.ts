@@ -9,6 +9,13 @@
 // which in the prototype recursed into itself forever (freeCount stays 2 for
 // the recursive call, which then computes its own alternate, forever).
 //
+// Status rule (issue #199): a design that holds the cable is "ok" (or
+// "under-constrained" with all three free), whatever the number of free
+// dimensions -- even when the locks or the bend limit force more room than
+// the cable needs; that overshoot is a note naming its cause
+// (`overshootNote`). "infeasible" (and, fully locked, "over-constrained")
+// means the capacity falls short of the target.
+//
 // Capacity invariant: whenever a dimension is free (freeCount 1-3) and the
 // solver reports "ok" or "under-constrained" (not "infeasible"), the
 // resolved geometry's capacity covers the target cable length (tail >= 0),
@@ -186,8 +193,8 @@ function usefulMaxCornerRadius(kind: Extract<ShapeSpec["kind"], "sq" | "tri">, o
 
 /** Relative tolerance on "capacity >= target", to absorb floating-point noise only. */
 const CAPACITY_EPS = 1e-6;
-/** Overshoot (%) above which an at-the-bound "meets capacity" result is still reported as infeasible, not ok. */
-const OVERSHOOT_INFEASIBLE_PCT = 3;
+/** Overshoot (%) above which the solver says what keeps the coil from getting smaller (the result panel's "more than you need" uses the same 10%). */
+const OVERSHOOT_NOTE_PCT = 10;
 /** Practical layer-count bound for the (size, height) grid search (freeCount 2's third branch, and freeCount 3). */
 const PRACTICAL_LAYERS_HI = 6;
 
@@ -371,8 +378,9 @@ function finishSolution(
   if (env > 500) {
     note(`Envelope footprint is ${env.toFixed(0)} mm -- check this fits your print bed.`);
   }
-  if (Math.abs(deltaPct) > 10) {
-    note(`Resulting capacity is ${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(0)}% vs. the target cable length.`);
+  // An overshoot gets its own note, naming its cause (`overshootNote`).
+  if (deltaPct < -10) {
+    note(`Resulting capacity is ${deltaPct.toFixed(0)}% vs. the target cable length.`);
   }
   // Capacity range too wide (issue #23): "ok" only means the CHOSEN winding
   // quality covers the target -- a design can still leave a loose/stacked
@@ -491,6 +499,56 @@ function searchSizeAndHeight(
   return { feasible, closest: closest! };
 }
 
+/** A length in mm without trailing zeros ("80", "70.6"). */
+const mm = (v: number) => `${Number(v.toFixed(1))} mm`;
+
+/**
+ * Why a design that holds the cable has this much room to spare (issue
+ * #199). Every free dimension is already tight (issue #195), so the extra
+ * comes from a lock that could shrink and still hold the cable, or, when no
+ * lock can, from the smallest core this cable allows.
+ */
+function overshootNote(
+  spec: CoilSpec,
+  g: Resolved,
+  locked: { size: boolean; height: boolean; layers: boolean },
+  sizeLo: number,
+  heightLo: number,
+  deltaPct: number,
+): string {
+  const target = spec.wire.length;
+  const current = lengthFor(spec, g);
+  const holdsWithLess = (h: Resolved) => {
+    const length = lengthFor(spec, h);
+    return coversTarget(length, target) && length < current * (1 - CAPACITY_EPS);
+  };
+  const causes: string[] = [];
+  if (locked.size && holdsWithLess({ ...g, outerSize: bisect((s) => lengthFor(spec, { ...g, outerSize: s }), sizeLo, g.outerSize, target) })) {
+    causes.push(`core size (${mm(g.outerSize)})`);
+  }
+  if (locked.height && holdsWithLess({ ...g, height: bisect((h) => lengthFor(spec, { ...g, height: h }), heightLo, g.height, target) })) {
+    causes.push(`height (${mm(g.height)})`);
+  }
+  if (locked.layers && holdsWithLess({ ...g, layers: solveIntegerUpTo((n) => lengthFor(spec, { ...g, layers: n }), 1, g.layers, target) })) {
+    causes.push(`${g.layers} layers`);
+  }
+  const room = `Room for ${deltaPct.toFixed(0)}% more cable than you need`;
+  if (causes.length > 0) {
+    const list = causes.length === 1 ? causes[0] : `${causes.slice(0, -1).join(", ")} and ${causes.at(-1)}`;
+    return `${room}, because of the locked ${list}. Unlock ${causes.length === 1 ? "it" : "them"} to let the coil get smaller.`;
+  }
+  if (g.outerSize <= sizeLo + 1e-6) {
+    const floor =
+      sizeLo <= SIZE_LO_FLOOR
+        ? `the core can't be smaller than ${mm(sizeLo)}`
+        : spec.shape.kind === "round"
+          ? `this cable's ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius needs a core of at least ${mm(sizeLo)}`
+          : `this cable's bend limit needs a ${shapePlugin(spec.shape.kind).label.toLowerCase()} core of at least ${mm(sizeLo)}`;
+    return `${room}: ${floor}, and the fewest turns around it already hold that much. This is the smallest coil for this cable.`;
+  }
+  return `${room}: the coil can't lose a whole turn or layer and still hold the cable.`;
+}
+
 export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[] } {
   const { notices, problem, note } = noticeCollector();
 
@@ -571,17 +629,14 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
     resolved = { outerSize: lockedOuterSize!, height: lockedHeight!, layers: lockedLayers! };
     const computed = lengthFor(spec, resolved);
     const deltaPct = ((computed - target) / target) * 100;
-    if (Math.abs(deltaPct) < 3) {
-      diagnosis = { freeCount, freeVariables: freeVars, status: "ok", message: "Fully constrained; computed capacity matches the target within 3%." };
+    if (coversTarget(computed, target)) {
+      diagnosis = { freeCount, freeVariables: freeVars, status: "ok", message: "Fully constrained; the locked geometry holds the target length." };
     } else {
       diagnosis = {
         freeCount,
         freeVariables: freeVars,
         status: "over-constrained",
-        message:
-          computed > target
-            ? `Fully constrained geometry overshoots capacity by ${deltaPct.toFixed(0)}% -- the cable will be loose. Release the outer size, height, or layers lock to let the solver fix this.`
-            : `Fully constrained geometry falls short of capacity by ${Math.abs(deltaPct).toFixed(0)}% -- the cable will not fit. Release the outer size, height, or layers lock to let the solver fix this.`,
+        message: `Fully constrained geometry falls short of capacity by ${Math.abs(deltaPct).toFixed(0)}% -- the cable will not fit. Release the outer size, height, or layers lock to let the solver fix this.`,
       };
     }
   } else if (freeCount === 1) {
@@ -597,11 +652,8 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
     }
     const computed = lengthFor(spec, resolved);
     const deltaPct = ((computed - target) / target) * 100;
-    const meetsCapacity = coversTarget(computed, target);
-    // Only the actually-free variable can have hit a search bound.
-    const atLowBound = sizeFree ? resolved.outerSize <= sizeLo + 1e-6 : heightFree ? resolved.height <= heightLo + 1e-6 : resolved.layers <= layersLo;
 
-    if (!meetsCapacity) {
+    if (!coversTarget(computed, target)) {
       // bisect/solveIntegerUpTo only ever returns an undershoot when even the
       // high bound can't reach the target (see their early-return paths).
       diagnosis = {
@@ -609,15 +661,6 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
         freeVariables: freeVars,
         status: "infeasible",
         message: `The target cable length is unreachable within practical bounds even with this dimension maxed out (falls short by ${Math.abs(deltaPct).toFixed(0)}%). Lock a shorter target or free another dimension.`,
-      };
-    } else if (atLowBound && deltaPct > OVERSHOOT_INFEASIBLE_PCT) {
-      diagnosis = {
-        freeCount,
-        freeVariables: freeVars,
-        status: "infeasible",
-        message: sizeFree
-          ? `The minimum feasible outer size (${sizeLo.toFixed(1)} mm, set by the bend limit) already overshoots the target length by ${deltaPct.toFixed(0)}%. The core cannot be made smaller.`
-          : `The minimum feasible value already overshoots the target length by ${deltaPct.toFixed(0)}%. The core cannot be made smaller.`,
       };
     } else {
       diagnosis = {
@@ -781,5 +824,8 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
 
   const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend, minOuterSizeForShapeVal);
   finished.solution.alternates = alternates;
+  if (finished.solution.lengthDeltaPct > OVERSHOOT_NOTE_PCT) {
+    note(overshootNote(spec, resolved, { size: !sizeFree, height: !heightFree, layers: !layersFree }, sizeLo, heightLo, finished.solution.lengthDeltaPct));
+  }
   return { solution: finished.solution, notices: [...notices, ...finished.notices] };
 }

@@ -227,12 +227,12 @@ function Verdict({ design, problemCount }: { design: Design; problemCount: numbe
   const { solution } = design;
   const target = solution.targetWireLength;
   const holds = solution.totalWireLength;
+  // Issue #199: a design that holds the cable is "ok" however much room the
+  // locks force on it, so only a shortfall changes the headline.
   const short = solution.diagnosis.status === "infeasible" || holds < target * (1 - 1e-6);
-  const loose = !short && solution.diagnosis.status === "over-constrained";
-  const tone = short ? "bad" : loose || problemCount > 0 ? "warn" : "good";
+  const tone = short ? "bad" : problemCount > 0 ? "warn" : "good";
   let detail: string;
   if (short) detail = `This coil holds only ${cmWhole(holds)}. Unlock a size or shorten the cable.`;
-  else if (loose) detail = `Room for ${cmWhole(holds)}, ${Math.round(solution.lengthDeltaPct)}% more than you need. Unlock a size to make it smaller.`;
   else if (solution.capacityRange[0] < target * (1 - 1e-6)) detail = `Wind it snugly: a loose winding holds only ${cmWhole(solution.capacityRange[0])}.`;
   else if (solution.lengthDeltaPct > 10) detail = `Room for ${cmWhole(holds)}, ${Math.round(solution.lengthDeltaPct)}% more than you need.`;
   else detail = `Room for ${cmWhole(holds)}.`;
@@ -244,7 +244,7 @@ function Verdict({ design, problemCount }: { design: Design; problemCount: numbe
       </span>
       <div>
         <p className="verdict-title" data-testid="verdict-title">
-          {short ? `Your ${cmWhole(target)} cable won't fit` : loose ? "Holds your cable, loosely" : `Holds your ${cmWhole(target)} cable`}
+          {short ? `Your ${cmWhole(target)} cable won't fit` : `Holds your ${cmWhole(target)} cable`}
         </p>
         <p className="verdict-detail">{detail}</p>
       </div>

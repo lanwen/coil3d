@@ -172,4 +172,19 @@ test.describe("the summary shows only what matters before printing", () => {
     await expect(page.getByTestId("verdict")).toHaveAttribute("data-tone", "bad");
     await expect(page.getByTestId("verdict-title")).toHaveText("Your 1000 cm cable won't fit");
   });
+
+  // Issue #199: a 15 cm stiff cable on a locked 80 mm core, one layer, height
+  // free. One turn already holds 26 cm. The cable fits, so the headline says
+  // so, and a note under All numbers names the lock that forces the extra room.
+  test("a coil the locks make bigger than needed still holds the cable", async ({ page }) => {
+    await page.goto(link({ L: 150, d: 3.6, wt: "stiff", lock: ["outer", "ly"], size: 80, ly: 1 }));
+    await settled(page);
+    await expect(page.getByTestId("verdict")).toHaveAttribute("data-tone", "good");
+    await expect(page.getByTestId("verdict-title")).toHaveText("Holds your 15 cm cable");
+    await expect(page.getByTestId("verdict")).toContainText("71% more than you need");
+    await expect(page.getByTestId("problems")).toHaveCount(0);
+    await page.getByTestId("all-numbers").locator("summary").click();
+    await expect(page.getByTestId("diagnosis-status")).toHaveText("ok");
+    await expect(page.getByTestId("warnings").locator("li", { hasText: "because of the locked core size (80 mm)" })).toHaveAttribute("data-severity", "note");
+  });
 });
