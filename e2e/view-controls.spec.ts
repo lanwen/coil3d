@@ -77,7 +77,7 @@ test.describe("camera view presets (issue #15/#49)", () => {
     // Every preset must actually change the render -- an exact byte
     // comparison (not toHaveScreenshot's tolerant perceptual diff): a
     // camera rotation/geometry swap moves real silhouette pixels well past
-    // the 2% maxDiffPixelRatio tolerance, so an exact inequality is the
+    // the 0.5% maxDiffPixelRatio tolerance, so an exact inequality is the
     // honest check.
     const ids = ["front", "iso", "wallRoom"] as const;
     for (let i = 0; i < ids.length; i++) {

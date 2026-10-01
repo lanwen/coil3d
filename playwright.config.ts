@@ -42,13 +42,9 @@ export default defineConfig({
   // report. "github" adds inline PR annotations on failures at no extra
   // cost. Locally (no sharding) plain "list" is all that's needed.
   reporter: process.env.CI ? [["blob"], ["github"]] : "list",
-  // Software-rendered WebGL (SwiftShader) is
-  // deterministic per-machine but not bit-identical across environments, so
-  // screenshot assertions get a small pixel-ratio allowance rather than an
-  // exact match. Verified in the mcr.microsoft.com/playwright:
-  // v1.61.1-noble image (the same Chromium 1228 build the baselines were shot
-  // with): every
-  // screenshot matched pixel-for-pixel there, so `expect.timeout` (not the
+  // `expect.timeout`: in the mcr.microsoft.com/playwright:v1.61.1-noble
+  // image (the same Chromium 1228 build the baselines were shot with) every
+  // screenshot matched pixel-for-pixel, so `expect.timeout` (not the
   // pixel allowance) is what needed raising for CI -- the real bottleneck is
   // render speed on that shared, GPU-less hardware, not a rendering
   // difference (font, DPR, GPU flags). Root-caused with a throttled (2-cpu)
@@ -66,7 +62,16 @@ export default defineConfig({
   // rather than a number the data doesn't actually support yet.
   expect: {
     timeout: process.env.CI ? 60_000 : 5_000,
-    toHaveScreenshot: { maxDiffPixelRatio: 0.02 },
+    // Software-rendered WebGL (SwiftShader) is deterministic per machine but
+    // not bit-identical across machines and runs, so screenshots get a small
+    // pixel-ratio allowance instead of an exact match. The allowance is for
+    // that rendering noise only, not for absorbing real changes: a change
+    // that moves pixels on purpose re-baselines the screenshots it touches
+    // (issue #162). Measured noise is far below it: two full runs on one
+    // machine rendered identical pixels, and earlier same-machine repeats
+    // differed by about 0.03%. Loosen it for a single test only, with a
+    // one-line reason next to the override.
+    toHaveScreenshot: { maxDiffPixelRatio: 0.005 },
   },
   webServer: {
     // `npm run build` is `tsc -b && vite build`, but typechecking isn't this
