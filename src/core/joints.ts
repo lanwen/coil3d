@@ -43,11 +43,14 @@ import {
   JOINT_ENGAGE_DEPTH,
   JOINT_FIT_GAP,
   JOINT_MIN_BORE_RADIUS,
+  SNAP_BARB,
+  SNAP_BARB_HEIGHT,
   SNAP_GAP,
+  SNAP_RIDGE_THICKNESS,
   SHAPE_ROUNDING_EPS,
   WELD_OVERLAP,
 } from "./constants";
-import { inscribedRadius, offsetOutline } from "./shapes";
+import { circumscribedRadius, inscribedRadius, offsetOutline } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { JointKind, ShapeKind } from "./types";
 import type { WallSpec } from "./wall";
@@ -251,4 +254,102 @@ export function resolveCapJoint(spec: { joint: JointKind; tolerance: number; sha
   if (spec.joint !== "bayonet") return { joint: spec.joint };
   const plan = bayonetLayout(spec.shape.kind, wallSpec, spec.tolerance);
   return plan.layout ? { joint: "bayonet", bayonet: plan.layout } : { joint: "press", warning: plan.warning };
+}
+
+/** One cross-section of an `OutlineStack`: `outline`'s own boundary at height `z`. */
+export interface OutlineStation {
+  outline: ShapeOutline;
+  z: number;
+}
+
+/**
+ * A solid lofted bottom to top through its stations, each pair of
+ * neighbours joined by a ruled surface: a prism where two neighbours share
+ * one outline, a frustum where they don't. Every station of one stack is a
+ * Steiner offset of the same outline (or a circle), so each frustum is
+ * convex -- the mesh backend builds it as a hull, the STEP backend as a
+ * ruled loft, and the two agree.
+ */
+export type OutlineStack = OutlineStation[];
+
+/**
+ * The snap joint's shared layout (issue #168), built by both the mesh and
+ * the STEP backend. All heights are relative to the core's top rim, which is
+ * also the cap's local frame (plate z = [0, CAP_THICKNESS], collar reaching
+ * down to z = -JOINT_ENGAGE_DEPTH).
+ *
+ * Each printed part prints without supports: the cap prints plate down, so
+ * the barb's face toward the plate faces down; the core prints upright, so
+ * the ridge's underside faces down. Both are 45-degree chamfers, not flat
+ * ledges. The latch is then a pair of parallel 45-degree cones: the barb
+ * overlaps the ridge as far as it did before the chamfers, and the core's
+ * lead-in above the ridge cams the fingers inward on the way in.
+ */
+export interface SnapLayout {
+  /** The barb ring around the finger tips (cap frame): a flat band at `barbRadius`, then a 45-degree chamfer back into the finger. */
+  barb: OutlineStack;
+  /** How far the relief slots between the fingers reach out, past the barb and the collar's own flared top at every angle. */
+  slotOuterRadius: number;
+  /** Material fused into the core's bore before `relief` is cut: holds the ridge, welded into the wall around it. */
+  lip: OutlineStack;
+  /** The void cut into the core's top: wide below the ridge (room for the barb), a 45-degree chamfer up to the ridge, the ridge itself, a 45-degree lead-in, then wide again up through the rim. */
+  relief: OutlineStack;
+}
+
+/** `o` inset by `amount`, with the corner radius floored just above 0 (an inset past the corner radius would invert the outline). */
+function inset(o: ShapeOutline, amount: number): ShapeOutline {
+  return { n: o.n, apothem: o.apothem - amount, cornerRadius: Math.max(SHAPE_ROUNDING_EPS, o.cornerRadius - amount) };
+}
+
+function circle(r: number): ShapeOutline {
+  return { n: 4, apothem: r, cornerRadius: r };
+}
+
+/** Undefined when the bore or the core is too small for the core-side relief (see JOINT_MIN_BORE_RADIUS): both parts then fall back to the plain press collar. */
+export function snapLayout(boreOutline: ShapeOutline, tolerance: number, coreHeight: number): SnapLayout | undefined {
+  const { boreRadius, jointRadius, collarRadius, weldOutline } = jointGeometry(boreOutline, "snap", tolerance);
+  if (boreRadius < JOINT_MIN_BORE_RADIUS || coreHeight < JOINT_ENGAGE_DEPTH + 2) return undefined;
+
+  // Cap side: the barb's flat band at the tip, then a 45-degree chamfer that
+  // ends a little inside the finger, so it welds in rather than meeting the
+  // finger's surface at a tangent.
+  const barbRadius = collarRadius + SNAP_BARB;
+  const tip = -JOINT_ENGAGE_DEPTH;
+  const barbTop = tip + SNAP_BARB_HEIGHT;
+  const embed = 0.2;
+  const barb: OutlineStack = [
+    { outline: circle(barbRadius), z: tip },
+    { outline: circle(barbRadius), z: barbTop - SNAP_BARB },
+    { outline: circle(collarRadius - embed), z: barbTop + embed },
+  ];
+  const slotOuterRadius = Math.max(barbRadius + 0.5, circumscribedRadius(weldOutline, 0) + 0.5);
+
+  // Core side. The ridge matches the finger's own nominal shaft (0.1 inside
+  // `jointRadius`), following the bore's shape so the collar clears it
+  // evenly at every angle, corners included. The relief is cut well past
+  // the bore (by WELD_OVERLAP): a cut only fractions of a mm past a
+  // non-round bore's flat side is nearly tangent to it, which boolean CSG
+  // handles poorly.
+  const ridgeOutline = inset(boreOutline, boreRadius - (jointRadius - 0.1));
+  const wideOutline = offsetOutline(boreOutline, Math.max(WELD_OVERLAP, barbRadius + 0.3 - boreRadius));
+  // Rise = the widest horizontal step (at the corners when the ridge's corner
+  // radius is floored), so no part of either chamfer is steeper than 45 degrees.
+  const run = circumscribedRadius(wideOutline, 0) - circumscribedRadius(ridgeOutline, 0);
+  const [ridgeLo, ridgeHi] = [barbTop, barbTop + SNAP_RIDGE_THICKNESS];
+  const relief: OutlineStack = [
+    { outline: wideOutline, z: tip - 1 },
+    { outline: wideOutline, z: ridgeLo - run },
+    { outline: ridgeOutline, z: ridgeLo },
+    { outline: ridgeOutline, z: ridgeHi },
+    { outline: wideOutline, z: ridgeHi + run },
+    { outline: wideOutline, z: 1 },
+  ];
+  // Reaches past the bore into the wall, and over the chamfers' height, with
+  // its own edges inside the wall rather than on the relief's surface.
+  const lipOutline = offsetOutline(boreOutline, WELD_OVERLAP / 2);
+  const lip: OutlineStack = [
+    { outline: lipOutline, z: ridgeLo - run / 2 },
+    { outline: lipOutline, z: ridgeHi + run / 2 },
+  ];
+  return { barb, slotOuterRadius, lip, relief };
 }

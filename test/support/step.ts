@@ -15,6 +15,8 @@
 // WASM heap across files.
 import { beforeEach } from "vitest";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
+import { JOINT_ENGAGE_DEPTH } from "../../src/core";
+import type { Design } from "../../src/core";
 
 // Issue #163: OCCT runs inline in the test worker, so one STEP test blocks
 // its event loop for 30+ s (60+ s on a busy machine). Vitest's worker->main
@@ -60,15 +62,18 @@ export interface ReimportResult {
   valid: boolean;
   /** One volume per `TopAbs_SOLID` found, in `TopExp_Explorer` encounter order. */
   solidVolumes: number[];
+  /** For each of `points` (if given), whether it lies inside the shape -- see `stepContains`. */
+  inside: boolean[];
 }
 
 /**
  * Write `bytes` to OCCT's virtual FS, read it back as a STEP file with a
- * fresh `STEPControl_Reader`, and report validity plus per-solid volumes.
- * `tag` only needs to be unique within the calling file/test (it just names
- * the scratch path).
+ * fresh `STEPControl_Reader`, and report validity plus per-solid volumes,
+ * and which of `points` lie inside it (from the same read, saving a second
+ * one). `tag` only needs to be unique within the calling file/test (it just
+ * names the scratch path).
  */
-export async function reimportStep(bytes: Uint8Array, tag: string): Promise<ReimportResult> {
+export async function reimportStep(bytes: Uint8Array, tag: string, points: Array<[number, number, number]> = []): Promise<ReimportResult> {
   const oc = await getOC();
   const path = `/${tag}.step`;
   oc.FS.writeFile(path, bytes);
@@ -82,14 +87,68 @@ export async function reimportStep(bytes: Uint8Array, tag: string): Promise<Reim
   const valid = analyzer.IsValid();
 
   const solidVolumes: number[] = [];
+  const solids: Array<ReturnType<typeof explorer.Current>> = [];
   const explorer = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
   for (; explorer.More(); explorer.Next()) {
     const gprops = new oc.GProp_GProps();
     oc.BRepGProp.VolumeProperties(explorer.Current(), gprops, 1e-5, false, false);
     solidVolumes.push(gprops.Mass());
+    solids.push(explorer.Current());
   }
 
-  return { valid, solidVolumes };
+  // Per solid: OCCT reports an inner solution for a point inside one solid, not inside a compound of several.
+  const inside = points.map(([x, y, z]) => {
+    const vertex = new oc.BRepBuilderAPI_MakeVertex(new oc.gp_Pnt(x, y, z)).Shape();
+    return solids.some((solid) => {
+      const dist = new oc.BRepExtrema_DistShapeShape(solid, vertex);
+      return dist.IsDone() && dist.InnerSolution() && dist.Value() < 1e-6;
+    });
+  });
+  return { valid, solidVolumes, inside };
+}
+
+/** The heights, bottom to top, where the vertical line through (x, y) crosses `mesh`'s surface. Below the first crossing is outside; each crossing flips it. */
+export function verticalCrossings(mesh: { positions: Float32Array; indices: Uint32Array }, x: number, y: number): number[] {
+  const { positions: p, indices: t } = mesh;
+  const hits: number[] = [];
+  for (let i = 0; i < t.length; i += 3) {
+    const [a, b, c] = [t[i] * 3, t[i + 1] * 3, t[i + 2] * 3];
+    const d = (p[b + 1] - p[c + 1]) * (p[a] - p[c]) + (p[c] - p[b]) * (p[a + 1] - p[c + 1]);
+    if (Math.abs(d) < 1e-12) continue;
+    const l1 = ((p[b + 1] - p[c + 1]) * (x - p[c]) + (p[c] - p[b]) * (y - p[c + 1])) / d;
+    const l2 = ((p[c + 1] - p[a + 1]) * (x - p[c]) + (p[a] - p[c]) * (y - p[c + 1])) / d;
+    const l3 = 1 - l1 - l2;
+    if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+    hits.push(l1 * p[a + 2] + l2 * p[b + 2] + l3 * p[c + 2]);
+  }
+  hits.sort((u, v) => u - v);
+  return hits.filter((z, i) => i === 0 || z - hits[i - 1] > 1e-4);
+}
+
+/** Whether height `z` on a vertical line with these crossings (`verticalCrossings`) is inside the mesh. */
+export function insideAt(crossings: number[], z: number): boolean {
+  return crossings.filter((c) => c < z).length % 2 === 1;
+}
+
+/**
+ * Issue #168: the snap joint's chamfered barb and ridge sit where the mesh
+ * has them. Probe points 0.15 mm either side of every place a vertical line
+ * through the joint (just inside the bore, on a flat side's middle) crosses
+ * the core's or the cap's mesh surface: inside or outside the STEP model
+ * exactly as in the mesh.
+ */
+export function snapProbes(d: Design): { points: Array<[number, number, number]>; expected: boolean[] } {
+  const { boreOutline } = d.flangeSpec;
+  const h = d.solution.height;
+  const angle = Math.PI / boreOutline.n;
+  const [x, y] = [(boreOutline.apothem - 0.1) * Math.cos(angle), (boreOutline.apothem - 0.1) * Math.sin(angle)];
+  const crossings = d.parts.map((p) => verticalCrossings(p.mesh, x, y));
+  const zs = crossings.flat().filter((z) => z > h - JOINT_ENGAGE_DEPTH - 2 && z < h - 0.5);
+  const points = zs.flatMap((z): Array<[number, number, number]> => [
+    [x, y, z - 0.15],
+    [x, y, z + 0.15],
+  ]);
+  return { points, expected: points.map(([, , z]) => crossings.some((c) => insideAt(c, z))) };
 }
 
 /**

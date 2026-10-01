@@ -3,7 +3,7 @@ import { design, exportDesign } from "../src/core";
 import type { CoilSpec, JointKind, PlateJoint } from "../src/core";
 import { BAYONET_LUG_COUNT } from "../src/core/constants";
 import { jointGeometry } from "../src/core/joints";
-import { STEP_TIMEOUT_MS, meshVolume, perPartVolumeErrors, reimportStep, stepContains } from "./support/step";
+import { STEP_TIMEOUT_MS, meshVolume, perPartVolumeErrors, reimportStep, snapProbes, stepContains } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the round-core
 // two-part designs (core + top-cap, or core + mount-plate), kept in their
@@ -35,12 +35,15 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
         const stepBytes = await exportDesign(d, "step");
         expect(stepBytes.byteLength).toBeGreaterThan(0);
 
-        const { valid, solidVolumes } = await reimportStep(stepBytes, `reimport-cap-${joint}`);
+        const probes = joint === "snap" ? snapProbes(d) : { points: [], expected: [] };
+        const { valid, solidVolumes, inside } = await reimportStep(stepBytes, `reimport-cap-${joint}`, probes.points);
         expect(valid).toBe(true);
         expect(solidVolumes.length).toBe(2); // core + top-cap, per the ticket "one solid per part"
 
         // Issue #167: per part, within 0.5% -- not the whole design's total.
         for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
+        if (joint === "snap") expect(probes.points.length).toBeGreaterThanOrEqual(8);
+        expect(inside).toEqual(probes.expected);
       },
       STEP_TIMEOUT_MS,
     );

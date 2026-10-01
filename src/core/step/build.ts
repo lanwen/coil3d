@@ -32,17 +32,13 @@ import {
   SCREW_MOUNT_UNDERCUT_DEPTH,
   SKADIS_CLIP_HEIGHT,
   SKADIS_CLIP_PROFILE,
-  SNAP_BARB,
-  SNAP_BARB_HEIGHT,
-  SNAP_GAP,
   SNAP_HOOK_COUNT,
-  SNAP_RIDGE_THICKNESS,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
 } from "../constants";
-import { jointGeometry, resolveCapJoint } from "../joints";
-import type { RevolvedFeature } from "../joints";
+import { jointGeometry, resolveCapJoint, snapLayout } from "../joints";
+import type { OutlineStack, RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
@@ -54,7 +50,7 @@ import type { FlangePad } from "../flangePads";
 import type { KeyholeSlot, ThroughHole } from "../mount";
 import { mountPlateLayoutFor as layoutFor, pegHoleOutline, pegSweep } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
-import { circumscribedRadius, offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
+import { offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
 import type { Design } from "../types";
@@ -131,6 +127,12 @@ function outlineSketch(o: ShapeOutline, z: number): R.Sketch {
   }
   const drawing = pen.closeWithCustomCorner(o.cornerRadius);
   return drawing.sketchOnPlane("XY", z) as R.Sketch;
+}
+
+/** joints.ts's `OutlineStack` as one solid: a ruled loft through its stations (mirrors manifold.ts's `stackSolid`, which hulls each pair). */
+function stackSolidStep(stack: OutlineStack, dz = 0): R.Shape3D {
+  const [first, ...rest] = stack.map(({ outline, z }) => outlineSketch(outline, z + dz));
+  return first.loftWith(rest, { ruled: true });
 }
 
 /**
@@ -741,28 +743,11 @@ function applyCoreJointCutSolid(core: R.Shape3D, cut: CoreJointCut): R.Shape3D {
     return cut.bayonet!.lugs.reduce((solid, f) => solid.fuse(revolvedFeatureSolid(f, cut.height)), core);
   }
 
-  const { jointRadius, boreRadius } = jointGeometry(cut.boreOutline, cut.joint, cut.tolerance);
-  if (boreRadius < JOINT_MIN_BORE_RADIUS || cut.height < JOINT_ENGAGE_DEPTH + 2) return core;
-
-  const { height } = cut;
-
-  // snap: a stepped counterbore, mirroring manifold.ts's own reasoning
-  // (`wideR`/ridge radius forced past `boreRadius`/`circumscribedRadius` so
-  // the cuts and the ridge-ring addition are never a near-tangent, nearly
-  // coincident seam against the bore's flat sides or corner arcs).
-  const wideR = Math.max(jointRadius - SNAP_GAP - cut.tolerance + SNAP_BARB + 0.3, boreRadius + WELD_OVERLAP);
-  const ridgeOuterR = Math.max(wideR, circumscribedRadius(cut.boreOutline, 0) + WELD_OVERLAP);
-  const ridgeInnerR = jointRadius - 0.1;
-  const ridgeZLo = height - JOINT_ENGAGE_DEPTH + SNAP_BARB_HEIGHT;
-  const ridgeZHi = ridgeZLo + SNAP_RIDGE_THICKNESS;
-
-  const wideLower = R.makeCylinder(wideR, ridgeZLo - (height - JOINT_ENGAGE_DEPTH - 1), [0, 0, height - JOINT_ENGAGE_DEPTH - 1]);
-  const wideUpper = R.makeCylinder(wideR, height + 1 - ridgeZHi, [0, 0, ridgeZHi]);
-  const ridgeOuter = R.makeCylinder(ridgeOuterR, SNAP_RIDGE_THICKNESS, [0, 0, ridgeZLo]);
-  const ridgeInner = R.makeCylinder(ridgeInnerR, SNAP_RIDGE_THICKNESS + 0.2, [0, 0, ridgeZLo - 0.1]);
-  const ridgeRing = ridgeOuter.cut(ridgeInner);
-
-  return core.cut(wideLower).cut(wideUpper).fuse(ridgeRing);
+  // snap (issue #168): the lip fused in, then the relief cut around it,
+  // from the same `snapLayout` as manifold.ts's `applyCoreJointCut`.
+  const snap = snapLayout(cut.boreOutline, cut.tolerance, cut.height);
+  if (!snap) return core;
+  return core.fuse(stackSolidStep(snap.lip, cut.height)).cut(stackSolidStep(snap.relief, cut.height));
 }
 
 /**
@@ -817,7 +802,7 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
 
   // Issue #167: the joint design.ts built (a bayonet may fall back to press fit).
   const capJoint = resolveCapJoint(spec, design.wallSpec);
-  const { boreRadius, collarRadius, collarOutline, weldOutline, holeOutline } = jointGeometry(flangeSpec.boreOutline, capJoint.joint, spec.tolerance);
+  const { boreRadius, collarOutline, weldOutline, holeOutline } = jointGeometry(flangeSpec.boreOutline, capJoint.joint, spec.tolerance);
   const canCutJoint = boreRadius >= JOINT_MIN_BORE_RADIUS && solution.height >= JOINT_ENGAGE_DEPTH + 2;
 
   let collar: R.Shape3D;
@@ -828,16 +813,12 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   } else if (capJoint.joint === "press" || !canCutJoint) {
     collar = collarBaseSolid(collarOutline, weldOutline);
   } else {
-    const base = collarBaseSolid(collarOutline, weldOutline);
-    const barbR = collarRadius + SNAP_BARB;
-    const barb = R.makeCylinder(barbR, SNAP_BARB_HEIGHT, [0, 0, -JOINT_ENGAGE_DEPTH]);
-    const withBarb = base.fuse(barb);
-    // The slot's radial reach clears the transition's own widened top
-    // (collarBaseSolid flares out to `weldOutline`, issue #55) at EVERY
-    // angle, not just the flat sides -- `circumscribedRadius` is the
-    // outline's own farthest point, so this stays correct for round/sq/tri.
-    const slotOuterR = Math.max(barbR + 0.5, circumscribedRadius(weldOutline, 0) + 0.5);
-    const slots = unionAtAngles((a) => radialBoxSolid(0, slotOuterR, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, a), SNAP_HOOK_COUNT);
+    // Issue #168: the barb's 45-degree chamfer and the slots from the same
+    // `snapLayout` as manifold.ts's `buildTopCap` (`canCutJoint` is its own
+    // fallback condition).
+    const snap = snapLayout(flangeSpec.boreOutline, spec.tolerance, solution.height)!;
+    const withBarb = collarBaseSolid(collarOutline, weldOutline).fuse(stackSolidStep(snap.barb));
+    const slots = unionAtAngles((a) => radialBoxSolid(0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, a), SNAP_HOOK_COUNT);
     collar = withBarb.cut(slots);
   }
 
