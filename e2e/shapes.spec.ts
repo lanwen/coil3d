@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { decodeHashDoc } from "./hashDoc";
+import { openAllNumbers } from "./advanced";
 
 // Issue #6 acceptance criteria: the user can choose a rounded-square or
 // rounded-triangle core, with a corner-radius control, and the result panel
@@ -42,6 +43,8 @@ test("switching to a rounded square shows the corner-radius control and updates 
   await expect(async () => {
     expect(decodeHashDoc(page.url()).shape).toBe("sq");
   }).toPass();
+  // The corner-radius row is under "All numbers" (issue #192).
+  await openAllNumbers(page);
   await expect(page.getByTestId("corner-radius")).toBeVisible();
 });
 
@@ -83,7 +86,7 @@ test("a rounded-square core renders and the STL download works", async ({ page }
 
   await page.goto("/#v=1&L=1500&d=4&shape=sq&sq.rc=15&lock=outer,ly&size=60");
   await expect(page.getByTestId("hash-notice")).toHaveCount(0);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
 
   const downloadPromise = page.waitForEvent("download");

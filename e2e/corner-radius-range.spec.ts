@@ -63,7 +63,7 @@ function overlaps(a: { x: number; y: number; width: number; height: number }, b:
 
 test("a small square core leaves no useful corner-radius range, so the slider greys out and disables", async ({ page }) => {
   await page.goto(TOO_SMALL_SQUARE);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const numberInput = page.getByTestId("input-shapeCornerRadius");
   await expect(numberInput).toBeDisabled();
@@ -86,7 +86,7 @@ test("a small square core leaves no useful corner-radius range, so the slider gr
 
 test("a comfortably sized square core keeps the corner-radius slider enabled", async ({ page }) => {
   await page.goto(SQUARE_100);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const numberInput = page.getByTestId("input-shapeCornerRadius");
   await expect(numberInput).toBeEnabled();
@@ -95,7 +95,7 @@ test("a comfortably sized square core keeps the corner-radius slider enabled", a
 
 test("the max label under the slider shows the solver's own useful max", async ({ page }) => {
   await page.goto(SQUARE_100);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
   const max = await cornerInput.getAttribute("max");
@@ -107,7 +107,7 @@ test("the max label under the slider shows the solver's own useful max", async (
 
 test("at max, the slider knob's bounding box doesn't overlap the max label's", async ({ page }) => {
   await page.goto(SQUARE_100);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
   const max = await cornerInput.getAttribute("max");
@@ -130,7 +130,7 @@ test("at max, the slider knob's bounding box doesn't overlap the max label's", a
 test("at max and at phone width, the slider knob's bounding box still doesn't overlap the max label's", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(SQUARE_100);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
   const max = await cornerInput.getAttribute("max");
@@ -152,6 +152,6 @@ test("at max and at phone width, the slider knob's bounding box still doesn't ov
 
 test("the max label is opt-in: other sliders (e.g. core size) don't grow one", async ({ page }) => {
   await page.goto(SQUARE_100);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
   await expect(page.getByTestId("outer-max-label")).toHaveCount(0);
 });

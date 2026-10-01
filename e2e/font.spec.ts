@@ -26,13 +26,17 @@ test("loading and using the app makes no request to Google", async ({ page }) =>
   expect(await page.evaluate(() => document.fonts.check("700 16px Kanit"))).toBe(true);
 });
 
-// Positions of every heading and (i) button, in document order.
+// Positions of every rendered heading and (i) button, in document order.
+// Ones inside a closed disclosure (e.g. "All numbers", issue #192) aren't
+// on screen, so they can't visibly move.
 async function boxes(page: Page): Promise<number[][]> {
   return page.evaluate(() =>
-    Array.from(document.querySelectorAll("h1, h2, h3, [data-testid=hint-btn]")).map((e) => {
-      const r = e.getBoundingClientRect();
-      return [r.x, r.y, r.width, r.height];
-    }),
+    Array.from(document.querySelectorAll("h1, h2, h3, [data-testid=hint-btn]"))
+      .filter((e) => e.checkVisibility())
+      .map((e) => {
+        const r = e.getBoundingClientRect();
+        return [r.x, r.y, r.width, r.height];
+      }),
   );
 }
 

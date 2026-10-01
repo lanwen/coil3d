@@ -145,6 +145,8 @@ export default function App() {
           {result && (
             <ResultPanel
               design={result}
+              spec={currentSpec}
+              onChange={setCurrentSpec}
               finalReady={finalReady}
               onDownloadStl={handleDownloadStl}
               onDownloadThreeMf={handleDownloadThreeMf}

@@ -328,7 +328,7 @@ export async function resolveLabel(rawText: string | undefined, outline: ShapeOu
   const text = (rawText ?? "").trim();
   if (!text) return {};
   if (!topCapEnabled) {
-    return { warning: `Label text "${text}" is set, but there is no top cap to place it on -- it will not be shown. Enable the top cap to show it.` };
+    return { warning: `The label "${text}" needs a top cap, so it isn't engraved. Turn the top cap on to show it.` };
   }
 
   const font = await getLabelFont();
@@ -347,7 +347,7 @@ export async function resolveLabel(rawText: string | undefined, outline: ShapeOu
     }
     return {
       fit: { fits: false, maxChars: Math.max(0, maxChars) },
-      warning: `Label text "${text}" doesn't fit the top cap at a legible height (>= ${LABEL_MIN_HEIGHT} mm) and has been hidden. Use shorter text or a bigger cap.`,
+      warning: `The label "${text}" doesn't fit on the top cap with letters at least ${LABEL_MIN_HEIGHT / 10} cm tall, so it's hidden. Use shorter text or a bigger core.`,
     };
   }
   return { fit: { fits: true, maxChars: rawText!.length }, label: { text, fontSize: fit.fontSize, yLo: innerExclusion + LABEL_MARGIN, bearingDeg } };

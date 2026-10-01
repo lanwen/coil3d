@@ -39,8 +39,8 @@ import {
 } from "./constants";
 import { makeOutline, offsetArea, shapePlugin } from "./shapes";
 import type { ShapeOutline } from "./shapes";
-import { bendMultiplierOf } from "./types";
-import type { CoilSpec, Diagnosis, Objective, ShapeSpec, Solution } from "./types";
+import { bendMultiplierOf, noticeCollector } from "./types";
+import type { CoilSpec, Diagnosis, Notice, Objective, ShapeSpec, Solution } from "./types";
 
 /**
  * Bend-limit floor on the corner radius (issue #6): the innermost wound
@@ -325,7 +325,7 @@ function scoreOf(objective: Objective): (spec: CoilSpec, g: Resolved) => number 
   return objective === "minVolume" ? envelopeVolumeFor : aspectScoreFor;
 }
 
-/** Build the full Solution + extra warnings from a resolved geometry (no further solving). */
+/** Build the full Solution + extra notices from a resolved geometry (no further solving). */
 function finishSolution(
   spec: CoilSpec,
   resolved: Resolved,
@@ -333,8 +333,8 @@ function finishSolution(
   objectiveUsed: Objective | undefined,
   minOuterSizeForBend: number,
   minOuterSizeForShapeVal: number,
-): { solution: Solution; warnings: string[] } {
-  const warnings: string[] = [];
+): { solution: Solution; notices: Notice[] } {
+  const { notices, problem, note } = noticeCollector();
   const target = spec.wire.length;
 
   const cap = capacityOf(spec, spec.windingQuality, resolved);
@@ -366,13 +366,13 @@ function finishSolution(
   const deltaPct = ((totalWireLength - target) / target) * 100;
 
   if (innerBore <= 0) {
-    warnings.push(`Wall thickness (${WALL_THICKNESS} mm) leaves no bore at outer size ${resolved.outerSize.toFixed(1)} mm -- increase outer size.`);
+    problem(`Wall thickness (${WALL_THICKNESS} mm) leaves no bore at outer size ${resolved.outerSize.toFixed(1)} mm -- increase outer size.`);
   }
   if (env > 500) {
-    warnings.push(`Envelope footprint is ${env.toFixed(0)} mm -- check this fits your print bed.`);
+    note(`Envelope footprint is ${env.toFixed(0)} mm -- check this fits your print bed.`);
   }
   if (Math.abs(deltaPct) > 10) {
-    warnings.push(`Resulting capacity is ${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(0)}% vs. the target cable length.`);
+    note(`Resulting capacity is ${deltaPct > 0 ? "+" : ""}${deltaPct.toFixed(0)}% vs. the target cable length.`);
   }
   // Capacity range too wide (issue #23): "ok" only means the CHOSEN winding
   // quality covers the target -- a design can still leave a loose/stacked
@@ -383,7 +383,7 @@ function finishSolution(
   const capacityLo = Math.min(lengthLo, lengthHi);
   if (capacityLo < target * (1 - CAPACITY_EPS)) {
     const pctOfTarget = (capacityLo / target) * 100;
-    warnings.push(
+    note(
       `At the loosest winding quality, capacity is only ${capacityLo.toFixed(0)} mm (${pctOfTarget.toFixed(0)}% of the ${target.toFixed(0)} mm target) -- a loose winding may not fit; wind snugly to reach the full target length.`,
     );
   }
@@ -391,17 +391,17 @@ function finishSolution(
     const label = shapePlugin(spec.shape.kind).label.toLowerCase();
     const requested = spec.shape.cornerRadius;
     if (rcMin >= rcMaxHard) {
-      warnings.push(
+      problem(
         `The bend limit needs at least a ${rcMin.toFixed(1)} mm corner radius, but the core is only ${resolved.outerSize.toFixed(1)} mm across -- the ${label} core is effectively round.`,
       );
     } else if (requested < rcMin - 1e-9) {
-      warnings.push(`Corner radius clamped up to ${rcMin.toFixed(1)} mm (requested ${requested.toFixed(1)} mm) to respect the bend limit.`);
+      note(`Corner radius clamped up to ${rcMin.toFixed(1)} mm (requested ${requested.toFixed(1)} mm) to respect the bend limit.`);
     } else if (requested > rcMax + 1e-9) {
       // Issue #134: this is now the "still reads as a shape" ceiling, not
       // literally half the core size -- past it, the straight flats would
       // shrink below the same readability floor issue #54 enforces on the
       // MINIMUM size side (see `usefulMaxCornerRadius`'s own doc comment).
-      warnings.push(`Corner radius clamped down to ${rcMax.toFixed(1)} mm (the largest that still reads as a ${label}, not a circle).`);
+      note(`Corner radius clamped down to ${rcMax.toFixed(1)} mm (the largest that still reads as a ${label}, not a circle).`);
     }
   }
 
@@ -428,7 +428,7 @@ function finishSolution(
     minOuterSizeForShape: minOuterSizeForShapeVal,
     alternates: [],
   };
-  return { solution, warnings };
+  return { solution, notices };
 }
 
 interface SizeHeightSearchResult {
@@ -467,16 +467,16 @@ function searchSizeAndHeight(
   return { feasible, closest: closest! };
 }
 
-export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string[] } {
-  const warnings: string[] = [];
+export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[] } {
+  const { notices, problem, note } = noticeCollector();
 
   // Cords above 15 m are rejected: cap the target and warn rather than crash
   // (docs/design.md, Decisions: up to 15 m).
   const spec: CoilSpec =
     rawSpec.wire.length > MAX_WIRE_LENGTH ? { ...rawSpec, wire: { ...rawSpec.wire, length: MAX_WIRE_LENGTH } } : rawSpec;
   if (rawSpec.wire.length > MAX_WIRE_LENGTH) {
-    warnings.push(
-      `Cable length ${rawSpec.wire.length.toFixed(1)} mm exceeds the supported maximum of ${MAX_WIRE_LENGTH} mm (15 m) and was rejected; capped at ${MAX_WIRE_LENGTH} mm.`,
+    problem(
+      `Your cable is ${(rawSpec.wire.length / 10).toFixed(0)} cm long, over the 15 m maximum, so the coil is sized for 15 m.`,
     );
   }
 
@@ -523,7 +523,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
   let lockedOuterSize = spec.coreSize.locked ? toOuterSize(spec.coreSize) : undefined;
   if (spec.shape.kind !== "round" && lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - 1e-9) {
     const label = shapePlugin(spec.shape.kind).label.toLowerCase();
-    warnings.push(
+    note(
       `Core size raised from ${lockedOuterSize.toFixed(1)} mm to ${minOuterSizeForShapeVal.toFixed(1)} mm: this cable's bend limit needs at least that much to keep the ${label} core's straight sides meaningful, or the shape would be indistinguishable from round.`,
     );
     lockedOuterSize = minOuterSizeForShapeVal;
@@ -749,5 +749,5 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
 
   const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend, minOuterSizeForShapeVal);
   finished.solution.alternates = alternates;
-  return { solution: finished.solution, warnings: [...warnings, ...finished.warnings] };
+  return { solution: finished.solution, notices: [...notices, ...finished.notices] };
 }

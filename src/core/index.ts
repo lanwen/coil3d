@@ -29,6 +29,7 @@ export type {
   LayerResult,
   Lock,
   MountKind,
+  Notice,
   Objective,
   Part,
   PartRole,

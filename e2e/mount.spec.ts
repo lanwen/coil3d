@@ -89,7 +89,7 @@ test("the keyhole-mount core renders, stays manifold end to end, and both STL an
 
   await page.goto(`/${KEYHOLE_HASH}`);
   await expect(page.getByTestId("hash-notice")).toHaveCount(0);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
   await expect(page.getByTestId("download-stl")).toBeEnabled();
 
