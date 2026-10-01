@@ -29,7 +29,6 @@ import Module, { type ManifoldToplevel } from "manifold-3d";
 import {
   CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
-  JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
   LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
@@ -44,17 +43,13 @@ import {
   SCREW_MOUNT_UNDERCUT_DEPTH,
   SKADIS_CLIP_HEIGHT,
   SKADIS_CLIP_PROFILE,
-  SNAP_BARB,
-  SNAP_BARB_HEIGHT,
-  SNAP_GAP,
   SNAP_HOOK_COUNT,
-  SNAP_RIDGE_THICKNESS,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
 } from "./constants";
-import { jointGeometry } from "./joints";
-import type { BayonetLayout, RevolvedFeature } from "./joints";
+import { jointGeometry, snapLayout } from "./joints";
+import type { BayonetLayout, OutlineStack, RevolvedFeature } from "./joints";
 import { getLabelFont, labelLoops } from "./label";
 import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
@@ -65,7 +60,7 @@ import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangeP
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
-import { circumscribedRadius, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
+import { minCornerSegments, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh, JointKind, MountKind } from "./types";
 
@@ -191,6 +186,19 @@ function collarBase(
   return track(straight.add(transition));
 }
 
+/** Columns for the snap joint's outlines: fine enough that a faceted 45-degree chamfer leans well under a degree past 45 even on a big bore. */
+const SNAP_COLUMNS = 96;
+
+/** joints.ts's `OutlineStack` as one solid: the hull of each neighbouring pair of stations (a prism or a convex frustum), unioned. */
+function stackSolid(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, stack: OutlineStack, columns: number, cornerSegments: number): Manifold {
+  const pieces: Manifold[] = [];
+  for (let i = 0; i + 1 < stack.length; i++) {
+    const pts = [stack[i], stack[i + 1]].flatMap(({ outline, z }) => outlinePolygon(outline, columns, cornerSegments).map(([x, y]): [number, number, number] => [x, y, z]));
+    pieces.push(track(wasm.Manifold.hull(pts)));
+  }
+  return track(wasm.Manifold.union(pieces));
+}
+
 /** A box spanning radius [rLo, rHi] and tangential width `width`, at axial [zLo, zHi], rotated to `angleDeg` about Z -- the shared primitive for lugs, entry slots and relief slots (all "a chunk of material/void between two radii, centered on an angle"). */
 function radialBox(wasm: ManifoldToplevel, rLo: number, rHi: number, width: number, zLo: number, zHi: number, angleDeg: number): Manifold {
   const { Manifold: M } = wasm;
@@ -226,37 +234,17 @@ function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete():
     return track(wasm.Manifold.union([core, ...cut.bayonet!.lugs.map((f) => track(revolvedFeature(wasm, f, cut.height)))]));
   }
 
-  const { jointRadius, boreRadius } = jointGeometry(cut.boreOutline, cut.joint, cut.tolerance);
-  if (boreRadius < JOINT_MIN_BORE_RADIUS || cut.height < JOINT_ENGAGE_DEPTH + 2) return core;
-
+  // snap (issue #168): a ridge with 45-degree chamfers both sides, in a
+  // relief wide enough for the barb -- see joints.ts's `snapLayout`. The lip
+  // holding the ridge is fused in first, then the relief cut around it. A
+  // bore or core too small for the relief is left as it is.
   const { height } = cut;
-  const segments = 48;
-
-  // snap: a stepped counterbore -- wide below and above a narrow ridge band.
-  // `wideR` is forced comfortably past `boreRadius` (by WELD_OVERLAP): the
-  // core's existing bore wall sits exactly at `boreRadius`, and for a
-  // non-round bore that's a real FLAT SIDE, not just a point -- a cutter
-  // radius only fractions of a mm past it is nearly tangent to that flat
-  // side along its whole length, which boolean CSG handles poorly (stray
-  // slivers, inflated genus; round has no flat side so it never showed this).
-  const wideR = Math.max(jointRadius - SNAP_GAP - cut.tolerance + SNAP_BARB + 0.3, boreRadius + WELD_OVERLAP);
-  const ridgeInnerR = jointRadius - 0.1; // matches the finger's own nominal shaft, so the ridge is a real constriction relative to `wideR`
-  // The ridge is material ADDED back at this z-band (see ridgeRing below), so
-  // -- unlike the WIDE cuts, a harmless no-op wherever it doesn't reach
-  // existing solid -- it must reach solid material at EVERY angle or it
-  // floats as a disconnected island wherever the bore's corner arcs bulge
-  // out past `wideR` (round/sq/tri share one circular collar, but a non-round
-  // bore's corners sit farther out than its flat sides: see shapes.ts).
-  const ridgeOuterR = Math.max(wideR, circumscribedRadius(cut.boreOutline, 0) + WELD_OVERLAP);
-  const ridgeZLo = height - JOINT_ENGAGE_DEPTH + SNAP_BARB_HEIGHT;
-  const ridgeZHi = ridgeZLo + SNAP_RIDGE_THICKNESS;
-  const wideLower = wasm.Manifold.cylinder(ridgeZLo - (height - JOINT_ENGAGE_DEPTH - 1), wideR, wideR, segments, false).translate([0, 0, height - JOINT_ENGAGE_DEPTH - 1]);
-  const wideUpper = wasm.Manifold.cylinder(height + 1 - ridgeZHi, wideR, wideR, segments, false).translate([0, 0, ridgeZHi]);
-  const ridgeOuter = wasm.Manifold.cylinder(SNAP_RIDGE_THICKNESS, ridgeOuterR, ridgeOuterR, segments, false).translate([0, 0, ridgeZLo]);
-  const ridgeInner = wasm.Manifold.cylinder(SNAP_RIDGE_THICKNESS + 0.2, ridgeInnerR, ridgeInnerR, segments, false).translate([0, 0, ridgeZLo - 0.1]);
-  const ridgeRing = track(track(ridgeOuter).subtract(track(ridgeInner))); // the material LEFT BEHIND at the ridge band once the wide cuts remove everything past ridgeInnerR elsewhere
-  const wide = track(track(wideLower).add(track(wideUpper)));
-  return track(track(core.subtract(wide)).add(ridgeRing));
+  const snap = snapLayout(cut.boreOutline, cut.tolerance, height);
+  if (!snap) return core;
+  const rim = (stack: OutlineStack): OutlineStack => stack.map(({ outline, z }) => ({ outline, z: z + height }));
+  const lip = stackSolid(wasm, track, rim(snap.lip), SNAP_COLUMNS, minCornerSegments(cut.boreOutline, 8));
+  const relief = stackSolid(wasm, track, rim(snap.relief), SNAP_COLUMNS, minCornerSegments(cut.boreOutline, 8));
+  return track(track(core.add(lip)).subtract(relief));
 }
 
 /**
@@ -562,6 +550,8 @@ export interface TopCapSpec {
   label?: ResolvedLabel;
   /** The cable clips for the outer end (issue #117: where the cable's cap lead-out ends, repeated around the cap since issue #121, `Design.capClip`). Omitted: no clip. */
   clip?: CapClipLayout;
+  /** The core's height, mm: a snap cap on a core too short for the snap relief falls back to a plain collar (joints.ts's `snapLayout`). */
+  coreHeight: number;
 }
 
 /**
@@ -596,7 +586,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
     }
 
-    const { collarRadius, collarOutline, weldOutline, holeOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
+    const { collarOutline, weldOutline, holeOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
     const segments = 48;
 
     let collar: Manifold;
@@ -610,21 +600,21 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       const slots = track(Manifold.union(bayonet!.cuts.map((f) => track(revolvedFeature(wasm, f, 0)))));
       collar = track(base.subtract(slots));
     } else {
-      // snap: a collar with a barb band at its tip (deepest point, LOCAL
-      // z=[-JOINT_ENGAGE_DEPTH, -JOINT_ENGAGE_DEPTH+SNAP_BARB_HEIGHT]) and 3
-      // axial relief slots cutting it into cantilever fingers.
+      // snap: a collar with a barb ring at its tip (deepest point) and 3
+      // axial relief slots cutting it into cantilever fingers. Issue #168:
+      // the barb's face toward the plate (facing down in print) is a
+      // 45-degree chamfer -- see joints.ts's `snapLayout`. A core too small
+      // for its relief gets the plain press collar.
       const base = collarBase(wasm, track, collarOutline, weldOutline, segments, flange.minCornerSegments);
-      const barbR = collarRadius + SNAP_BARB;
-      const barb = track(Manifold.cylinder(SNAP_BARB_HEIGHT, barbR, barbR, segments, false).translate([0, 0, -JOINT_ENGAGE_DEPTH]));
-      const withBarb = track(base.add(barb));
-      // Already tracked (unionAtAngles tracks its own final reduce step).
-      // The slot's radial reach clears the transition's own widened top
-      // (collarBase flares out to `weldOutline`, issue #55) at EVERY angle,
-      // not just the flat sides -- `circumscribedRadius` is the outline's
-      // own farthest point, so this stays correct for round/sq/tri alike.
-      const slotOuterR = Math.max(barbR + 0.5, circumscribedRadius(weldOutline, 0) + 0.5);
-      const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, slotOuterR, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, angle), SNAP_HOOK_COUNT);
-      collar = track(withBarb.subtract(slots));
+      const snap = snapLayout(flange.boreOutline, tolerance, spec.coreHeight);
+      if (!snap) {
+        collar = base;
+      } else {
+        const withBarb = track(base.add(stackSolid(wasm, track, snap.barb, SNAP_COLUMNS, 1)));
+        // Already tracked (unionAtAngles tracks its own final reduce step).
+        const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, angle), SNAP_HOOK_COUNT);
+        collar = track(withBarb.subtract(slots));
+      }
     }
 
     let assembled = track(plate.add(collar));

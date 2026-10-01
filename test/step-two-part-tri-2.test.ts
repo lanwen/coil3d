@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
 import type { CoilSpec } from "../src/core";
-import { STEP_TIMEOUT_MS, perPartVolumeErrors, reimportStep } from "./support/step";
+import { STEP_TIMEOUT_MS, perPartVolumeErrors, reimportStep, snapProbes } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the "snap" joint
 // case of the tri two-part (issue #55) sweep, on its own so the balanced
@@ -34,12 +34,15 @@ describe.sequential("STEP/OCCT export: tri two-part design, snap joint (issue #3
       const stepBytes = await exportDesign(d, "step");
       expect(stepBytes.byteLength).toBeGreaterThan(0);
 
-      const { valid, solidVolumes } = await reimportStep(stepBytes, "reimport-cap-snap-tri");
+      const probes = snapProbes(d);
+      const { valid, solidVolumes, inside } = await reimportStep(stepBytes, "reimport-cap-snap-tri", probes.points);
       expect(valid).toBe(true);
       expect(solidVolumes.length).toBe(2); // core + top-cap; a disconnected collar would re-import as a 3rd solid
 
       // Issue #167: per part, within 0.5% -- not the whole design's total.
       for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
+      expect(probes.points.length).toBeGreaterThanOrEqual(8); // the barb (in, out) and the ridge (in, out), each crossed both ways
+      expect(inside).toEqual(probes.expected);
     },
     STEP_TIMEOUT_MS,
   );

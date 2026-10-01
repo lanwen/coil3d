@@ -325,7 +325,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (labelWarning) warnings.push(labelWarning);
 
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: flangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, label, clip: cable.capClip });
+    const capMesh = await buildTopCap({ flange: flangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, label, clip: cable.capClip, coreHeight: solution.height });
     // `capMesh` is built in a LOCAL frame (plate z=[0, CAP_THICKNESS], collar
     // reaching down to z=-JOINT_ENGAGE_DEPTH); translating by `height` lands
     // it in the shared assembly frame, flush against the wall's top rim.
