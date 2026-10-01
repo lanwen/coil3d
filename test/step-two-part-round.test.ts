@@ -17,7 +17,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
       shape: { kind: "round" },
       windingQuality: 0.7,
       coreSize: { locked: true, dimension: "outer", value: 60 },
-      height: { locked: true, value: 60 },
+      height: { locked: true, value: 30 }, // not 60: the wall's STEP build time grows with its turns, and the joint sits at the top (issue #181)
       layers: { locked: true, value: 2 },
       objective: "minVolume",
       topCap: "auto",
@@ -28,11 +28,19 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
       plateJoint: "glue",
     };
 
+    // The OCCT build is the slow part (issue #181), and the bayonet probe test
+    // below needs the same bayonet export as this one: build each joint once.
+    const built = new Map<JointKind, ReturnType<typeof buildJoint>>();
+    async function buildJoint(joint: JointKind) {
+      const d = await design({ ...twoPartSpec, joint });
+      return { d, stepBytes: await exportDesign(d, "step") };
+    }
+    const buildOnce = (joint: JointKind) => built.get(joint) ?? built.set(joint, buildJoint(joint)).get(joint)!;
+
     it.each(JOINTS)(
       "STEP export produces one file with one solid per part, each volume within 0.5% of its own mesh (joint=%s)",
       async (joint) => {
-        const d = await design({ ...twoPartSpec, joint });
-        const stepBytes = await exportDesign(d, "step");
+        const { d, stepBytes } = await buildOnce(joint);
         expect(stepBytes.byteLength).toBeGreaterThan(0);
 
         const probes = joint === "snap" ? snapProbes(d) : { points: [], expected: [] };
@@ -53,7 +61,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
     it(
       "the STEP bayonet has its lugs and L-slots where the mesh has them (issue #167)",
       async () => {
-        const d = await design({ ...twoPartSpec, joint: "bayonet" });
+        const { d, stepBytes } = await buildOnce("bayonet");
         const h = d.solution.height;
         const rIn = d.wallSpec.boreOutline.apothem;
         const rc = jointGeometry(d.wallSpec.boreOutline, "bayonet", d.spec.tolerance).collarRadius;
@@ -71,7 +79,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
             { p: at(rc - 0.5, lug + 30, h - 1.5), inside: true, what: `collar past the stop ${k}` },
           );
         }
-        const inside = await stepContains(await exportDesign(d, "step"), "bayonet-probes", probes.map((q) => q.p));
+        const inside = await stepContains(stepBytes, "bayonet-probes", probes.map((q) => q.p));
         expect(Object.fromEntries(probes.map((q, i) => [q.what, inside[i]]))).toEqual(Object.fromEntries(probes.map((q) => [q.what, q.inside])));
       },
       STEP_TIMEOUT_MS,

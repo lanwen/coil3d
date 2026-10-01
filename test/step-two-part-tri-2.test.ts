@@ -13,7 +13,7 @@ describe.sequential("STEP/OCCT export: tri two-part design, snap joint (issue #3
     shape: { kind: "round" },
     windingQuality: 0.7,
     coreSize: { locked: true, dimension: "outer", value: 60 },
-    height: { locked: true, value: 60 },
+    height: { locked: true, value: 30 }, // not 60: the wall's STEP build time grows with its turns, and the joint sits at the top, so a short core proves the same (issue #181)
     layers: { locked: true, value: 2 },
     objective: "minVolume",
     topCap: "auto",
