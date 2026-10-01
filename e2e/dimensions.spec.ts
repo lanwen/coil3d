@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { hoverHint } from "./hint";
 
 // End-to-end checks for the overall-dimension axes: issue #50's IKEA-style
 // dimensions (values fixed by #63), redrawn by issue #69 as 3D axes inside
@@ -535,7 +536,7 @@ test.describe("the cable/flange rows are comparable (issue #65)", () => {
       const hintBtn = row.getByTestId("hint-btn");
       await expect(hintBtn).toHaveCount(1);
       const bubble = row.getByTestId("hint-bubble");
-      await hintBtn.hover();
+      await hoverHint(page, hintBtn);
       await expect(bubble).toBeVisible();
       expect((await bubble.textContent())!.length).toBeGreaterThan(20);
     }

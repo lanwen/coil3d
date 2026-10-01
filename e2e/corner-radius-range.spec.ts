@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "@playwright/test";
+import { hoverHint } from "./hint";
 
 // Issue #140 ("gray out the slider ... show the max value under the slider
 // end"), follow-up to #134 (corner-radius-max.spec.ts's own useful-max
@@ -79,7 +80,7 @@ test("a small square core leaves no useful corner-radius range, so the slider gr
 
   // The (i) hint explains why.
   const field = page.locator(".field").filter({ hasText: "Corner radius" }).first();
-  await field.getByTestId("hint-btn").hover();
+  await hoverHint(page, field.getByTestId("hint-btn"));
   await expect(field.getByTestId("hint-bubble")).toContainText(/too small for a larger radius/i);
 });
 

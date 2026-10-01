@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { openAdvanced } from "./advanced";
+import { hoverHint } from "./hint";
 
 // Issue #53 acceptance criteria: every control (including advanced settings,
 // cap/joint, label, mount, print bed and the viewer toggles) has an (i)
@@ -23,15 +24,30 @@ test("every top-level control has an (i) hint button", async ({ page }) => {
 });
 
 test("hovering the (i) button opens the hint, and it does not overlap the field's value", async ({ page }) => {
+  // Issue #187: the web font swapping in after first paint moves the button
+  // by several pixels. Hold the font back so the swap always lands late (the
+  // worst case for a hover); hoverHint waits for it.
+  await page.route(/fonts\.gstatic\.com/, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await route.continue();
+  });
   await page.goto("/");
   const field = page.locator(".field").filter({ hasText: "Cable length" });
   const hintBtn = field.getByTestId("hint-btn");
   const bubble = field.getByTestId("hint-bubble");
 
   await expect(bubble).not.toBeVisible();
-  await hintBtn.hover();
+  await hoverHint(page, hintBtn);
   await expect(bubble).toBeVisible();
   await expect(bubble).toContainText("centimetres");
+
+  // Once the page has settled (font swapped in, a couple of frames painted
+  // so the browser has re-run its hover hit-test), the hint is still open.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    for (let i = 0; i < 3; i++) await new Promise((resolve) => requestAnimationFrame(resolve));
+  });
+  await expect(bubble).toBeVisible();
 
   const bubbleBox = await bubble.boundingBox();
   const valueBox = await field.locator(".field-value").boundingBox();
