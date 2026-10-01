@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { hoverHint } from "./hint";
 
 // Issues #54/#58 (core) + this PR's own follow-up: for a square/triangle
 // core, this cable's bend limit can force a bigger minimum core size than a
@@ -107,7 +108,7 @@ test("the size slider's own minimum follows the shape's floor for sq/tri, but no
 test("the core-size (i) hint explains the shape-dependent minimum in plain English", async ({ page }) => {
   await page.goto("/");
   const field = page.locator(".field").filter({ hasText: "Core size" }).first();
-  await field.getByTestId("hint-btn").hover();
+  await hoverHint(page, field.getByTestId("hint-btn"));
   await expect(field.getByTestId("hint-bubble")).toContainText("square or triangle");
 });
 
