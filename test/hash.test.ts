@@ -213,14 +213,14 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
 
     it("hiding the wire writes ui.wire=false, nested inside the document (not a literal URL substring)", () => {
       const hidden = toHash(DEFAULT_SPEC, false);
-      expect(hidden).not.toContain("wire=0"); // no longer a literal companion param
+      expect(hidden).not.toContain("wire=0"); // a literal substring would be a companion param
       expect(decodeDoc(hidden)).toEqual({ v: 2, ui: { wire: false } });
       expect(parseHash(hidden)).toEqual({ ...DESIGN, showWire: false });
     });
 
     it("switching to the guide view writes ui.view='guide', nested inside the document", () => {
       const guideHash = toHash(DEFAULT_SPEC, DEFAULT_SHOW_WIRE, "guide");
-      expect(guideHash).not.toContain("view=guide"); // no longer a literal companion param
+      expect(guideHash).not.toContain("view=guide"); // a literal substring would be a companion param
       expect(decodeDoc(guideHash)).toEqual({ v: 2, ui: { view: "guide" } });
       expect(parseHash(guideHash)).toEqual({ ...DESIGN, view: "guide" });
     });
@@ -243,37 +243,10 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       expect(notice).toBeDefined();
     });
 
-    // Backward compat with the short-lived intermediate format this ticket
-    // briefly shipped (`ui` as literal `&wire=0`/`&view=guide` companion
-    // params next to `s=`, before they moved inside the document).
-    it("a link with a literal '&wire=0' companion (pre-'ui' format) still reads as hidden and migrates forward", () => {
-      const oldStyleLink = `${toHash(DEFAULT_SPEC)}&wire=0`;
-      const parsed = parseHash(oldStyleLink);
-      expect(parsed).toEqual({ ...DESIGN, showWire: false });
-
-      const migrated = toHash(parsed.spec, parsed.showWire, parsed.view);
-      expect(decodeDoc(migrated)).toEqual({ v: 2, ui: { wire: false } });
-    });
-
-    it("a link with a literal '&view=guide' companion (pre-'ui' format) still reads as the guide view and migrates forward", () => {
-      const oldStyleLink = `${toHash(DEFAULT_SPEC)}&view=guide`;
-      const parsed = parseHash(oldStyleLink);
-      expect(parsed).toEqual({ ...DESIGN, view: "guide" });
-
-      const migrated = toHash(parsed.spec, parsed.showWire, parsed.view);
-      expect(decodeDoc(migrated)).toEqual({ v: 2, ui: { view: "guide" } });
-    });
-
-    it("falls back to defaults with a notice on a garbage 'wire' companion param", () => {
-      const hash = `${toHash(DEFAULT_SPEC)}&wire=maybe`;
-      const { spec, notice } = parseHash(hash);
-      expect(spec).toEqual(DEFAULT_SPEC);
-      expect(notice).toBeDefined();
-    });
-
-    it("an unrecognised 'view' companion value is ignored leniently (defaults to 'design'), matching the pre-#56 App.tsx behaviour", () => {
-      const hash = `${toHash(DEFAULT_SPEC)}&view=bogus`;
-      expect(parseHash(hash)).toEqual(DESIGN);
+    // Beta: no compatibility with the short-lived `&wire=0`/`&view=guide`
+    // params that once sat next to `s=`; only `ui` inside the document counts.
+    it("ignores params next to 's' (the old '&wire=0' / '&view=guide' companions)", () => {
+      expect(parseHash(`${toHash(DEFAULT_SPEC)}&wire=0&view=guide&wire=maybe`)).toEqual(DESIGN);
     });
   });
 

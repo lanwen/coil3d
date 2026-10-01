@@ -15,9 +15,6 @@
 // There is no compatibility layer for older link formats (the project is in
 // beta): anything that isn't a readable `#s=` document, including the old
 // flat key=value query string, falls back to defaults with a notice.
-// The short-lived intermediate format (`#s=...&wire=0`/`&view=guide`, `ui` as
-// literal companion params rather than inside the document) is still read
-// the same lenient way -- see `parseHash`'s own comment.
 //
 // Compression: deliberately NOT applied. `CompressionStream` is a streaming,
 // async API, which would make this codec's public interface async too (every
@@ -412,26 +409,10 @@ export function parseHash(hash: string): ParsedHash {
   const qs = hash.replace(/^#/, "");
   if (!qs) return { spec: cloneSpec(DEFAULT_SPEC), showWire: DEFAULT_SHOW_WIRE, view: DEFAULT_VIEW };
 
-  const params = new URLSearchParams(qs);
-  // A hash without `s` (e.g. an old flat query-string link) decodes as garbage and
-  // falls back like any other unreadable link.
-  const parsed = parseDocHash(params.get("s") ?? "");
-  if (parsed.notice) return parsed;
-
-  // Backward compat with the short-lived companion-param format this ticket
-  // briefly shipped (`#s=...&wire=0`/`&view=guide`, before `ui` existed
-  // inside the document): read them here too, but only as a fallback when
-  // the document itself doesn't already carry `ui.wire`/`ui.view` -- so a
-  // link from that window still opens correctly, and the very next
-  // `toHash` (App.tsx's own replaceState) folds them into `ui`.
-  const rawWire = params.get("wire");
-  if (rawWire !== null && rawWire !== "0" && rawWire !== "1") {
-    return fallback('Could not read this link ("wire" must be "0" or "1") -- showing default values instead.');
-  }
-  const showWire = parsed.showWire !== DEFAULT_SHOW_WIRE ? parsed.showWire : rawWire !== null ? rawWire !== "0" : DEFAULT_SHOW_WIRE;
-  const view: ViewMode = parsed.view === "guide" || params.get("view") === "guide" ? "guide" : DEFAULT_VIEW;
-
-  return { ...parsed, showWire, view };
+  // Only the `s` param is read: a hash without it (e.g. an old flat
+  // query-string link) decodes as garbage and falls back like any other
+  // unreadable link, and any other param next to `s` is ignored.
+  return parseDocHash(new URLSearchParams(qs).get("s") ?? "");
 }
 
 /** Encode a spec (+ the view-only `showWire`/`view` state) into a hash string (with leading `#`), omitting defaults. Always writes the current `#s=` format. */

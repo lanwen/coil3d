@@ -1,6 +1,6 @@
 // The printable, IKEA-style assembly guide (issue #17). Generated straight
 // from the current `Design` (same URL hash the main view solved -- App.tsx
-// just swaps which component it renders, see `view=guide`), so a shared
+// just swaps which component it renders, see `ui.view`), so a shared
 // link opens the exact same guide. Every illustration reuses the interactive
 // viewer's own line-art pipeline (`LineArtRenderer`, `presets.ts`, issue #15)
 // through `GuideFigure`/`CoilScene` (src/viewer/CoilScene.tsx) -- nothing
