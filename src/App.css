@@ -1,3 +1,81 @@
+/* Kanit (SIL OFL 1.1, (c) The Kanit Project Authors), self-hosted from the
+   @fontsource/kanit package: Latin subset only (it covers Latin-1, so "SKADIS"
+   style names render; any other glyph falls back), woff2 only, and only the
+   three weights the UI uses. Vite fingerprints the files under /assets/, and
+   index.html preloads them. */
+@font-face {
+  font-family: "Kanit";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("@fontsource/kanit/files/kanit-latin-600-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Kanit";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("@fontsource/kanit/files/kanit-latin-700-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+@font-face {
+  font-family: "Kanit";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("@fontsource/kanit/files/kanit-latin-800-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* Metric-matched fallback, so the swap to Kanit barely moves anything: a local
+   bold Arial-metric face, scaled to Kanit. Derived per weight with opentype.js
+   from the font files themselves:
+     size-adjust      = Kanit avg advance / Arial Bold avg advance, over the
+                        letters a-z weighted by English letter frequency
+                        (Kanit 600/700/800: 0.5176 / 0.5272 / 0.5395; Arial Bold
+                        and its metric clone Liberation Sans Bold: 0.5212)
+     ascent-override  = Kanit hhea ascender (1.100 em) / size-adjust
+     descent-override = Kanit hhea descender (0.395 em) / size-adjust
+     line-gap-override = Kanit hhea lineGap (0)
+   (The overrides are divided by size-adjust because the browser multiplies
+   them by it.) Platforms without any of these fonts skip it and use the
+   rest of the stack. */
+@font-face {
+  font-family: "Kanit Fallback";
+  font-style: normal;
+  font-weight: 600;
+  src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold"), local("Arimo Bold"), local("Helvetica Bold");
+  size-adjust: 99.31%;
+  ascent-override: 110.76%;
+  descent-override: 39.77%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Kanit Fallback";
+  font-style: normal;
+  font-weight: 700;
+  src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold"), local("Arimo Bold"), local("Helvetica Bold");
+  size-adjust: 101.15%;
+  ascent-override: 108.75%;
+  descent-override: 39.05%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Kanit Fallback";
+  font-style: normal;
+  font-weight: 800;
+  src: local("Arial Bold"), local("Arial-BoldMT"), local("Liberation Sans Bold"), local("LiberationSans-Bold"), local("Arimo Bold"), local("Helvetica Bold");
+  size-adjust: 103.52%;
+  ascent-override: 106.26%;
+  descent-override: 38.16%;
+  line-gap-override: 0%;
+}
+
 :root {
   color-scheme: light;
   --ink: #000;
@@ -6,6 +84,7 @@
   --hairline: #000;
   --hairline-soft: #d9d9d9;
   --control-h: 40px;
+  --font-display: "Kanit", "Kanit Fallback", "system-ui", -apple-system, "Segoe UI", sans-serif;
 }
 
 * {
@@ -26,7 +105,7 @@ h3,
 .field-value,
 .btn-primary,
 .advanced-summary {
-  font-family: "Kanit", "system-ui", -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-display);
 }
 
 .app {
@@ -731,7 +810,7 @@ header p {
   align-items: center;
   justify-content: center;
   transform: translateY(-50%);
-  font-family: "Kanit", "system-ui", -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-display);
   /* Deliberately not any smaller: below this, software text rasterizers
      (SwiftShader/headless Chromium) print the digit with visible
      R/G/B subpixel fringing instead of a clean grayscale glyph -- verified

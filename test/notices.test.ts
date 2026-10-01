@@ -36,8 +36,23 @@ describe("third-party notices", () => {
     expect(missing, "bundled packages with no section in public/THIRD_PARTY_NOTICES.txt").toEqual([]);
   }, 120_000);
 
+  // Font files that the build copies into dist/assets (the UI's Kanit) are not
+  // in the source maps, so check them by file name: `kanit-latin-700-normal-<hash>.woff2`
+  // needs a section that names "Kanit".
+  it("cover every font file in the production build", async () => {
+    const out = (await build({
+      logLevel: "silent",
+      build: { write: false, outDir: "dist-notices-check" },
+    })) as { output: { fileName: string; type: string }[] };
+    const fonts = out.output.filter((f) => f.type === "asset" && /\.(woff2?|ttf|otf)$/.test(f.fileName));
+    expect(fonts.length).toBeGreaterThan(0);
+    const families = new Set(fonts.map((f) => f.fileName.replace(/^assets\//, "").split("-")[0]));
+    const missing = [...families].filter((family) => !new RegExp(`^${family} \\(`, "mi").test(notices));
+    expect(missing, "font files with no section in public/THIRD_PARTY_NOTICES.txt").toEqual([]);
+  }, 120_000);
+
   it("keep the static entries that are not npm packages", () => {
-    for (const s of ["Clipper2 (BSL-1.0)", "Archivo Black (OFL-1.1)", "Boost Software License", "GNU LESSER GENERAL PUBLIC LICENSE", "b8f597c677811d1f9f4d8a97f5ae2825c0353a42"]) {
+    for (const s of ["Clipper2 (BSL-1.0)", "Archivo Black (OFL-1.1)", "Kanit (OFL-1.1)", "Boost Software License", "GNU LESSER GENERAL PUBLIC LICENSE", "b8f597c677811d1f9f4d8a97f5ae2825c0353a42"]) {
       expect(notices).toContain(s);
     }
   });

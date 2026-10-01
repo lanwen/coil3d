@@ -24,10 +24,11 @@ test("every top-level control has an (i) hint button", async ({ page }) => {
 });
 
 test("hovering the (i) button opens the hint, and it does not overlap the field's value", async ({ page }) => {
-  // Issue #187: the web font swapping in after first paint moves the button
-  // by several pixels. Hold the font back so the swap always lands late (the
-  // worst case for a hover); hoverHint waits for it.
-  await page.route(/fonts\.gstatic\.com/, async (route) => {
+  // Issue #187: a web font swapping in after first paint used to move the
+  // button by several pixels (issue #191 removed most of that with a
+  // metric-matched fallback). Hold the font back so the swap always lands
+  // late (the worst case for a hover); hoverHint waits for it.
+  await page.route(/\.woff2/, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 1000));
     await route.continue();
   });
