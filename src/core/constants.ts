@@ -105,15 +105,27 @@ export const JOINT_TRANSITION_HEIGHT = 2; // mm
 export const WELD_OVERLAP = 1; // mm
 /** Fixed clearance between the collar's nominal OD and the bore's own inscribed (flat-side) radius, before `tolerance` -- keeps the collar clear of a non-round bore's corners too. */
 export const JOINT_FIT_GAP = 0.3; // mm
-/** Bore inscribed radius below which bayonet/snap core-side cuts are skipped (falls back to a plain press collar): too small to cut real features into a 3 mm wall without breaking through. */
+/** Bore inscribed radius below which bayonet/snap core-side cuts are skipped (falls back to a plain press collar): too small to cut real features into a 3 mm wall without breaking through. Bayonet: see joints.ts's `bayonetLayout`. */
 export const JOINT_MIN_BORE_RADIUS = 4; // mm
 
+// Bayonet (twist lock, issue #167, round cores only): BAYONET_LUG_COUNT
+// lugs stand in the core's bore just under the rim; the cap's collar has an
+// L-slot for each, so the cap drops on turned counter-clockwise, then turns
+// clockwise (seen from above) by 180/BAYONET_LUG_COUNT degrees to a hard
+// stop. See joints.ts's `bayonetLayout` for the profiles.
 export const BAYONET_LUG_COUNT = 3;
-export const BAYONET_GAP = 0.4; // mm, fixed sliding clearance for the twist motion
-export const BAYONET_LUG_HEIGHT = 1.2; // mm, radial protrusion of each lug past the collar
-export const BAYONET_LUG_WIDTH = 5; // mm, tangential width of each lug and its entry slot
-export const BAYONET_LEAD = 4; // mm, straight vertical entry depth before the twist-lock groove
-export const BAYONET_GROOVE_HEIGHT = 2.2; // mm, axial height of the twist-lock groove
+export const BAYONET_GAP = 0.4; // mm, fixed sliding clearance for the twist motion (plus the user's tolerance)
+export const BAYONET_LUG_HEIGHT = 1; // mm, how far each lug reaches into the collar (the hold)
+export const BAYONET_LUG_WIDTH = 5; // mm, tangential width of each lug at the collar, before the angle cap below
+/** Widest a lug may get, degrees -- keeps the lugs, the slots and the walls between them fitting round a small collar. */
+export const BAYONET_LUG_MAX_DEG = 30;
+export const BAYONET_LUG_TIP = 0.8; // mm, axial height of the lug's vertical tip face; under it the lug runs back to the bore wall at 45 degrees
+/** How far under the rim each lug's flat top sits, mm: the collar keeps this much (less the gap) solid ring above its grooves. */
+export const BAYONET_LUG_DROP = 1.5; // mm
+/** Least collar wall left behind the L-slots, mm (the collar's centre hole shrinks to keep it). */
+export const BAYONET_MIN_WALL = 1.2; // mm
+/** Least collar wall between one groove's end stop and the next entry slot, mm. Narrower: fall back to press fit. */
+export const BAYONET_MIN_LAND = 1.5; // mm
 
 export const SNAP_HOOK_COUNT = 3;
 export const SNAP_GAP = 0.3; // mm, fixed clearance so the fingers always enter freely
