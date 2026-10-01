@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 
 // STEP export (issue #11): replicad (OpenCascade WASM) must load lazily,
 // in a Worker, only once the user clicks "Download STEP" — never on
-// initial page load (docs/research.md "STEP export", S2 RESULT.md).
+// initial page load (docs/design.md, Export).
 
 test("replicad's WASM is not requested on initial load, only after Download STEP is clicked", async ({ page }) => {
   const requests: string[] = [];

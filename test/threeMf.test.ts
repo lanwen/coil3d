@@ -188,7 +188,7 @@ describe("exportDesign(design, '3mf')", () => {
     const model = parseModel(modelXml);
 
     expect(model.unit).toBe("millimeter");
-    expect(model.hasBaseMaterials).toBe(false); // docs/research.md §10b: slicers ignore basematerials colours -- ship single-colour named objects
+    expect(model.hasBaseMaterials).toBe(false); // slicers ignore basematerials colours, so ship single-colour named objects (docs/design.md, Export)
 
     expect(model.objects).toHaveLength(d.parts.length);
     expect(model.objects.map((o) => o.name)).toEqual(d.parts.map((p) => p.name));
@@ -249,8 +249,8 @@ describe("exportDesign(design, '3mf')", () => {
       expect(box.minZ, `${name} min Z is exactly 0`).toBeCloseTo(0, 6);
     }
 
-    // Non-overlapping, side by side along X (docs/research.md "Out of
-    // scope": no automatic multi-row packing needed here, just no overlap).
+    // Non-overlapping, side by side along X (docs/design.md, Decisions:
+    // no automatic multi-row packing needed here, just no overlap).
     const sorted = [...placedBoxes].sort((a, b) => a.box.minX - b.box.minX);
     for (let i = 0; i + 1 < sorted.length; i++) {
       expect(sorted[i].box.maxX, `${sorted[i].name} doesn't overlap ${sorted[i + 1].name}`).toBeLessThanOrEqual(sorted[i + 1].box.minX + 1e-6);

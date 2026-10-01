@@ -1,16 +1,14 @@
-// Hand-written 3MF (Core spec) writer -- issue #10, proven by
-// spikes/s4-3mf (read spikes/s4-3mf/RESULT.md). Reuses this project's own
-// zip.ts (STORE method, no compression) instead of adding `fflate` as a
-// dependency: the spike used fflate, but this repo already hand-rolls its
-// own zip writer for the multi-part STL bundle (see zip.ts's header
+// Hand-written 3MF (Core spec) writer -- issue #10 (docs/design.md, Export).
+// Reuses this project's own zip.ts (STORE method, no compression) instead
+// of adding `fflate` as a dependency: this repo already hand-rolls its own
+// zip writer for the multi-part STL bundle (see zip.ts's header
 // comment), so a second zip implementation would be pure duplication for a
 // format this small.
 //
 // One <object> + one <build><item> pair per part -- NOT nested via
 // <components>, which is for building one object out of sub-parts, not
-// independent build-plate items (spikes/s4-3mf/RESULT.md §1). Units are
-// always millimeter. No <basematerials>/color: per docs/research.md §10b
-// and the S4 spike, Bambu/Orca/Prusa ignore the spec's basematerials/pid
+// independent build-plate items. Units are
+// always millimeter. No <basematerials>/color: Bambu/Orca/Prusa ignore the spec's basematerials/pid
 // color and read only a per-triangle `paint_color` vendor attribute, so v1
 // ships single-color named objects only (issue #10 AC) -- name and
 // placement are all a plain core-spec 3MF needs for slicers to show
@@ -48,7 +46,7 @@ const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8"?>
   <Relationship Id="rId1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" Target="/3D/3dmodel.model"/>
 </Relationships>`;
 
-/** Trim float noise and avoid scientific notation -- both trip up some XML parsers (spikes/s4-3mf/src/write3mf.ts). */
+/** Trim float noise and avoid scientific notation -- both trip up some XML parsers. */
 function fmt(n: number): string {
   return Number(n.toFixed(6)).toString();
 }
@@ -74,10 +72,10 @@ function meshXml(mesh: CoilMesh): string {
  * A `RigidTransform` (rotate about X, then translate -- types.ts) as a 3MF
  * `<item transform="...">` matrix: 12 numbers, row-major over a 4x3 matrix
  * (3x3 linear part + a translation row), applied as `P' = P * M` (the OPC/
- * 3MF row-vector convention -- spikes/s4-3mf/RESULT.md §1). Working out
+ * 3MF row-vector convention). Working out
  * `P'.y = y*cos - z*sin` and `P'.z = y*sin + z*cos` (transform.ts's own
  * rotation) in that convention gives the middle two rows below; `rotateX
- * === 0` reduces this to the spike's plain identity+translate matrix.
+ * === 0` reduces this to a plain identity+translate matrix.
  */
 function transformAttr(t: RigidTransform): string {
   const cos = Math.cos(t.rotateX);

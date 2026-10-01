@@ -324,7 +324,7 @@ function StepMountGeneric({ design, n }: { design: Design; n: number }) {
 /**
  * The screw-keyhole mount's REAL hung orientation (issue #17 review: the
  * coil's axis points out of the wall, the bottom flange sits flat against
- * the wall, the top cap faces the room -- docs/research.md, mount.ts's
+ * the wall, the top cap faces the room -- docs/design.md, Orientation, mount.ts's
  * `WALL_UP`). Rotates every part with the SAME matrices `CoilViewer.tsx`
  * uses for its own "wall mount (room side)"/"wall mount (mount side)"
  * presets (src/guide/wallView.ts), so this is the genuine hung pose, not a

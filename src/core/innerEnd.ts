@@ -1,4 +1,4 @@
-// Cable fix points (issues #8, #115, #117, docs/research.md "Wire ends"):
+// Cable fix points (issues #8, #115, #117, docs/design.md, Cable ends):
 // the bottom flange's recessed channel + clip for the inner cable end, and
 // the top cap's clip for the outer end. Pure geometry math only -- no
 // manifold-3d, no replicad -- shared by the mesh backend (manifold.ts), the

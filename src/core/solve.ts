@@ -1,13 +1,12 @@
 // Main solver orchestrator: "lock what you know, solve the rest"
-// (docs/research.md §1 solver model, §3 capacity math and constraints).
-// Adapted from spikes/s5-solver/src/solver/solve.ts (see RESULT.md):
-// connector-pocket sizing is dropped (out of scope, docs/research.md
-// "Out of Scope"); the flexible-cord bend multiplier is fixed to 4x (the
-// spike used 6x, which contradicts docs/research.md §1's decision); the
+// (docs/design.md, Decisions and Capacity math).
+// Adapted from an early prototype: connector-pocket sizing is dropped (out
+// of scope, see docs/design.md, Roadmap); the flexible-cord bend multiplier
+// is fixed to 4x (the prototype used 6x); the
 // bound-hit check only looks at the actual free variable, not all three;
 // and the freeCount===2/3 alternate candidates are picked from an
 // already-computed candidate pool instead of a second `solve()` call,
-// which in the spike recursed into itself forever (freeCount stays 2 for
+// which in the prototype recursed into itself forever (freeCount stays 2 for
 // the recursive call, which then computes its own alternate, forever).
 //
 // Capacity invariant: whenever a dimension is free (freeCount 1-3) and the
@@ -48,8 +47,7 @@ import type { CoilSpec, Diagnosis, Objective, ShapeSpec, Solution } from "./type
  * layer's corner must clear the wire's minimum bend radius, exactly like
  * round's `minOuterSizeForBend` below but expressed as a corner-radius floor
  * instead of a size floor -- it's what a non-round shape's corner radius
- * gets clamped UP to (docs/research.md §2 "cornerRadiusRange", spikes/s1
- * RESULT.md "bend radius vs size"). Independent of the resolved size.
+ * gets clamped UP to (docs/design.md, Capacity math: constraints). Independent of the resolved size.
  */
 function bendCornerRadiusFloor(wire: CoilSpec["wire"]): number {
   const mbr = bendMultiplierOf(wire) * wire.diameter;
@@ -473,7 +471,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
   const warnings: string[] = [];
 
   // Cords above 15 m are rejected: cap the target and warn rather than crash
-  // (docs/research.md §1 "max 15 m").
+  // (docs/design.md, Decisions: up to 15 m).
   const spec: CoilSpec =
     rawSpec.wire.length > MAX_WIRE_LENGTH ? { ...rawSpec, wire: { ...rawSpec.wire, length: MAX_WIRE_LENGTH } } : rawSpec;
   if (rawSpec.wire.length > MAX_WIRE_LENGTH) {
@@ -482,10 +480,10 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; warnings: string
     );
   }
 
-  // Bend limit (docs/research.md §3): MBR = multiplier * d, applied to the
+  // Bend limit (docs/design.md, Capacity math): MBR = multiplier * d, applied to the
   // innermost layer. For a round core the corner radius IS the whole
   // radius, so the bend limit becomes a hard floor on the outer size
-  // (spikes/s5-solver/RESULT.md "this only bites round cores").
+  // (this only bites round cores).
   const bendMultiplier = bendMultiplierOf(spec.wire);
   const mbr = bendMultiplier * spec.wire.diameter;
   const grooveDepth = GROOVE_DEPTH_FACTOR * spec.wire.diameter;

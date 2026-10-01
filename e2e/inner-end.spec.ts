@@ -1,9 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 // End-to-end checks for issue #8 (bottom rim keyhole and inner channel):
-// docs/research.md "Wire ends" -- "keyhole in the bottom flange rim at the
-// groove start, with a recessed channel on the flange's inner face
-// so layers don't wind over a bump". Solver/geometry/manifold checks
+// docs/design.md, Cable ends: a recessed channel on the flange's inner face
+// so layers don't wind over a bump, ending in a clip at the rim. Solver/geometry/manifold checks
 // themselves live in test/innerEnd.test.ts against the public `design()`
 // interface; these check the actual render: the feature is visible, and
 // the wound-cable toggle visibly changes it (the schematic's lead-in runs

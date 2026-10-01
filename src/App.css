@@ -232,7 +232,7 @@ header p {
   border-radius: 4px;
 }
 
-/* Draft -> final swap (issue #7, docs/research.md §10b): a short fade so the
+/* Draft -> final swap (issue #7, docs/design.md, Rendering): a short fade so the
    resolution bump doesn't read as a jarring pop. Reruns on every swap by
    removing and re-adding this class (see CoilViewer.tsx). */
 @keyframes coil-edge-fade {

@@ -1,5 +1,5 @@
-// Public types for the headless coil core. See docs/research.md for the
-// full domain model. Issue #5 implemented the full lock/free solver for a
+// Public types for the headless coil core. See docs/design.md for the
+// full design notes. Issue #5 implemented the full lock/free solver for a
 // round core; issue #6 adds the rounded-square and rounded-triangle shape
 // plugins (see ShapeKind/ShapeSpec below and shapes.ts).
 
@@ -11,8 +11,8 @@ export type { ShapeKind } from "./shapes";
 
 /**
  * What the user controls about the core's cross-section. Round has no extra
- * params (it's always fully round); sq/tri carry a corner radius, namespaced
- * in the hash as `sq.rc`/`tri.rc` (docs/research.md §7, §2 "Shape plugins").
+ * params (it's always fully round); sq/tri carry a corner radius, written
+ * in the hash as `shape` + `rc` (docs/design.md, URL hash and Shapes).
  * The solver clamps `cornerRadius` into the bend-limit-derived range each
  * time it solves (solve.ts); this field is the user's un-clamped request.
  */
@@ -21,7 +21,7 @@ export type ShapeSpec = { kind: "round" } | { kind: "sq"; cornerRadius: number }
 /** Top-cap override (issue #9): `auto` follows `Solution.capsAuto` (on when layers > 1). */
 export type TopCapMode = "auto" | "on" | "off";
 
-/** Permanent, glue-friendly cap joints (issue #9, docs/research.md §1 "Cap joint"). */
+/** Permanent, glue-friendly cap joints (issue #9, docs/design.md, Parts and printing). */
 export type JointKind = "press" | "bayonet" | "snap";
 
 export type WireTypeId = "usb" | "flex" | "stiff" | "custom";
@@ -33,7 +33,7 @@ export interface WireTypePreset {
   bendMultiplier: number;
 }
 
-/** docs/research.md §1: USB/audio 4x, flexible cord 4x, stiff/solid 10x. */
+/** docs/design.md, Decisions: USB/audio 4x, flexible cord 4x, stiff/solid 10x. */
 export const WIRE_TYPE_PRESETS: Record<Exclude<WireTypeId, "custom">, WireTypePreset> = {
   usb: { id: "usb", label: "USB / audio cable", bendMultiplier: 4 },
   flex: { id: "flex", label: "Flexible cord", bendMultiplier: 4 },
@@ -43,7 +43,7 @@ export const WIRE_TYPE_PRESETS: Record<Exclude<WireTypeId, "custom">, WireTypePr
 export const DEFAULT_CUSTOM_BEND_MULTIPLIER = 4;
 
 export interface WireSpec {
-  /** Total cable length to store, mm. Above 15 m is rejected (docs/research.md §1). */
+  /** Total cable length to store, mm. Above 15 m is rejected (docs/design.md, Decisions). */
   length: number;
   /** Cable outer diameter, mm. */
   diameter: number;
@@ -63,15 +63,15 @@ export type Lock<T> = { locked: true; value: T } | { locked: false };
 /**
  * The core tube's radial size is one shared degree of freedom, expressed
  * either as the outer (winding surface) size or the inner (bore) size; a
- * fixed wall thickness (not itself lockable) links them (docs/research.md §1).
+ * fixed wall thickness (not itself lockable) links them (docs/design.md, Decisions).
  */
 export type CoreSizeLock = { locked: true; dimension: "outer" | "inner"; value: number } | { locked: false };
 
 export type Objective = "minVolume" | "aspectRatio";
 
 /**
- * The printer's build volume (issue #10, docs/research.md §1 "Print" /
- * user story 45: "I want to enter my printer's bed size, so that I'm
+ * The printer's build volume (issue #10, docs/design.md, Decisions (Printer):
+ * "I want to enter my printer's bed size, so that I'm
  * warned when a part doesn't fit"). This is part of `CoilSpec` -- not a
  * view-only setting like `showWire` -- because it changes real `design()`
  * output (the per-part fit warnings) and `exportDesign()` output (the 3MF
@@ -86,7 +86,7 @@ export interface PrintSpec {
 }
 
 /**
- * Wall mount (issue #13/#14/#70, docs/research.md "Mounting"): `"keyhole"`
+ * Wall mount (issue #13/#14/#70, docs/mounts.md): `"keyhole"`
  * recesses a screw-keyhole slot into the bottom flange's outer (wall-facing)
  * face. `"through"` (issue #70, revised #129) instead cuts plain,
  * constant-radius screw-shank holes straight through the flange (near the
@@ -126,13 +126,13 @@ export interface CoilSpec {
   topCap: TopCapMode;
   /** Cap joint (issue #9): press-fit, bayonet/twist-lock or snap clips, all permanent and glue-friendly. */
   joint: JointKind;
-  /** One global print tolerance (mm) that scales every joint's fit (docs/research.md §4 "Joints / tolerances"). */
+  /** One global print tolerance (mm) that scales every joint's fit (docs/design.md, Tolerances). */
   tolerance: number;
   /** The printer's bed size (issue #10); drives per-part fit warnings and the 3MF plate layout. */
   print: PrintSpec;
   /**
    * Engraved label text on the top cap's room-facing face (issue #12,
-   * docs/research.md §1 "Extras"). Undefined/empty means no label. Ignored
+   * docs/design.md, Decisions). Undefined/empty means no label. Ignored
    * (with a warning, see label.ts's `resolveLabel`) when there is no top
    * cap; hidden (with a different warning) when it doesn't fit the annulus
    * at a legible height.
@@ -186,7 +186,7 @@ export interface Solution {
   /**
    * Resolved corner radius, mm: `outerSize / 2` for round (always fully
    * rounded); for sq/tri, the user's requested `shape.cornerRadius` clamped
-   * into `cornerRadiusRange` (docs/research.md §2 "cornerRadiusRange").
+   * into `cornerRadiusRange` (docs/design.md, Capacity math: constraints).
    */
   cornerRadius: number;
   /**
@@ -318,8 +318,7 @@ export type PartRole = "core" | "topCap" | "mountPlate" | "peg";
  * A rigid transform (rotation about X, then translation) applied to a
  * part's mesh to get it into ITS OWN print-bed orientation (issue #9): the
  * core is already built flat on the bed (bottom flange down, matching both
- * its assembled AND print position, docs/research.md "flat on the bed, core
- * upright"), so its transform is the identity. The top cap, however, is
+ * its assembled AND print position, docs/design.md, Parts and printing), so its transform is the identity. The top cap, however, is
  * built in the shared ASSEMBLY frame -- sitting on top of the core with its
  * joint boss/lugs/hooks pointing DOWN into the core's bore -- which would
  * need supports if printed as-is; its transform flips it upside-down (so

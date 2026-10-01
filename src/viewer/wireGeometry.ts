@@ -1,14 +1,14 @@
 // Builds the schematic wound-cable geometry for the viewer (issue #4,
-// docs/research.md §5 "Wire schematic" & §10b "Risk for our wire"). Consumes
+// docs/design.md, Rendering). Consumes
 // only `Design.wirePaths` (the core's public output) and the wire's radius --
 // no core internals.
 //
-// Legibility (docs/research.md §10b): a full tube with one silhouette ring
+// Legibility: a full tube with one silhouette ring
 // per turn reads fine up to a few dozen turns, but at hundreds of turns the
 // per-turn occlusion lines the line-art edge pass draws between adjacent
 // windings sit closer together than the dilated line weight and merge into a
 // solid black band -- the "black mass" the ticket warns about. Past
-// TURNS_FOR_ENVELOPE, this switches to the doc's other option: a smooth
+// TURNS_FOR_ENVELOPE, this switches to a smooth
 // envelope (one plain cylindrical shell spanning the layer's occupied
 // radius/height, contributing exactly one pair of silhouette lines no matter
 // how many turns it represents) plus a handful of short full-fidelity "hint"
@@ -16,8 +16,7 @@
 //
 // Either way the result is ONE merged BufferGeometry per layer (never
 // per-turn), per the ticket's "merged tube geometry" wording, and it keeps
-// TubeGeometry's own smooth (non-creased) normals -- S3's spike found that
-// creasing a tube's radial facets draws a spurious line at every facet
+// TubeGeometry's own smooth (non-creased) normals -- creasing a tube's radial facets draws a spurious line at every facet
 // ridge, hatching the whole coil.
 
 import * as THREE from "three";
@@ -35,7 +34,7 @@ const TURNS_FOR_ENVELOPE = 60;
 const TUBE_RADIAL_SEGMENTS = 24;
 /** Segments around the envelope's circumference. */
 const ENVELOPE_RADIAL_SEGMENTS = 64;
-// Hint turns (docs/research.md §10b "a few helical hint lines"): each hint
+// Hint turns (a few helical hint lines): each hint
 // is a real, multi-turn slice of the actual centerline -- not a flat ring --
 // so it visibly spirals (the review's "reads like bamboo" complaint was a
 // single-turn hint, which for a fat pitch relative to diameter is nearly
@@ -57,7 +56,7 @@ const MAX_HINTS = 40;
 /**
  * A hint must protrude past the envelope by enough world-space distance to
  * clear the line-art edge pass's depth-step threshold (a few pixels' worth
- * of the model's on-screen size, docs/research.md §10b) -- otherwise it's
+ * of the model's on-screen size) -- otherwise it's
  * geometrically real but never actually detected as an edge. The real wire
  * radius is often far too thin for this at typical framing (a fine 0.5 mm
  * cable on a coil filling most of the canvas), so the protrusion is a

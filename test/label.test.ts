@@ -9,8 +9,7 @@ import type { CoilSpec, ShapeSpec } from "../src/core";
 // warning when the text doesn't fit the cap face", "If STEP export exists,
 // the label is included in STEP too", "The part stays manifold; Playwright
 // screenshot with a label". These tests exercise ONLY the public
-// `design()`/`exportDesign()` interface, per the testing decisions in
-// docs/research.md. The STEP-export case lives in test/step.test.ts instead
+// `design()`/`exportDesign()` interface, per the testing rules in AGENTS.md. The STEP-export case lives in test/step.test.ts instead
 // (issue #32: every OCCT/STEP test is grouped there, sequential, with a
 // generous timeout) -- see "roomySpec" there, which mirrors this file's
 // own ROOMY_CAP.
@@ -34,8 +33,8 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   };
 }
 
-// A generously-sized cap (see docs/research.md's flange-follows-envelope
-// note): 6 layers of wound wire on a small 30mm core pushes the flange (and
+// A generously-sized cap (the flange follows the wound envelope; see
+// docs/design.md, Parts and printing): 6 layers of wound wire on a small 30mm core pushes the flange (and
 // thus the top cap's own annulus between bore and rim) well past the core's
 // own outline, leaving plenty of room for a short label at a legible height.
 const ROOMY_CAP = baseSpec();

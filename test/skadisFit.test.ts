@@ -23,7 +23,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 }
 
 // Issue #106: does the printed plate really fit a SKÅDIS board? The board
-// here is built ONLY from the researched facts (docs/research.md §10d),
+// here is built ONLY from the researched facts (docs/mounts.md, SKÅDIS),
 // never from the core's own layout: slots are stadiums on two interleaved
 // 40 mm grids offset by (20, 20) mm, in boards 4.0-5.2 mm thick. The clips
 // are found by slicing the plate's own mesh, so the check is on the real

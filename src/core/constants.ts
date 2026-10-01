@@ -1,11 +1,11 @@
-// Fixed print/solver parameters (docs/research.md §2, §3). Not user-facing
+// Fixed print/solver parameters (docs/design.md, Capacity math). Not user-facing
 // spec fields in this ticket; later tickets may promote some of these.
 
-/** Core wall thickness; links the locked outer/inner size (docs/research.md §1). */
+/** Core wall thickness; links the locked outer/inner size (docs/design.md, Decisions). */
 export const WALL_THICKNESS = 3; // mm
 /** Added to the wire diameter for the winding pitch. */
 export const CLEARANCE = 0.3; // mm
-/** Groove depth = factor * wire diameter (docs/research.md §4 "Groove design"). */
+/** Groove depth = factor * wire diameter (docs/design.md, Geometry: Groove). */
 export const GROOVE_DEPTH_FACTOR = 0.3;
 /** Core height margin, top & bottom, outside the winding zone. */
 export const MARGIN = 3; // mm
@@ -15,17 +15,17 @@ export const TAPER_TURNS = 0.5;
 export const FLANGE_MARGIN = 4; // mm
 export const FLANGE_THICKNESS = 3; // mm
 export const MIN_BORE_RADIUS = 1; // mm, guards against a wall thicker than the core
-/** Bore corner radius floor for non-round shapes (spikes/s1-grooved-wall/geom.ts's `boreMinCornerR`): offsetting a corner inward by the wall thickness can drive it to <=0, which folds the outline. */
+/** Bore corner radius floor for non-round shapes : offsetting a corner inward by the wall thickness can drive it to <=0, which folds the outline. */
 export const MIN_BORE_CORNER_RADIUS = 0.5; // mm
 /** Non-round shapes (#6): a hairline hand-back from a fully-degenerate (zero-length straight side) corner radius, so the corner-fillet solid builder (STEP) never sees an exactly-round rounded polygon. Imperceptible at print resolution. */
 export const SHAPE_ROUNDING_EPS = 0.01; // mm
-/** Default corner radius offered for a new sq/tri shape before any bend-limit clamping (docs/research.md §2 "shape params"). */
+/** Default corner radius offered for a new sq/tri shape before any bend-limit clamping (docs/design.md, Shapes). */
 export const DEFAULT_CORNER_RADIUS = 8; // mm
 
-// Two mesh resolutions (issue #7, docs/research.md §10a/§10b): a coarse
-// "draft" while the user is still editing, tuned to roughly the S1 spike's
-// ~16k-triangle preview (25-33 ms), and a "final" for the settled view, STL,
-// 3MF and STEP, tuned to the spike's ~170k-triangle final (~240 ms). Both use
+// Two mesh resolutions (issue #7, docs/design.md, Geometry): a coarse
+// "draft" while the user is still editing, tuned to roughly a 16k-triangle
+// preview (25-33 ms in Node), and a "final" for the settled view, STL, 3MF
+// and STEP, tuned to roughly 170k triangles (~240 ms). Both use
 // the same `buildWall`/`fuseFlange` code path -- only these counts differ --
 // so draft and final can never geometrically drift apart.
 export const FINAL_COLUMNS = 96; // mesh columns around the circumference
@@ -62,10 +62,10 @@ export const FINAL_WIRE_MAX_ARC_LENGTH = 1; // mm per sample, at most
 export const DRAFT_WIRE_MIN_SAMPLES_PER_TURN = 16;
 export const DRAFT_WIRE_MAX_ARC_LENGTH = 4; // mm per sample, at most
 
-/** Cords longer than this are not supported (docs/research.md §1). */
+/** Cords longer than this are not supported (docs/design.md, Decisions). */
 export const MAX_WIRE_LENGTH = 15000; // mm
 
-// Solver search bounds (spikes/s5-solver/src/solver/solve.ts).
+// Solver search bounds.
 export const SIZE_LO_FLOOR = 5; // mm
 export const SIZE_HI = 500; // mm
 export const HEIGHT_HI = 400; // mm, practical upper bound
@@ -81,14 +81,14 @@ export const LAYERS_HI = 40;
  */
 export const MIN_TURNS_PER_LAYER = 5;
 
-// Top cap + joints (issue #9, docs/research.md §1 "Cap joint" & §4
-// "Joints / tolerances"). The cap is a symmetric "top flange": same outer
+// Top cap + joints (issue #9, docs/design.md, Parts and printing and
+// Tolerances). The cap is a symmetric "top flange": same outer
 // footprint as the bottom flange (FLANGE_MARGIN/FLANGE_THICKNESS), sitting
 // above the wall's z=height the same way the flange sits below z=0. All
 // three joints share one circular engagement collar centered on the coil
 // axis, regardless of the core's own cross-section (round/sq/tri) -- a
 // circular collar is simple, always manifold, and needs only one global
-// tolerance (docs/research.md). For a non-round bore the collar contacts the
+// tolerance. For a non-round bore the collar contacts the
 // bore's flat sides, not its corners: a normal, printable fit, not a defect.
 export const CAP_THICKNESS = 3; // mm, mirrors FLANGE_THICKNESS
 /** One global print tolerance the user can dial in, scaling every joint's fit. */
@@ -175,8 +175,7 @@ export const CABLE_SWEEP_ARC_SEGMENTS = 16;
 /** Spacing of the channel/clip cross-sections along the cable, mm. */
 export const CABLE_SWEEP_STEP = 2.5; // mm
 
-// Inner-end fixing (issues #8, #115, #117, docs/research.md "Wire ends" +
-// §8 item 3): a recessed channel on the bottom flange's inner (winding-side,
+// Inner-end fixing (issues #8, #115, #117, docs/design.md, Cable ends): a recessed channel on the bottom flange's inner (winding-side,
 // z=0) face, swept along the cable from the wall's own groove start (a
 // tangential chord since issue #115), with the cable clip near the rim.
 /** Channel depth (to the cable's bottom) = this factor * wire diameter -- deep enough that the wound cable's first turn lies flush with the surrounding flange face (unlike the wall's own groove, which only needs GROOVE_DEPTH_FACTOR: later turns there nest into the groove's OWN profile, but here later turns pass straight over a flat annulus, so no bump can be tolerated). */
@@ -229,7 +228,7 @@ export const CABLE_BRIDGE_STEP = 0.5; // mm
 export const CABLE_TAIL_FACTOR = 6;
 export const CABLE_TAIL_MIN = 20; // mm
 
-// Print bed (issue #10, docs/research.md §1 "Print"/"bed size"). A generic
+// Print bed (issue #10, docs/design.md, Parts and printing). A generic
 // 256x256x256 mm build volume (e.g. Bambu X1C/P1S, Prusa MK4) is a sensible
 // default for "warn me if a part doesn't fit" -- most FDM printers this
 // project targets are at or below this size.
@@ -239,8 +238,8 @@ export const BED_SIZE_MAX = 1000; // mm
 /** Gap left between adjacent parts' footprints when laying out the 3MF build plate (export/threeMf.ts, core/plate.ts). */
 export const PLATE_GAP = 5; // mm
 
-// Top cap label (issue #12, docs/research.md §1 "Extras": embossed label
-// text on the top cap face, only when it fits). Engraved, not raised -- see
+// Top cap label (issue #12, docs/design.md, Decisions: label text on the
+// top cap face, only when it fits). Engraved, not raised -- see
 // label.ts's file header for why the print orientation forces that choice.
 /** Minimum legible ink height for the label text (ticket: "e.g. >= 5mm"); below this the label is hidden and a warning is emitted instead. */
 export const LABEL_MIN_HEIGHT = 5; // mm
@@ -255,7 +254,7 @@ export const LABEL_CURVE_SEGMENTS = 6;
 /** Longest label text accepted from the UI/hash -- generous for a one-line cap label, small enough to keep the hash short. */
 export const LABEL_MAX_LENGTH = 40;
 
-// Screw-keyhole wall mount (issue #13, docs/research.md "Mounting"): a
+// Screw-keyhole wall mount (issue #13, docs/mounts.md, Screw mounts): a
 // recessed pocket cut into the bottom flange's OUTER (wall-facing) face --
 // see src/core/mount.ts for the shared layout math and the PR description
 // for why this is a plain (bridging) pocket rather than a teardrop/coned
@@ -387,7 +386,7 @@ export const SCREW_MOUNT_AXIS_SEARCH_MAX_DEG = 60;
  */
 export const KEYHOLE_ROTATION_OPTIONS = [0, 45] as const;
 
-// Through-hole wall mount (issue #70, docs/research.md "Mounting"): plain,
+// Through-hole wall mount (issue #70, docs/mounts.md, Screw mounts): plain,
 // constant-radius screw-shank holes cut straight through the bottom
 // flange's full thickness -- a permanent, non-sliding alternative to the
 // screw-keyhole mount (see src/core/mount.ts's `layoutThroughHoleMount`).
@@ -408,8 +407,7 @@ export const THROUGH_MOUNT_PAD_CLEARANCE = 0.5; // mm
 /** Evenly-spaced hole counts tried on a round flange, widest first (issue #70 AC: "evenly spaced (3 or 4) on round"). */
 export const THROUGH_MOUNT_ROUND_HOLE_COUNTS = [4, 3] as const;
 
-// Clip mount plate (issue #14, docs/research.md §10b "SKÅDIS clip" +
-// PR research): a SEPARATE part that glues (on two printed pegs) onto the bottom
+// Clip mount plate (issue #14, docs/mounts.md, SKÅDIS): a SEPARATE part that glues (on two printed pegs) onto the bottom
 // flange's outer (wall-facing) face -- see mountPlate.ts. Its own footprint
 // is a uniform inward offset of the flange's outline (offsetOutline, always
 // strictly inside it -- AC "the plate must fit inside the flange outline").
@@ -436,7 +434,7 @@ export const MOUNT_PLATE_MAX_PER_SIDE = 4;
 /** At least this many clip columns must fit for the plate to be worth printing (issue #14 AC: "warn if the flange is too small for at least 2 clips"). */
 export const MOUNT_PLATE_MIN_CLIPS = 2;
 
-// SKÅDIS board facts (issue #106, docs/research.md §10d, with sources).
+// SKÅDIS board facts (issue #106, docs/mounts.md, SKÅDIS, with sources).
 // IKEA publishes no spec; these are community measurements, cross-checked
 // across several independent generators/libraries:
 // - Slot: one VERTICAL stadium slot per position, nominally 5 x 15 mm

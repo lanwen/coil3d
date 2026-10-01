@@ -1,6 +1,6 @@
-// Embossed label text on the top cap's room-facing face (issue #12,
-// docs/research.md §1 "Extras": "Embossed label text on the top cap face,
-// only when it fits"). Shared, backend-agnostic geometry description: font
+// Engraved label text on the top cap's room-facing face (issue #12,
+// docs/design.md, Decisions: label text on the top cap face, only when it
+// fits). Shared, backend-agnostic geometry description: font
 // loading, text measurement, the annulus fit check, and glyph-outline
 // flattening into plain polygons all live here so the mesh backend
 // (manifold.ts, manifold-3d CrossSection) and the STEP backend

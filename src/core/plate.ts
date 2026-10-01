@@ -1,8 +1,8 @@
 // Build-plate math shared by the per-part bed-fit warnings (design.ts), the
 // STL exporter (export.ts) and the 3MF plate layout (threeMf.ts) -- issue
-// #10, docs/research.md §1 "Print"/"bed size", "Out of scope": "Automatic
-// part splitting or plate arrangement beyond placing parts side by side;
-// the bed size only triggers a warning."
+// #10, docs/design.md, Decisions (Printer): no automatic part splitting
+// or plate arrangement beyond placing parts side by side; the bed size only
+// triggers a warning.
 //
 // `printBBox` reads each part in ITS OWN print orientation (printTransform,
 // types.ts) -- the same transform already used for STL export (transform.ts)

@@ -1,5 +1,5 @@
-// Clip mount plate layout (issue #14, docs/research.md §1 "Wall mounting" +
-// §10b "SKÅDIS clip", §10d issue #106 fit check): a SEPARATE named part
+// Clip mount plate layout (issue #14, docs/mounts.md, SKÅDIS; issue #106
+// fit check): a SEPARATE named part
 // that glues (on two printed alignment pegs, issue #132) onto the bottom flange's outer
 // (wall-facing) face -- the SAME face mount.ts's screw-keyhole slots cut
 // into (issue #13) -- so the core keeps printing flat with no clip features

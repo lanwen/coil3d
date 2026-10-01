@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// End-to-end checks for issue #3 (docs/research.md §5, §10b): the IKEA
+// End-to-end checks for issue #3 (docs/design.md, Rendering): the IKEA
 // line-art look. White fill, a continuous black silhouette plus crease lines,
 // a transparent background, and an orthographic camera that frames the
 // model. Orbit itself (issue #84: a drag anywhere on the canvas, model or

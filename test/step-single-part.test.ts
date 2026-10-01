@@ -36,7 +36,7 @@ describe.sequential("STEP/OCCT export: single-part designs (issue #32)", () => {
         const stepBytes = await exportDesign(d, "step");
         expect(stepBytes.byteLength).toBeGreaterThan(0);
 
-        // Independent re-import, mirroring the S2 spike's crosscheck.mjs:
+        // Independent re-import, using a separate OCCT reader:
         // read the STEP bytes back with OCCT and verify solid count +
         // validity + volume, rather than trusting exportDesign's own
         // internal validation.

@@ -18,7 +18,7 @@ import * as THREE from "three";
 // The core's own axis is Z (wall.ts: the bottom flange sits at z=-thickness,
 // the open/top-cap end at z=height); this remaps it onto world X, laying the
 // coil on its side the way it hangs in real life -- axis horizontal,
-// pointing out of the wall (docs/research.md "Wall orientation") -- rather
+// pointing out of the wall (docs/design.md, Orientation) -- rather
 // than the default standing-on-its-flange preview.
 //
 // The remaining two axes are NOT an arbitrary choice: mount.ts's WALL_UP

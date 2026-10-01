@@ -1,4 +1,4 @@
-// Versioned URL hash codec (docs/research.md §7, issue #56). The hash is
+// Versioned URL hash codec (docs/design.md, URL hash; issue #56). The hash is
 // `#s=<base64url(JSON)>`: a compact, schema-validated (zod) document that
 // omits defaults and always stamps a numeric `v`. Falls back to defaults
 // with a notice on garbage input.

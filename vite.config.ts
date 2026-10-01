@@ -2,7 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 // No COOP/COEP headers on purpose: the app runs on single-threaded WASM only
-// (see docs/research.md §4), so it works on any static host, `vite preview`
+// (see docs/design.md, Geometry), so it works on any static host, `vite preview`
 // included.
 export default defineConfig({
   plugins: [react()],
