@@ -56,24 +56,32 @@ describe("the cap's collar wall (issue #200)", () => {
     expect(widestFacet(cap.mesh.positions)).toBeLessThanOrEqual(MAX_FACET_DEG);
   });
 
-  // Finer columns change where the L-slot cutters cross the wall; the cap must stay one solid.
-  it.each([
-    ["press", 60],
-    ["snap", 60],
-    ["bayonet", 60],
-    ["bayonet", 33],
-    ["bayonet", 90],
-  ] as const)("a %s cap on a %i mm core is one connected solid", async (joint, size) => {
+  // Finer columns change where the L-slot cutters cross the wall, and a cap
+  // split into pieces by a single reflex flip only shows at a few core sizes
+  // (issue #201: 28.31, 28.37 and 28.88 mm), so this sweeps off-grid sizes
+  // across the range on every joint. (test/bayonet.test.ts sweeps 26 to 34 mm
+  // in quarter-millimetre steps.)
+  const SIZES = (from: number, to: number, step: number) => Array.from({ length: Math.floor((to - from) / step) + 1 }, (_, i) => Math.round((from + i * step) * 100) / 100);
+  const cases: [string, number][] = [
+    ...SIZES(20, 90, 2.3).map((size): [string, number] => ["bayonet", size]),
+    ...[33, 28.31, 28.37, 28.88].map((size): [string, number] => ["bayonet", size]),
+    ...SIZES(20.4, 90, 7.7).flatMap((size): [string, number][] => [["press", size], ["snap", size]]),
+  ];
+
+  it("every cap and core is one connected solid at any core size", async () => {
     const wasm = await Module();
     wasm.setup();
-    const d = await design(spec({ joint, coreSize: { locked: true, dimension: "outer", value: size } }));
-    const cap = d.parts.find((p) => p.role === "topCap")!;
-    const m = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: cap.mesh.positions, triVerts: cap.mesh.indices }));
-    try {
-      expect(m.status()).toBe("NoError");
-      expect(m.decompose().length).toBe(1);
-    } finally {
-      m.delete();
+    const bad: string[] = [];
+    for (const [joint, size] of cases) {
+      const d = await design(spec({ joint: joint as CoilSpec["joint"], coreSize: { locked: true, dimension: "outer", value: size } }));
+      for (const part of d.parts) {
+        const m = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: part.mesh.positions, triVerts: part.mesh.indices }));
+        const pieces = m.decompose();
+        if (m.status() !== "NoError" || pieces.length !== 1) bad.push(`${joint} ${size} mm ${part.role}: ${pieces.length} pieces, ${m.status()}`);
+        pieces.forEach((p) => p.delete());
+        m.delete();
+      }
     }
-  });
+    expect(bad).toEqual([]);
+  }, 300_000);
 });
