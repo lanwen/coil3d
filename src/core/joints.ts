@@ -15,19 +15,12 @@
 //
 // Why this matters: a plain circular collar sized off the bore's inscribed
 // (flat-side) radius clears a non-round bore's CORNERS by a large, uneven
-// margin -- fine for the engagement fit itself (the early design notes called this
-// "not a defect"), but fatal for `collarBase`'s own weld step, which flares
-// the collar's top out to overlap the plate's inner (bore) edge: a circle at
-// `boreRadius + WELD_OVERLAP` only reaches the plate's hole boundary near
-// each flat side's own midpoint, leaving the corners of a sq/tri bore's hole
-// edge completely untouched. The result was two individually-valid manifolds
-// (`status() === "NoError")` each) that were never actually ONE part --
-// `decompose().length === 2`, a floating collar the mesh viewer showed as a
-// disconnected disc (issue #55's repro). Shape-following `collarOutline`/
-// `weldOutline` below fix this at the source: both are the bore's own
-// outline (Steiner-offset, shapes.ts), so the weld top always coincides with
-// -- and fully overlaps -- the plate's hole edge at EVERY angle, flats and
-// corners alike, for any shape.
+// margin. Issue #55 hit this on the collar's old weld flare (a circle that
+// never reached a non-round plate hole's corners, leaving a floating
+// collar). Since #127 the plate is solid under the collar, so every collar
+// now runs straight up WELD_OVERLAP into the plate (issue #172) and only the
+// snap fingers keep a root flare (`snapLayout`'s `rootOutline`), which stays
+// inside the core's relief.
 
 import {
   BAYONET_GAP,
@@ -75,13 +68,6 @@ export interface JointGeometry {
    */
   collarOutline: ShapeOutline;
   /**
-   * The collar's weld footprint at the plate's own bore edge (issue #55):
-   * `boreOutline` offset OUTWARD by `WELD_OVERLAP`, so the collar's flared
-   * top genuinely overlaps the plate's inner (bore) surface at every angle
-   * -- guaranteeing one connected, printable part regardless of shape.
-   */
-  weldOutline: ShapeOutline;
-  /**
    * Issue #127: the through-hole in the cap's middle -- `collarOutline`
    * offset inward by CAP_COLLAR_WALL, cut straight through the collar and
    * the plate, so the collar is a tube and nothing prints as a bridge over
@@ -105,7 +91,6 @@ export function jointGeometry(boreOutline: ShapeOutline, kind: JointKind, tolera
     apothem: collarRadius,
     cornerRadius: Math.max(SHAPE_ROUNDING_EPS, boreOutline.cornerRadius - (boreRadius - collarRadius)),
   };
-  const weldOutline = offsetOutline(boreOutline, WELD_OVERLAP);
   // Issue #167: the bayonet's L-slots are cut into the collar, so its wall
   // grows to keep BAYONET_MIN_WALL behind them (see `bayonetLayout`).
   const collarWall = kind === "bayonet" ? BAYONET_LUG_HEIGHT + BAYONET_GAP + tolerance + BAYONET_MIN_WALL : CAP_COLLAR_WALL;
@@ -114,7 +99,7 @@ export function jointGeometry(boreOutline: ShapeOutline, kind: JointKind, tolera
     holeApothem >= 1
       ? { n: boreOutline.n, apothem: holeApothem, cornerRadius: Math.max(SHAPE_ROUNDING_EPS, collarOutline.cornerRadius - collarWall) }
       : undefined;
-  return { boreRadius, jointRadius, collarRadius, collarOutline, weldOutline, holeOutline };
+  return { boreRadius, jointRadius, collarRadius, collarOutline, holeOutline };
 }
 
 /**
@@ -288,7 +273,15 @@ export type OutlineStack = OutlineStation[];
 export interface SnapLayout {
   /** The barb ring around the finger tips (cap frame): a flat band at `barbRadius`, then a 45-degree chamfer back into the finger. */
   barb: OutlineStack;
-  /** How far the relief slots between the fingers reach out, past the barb and the collar's own flared top at every angle. */
+  /**
+   * Issue #172: the top of the fingers' root flare, which widens the collar
+   * over its top JOINT_TRANSITION_HEIGHT where it meets the plate. It is the
+   * bore offset out by WELD_OVERLAP / 2, so it stays that far inside the
+   * core's `relief` (the bore offset out by at least WELD_OVERLAP) and never
+   * touches the core.
+   */
+  rootOutline: ShapeOutline;
+  /** How far the relief slots between the fingers reach out, past the barb and the root flare at every angle. */
   slotOuterRadius: number;
   /** Material fused into the core's bore before `relief` is cut: holds the ridge, welded into the wall around it. */
   lip: OutlineStack;
@@ -307,7 +300,7 @@ function circle(r: number): ShapeOutline {
 
 /** Undefined when the bore or the core is too small for the core-side relief (see JOINT_MIN_BORE_RADIUS): both parts then fall back to the plain press collar. */
 export function snapLayout(boreOutline: ShapeOutline, tolerance: number, coreHeight: number): SnapLayout | undefined {
-  const { boreRadius, jointRadius, collarRadius, weldOutline } = jointGeometry(boreOutline, "snap", tolerance);
+  const { boreRadius, jointRadius, collarRadius } = jointGeometry(boreOutline, "snap", tolerance);
   if (boreRadius < JOINT_MIN_BORE_RADIUS || coreHeight < JOINT_ENGAGE_DEPTH + 2) return undefined;
 
   // Cap side: the barb's flat band at the tip, then a 45-degree chamfer that
@@ -322,7 +315,8 @@ export function snapLayout(boreOutline: ShapeOutline, tolerance: number, coreHei
     { outline: circle(barbRadius), z: barbTop - SNAP_BARB },
     { outline: circle(collarRadius - embed), z: barbTop + embed },
   ];
-  const slotOuterRadius = Math.max(barbRadius + 0.5, circumscribedRadius(weldOutline, 0) + 0.5);
+  const rootOutline = offsetOutline(boreOutline, WELD_OVERLAP / 2);
+  const slotOuterRadius = Math.max(barbRadius + 0.5, circumscribedRadius(rootOutline, 0) + 0.5);
 
   // Core side. The ridge matches the finger's own nominal shaft (0.1 inside
   // `jointRadius`), following the bore's shape so the collar clears it
@@ -351,5 +345,5 @@ export function snapLayout(boreOutline: ShapeOutline, tolerance: number, coreHei
     { outline: lipOutline, z: ridgeLo - run / 2 },
     { outline: lipOutline, z: ridgeHi + run / 2 },
   ];
-  return { barb, slotOuterRadius, lip, relief };
+  return { barb, rootOutline, slotOuterRadius, lip, relief };
 }

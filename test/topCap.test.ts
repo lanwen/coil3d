@@ -149,8 +149,9 @@ describe.each(JOINTS)("top cap joint = %s (issue #9)", (joint) => {
 // cap's circular joint collar (shared by every shape, issue #9) degenerate
 // into a solid disc, disconnected from the cap's own outline ring, because
 // the collar's weld step was a plain circle that never reached a non-round
-// bore's corners. `collarBase`/`collarBaseSolid` now follow the bore's own
-// outline (joints.ts's `collarOutline`/`weldOutline`), so this sweeps
+// bore's corners. The collar now follows the bore's own outline
+// (joints.ts's `collarOutline`) and, since #172, runs straight up into the
+// solid plate, so this sweeps
 // shapes x joints x sizes x cable types -- every combination must still
 // produce one connected, watertight, open-bore part per `assertManifold`'s
 // `decompose()` check above.
@@ -298,7 +299,7 @@ describe("exportDesign for a two-part design (issue #9)", () => {
 // own `printTransform` comment), so that face must be one flat face with
 // nothing protruding below it (the collar/lugs/barbs/clips are all built at
 // local z <= 0, strictly on the OTHER side of the plate from the resting
-// face; see manifold.ts's `buildTopCap` and `collarBase`).
+// face; see manifold.ts's `buildTopCap`).
 //
 // Issues #121/#127 (the user: "the top cap can have a hole in the middle
 // ... my only concern was that we don't want excessive bridges"): before

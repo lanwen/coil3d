@@ -18,7 +18,6 @@ import { createWallProfile } from "../wall";
 import {
   CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
-  JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
   LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
@@ -559,23 +558,11 @@ function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Desi
   }
 }
 
-/**
- * The collar's welded base, shared by all three joints (mirrors manifold.ts's
- * `collarBase`): a straight prism at `collarOutline`'s own footprint, flaring
- * out to `weldOutline`'s footprint over the top `JOINT_TRANSITION_HEIGHT` so
- * it genuinely overlaps the plate's own bore edge AT EVERY ANGLE -- flats and
- * corners alike -- instead of merely touching it near each flat side's own
- * midpoint (issue #55: a `collarRadius < boreRadius` PLAIN CIRCLE collar
- * centered in a non-round plate's hole left the corners of that hole
- * untouched, so `.fuse()` reported a `Compound` of 2 solids there, not a
- * proper single-solid weld -- `weldOutline` is `boreOutline` itself offset
- * out by `WELD_OVERLAP`, joints.ts, so it coincides with -- and overlaps --
- * the plate's hole edge everywhere, for any shape).
- */
-function collarBaseSolid(collarOutline: ShapeOutline, weldOutline: ShapeOutline): R.Shape3D {
+/** The snap collar's base (mirrors manifold.ts's `collarBase`, issue #172): a straight prism flaring over its top `JOINT_TRANSITION_HEIGHT` out to `rootOutline`, which stays inside the core's relief. */
+function collarBaseSolid(collarOutline: ShapeOutline, rootOutline: ShapeOutline): R.Shape3D {
   const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT;
   const straight = outlineSolid(collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH);
-  const transition = outlineLoftSolid(collarOutline, weldOutline, -JOINT_TRANSITION_HEIGHT, 0);
+  const transition = outlineLoftSolid(collarOutline, rootOutline, -JOINT_TRANSITION_HEIGHT, 0);
   return straight.fuse(transition);
 }
 
@@ -802,24 +789,24 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
 
   // Issue #167: the joint design.ts built (a bayonet may fall back to press fit).
   const capJoint = resolveCapJoint(spec, design.wallSpec);
-  const { boreRadius, collarOutline, weldOutline, holeOutline } = jointGeometry(flangeSpec.boreOutline, capJoint.joint, spec.tolerance);
-  const canCutJoint = boreRadius >= JOINT_MIN_BORE_RADIUS && solution.height >= JOINT_ENGAGE_DEPTH + 2;
+  const { collarOutline, holeOutline } = jointGeometry(flangeSpec.boreOutline, capJoint.joint, spec.tolerance);
+  // Issue #172: a straight tube into the plate, no flare (mirrors manifold.ts).
+  const straight = () => outlineSolid(collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH);
+  const snap = capJoint.joint === "snap" ? snapLayout(flangeSpec.boreOutline, spec.tolerance, solution.height) : undefined;
 
   let collar: R.Shape3D;
   if (capJoint.joint === "bayonet") {
-    // A straight round tube into the plate, no flare, with the L-slots cut in (mirrors manifold.ts).
-    const base = outlineSolid(collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH);
-    collar = capJoint.bayonet!.cuts.reduce((solid, f) => solid.cut(revolvedFeatureSolid(f, 0)), base);
-  } else if (capJoint.joint === "press" || !canCutJoint) {
-    collar = collarBaseSolid(collarOutline, weldOutline);
-  } else {
-    // Issue #168: the barb's 45-degree chamfer and the slots from the same
-    // `snapLayout` as manifold.ts's `buildTopCap` (`canCutJoint` is its own
-    // fallback condition).
-    const snap = snapLayout(flangeSpec.boreOutline, spec.tolerance, solution.height)!;
-    const withBarb = collarBaseSolid(collarOutline, weldOutline).fuse(stackSolidStep(snap.barb));
+    // The L-slots cut into the straight tube (mirrors manifold.ts).
+    collar = capJoint.bayonet!.cuts.reduce((solid, f) => solid.cut(revolvedFeatureSolid(f, 0)), straight());
+  } else if (snap) {
+    // Issue #168: the root flare, the barb's 45-degree chamfer and the slots
+    // from the same `snapLayout` as manifold.ts's `buildTopCap`.
+    const withBarb = collarBaseSolid(collarOutline, snap.rootOutline).fuse(stackSolidStep(snap.barb));
     const slots = unionAtAngles((a) => radialBoxSolid(0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, a), SNAP_HOOK_COUNT);
     collar = withBarb.cut(slots);
+  } else {
+    // Press, or a snap on a core too small for its relief.
+    collar = straight();
   }
 
   let assembled = plate.fuse(collar);
