@@ -98,7 +98,7 @@ function ExplodedPart({ geometry, offset, exploded }: { geometry: THREE.BufferGe
 }
 
 /**
- * The IKEA line-art look (issue #3, docs/research.md §5 & §10b) for one
+ * The IKEA line-art look (issue #3, docs/design.md, Rendering) for one
  * static guide illustration: the mesh is never shaded directly --
  * `LineArtRenderer` draws white fill and black lines from a normal+depth
  * pass. Every part (issue #9) is drawn: the core in place, and any other
@@ -120,7 +120,7 @@ export function CoilScene({ parts, wirePaths, wireDiameter, showWire = true, exp
 
   // Deliberately NOT creased (unlike the coil geometry above): a tube's own
   // radial facets would otherwise draw a spurious line at every facet ridge,
-  // hatching the whole coil (see src/viewer/wireGeometry.ts / S3 spike RESULT.md).
+  // hatching the whole coil (see src/viewer/wireGeometry.ts).
   const wireGeometries = useMemo(() => {
     if (!showWire || !wirePaths?.length || !wireDiameter) return [];
     return buildWireGeometries(wirePaths, wireDiameter / 2);

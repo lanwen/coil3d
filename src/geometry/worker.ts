@@ -1,6 +1,6 @@
 // Worker entry point: runs the coil core's design() (src/core/design.ts) off
-// the main thread (issue #7, docs/research.md "Workers": "all geometry runs
-// off the main thread"). Unlike the STEP export worker (core/step/worker.ts
+// the main thread (issue #7, docs/design.md, Geometry: all geometry runs
+// off the main thread). Unlike the STEP export worker (core/step/worker.ts
 // + core/step/index.ts), which is created lazily, once, only when the user
 // asks for a STEP file, this worker is created once by GeometryWorkerClient
 // and kept alive for the app's lifetime: every edit needs a fresh draft

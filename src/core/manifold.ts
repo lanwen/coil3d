@@ -1,5 +1,5 @@
-// Fuses the bottom flange onto the grooved wall with manifold-3d (docs/research.md
-// §4: "don't boolean the groove", but a flat flange -- and, since issue #9,
+// Fuses the bottom flange onto the grooved wall with manifold-3d (docs/design.md,
+// Geometry: "don't boolean the groove", but a flat flange -- and, since issue #9,
 // the small joint features below -- are fine manifold booleans).
 //
 // The flange itself is a direct parametric mesh too (wall.ts's
@@ -90,7 +90,7 @@ export interface FlangeSpec {
   outline: ShapeOutline;
   /** The wall's own bore outline (the flange shares the same bore). */
   boreOutline: ShapeOutline;
-  /** How far beyond `outline` the flange extends, mm (docs/research.md §1). */
+  /** How far beyond `outline` the flange extends, mm (docs/design.md, Parts and printing). */
   margin: number;
   /** The full thickness, z = [-thickness, 0]: on the pads (issue #122), and the flange's overall thickness. */
   thickness: number;
@@ -206,7 +206,7 @@ function radialBox(wasm: ManifoldToplevel, rLo: number, rHi: number, width: numb
 
 /**
  * Cut the bayonet's or snap's mating feature into an already-fused core
- * manifold, near its top rim (docs/research.md §1 "Cap joint"; ticket:
+ * manifold, near its top rim (docs/design.md, Parts and printing; ticket:
  * "3 bayonet lugs + L-slots in the core's top rim"). Bayonet: 3 straight
  * entry slots (open at the top edge) leading into a full twist-lock groove.
  * Snap: a stepped relief (wide everywhere except one narrow retaining ridge
@@ -682,8 +682,7 @@ async function buildLabelCutter(wasm: ManifoldToplevel, label: ResolvedLabel): P
   return cutter.translate([0, 0, CAP_THICKNESS - LABEL_DEPTH]);
 }
 
-// --- Clip mount plate (issue #14, docs/research.md §1 "Wall mounting" +
-// §10b "SKÅDIS clip") -------------------------------------------------
+// --- Clip mount plate (issue #14, docs/mounts.md, SKÅDIS) -------------------------------------------------
 //
 // The plate is a SEPARATE part (see `buildMountPlate`): a flat panel shaped
 // like `mountPlate.ts`'s own `MountPlateLayout.outline`, sitting flush

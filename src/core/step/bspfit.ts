@@ -1,8 +1,8 @@
 // Tensor-product cubic B-spline interpolation, periodic (uniform) in U,
 // clamped (uniform) in V with analytic end tangents. Pure math, kernel
 // agnostic: returns poles + knot data ready for OpenCascade's
-// `Geom_BSplineSurface`. Ported from the S2 spike
-// (spikes/s2-step-export/lib/bspfit.mjs), proven there against replicad.
+// `Geom_BSplineSurface`. Ported from an early prototype, proven there against replicad. See
+// docs/step-notes.md.
 
 export type Vec3 = [number, number, number];
 

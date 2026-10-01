@@ -5,7 +5,7 @@ import type { CoilSpec } from "../src/core";
 // Issue #4 acceptance criteria: `design()` returns the schematic wound-cable
 // path per layer (orthocyclic offset and half-pitch shift), consistent with
 // the solver's layers and turns. These tests exercise ONLY the public
-// `design()` interface, per the testing decisions in docs/research.md.
+// `design()` interface, per the testing rules in AGENTS.md.
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {
@@ -84,7 +84,7 @@ describe("design().wirePaths (issue #4)", () => {
 
     // The inscribed radius (mid-flat-side) and the true circumscribed radius
     // (corner-arc midpoint) are exact, independent of the outline math
-    // (docs/research.md §2 "inscribedRadius"/"circumscribedRadius", n=4 for
+    // (docs/design.md, Shapes; n=4 for
     // a square): apothem = outerSize/2, Rc = (apothem - cornerRadius)/cos(pi/4).
     const offset = d.solution.layerResults[0].offset;
     const apothem = d.solution.outerSize / 2;
@@ -148,7 +148,7 @@ describe("design().wirePaths (issue #4)", () => {
     // chronological END (its last sample, not its first) is the one that
     // sits right next to layer 1's own start, one phase-shift's worth of
     // pitch away. At quality=1 the ideal half-pitch shift applies (docs/
-    // research.md §3).
+    // design.md, Capacity math).
     const pitch = 3.8 + 0.3;
     const z1 = zAt(layer1.points, 0);
     const layer2Last = layer2.points.length / 3 - 1;

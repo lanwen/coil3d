@@ -1,5 +1,5 @@
-// Shared joint-geometry numbers (issue #9, docs/research.md §1 "Cap joint" &
-// §4 "Joints / tolerances"): both the mesh backend (manifold.ts, via
+// Shared joint-geometry numbers (issue #9, docs/design.md, Parts and printing and
+// Tolerances): both the mesh backend (manifold.ts, via
 // manifold-3d primitives) and the STEP backend (step/build.ts, via
 // replicad/OCCT primitives) derive their joint dimensions from this ONE
 // function, so the two backends can never drift apart on fit -- mirroring
@@ -15,7 +15,7 @@
 //
 // Why this matters: a plain circular collar sized off the bore's inscribed
 // (flat-side) radius clears a non-round bore's CORNERS by a large, uneven
-// margin -- fine for the engagement fit itself (docs/research.md called this
+// margin -- fine for the engagement fit itself (the early design notes called this
 // "not a defect"), but fatal for `collarBase`'s own weld step, which flares
 // the collar's top out to overlap the plate's inner (bore) edge: a circle at
 // `boreRadius + WELD_OVERLAP` only reaches the plate's hole boundary near

@@ -11,7 +11,7 @@ import { jointGeometry } from "../src/core/joints";
 // on/off in the UI and hash", "The cap is a second named, manifold part in
 // `design`", "Vitest covers the auto-cap decision and part count". These
 // tests exercise ONLY the public `design()`/`exportDesign()` interface, per
-// the testing decisions in docs/research.md.
+// the testing rules in AGENTS.md.
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {

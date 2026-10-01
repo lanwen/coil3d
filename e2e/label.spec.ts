@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc } from "./hashDoc";
 
-// End-to-end checks for issue #12 (label on the top cap, docs/research.md
-// §1 "Extras"). Solver/geometry numbers themselves are covered by vitest
+// End-to-end checks for issue #12 (label on the top cap, docs/design.md,
+// Decisions). Solver/geometry numbers themselves are covered by vitest
 // against the public `design()` interface (test/label.test.ts); these tests
 // check the URL hash <-> UI <-> viewer seam: the label text field, the fit
 // warning, and that the engraved text actually shows up in the line-art

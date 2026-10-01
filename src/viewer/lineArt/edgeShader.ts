@@ -1,7 +1,7 @@
 import { Vector2 } from "three";
 
 /**
- * Fullscreen edge-detection shader (docs/research.md §10b, the "skapa"
+ * Fullscreen edge-detection shader (docs/design.md, Rendering: the "skapa"
  * technique, reimplemented).
  *
  * Reads one normal+depth render of the scene and marks three kinds of line,

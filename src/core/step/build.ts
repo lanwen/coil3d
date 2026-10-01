@@ -1,5 +1,5 @@
-// The actual STEP build. Proven by the S2 spike (spikes/s2-step-export,
-// see RESULT.md "approach A"): fit a periodic cubic B-spline surface
+// The actual STEP build. See docs/design.md (Export) and
+// docs/step-notes.md for why: fit a periodic cubic B-spline surface
 // (bspfit.ts) to the SAME parametric wall grid buildRoundWall uses
 // (wall.ts's createWallProfile), sew it with planar caps into a solid, cut
 // the bore, fuse the bottom flange, validate, and write STEP.
@@ -201,7 +201,7 @@ function throughHoleCutterSolid(hole: ThroughHole, holeRadius: number, flangeThi
   return R.makeCylinder(holeRadius, throughH, [hole.x, hole.y, throughZLo]);
 }
 
-// S2 RESULT.md: ~20 V-samples per helical pitch keeps the max fitting
+// docs/step-notes.md: ~20 V-samples per helical pitch keeps the max fitting
 // deviation under 0.1 mm; NU starts from the mesh's own column BUDGET so the
 // two backends sample comparable grid resolution around the circumference.
 //
@@ -225,7 +225,7 @@ function throughHoleCutterSolid(hole: ThroughHole, holeRadius: number, flangeThi
 // see that function's own doc comment.
 const V_SAMPLES_PER_PITCH = 20;
 const MIN_V_SAMPLES = 40;
-// S2 RESULT.md saw <0.03% volume error for this approach; 1% leaves margin
+// An early prototype saw <0.03% volume error for this approach; 1% leaves margin
 // for coarser grids while still catching the silent boolean failures OCCT
 // is prone to on B-spline walls. Issue #85 PR review round 2: briefly
 // bumped to 2% in round 1 to paper over a mesh/STEP volume gap; back to
@@ -289,8 +289,8 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const fit = fitPeriodicUClampedV(ts, NV, (i, j) => profile.point(ts[i], (j * height) / (NV - 1)), tangent(0, dz), tangent(height - dz, height));
 
   // OCCT wants the periodic pole index shifted by NU-1 relative to the
-  // textbook (C[i-1]+4C[i]+C[i+1])/6 layout (empirically determined in the
-  // S2 spike) -- applied to the POLES only, `uKnots` unchanged. Issue #85 PR
+  // textbook (C[i-1]+4C[i]+C[i+1])/6 layout (empirically determined in an
+  // early prototype) -- applied to the POLES only, `uKnots` unchanged. Issue #85 PR
   // review round 2 (tried and reverted): rotating `uKnots` by the same
   // amount, reasoning a non-uniform `ts` isn't rotation-invariant the way
   // the old plain `i / NU` was, seemed plausible but was wrong -- it paired

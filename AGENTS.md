@@ -1,7 +1,8 @@
 # AGENTS.md — coil3d
 
 A static, client-side app that designs 3D-printable cable coils. The spec is
-issue #1; background, decisions and research are in `docs/research.md`.
+issue #1; design notes are in `docs/design.md`, mounts in `docs/mounts.md`,
+STEP pitfalls in `docs/step-notes.md`.
 
 ## Architecture
 

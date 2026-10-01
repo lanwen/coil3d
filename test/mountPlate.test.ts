@@ -13,8 +13,7 @@ import { makeOutline, offsetOutline } from "../src/core/shapes";
 // export. These tests exercise ONLY the public `design()` interface plus
 // mountPlate.ts's own layout function (the same shared function both
 // geometry backends cut from -- mirrors test/design.test.ts's own treatment
-// of mount.ts's `layoutKeyholeMount`), per docs/research.md's testing
-// decisions.
+// of mount.ts's `layoutKeyholeMount`), per the testing rules in AGENTS.md.
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {

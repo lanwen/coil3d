@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc } from "./hashDoc";
 
-// End-to-end checks for issue #4 (docs/research.md §5, §10b): the schematic
+// End-to-end checks for issue #4 (docs/design.md, Rendering): the schematic
 // wound-cable render. A distinct wound body at ordinary turn counts, legible
 // (not a black mass) at a few hundred turns, and an on/off toggle mirrored in
 // the URL hash (nested under the document's own `ui.wire`, issue #56 -- see

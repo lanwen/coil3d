@@ -1,7 +1,7 @@
 // Shared helpers for the split step-*.test.ts files (previously one
 // test/step.test.ts -- see the test-audit report's S1/S2 batches). Every
 // STEP test independently re-imports its exported bytes with OCCT
-// (opencascade.js), mirroring the S2 spike's crosscheck.mjs, rather than
+// (opencascade.js), using a separate OCCT reader, rather than
 // trusting exportDesign's own internal validation. That was a ~25-line
 // "write file -> STEPControl_Reader -> BRepCheck -> count solids -> sum
 // volumes" block copied 9 times across the tests; this file gives every

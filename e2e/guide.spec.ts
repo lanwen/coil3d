@@ -94,7 +94,7 @@ test.describe("printable assembly guide (issue #17)", () => {
     test(`joint=${id}: the fit-the-cap step uses joint-specific wording, plus the glue note`, async ({ page }) => {
       await gotoGuide(page, `${TWO_LAYER_CAP}&joint=${id}`);
       await expect(page.getByTestId("guide-step-4")).toContainText(wording);
-      // Every joint is permanent (docs/research.md): the glue note always appears.
+      // Every joint is permanent (docs/design.md, Decisions): the glue note always appears.
       await expect(page.getByTestId("guide-step-4")).toContainText("glue");
     });
   }

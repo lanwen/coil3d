@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 // End-to-end checks for the coil core's URL-hash <-> UI <-> solver loop.
 // Solver math itself is covered by vitest against the public `design()`
 // interface (test/design.test.ts); these tests check the seam described in
-// docs/research.md's testing decisions: a hash drives the UI, editing
+// AGENTS.md's testing rules: a hash drives the UI, editing
 // controls updates the hash, and reloading reproduces the view.
 
 test("a hash URL with explicit locks drives the result panel and the STL download works", async ({ page }) => {

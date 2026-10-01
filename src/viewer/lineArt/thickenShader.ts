@@ -1,7 +1,7 @@
 import { Vector2 } from "three";
 
 /**
- * "Thicken" (dilate) pass, docs/research.md §10b. Takes the edge pass's
+ * "Thicken" (dilate) pass, docs/design.md, Rendering. Takes the edge pass's
  * one-pixel lines and turns every pixel within `thicknessPx` of a line pixel
  * black. Coverage falls off over the last pixel, so fractional weights work
  * and the lines come out anti-aliased before FXAA runs.

@@ -1,6 +1,6 @@
 // Direct parametric mesh for a grooved tube wall, and the flange ring that
 // gets fused onto it. No sweep, no boolean: every vertex is placed
-// analytically. Adapted from the S1 spike (spikes/s1-grooved-wall/geom.ts),
+// analytically. Adapted from an early prototype,
 // generalised from round-only to any convex ShapeOutline (issue #6): round,
 // rounded square and rounded triangle share this one implementation (round
 // is the degenerate n=4, cornerRadius=apothem outline, see shapes.ts).
@@ -14,7 +14,7 @@ import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
 export interface WallSpec {
-  /** The winding surface's outline at offset 0 (docs/research.md §2). */
+  /** The winding surface's outline at offset 0 (docs/design.md, Shapes). */
   outline: ShapeOutline;
   /** The bore's own outline at offset 0 (a true inward offset of `outline` by the wall thickness -- see design.ts). */
   boreOutline: ShapeOutline;
@@ -40,8 +40,8 @@ const smoothstep = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x)
 
 /** The analytic grooved-wall grid, shared by the mesh backend (this file)
  * and the STEP backend (step/build.ts): both must sample the exact same
- * `point(t, z)` so the two exports never drift apart (docs/research.md
- * "STEP", S2 RESULT.md). */
+ * `point(t, z)` so the two exports never drift apart (docs/design.md,
+ * Export). */
 export interface WallProfile {
   /** Helical pitch, mm (wireDiameter + clearance). */
   pitch: number;
@@ -87,7 +87,7 @@ export function createWallProfile(spec: WallSpec): WallProfile {
   const pitch = d + clearance;
   // Teardrop profile: a groove circle of radius rho, with its upper flank
   // replaced by a 45 degree tangent line so it prints upright with no
-  // overhang (docs/research.md §4 "Groove design (FDM)").
+  // overhang (docs/design.md, Geometry: Groove).
   const rho = d / 2 + clearance / 2;
   const c = rho - g;
   const s45 = Math.SQRT1_2;
@@ -163,7 +163,7 @@ export function buildWall(spec: WallSpec): CoilMesh {
   // groove floor's own phase, not `t` directly -- see
   // `shapes.ts`'s `arcLengthFractionAt`). This is what makes the profile
   // exact with no aliasing, and what lets the t=0/t=1 seam close for free
-  // (S1 RESULT.md). Non-uniform column spacing (issue #85) doesn't disturb
+  // (docs/design.md, Geometry). Non-uniform column spacing (issue #85) doesn't disturb
   // this: each column still samples its own exact arc-length fraction `t`,
   // just not evenly spaced from its neighbours.
   for (let ci = 0; ci < C; ci++) {

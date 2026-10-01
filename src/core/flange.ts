@@ -40,8 +40,8 @@ import type { FlangeExtent, MountKind } from "./types";
  * The bore outline for a given wall outline: a TRUE inward offset by the
  * wall thickness, floored so it never inverts (design.ts's own bore
  * construction, factored out verbatim so solve.ts's search can share it
- * without hand-deriving `boreOutline` per candidate -- see
- * spikes/s1-grooved-wall/geom.ts's `boreMinCornerR`). `reduced` is true
+ * without hand-deriving `boreOutline` per candidate; see
+ * MIN_BORE_CORNER_RADIUS). `reduced` is true
  * when the apothem floor actually bit; design.ts turns that into a "too
  * small for a wall" warning, the search doesn't need the warning text.
  */
@@ -109,8 +109,8 @@ export function resolveFlangeSizing(
   const baseMargin = Math.max(FLANGE_MARGIN, flangeSizeEnvelope / 2 - circumscribedRadius(outline, 0));
   // Issue #70 AC ("outside the winding envelope, so a screwdriver can reach
   // them"): `flangeSizeEnvelope` is already the wound envelope's own
-  // diameter (plus a flat FLANGE_MARGIN pad, docs/research.md "Flange size =
-  // final outer envelope + margin") -- reusing it directly as the through
+  // diameter (plus a flat FLANGE_MARGIN pad, docs/design.md, Parts and
+  // printing: flange size = final outer envelope + margin) -- reusing it directly as the through
   // mount's own envelope-clearance radius is a few mm more conservative than
   // the bare minimum (that pad), never less, so it's a safe stand-in with no
   // extra plumbing.

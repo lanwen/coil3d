@@ -29,8 +29,8 @@ const CREASE_ANGLE = (30 * Math.PI) / 180;
 // design scale (a tiny cap on a tiny coil still needs to clear the core's
 // own top rim, not just a few sub-millimeter joint features). Issue #15's
 // #9-review comment: the collar (the part that actually dips into the
-// core's bore -- press/bayonet/snap all share it, docs/research.md §1 "Cap
-// joint") must clear the core's rim by a wide, unambiguous margin once
+// core's bore -- press/bayonet/snap all share it, docs/design.md, Decisions:
+// cap joint) must clear the core's rim by a wide, unambiguous margin once
 // exploded, not just enough to not-overlap -- floored at the collar's own
 // engagement depth (plus its weld-transition flare) plus 1.5x the cap's
 // thickness, then padded further for comfortable visibility.
@@ -293,7 +293,7 @@ function useDebugFocusEnd(): "inner" | "outer" | null {
 }
 
 /**
- * The IKEA line-art look (issue #3, docs/research.md §5 & §10b): the mesh is
+ * The IKEA line-art look (issue #3, docs/design.md, Rendering): the mesh is
  * never shaded directly. `LineArtRenderer` takes over the render loop and
  * draws white fill and black lines from a normal+depth pass (via
  * `scene.overrideMaterial`), so no part's own material is ever seen. The
@@ -435,7 +435,7 @@ export function CoilViewer({
 
   // Deliberately NOT creased (unlike the coil geometry above): a tube's own
   // radial facets would otherwise draw a spurious line at every facet ridge,
-  // hatching the whole coil (see src/viewer/wireGeometry.ts / S3 spike RESULT.md).
+  // hatching the whole coil (see src/viewer/wireGeometry.ts).
   const wireGeometries = useMemo(() => {
     if (!showWire || !wireDiameter) return [];
     // Issue #115: the whole cable as ONE continuous tube -- no separately
@@ -692,9 +692,8 @@ export function CoilViewer({
   }, [focusRotation, focusPath, focusIndex]);
   useEffect(() => () => focusFramingGeometry?.dispose(), [focusFramingGeometry]);
 
-  // Draft -> final swap gets a short edge fade (issue #7 AC), matching the
-  // gridfinity-layout-tool review's approach (docs/research.md §10b: "the
-  // exact mesh replaces it with a ... edge fade"). Draft -> draft (still
+  // Draft -> final swap gets a short edge fade (issue #7 AC), an idea from
+  // gridfinity-layout-tool (docs/design.md, Rendering). Draft -> draft (still
   // editing) and final -> final (settled again with the same numbers) never
   // fade, so dragging a slider stays snappy. Restarting a CSS animation by
   // toggling its class off then back on (forcing a reflow in between) is a

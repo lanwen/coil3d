@@ -431,7 +431,7 @@ export function ControlsForm({
         )}
         {/* Issue #131: a small, unobtrusive credit for SKÅDIS's own clip
             geometry, which this app's clip profile is based on (see
-            docs/research.md's "skapa" section) -- shown only for the mount
+            docs/mounts.md, SKÅDIS) -- shown only for the mount
             it actually describes. */}
         {spec.mount === "skadis" && (
           <p className="field-note mount-credit-note" data-testid="mount-credit">

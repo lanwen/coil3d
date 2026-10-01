@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #9 (top cap, joints, exploded view,
-// docs/research.md §1 "Cap joint" & §4 "Joints / tolerances"). Solver/geometry
+// docs/design.md, Parts and printing and Tolerances). Solver/geometry
 // numbers themselves are covered by vitest against the public `design()`
 // interface (test/topCap.test.ts); these tests check the URL hash <-> UI <->
 // viewer seam: the cap/joint/tolerance controls, the auto-cap decision

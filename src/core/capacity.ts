@@ -1,9 +1,8 @@
 // Forward capacity math: given a FULLY specified geometry (a shape outline,
 // height, layers) and a winding-quality scalar, compute turns/layer,
-// per-layer lengths and total wound length (docs/research.md §3).
-// Adapted from spikes/s5-solver/src/solver/capacity.ts, with the
-// shape-registry lookup generalised to any convex ShapeOutline (issue #6,
-// see shapes.ts) instead of a per-kind switch.
+// per-layer lengths and total wound length (docs/design.md, Capacity math).
+// Works on any convex ShapeOutline (issue #6, see shapes.ts) through the
+// shape registry instead of a per-kind switch.
 
 import { circumscribedRadius, offsetPerimeter } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -24,7 +23,7 @@ export function radialPitch(d: number, quality: number): number {
 }
 
 export interface GeometryInputs {
-  /** The winding surface's outline at offset 0 (docs/research.md §2 ShapePlugin). */
+  /** The winding surface's outline at offset 0 (docs/design.md, Shapes). */
   outline: ShapeOutline;
   /** USABLE winding height (core height minus top/bottom margins), mm. */
   height: number;
@@ -47,8 +46,8 @@ export interface CapacityResult {
  * Turns-per-layer for layer k (1-indexed): layer 1 fills the usable height
  * with pitch p = d + clearance. Orthocyclic layers (k>1) nest into the
  * valleys of the layer below, offset by up to half a pitch (APPROX,
- * continuous in quality so the solver stays monotonic -- see
- * spikes/s5-solver/RESULT.md §4).
+ * continuous in quality so the solver stays monotonic; see
+ * docs/design.md, Capacity math).
  */
 export function turnsForLayer(height: number, pitch: number, layer: number, quality: number): number {
   const usable = layer === 1 ? height : height - clamp01(quality) * (pitch / 2);
@@ -68,7 +67,7 @@ export function computeCapacity(g: GeometryInputs): CapacityResult {
     const offset = o1 + (k - 1) * h;
     const perimeter = offsetPerimeter(g.outline, offset);
     const turns = turnsForLayer(g.height, pitch, k, g.quality);
-    // Helix length correction per turn: sqrt(perimeter^2 + pitch^2) (docs/research.md §3).
+    // Helix length correction per turn: sqrt(perimeter^2 + pitch^2) (docs/design.md, Capacity math).
     const length = turns * Math.sqrt(perimeter * perimeter + pitch * pitch);
     layerResults.push({ layer: k, turns, offset, perimeter, length });
     totalWoundLength += length;
@@ -80,7 +79,7 @@ export function computeCapacity(g: GeometryInputs): CapacityResult {
 
 /** Footprint diameter at the outside of the outermost wound wire -- the
  * outline's own TRUE circumscribed extent at that offset, not a bounding
- * circle across a sharp corner (docs/research.md §10a, shapes.ts). */
+ * circle across a sharp corner (docs/design.md, Shapes; shapes.ts). */
 export function envelopeDiameter(outline: ShapeOutline, lastLayerOffset: number, wireDiameter: number): number {
   return 2 * circumscribedRadius(outline, lastLayerOffset + wireDiameter / 2);
 }

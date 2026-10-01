@@ -1,5 +1,5 @@
 // The coil core orchestrator: solves the spec (solve.ts) then builds the
-// round, grooved wall and fuses the bottom flange (docs/research.md §4).
+// round, grooved wall and fuses the bottom flange (docs/design.md, Geometry).
 // The geometry itself is unchanged from the tracer bullet (#2): it still
 // renders only the layer-1 groove on a single wall; layers beyond the first
 // only affect the solved numbers and the flange size (the flange must clear
@@ -9,7 +9,7 @@
 // `wallSpec`/`flangeSpec` are stashed on the returned Design so the STEP
 // exporter (issue #11, src/core/step/build.ts) can fit its B-spline from
 // the exact same parametric grid the mesh backend used -- the two backends
-// must never drift apart (docs/research.md "STEP").
+// must never drift apart (docs/design.md, Export).
 //
 // `resolution` (issue #7) only ever changes the mesh's column/row density
 // (see constants.ts); the solved numbers, warnings and wall/flange specs are
@@ -111,8 +111,8 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const mountKindForPlate = spec.mount === "skadis" || spec.mount === "opengrid" ? spec.mount : undefined;
 
   // The flange must clear the outermost wound layer, not just the core's
-  // own wall (docs/research.md §1 "Flange size = final outer envelope +
-  // margin"), thick enough for the inner-end channel plus whatever the
+  // own wall (docs/design.md, Parts and printing: flange size = final
+  // outer envelope + margin), thick enough for the inner-end channel plus whatever the
   // requested mount/plate needs -- see flange.ts's `resolveFlangeSizing`
   // for the full derivation, factored out (issue #63) so solve.ts's search
   // can score candidates against these SAME real numbers instead of a
@@ -373,7 +373,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // Per-part bed-fit warnings (issue #10 AC): each part in ITS OWN print
   // orientation (printBBox reads printTransform, same as the STL/3MF
   // exporters) against the user's bed size. No auto-rotation-to-fit is
-  // attempted -- docs/research.md "Out of scope": the bed size only ever
+  // attempted -- docs/design.md, Decisions (Printer): the bed size only ever
   // triggers a warning, never an automatic layout/orientation change.
   //
   // `partHeight` is a max-min span, so it's unaffected by the 3MF plate

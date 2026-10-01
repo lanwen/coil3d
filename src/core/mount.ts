@@ -1,6 +1,6 @@
-// Screw-keyhole wall mount (issue #13, docs/research.md "Mounting": "screw
-// keyhole (wall)", "the axis points out of the wall; mount features sit on
-// the bottom flange's outer face"). Pure geometry math only -- no
+// Screw-keyhole wall mount (issue #13, docs/mounts.md, Screw mounts: the axis
+// points out of the wall, and mount features sit on the bottom flange's
+// outer face). Pure geometry math only -- no
 // manifold-3d, no replicad -- so it is shared, unchanged, by BOTH backends
 // (manifold.ts's mesh cut and step/build.ts's STEP cut), the same "two
 // backends, one feature description" principle as wall.ts's WallProfile:
@@ -391,7 +391,7 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
   };
 }
 
-// --- Through-hole wall mount (issue #70, docs/research.md "Mounting") -----
+// --- Through-hole wall mount (issue #70, docs/mounts.md, Screw mounts) -----
 //
 // Plain, constant-radius screw-shank holes cut straight through the bottom
 // flange -- a permanent, non-sliding alternative to the screw-keyhole mount

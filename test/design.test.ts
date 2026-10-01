@@ -12,9 +12,9 @@ import { layoutKeyholeMount } from "../src/core/mount";
 // pattern as the mount.ts import above.
 import { offsetPerimeter, sideLength } from "../src/core/shapes";
 
-// Fixed print parameters mirrored from src/core/constants.ts (docs/research.md
-// §2/§3), reimplemented independently here so these tests exercise ONLY the
-// public `design()` interface, per the testing decisions in docs/research.md.
+// Fixed print parameters mirrored from src/core/constants.ts (docs/design.md,
+// Capacity math), reimplemented independently here so these tests exercise ONLY the
+// public `design()` interface, per the testing rules in AGENTS.md.
 const WALL_THICKNESS = 3;
 const CLEARANCE = 0.3;
 const GROOVE_DEPTH_FACTOR = 0.3;
@@ -42,7 +42,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   };
 }
 
-/** Forward capacity for a single layer, matching docs/research.md §3. */
+/** Forward capacity for a single layer, matching docs/design.md, Capacity math. */
 function expectedSingleLayer(outerSize: number, height: number, wireDiameter: number) {
   const grooveDepth = GROOVE_DEPTH_FACTOR * wireDiameter;
   const o1 = wireDiameter / 2 - grooveDepth;
@@ -171,7 +171,7 @@ describe("design() solver (round core)", () => {
     }
   });
 
-  it("applies the bend-limit preset: usb and flex both clamp to 4x, stiff to 10x (docs/research.md §1)", async () => {
+  it("applies the bend-limit preset: usb and flex both clamp to 4x, stiff to 10x (docs/design.md, Decisions)", async () => {
     const specFor = (type: "usb" | "flex" | "stiff") =>
       baseSpec({
         wire: { length: 2000, diameter: 8, type },
@@ -403,7 +403,7 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
     const spec = baseSpec({
       wire: { length: 2000, diameter: 3.8, type: "usb" },
       shape: { kind: "tri", cornerRadius: 5 },
-      coreSize: { locked: true, dimension: "outer", value: 20 }, // apothem 10mm < the ~14.4mm bend-limit floor for this wire -- below spikes/s1 RESULT.md's round-forcing threshold
+      coreSize: { locked: true, dimension: "outer", value: 20 }, // apothem 10mm < the ~14.4mm bend-limit floor for this wire -- below the threshold that forces a round core
       height: { locked: true, value: 40 },
       layers: { locked: true, value: 1 },
     });
@@ -417,7 +417,7 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
   });
 
   it("computes the bore as a true inward offset, not outer - 2*wall, so the bore's own corner radius shrinks with it", async () => {
-    // Regression guard for spikes/s5-solver/RESULT.md's flagged bug ("inner
+    // Regression guard for an early bug ("inner
     // = outer - 2*wall is wrong for triangles"): the reported inner "size"
     // scalar is the same either way (apothem shrinks uniformly), so this is
     // checked at the mesh level instead -- see test/geometry.test.ts's
@@ -535,7 +535,7 @@ describe("design() keeps square/triangle distinct at small sizes (issue #54)", (
 // by the SAME "flat >= max(2 wire diameters, 15% of perimeter)" criterion
 // issue #54 already established on the minimum-SIZE side (`sideLength`/
 // `offsetPerimeter` below, exercised through the public `design()`
-// interface only, per docs/research.md's testing decisions -- never a
+// interface only, per the testing rules in AGENTS.md -- never a
 // reimplemented or directly-imported copy of `usefulMaxCornerRadius`
 // itself).
 describe("design() useful corner-radius maximum (issue #134)", () => {

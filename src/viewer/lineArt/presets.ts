@@ -27,7 +27,7 @@ export interface ViewPreset {
   upHint: THREE.Vector3;
 }
 
-// The pre-#15 fixed view (docs/research.md §10b): the coil stands on its
+// The pre-#15 fixed view: the coil stands on its
 // flange (z up), seen from about 32 degrees above so the open top end and
 // the bore show.
 const ISO_DIR = new THREE.Vector3(1, -1, 0.9).normalize();

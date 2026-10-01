@@ -64,7 +64,7 @@ export const DIMENSION_LABEL_LAYER = 2;
 // hides them (issue #93).
 export const MODEL_DEPTH_UNIFORM: { value: THREE.Texture | null } = { value: null };
 // Line weight (thicken radius, CSS px) scales gently with the model's
-// on-screen diagonal (docs/research.md §10b), clamped so it stays a thin pen
+// on-screen diagonal (docs/design.md, Rendering), clamped so it stays a thin pen
 // line on small canvases and never fuses the groove rings on large ones.
 const LINE_WEIGHT_PER_DIAGONAL_PX = 1 / 500;
 const MIN_LINE_WEIGHT = 1.0;
@@ -99,8 +99,8 @@ const ZOOM_LIMIT_MAX = 4;
 
 // Camera transition durations (issue #15), `prefers-reduced-motion` skips
 // both entirely (see LineArtRendererProps.reducedMotion): presets slerp the
-// VIEW (a real rotation, docs/research.md §10b/"dual persp/ortho camera rig
-// ... preset views with slerp transitions"); parameter edits only ease the
+// VIEW (a real rotation, as in gridfinity-layout-tool's camera rig; see
+// docs/design.md, Rendering); parameter edits only ease the
 // FIT (center/radius/half-height) toward the new geometry's own bounds --
 // the view direction never moves for those.
 const ORIENT_TWEEN_MS = 500;
@@ -159,7 +159,7 @@ function isOrthographic(camera: THREE.Camera): camera is THREE.OrthographicCamer
  * A camera framing target, in world units: `center` is where the orbit
  * target sits, `r` is the model's own bounding-sphere radius (drives near/
  * far and the perspective camera's distance), and `halfHeight`/`extent*` are
- * the projected-bounds fit (docs/research.md §10b's auto-refit), computed
+ * the projected-bounds fit (docs/design.md, Rendering: auto-refit), computed
  * for a SPECIFIC view direction -- see computeFit.
  */
 interface Fit {
@@ -360,7 +360,7 @@ export interface LineArtRendererProps {
 }
 
 /**
- * The IKEA line-art post pipeline (issue #3, docs/research.md §10b):
+ * The IKEA line-art post pipeline (issue #3, docs/design.md, Rendering):
  *
  *   normal+depth pass -> edge shader -> thicken (dilate) -> OutputPass
  *   (colour-space conversion) -> FXAA -> screen

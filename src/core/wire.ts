@@ -1,4 +1,4 @@
-// The drawn wound cable (issue #4, docs/research.md §5 "Wire schematic"):
+// The drawn wound cable (issue #4, docs/design.md, Rendering):
 // never exported, never its own solid -- a dense centreline the viewer lofts
 // into ONE tube, so the wound cable reads as a distinct body in the line-art
 // renderer.
@@ -73,7 +73,7 @@ function samplesPerTurn(helixLength: number, minPerTurn: number, maxArcLength: n
 
 /**
  * Each new layer nests into the valleys of the layer directly below it, an
- * offset of up to half a pitch (docs/research.md §3 "Orthocyclic winding").
+ * offset of up to half a pitch (docs/design.md, Capacity math).
  * The cumulative shift alternates between 0 and half a pitch (mod 1 pitch),
  * hence `% 2`. `quality` (0..1) blends this toward 0 (stacked) exactly like
  * `radialPitch` blends the radial offset (capacity.ts).

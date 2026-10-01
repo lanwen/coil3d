@@ -1,6 +1,6 @@
 // The screw-keyhole mount's real hung orientation (issue #17 review: "the
 // coil's axis points out of the wall, the bottom flange sits flat against
-// the wall, and the top cap faces the room" -- docs/research.md, mount.ts's
+// the wall, and the top cap faces the room" -- docs/design.md, Orientation, mount.ts's
 // `WALL_UP`). The two fixed rotation matrices and the mountAxisDeg
 // correction are the SAME ones CoilViewer.tsx's wall-mount presets use
 // (issue #13); both now import the one shared definition from

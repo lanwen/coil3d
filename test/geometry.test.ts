@@ -53,8 +53,7 @@ describe("design().mesh is a valid, expected manifold", () => {
       // single hole through the whole solid: genus 1.
       expect(manifold.genus()).toBe(1);
 
-      // Independent analytic estimate (docs/research.md §4, S1 spike
-      // RESULT.md): tube volume + flange volume - groove volume. Reproduces
+      // Independent analytic estimate (docs/design.md, Geometry): tube volume + flange volume - groove volume. Reproduces
       // the core's fixed constants (teardrop groove depth ~= 0.3*d) by
       // contract, not by importing core internals. The flange now sizes to
       // the solved envelope (issue #5), not just outerRadius + margin.
@@ -129,8 +128,8 @@ describe("design(spec, resolution)", () => {
 
     expect(draft.resolution).toBe("draft");
     expect(final.resolution).toBe("final");
-    // Draft is a fast, coarse preview; final is tuned for FDM (docs/research.md
-    // "Two resolution levels: draft (~16k triangles) ... final (~170k)").
+    // Draft is a fast, coarse preview; final is tuned for FDM (roughly
+    // 16k triangles for draft and 170k for final).
     expect(draft.mesh.indices.length).toBeLessThan(final.mesh.indices.length);
 
     const wasm = await Module();
@@ -371,7 +370,7 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
     // The old bounding-circle estimate for a sharp (rc=0) n-gon of the same
     // apothem: across-corners radius = apothem / cos(pi/n). The TRUE
     // rounded-outline envelope must be strictly smaller than that overestimate
-    // whenever the shape isn't already fully rounded (docs/research.md §10a).
+    // whenever the shape isn't already fully rounded (docs/design.md, Shapes).
     const sharpCornerBound = 2 * (outerApothem / Math.cos(Math.PI / n));
     expect(d.solution.envelopeDiameter).toBeLessThan(sharpCornerBound);
     expect(d.solution.flangeSize).toBeLessThan(sharpCornerBound + 20);

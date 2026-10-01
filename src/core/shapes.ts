@@ -1,11 +1,8 @@
-// Convex-outline math shared by every core shape (docs/research.md §2
-// ShapePlugin interface, §3 Steiner perimeter). Issue #6 widens this from
-// round-only to a small registry of "rounded regular n-gon" shapes: round,
-// rounded square and rounded triangle. Ported from spikes/s1-grooved-wall/geom.ts
-// (outline evaluation + arc-length parameterisation) and
-// spikes/s5-solver/src/solver/shapes.ts (per-shape size semantics), with the
-// footprint bug flagged in docs/research.md §10a fixed: `circumscribedRadius`
-// below is the TRUE offset outline's farthest point (a corner-arc midpoint),
+// Convex-outline math shared by every core shape (docs/design.md, Shapes and
+// Capacity math). Issue #6 widens this from round-only to a small registry of
+// "rounded regular n-gon" shapes: round, rounded square and rounded
+// triangle. The outline evaluation and arc-length parameterisation come from
+// an early prototype. `circumscribedRadius` below is the TRUE offset outline's farthest point (a corner-arc midpoint),
 // not a worst-case bounding circle across a sharp corner.
 //
 // A "ShapeOutline" is a regular n-gon with its corners rounded to a shared
@@ -16,7 +13,7 @@
 // full circle -- so every function below (perimeter, point/normal, offset)
 // handles round for free, with no special casing.
 //
-// Size semantics (docs/research.md §1, issue #6 AC): round=diameter,
+// Size semantics (docs/design.md, Decisions; issue #6 AC): round=diameter,
 // square=across flats, triangle=inscribed-circle diameter. All three are
 // chosen so that `apothem === size / 2` uniformly, which is what lets the
 // solver's search bounds (SIZE_LO_FLOOR..SIZE_HI, the bend-limit floor) stay
@@ -90,7 +87,7 @@ export function sideLength(o: ShapeOutline): number {
   return 2 * (o.apothem - o.cornerRadius) * Math.tan(Math.PI / o.n);
 }
 
-/** Sum of all straight-segment lengths at offset 0 (docs/research.md §2 "straightLength"). */
+/** Sum of all straight-segment lengths at offset 0 (docs/design.md, Shapes). */
 export function straightLength(o: ShapeOutline): number {
   return o.n * sideLength(o);
 }
@@ -101,7 +98,7 @@ export function offsetPerimeter(o: ShapeOutline, offset: number): number {
   return straightLength(o) + 2 * Math.PI * (o.cornerRadius + offset);
 }
 
-/** Inscribed-circle radius at the given offset (docs/research.md §2 "inscribedRadius"): unaffected by cornerRadius, since rounding a corner never moves the middle of a flat side. */
+/** Inscribed-circle radius at the given offset (docs/design.md, Shapes): unaffected by cornerRadius, since rounding a corner never moves the middle of a flat side. */
 export function inscribedRadius(o: ShapeOutline, offset: number): number {
   return o.apothem + offset;
 }
@@ -116,8 +113,8 @@ export function inscribedRadius(o: ShapeOutline, offset: number): number {
  * a bounding-circle volume estimate (`pi/4 * envelopeDiameter^2`), which
  * overstates a round core's swept volume for nothing (round has no corners
  * to bulge past) but understates how much SMALLER a square/triangle core's
- * true footprint is than its circumscribed bounding circle (docs/research.md
- * §10a) -- see solve.ts's `envelopeVolumeFor`. Round reduces to `pi*rc^2` for
+ * true footprint is than its circumscribed bounding circle (docs/design.md,
+ * Shapes) -- see solve.ts's `envelopeVolumeFor`. Round reduces to `pi*rc^2` for
  * free (innerApothem = 0, same as `pi/4*diameter^2`).
  */
 export function offsetArea(o: ShapeOutline, offset: number): number {
@@ -131,9 +128,8 @@ export function offsetArea(o: ShapeOutline, offset: number): number {
  * TRUE circumscribed radius of the offset outline: the farthest point from
  * center is always the midpoint of a corner arc, at distance `Rc + cornerRadius
  * + offset`, where `Rc` is the corner arc's own center distance from the
- * shape's center. This replaces the spike's worst-case "sharp corner"
- * bounding-circle estimate (docs/research.md §10a: "the envelope uses a
- * bounding circle, which overstates square flanges") with the outline's own
+ * shape's center. This replaces a worst-case "sharp corner"
+ * bounding-circle estimate (which overstates square flanges) with the outline's own
  * exact extent -- round reduces to `apothem + offset` for free (Rc = 0).
  */
 export function circumscribedRadius(o: ShapeOutline, offset: number): number {
@@ -301,7 +297,7 @@ export interface OutlineParam {
 }
 
 /** Point + outward unit normal on the outline at (param, offset). Ported
- * verbatim from spikes/s1-grooved-wall/geom.ts's `evalOutline`. */
+ * verbatim from an early prototype. */
 export function evalOutline(o: ShapeOutline, p: OutlineParam, offset: number): { x: number; y: number; nx: number; ny: number } {
   const n = o.n;
   const half = Math.PI / n;
@@ -327,8 +323,7 @@ export function evalOutline(o: ShapeOutline, p: OutlineParam, offset: number): {
 }
 
 /** Map an arc-length fraction t in [0,1) (measured at the given reference
- * offset) to an `OutlineParam`. Ported from spikes/s1-grooved-wall/geom.ts's
- * `paramAt`. */
+ * offset) to an `OutlineParam`. Ported from an early prototype. */
 export function paramAt(o: ShapeOutline, offset: number, t: number): OutlineParam {
   const arc = ((2 * Math.PI) / o.n) * (o.cornerRadius + offset);
   const side = sideLength(o);

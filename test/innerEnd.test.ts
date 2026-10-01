@@ -25,7 +25,7 @@ import { buildWall } from "../src/core/wall";
 // test/cableBend.test.ts checks the bend radius along the whole cable.
 // These tests exercise ONLY the public `design()` interface (plus the shared
 // `layoutInnerEnd` pure-math function, mirroring test/design.test.ts's own
-// treatment of mount.ts), per the testing decisions in docs/research.md.
+// treatment of mount.ts), per the testing rules in AGENTS.md.
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {
