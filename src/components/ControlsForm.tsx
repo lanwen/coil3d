@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef } from "react";
+import { useId, useRef } from "react";
 import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, Objective, ShapeKind, Solution, WireTypeId } from "../core";
 import {
   BED_SIZE_MAX,
@@ -245,16 +245,6 @@ export function ControlsForm({
   // disagree (issue #105 PR review).
   const coreSizeRaised = spec.shape.kind !== "round" && spec.coreSize.locked && spec.coreSize.value < outerSizeMin - 0.05;
 
-  // "Advanced settings" (winding quality, custom bend multiplier, objective)
-  // stay collapsed behind a disclosure (issue #16 AC) so the form isn't a
-  // wall of fields -- except the objective picker forces the disclosure open
-  // the moment it becomes relevant (2+ free dimensions), so the choice
-  // driving which candidate is shown is never hidden from the user.
-  const advancedRef = useRef<HTMLDetailsElement | null>(null);
-  useEffect(() => {
-    if (showObjective && advancedRef.current) advancedRef.current.open = true;
-  }, [showObjective]);
-
   return (
     <form className="controls" onSubmit={(e) => e.preventDefault()}>
       <Section title="Cable">
@@ -478,7 +468,9 @@ export function ControlsForm({
         )}
       </Section>
 
-      <details className="advanced" ref={advancedRef}>
+      {/* Always collapsed on load, whatever the URL sets (issue #169): the
+          open state is plain DOM state, never part of the spec or the hash. */}
+      <details className="advanced">
         <summary className="advanced-summary">Advanced settings</summary>
         <div className="advanced-body">
           <RangeField

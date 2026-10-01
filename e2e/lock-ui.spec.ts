@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openAdvanced } from "./advanced";
 import { decodeHashDoc } from "./hashDoc";
 
 // Issue #5 acceptance criteria: lock toggles update both the result panel
@@ -75,6 +76,8 @@ test("unlocking layers (2 free: height + layers) shows an alternate candidate", 
   // Unlocking layers too leaves outer size locked and height + layers free.
   await page.getByTestId("lock-layers").uncheck();
 
+  // Advanced settings stays collapsed (issue #169): open it to reach the picker.
+  await openAdvanced(page);
   await expect(page.getByTestId("select-objective")).toBeVisible();
   await expect(page.getByTestId("alternate-candidate")).toBeVisible();
 });
