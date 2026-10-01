@@ -13,9 +13,8 @@ import { Hint } from "./Hint";
  * meaningfully differ from its neighbour by well under 1mm, so a value
  * below `SMALL_COIL_MM` rounds to the nearest 0.5mm instead. Used for BOTH
  * the displayed free (solver-produced) value and whatever the user types
- * into the paired number input -- `LockRangeField` is only ever used for
- * these two fields, so this is safe to bake in here rather than at each
- * call site. */
+ * into the paired number input -- `LockRangeField` defaults to it, so the
+ * core size and height call sites need not pass it (layers pass `Math.round`, issue #164). */
 const SMALL_COIL_MM = 20;
 export function roundMm(value: number): number {
   const step = value < SMALL_COIL_MM ? 0.5 : 1;
@@ -139,6 +138,7 @@ export function RangeField({
    * knob's bounding box clear of the label's at every position, including
    * all the way at max: the two never share a row to overlap in. */
   maxLabel,
+  valuePrefix,
   onChange,
 }: {
   testId: string;
@@ -154,6 +154,9 @@ export function RangeField({
   minNote?: string;
   keepSliderWhenDisabled?: boolean;
   maxLabel?: boolean;
+  /** Rendered just before the value on the right (the locked-dimension
+   * padlock, issue #164). */
+  valuePrefix?: ReactNode;
   onChange: (value: number) => void;
 }) {
   const numberId = useId();
@@ -171,10 +174,14 @@ export function RangeField({
           <FieldTop label={label} hint={hint} htmlFor={numberId} />
         </span>
         <span className="field-value">
+          {valuePrefix}
           <input
             id={numberId}
             type="number"
-            className="field-number"
+            className={valuePrefix ? "field-number field-number-fit" : "field-number"}
+            // With a prefix the box shrinks to its digits, so the prefix sits
+            // right next to the number instead of at the box's far left edge.
+            style={valuePrefix ? { width: `calc(${String(value).length + 0.4}ch + 0.8em)` } : undefined}
             data-testid={`input-${testId}`}
             value={value}
             min={min}
@@ -251,79 +258,6 @@ export function TextField({
   );
 }
 
-/** A +/- stepper paired with a number input, for small integer counts (layers). */
-export function StepperField({
-  testId,
-  label,
-  value,
-  min,
-  max,
-  disabled,
-  leading,
-  hint,
-  onChange,
-}: {
-  testId: string;
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  disabled?: boolean;
-  leading?: ReactNode;
-  hint?: string;
-  onChange: (value: number) => void;
-}) {
-  const numberId = useId();
-  const clamp = (n: number) => Math.min(max, Math.max(min, n));
-  const handleNumber = (event: ChangeEvent<HTMLInputElement>) => {
-    const next = Number(event.target.value);
-    if (!Number.isFinite(next)) return;
-    onChange(clamp(Math.round(next)));
-  };
-  return (
-    <div className="field">
-      <div className="field-top">
-        <span className="field-top-label">
-          {leading}
-          <FieldTop label={label} hint={hint} htmlFor={numberId} />
-        </span>
-      </div>
-      <div className="stepper">
-        <button
-          type="button"
-          className="stepper-btn"
-          aria-label={`Decrease ${label}`}
-          disabled={disabled || value <= min}
-          onClick={() => onChange(clamp(value - 1))}
-        >
-          &minus;
-        </button>
-        <input
-          id={numberId}
-          type="number"
-          className="stepper-number"
-          data-testid={`input-${testId}`}
-          value={value}
-          min={min}
-          max={max}
-          step={1}
-          disabled={disabled}
-          onChange={handleNumber}
-        />
-        <button
-          type="button"
-          className="stepper-btn"
-          aria-label={`Increase ${label}`}
-          disabled={disabled || value >= max}
-          onClick={() => onChange(clamp(value + 1))}
-        >
-          +
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /**
  * The one shared boolean toggle for the whole app (issue #94, revised by
  * #104): a real checkbox (so Playwright's check()/uncheck()/toBeChecked()
@@ -345,7 +279,7 @@ export function StepperField({
  * right, "I" in the free left side. `showState` turns the indicator off
  * entirely (the perspective toggle, whose own two side labels already say
  * what each state means); `offContent`/`onContent` swap the default "0"/"I"
- * digits for something else (the lock toggle's open/closed padlock icon).
+ * digits for something else.
  * Replaces the old per-purpose eye/padlock/projection pictograms (issue
  * #16/#15): every boolean toggle in the app shares this one component, with
  * only its accessible name, its state content and any trailing label
@@ -420,17 +354,13 @@ export function Switch({
   );
 }
 
-/** The lock toggle's open/closed padlock icon (issue #104), rendered inside
- * the switch's own track (via `offContent`/`onContent`) rather than beside
- * it as a separate static glyph -- issue #94's own padlock-beside-the-switch
- * glyph never reflected locked/free itself (redundant with the switch's own
- * digit), which is exactly what #104 asked to fix: replace it with an icon
- * that DOES carry the state, standing in for "0"/"I" the same way the lock
- * toggle already stood in for a plain boolean. Closed = locked (shackle
- * down, over the body); open = free (shackle swung aside). */
-function LockIcon({ locked }: { locked: boolean }) {
+/** The closed padlock shown just before the value of a locked dimension
+ * (issues #104, #164). A free dimension shows no padlock at all, so the icon
+ * only appears where it carries information. Decorative: the lock toggle's
+ * own accessible name and checked state say the same thing. */
+function LockIcon({ testId }: { testId: string }) {
   return (
-    <span className={`lock-icon${locked ? "" : " lock-icon-open"}`} aria-hidden="true">
+    <span className="lock-icon" data-testid={`lock-icon-${testId}`} aria-hidden="true">
       <span className="lock-icon-shackle" />
       <span className="lock-icon-body" />
     </span>
@@ -438,8 +368,8 @@ function LockIcon({ locked }: { locked: boolean }) {
 }
 
 /**
- * The lock toggle: {@link Switch} with its state indicator replaced by
- * {@link LockIcon} (issue #104) instead of the default "0"/"I" digits.
+ * The lock toggle: a plain {@link Switch} (issue #164: no padlock inside the
+ * track -- the padlock sits before the value instead, see {@link LockIcon}).
  * Rendered as a `leading` element inline on the field's own label row
  * (issue #16 review: a lock on a row of its own, above the field, left it
  * ambiguous which field it controlled), with an explicit "Lock {label}"
@@ -476,8 +406,7 @@ function LockToggle({
             : `Free -- click to lock ${label}`
       }
       onChange={onChange}
-      offContent={<LockIcon locked={false} />}
-      onContent={<LockIcon locked={true} />}
+      showState={false}
     />
   );
 }
@@ -500,6 +429,9 @@ export function LockRangeField({
   /** Issue #119: disables the lock toggle (this field is currently free, and
    * two others are already locked) and shows {@link LOCK_LIMIT_NOTE} below. */
   lockDisabled,
+  /** Normalises every value that reaches the spec and the display; defaults
+   * to {@link roundMm}. Layers pass `Math.round` (issue #164). */
+  normalize = roundMm,
   onChange,
 }: {
   testId: string;
@@ -513,6 +445,7 @@ export function LockRangeField({
   hint?: string;
   minNote?: string;
   lockDisabled?: boolean;
+  normalize?: (value: number) => number;
   onChange: (lock: Lock<number>) => void;
 }) {
   // Issue #72 AC: "the spec stores rounded values when the user edits" --
@@ -528,10 +461,10 @@ export function LockRangeField({
   // field). This also covers a shared link whose stored value predates this
   // clamp: the field always DISPLAYS the effective (clamped) value, never
   // the raw, too-small stored one, even before the user touches it.
-  const displayValue = lock.locked ? Math.max(min, roundMm(lock.value)) : roundMm(freeValue);
-  const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? Math.max(min, roundMm(lock.value)) : roundMm(freeValue) } : { locked: false });
+  const displayValue = lock.locked ? Math.max(min, normalize(lock.value)) : normalize(freeValue);
+  const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? Math.max(min, normalize(lock.value)) : normalize(freeValue) } : { locked: false });
   const setValue = (value: number) => {
-    if (lock.locked) onChange({ locked: true, value: Math.max(min, roundMm(value)) });
+    if (lock.locked) onChange({ locked: true, value: Math.max(min, normalize(value)) });
   };
   const showLockNote = !lock.locked && lockDisabled;
   return (
@@ -546,58 +479,9 @@ export function LockRangeField({
         step={step}
         disabled={!lock.locked}
         leading={<LockToggle testId={testId} label={label} checked={lock.locked} disabled={showLockNote} onChange={toggle} />}
+        valuePrefix={lock.locked ? <LockIcon testId={testId} /> : undefined}
         hint={hint}
         minNote={minNote}
-        onChange={setValue}
-      />
-      {showLockNote && (
-        <p className="field-note" data-testid={`${testId}-lock-note`}>
-          {LOCK_LIMIT_NOTE}
-        </p>
-      )}
-    </>
-  );
-}
-
-/** A lockable integer stepper field: pairs {@link LockToggle} with {@link StepperField}. */
-export function LockStepperField({
-  testId,
-  label,
-  lock,
-  min,
-  max,
-  freeValue,
-  hint,
-  /** Issue #119: see {@link LockRangeField}'s own `lockDisabled`. */
-  lockDisabled,
-  onChange,
-}: {
-  testId: string;
-  label: string;
-  lock: Lock<number>;
-  min: number;
-  max: number;
-  freeValue: number;
-  hint?: string;
-  lockDisabled?: boolean;
-  onChange: (lock: Lock<number>) => void;
-}) {
-  const toggle = (checked: boolean) => onChange(checked ? { locked: true, value: lock.locked ? lock.value : freeValue } : { locked: false });
-  const setValue = (value: number) => {
-    if (lock.locked) onChange({ locked: true, value });
-  };
-  const showLockNote = !lock.locked && lockDisabled;
-  return (
-    <>
-      <StepperField
-        testId={testId}
-        label={label}
-        value={lock.locked ? lock.value : Math.round(freeValue)}
-        min={min}
-        max={max}
-        disabled={!lock.locked}
-        leading={<LockToggle testId={testId} label={label} checked={lock.locked} disabled={showLockNote} onChange={toggle} />}
-        hint={hint}
         onChange={setValue}
       />
       {showLockNote && (

@@ -62,34 +62,15 @@ for (const viewport of [
 }
 
 test.describe("lock icon and borderless overlay toggles (issue #104)", () => {
-  /** Which padlock icon is actually showing for a lock toggle: both the
-   * open (off) and closed (on) icons are always in the DOM (the track
-   * cross-fades between them via opacity, see App.css's `.switch-state`),
-   * so "which one is showing" means whichever's WRAPPER has opacity 1 --
-   * not just which nodes exist. */
-  async function visibleLockIcon(page: Page, testId: string): Promise<"open" | "closed"> {
-    const track = page.locator(`[data-testid="${testId}"] ~ .switch-track`);
-    const onOpacity = await track.locator(".switch-state-on").evaluate((el) => getComputedStyle(el).opacity);
-    return onOpacity === "1" ? "closed" : "open";
-  }
-
-  test("the lock toggle shows a closed padlock when locked, open when free", async ({ page }) => {
-    // The app's own default (no hash): outer size + layers locked, height
-    // free (see lock-ui.spec.ts's "the default state locks outer size +
-    // layers, leaving height free").
+  test("the lock toggle is a plain toggle: no padlock or digit inside its track", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await page.waitForTimeout(500);
 
-    expect(await visibleLockIcon(page, "lock-outer")).toBe("closed");
-    expect(await visibleLockIcon(page, "lock-height")).toBe("open");
-
-    // Issue #119: the default already locks 2 (outer + layers), so height's
-    // own lock toggle is disabled until one of those frees up.
-    await page.getByTestId("lock-layers").uncheck();
-    await page.getByTestId("lock-height").check();
-    expect(await visibleLockIcon(page, "lock-height")).toBe("closed");
+    for (const testId of ["lock-outer", "lock-height", "lock-layers"]) {
+      await expect(page.locator(`[data-testid="${testId}"] ~ .switch-track .lock-icon`)).toHaveCount(0);
+      await expect(page.locator(`[data-testid="${testId}"] ~ .switch-track .switch-state`)).toHaveCount(0);
+    }
   });
 
   test("the viewport overlay toggles have no border box", async ({ page }) => {
