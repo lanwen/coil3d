@@ -19,7 +19,7 @@
 // collar centered on the coil axis regardless of the core's own
 // round/sq/tri cross-section -- see joints.ts for why. `applyCoreJointCut`
 // adds the bayonet's lugs (issue #167; its L-slots are in the cap's collar)
-// or cuts the snap relief/ridge into the core's own top rim; press needs no
+// or the snap's ridge ring (issue #186) inside its bore; press needs no
 // core-side feature at all (the collar simply
 // presses against the bore's existing inner surface). Every feature here is
 // built from manifold-3d PRIMITIVES (cylinder/cube + boolean ops), never a
@@ -48,8 +48,8 @@ import {
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
 } from "./constants";
-import { jointGeometry, snapLayout } from "./joints";
-import type { BayonetLayout, OutlineStack, RevolvedFeature } from "./joints";
+import { jointGeometry } from "./joints";
+import type { BayonetLayout, OutlineStack, RevolvedFeature, SnapLayout } from "./joints";
 import { getLabelFont, labelLoops } from "./label";
 import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
@@ -110,6 +110,8 @@ export interface CoreJointCut {
   tolerance: number;
   /** Issue #167: the twist lock's shared layout (joints.ts's `bayonetLayout`), present exactly when `joint` is "bayonet". */
   bayonet?: BayonetLayout;
+  /** Issue #186: the snap clips' shared layout (joints.ts's `snapLayout`), present exactly when `joint` is "snap". */
+  snap?: SnapLayout;
 }
 
 /**
@@ -148,7 +150,7 @@ function unionAtAngles(track: <T extends { delete(): void }>(m: T) => T, build: 
  * The snap collar's base (issue #172): a straight prism at `collarOutline`'s
  * footprint, flaring over its top `JOINT_TRANSITION_HEIGHT` out to
  * `rootOutline` (joints.ts's `snapLayout`), which stays inside the core's
- * relief. The flare is a convex hull between the two footprints: both are
+ * bore. The flare is a convex hull between the two footprints: both are
  * Steiner offsets of the bore's outline, so their hull is exactly the ruled
  * frustum between them.
  */
@@ -198,15 +200,14 @@ function revolvedFeature(wasm: ManifoldToplevel, f: RevolvedFeature, dz: number)
 }
 
 /**
- * Add the bayonet's or cut the snap's mating feature into an already-fused
- * core manifold, near its top rim (docs/design.md, Parts and printing).
- * Bayonet (issue #167): the lugs from joints.ts's `bayonetLayout`, standing
- * in the bore just under the rim; design.ts only asks for them once that
- * layout said the core can take them. Snap: a stepped relief (wide everywhere except one narrow retaining ridge
- * band) that a hook's barb must flex past, then springs back under. Skips
- * silently (returns the manifold unchanged) when the bore is too small or
- * the core too short for these features to fit inside the 3 mm wall without
- * breaking through to the wound-cable side -- see JOINT_MIN_BORE_RADIUS.
+ * Add the bayonet's or the snap's mating feature to an already-fused core
+ * manifold, near its top rim (docs/design.md, Parts and printing). Both come
+ * from a shared layout that design.ts only passes once joints.ts's
+ * `resolveCapJoint` said the core can take the joint. Bayonet (issue #167):
+ * the lugs from `bayonetLayout`, standing in the bore just under the rim.
+ * Snap (issue #186): the ridge ring from `snapLayout` that a hook's barb
+ * flexes past, then springs back under. Both are added, never cut: the wall
+ * keeps its full thickness.
  */
 function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, core: Manifold, cut: CoreJointCut): Manifold {
   // Issue #167: the bayonet's lugs, standing in the bore under the rim,
@@ -216,17 +217,15 @@ function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete():
     return track(wasm.Manifold.union([core, ...cut.bayonet!.lugs.map((f) => track(revolvedFeature(wasm, f, cut.height)))]));
   }
 
-  // snap (issue #168): a ridge with 45-degree chamfers both sides, in a
-  // relief wide enough for the barb -- see joints.ts's `snapLayout`. The lip
-  // holding the ridge is fused in first, then the relief cut around it. A
-  // bore or core too small for the relief is left as it is.
+  // snap (issues #168, #186): a ridge ring with 45-degree chamfers both
+  // sides, added inside the bore -- see joints.ts's `snapLayout`. The ring is
+  // the relief cut from the lip on its own, so the wall is never cut.
   const { height } = cut;
-  const snap = snapLayout(cut.boreOutline, cut.tolerance, height);
-  if (!snap) return core;
+  const snap = cut.snap!;
   const rim = (stack: OutlineStack): OutlineStack => stack.map(({ outline, z }) => ({ outline, z: z + height }));
   const lip = stackSolid(wasm, track, rim(snap.lip), SNAP_COLUMNS, minCornerSegments(cut.boreOutline, 8));
   const relief = stackSolid(wasm, track, rim(snap.relief), SNAP_COLUMNS, minCornerSegments(cut.boreOutline, 8));
-  return track(track(core.add(lip)).subtract(relief));
+  return track(core.add(track(lip.subtract(relief))));
 }
 
 /**
@@ -528,12 +527,12 @@ export interface TopCapSpec {
   tolerance: number;
   /** Issue #167: the twist lock's shared layout, present exactly when `joint` is "bayonet". */
   bayonet?: BayonetLayout;
+  /** Issue #186: the snap clips' shared layout, present exactly when `joint` is "snap". */
+  snap?: SnapLayout;
   /** Engraved label text (issue #12), already fit-checked by `label.ts`'s `resolveLabel` -- undefined means no label to cut. */
   label?: ResolvedLabel;
   /** The cable clips for the outer end (issue #117: where the cable's cap lead-out ends, repeated around the cap since issue #121, `Design.capClip`). Omitted: no clip. */
   clip?: CapClipLayout;
-  /** The core's height, mm: a snap cap on a core too short for the snap relief falls back to a plain collar (joints.ts's `snapLayout`). */
-  coreHeight: number;
 }
 
 /**
@@ -554,7 +553,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, tolerance, label, clip, bayonet } = spec;
+    const { flange, joint, tolerance, label, clip, bayonet, snap } = spec;
     // The plate: the same outer outline (and columns) as the bottom
     // flange's own ring. Issue #127: its middle is opened up below by the
     // through-hole (`holeOutline`), never by a blind pocket whose floor would
@@ -575,7 +574,6 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     // plate, which is solid under it since #127. It never flares out to the
     // bore, so the seated cap doesn't run into the core's rim.
     const straight = () => track(outlinePrismSolid(wasm, collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH, segments, flange.minCornerSegments));
-    const snap = joint === "snap" ? snapLayout(flange.boreOutline, tolerance, spec.coreHeight) : undefined;
     let collar: Manifold;
     if (joint === "bayonet") {
       // Issue #167: the L-slots cut into the straight tube.
@@ -583,17 +581,16 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       collar = track(straight().subtract(slots));
     } else if (snap) {
       // snap: a collar with a barb ring at its tip (deepest point) and 3
-      // axial relief slots cutting it into cantilever fingers. Issue #168:
-      // the barb's face toward the plate (facing down in print) is a
-      // 45-degree chamfer -- see joints.ts's `snapLayout`. The fingers' root
-      // flare stays inside the core's relief.
+      // axial relief slots cutting it into cantilever fingers. The barb is a
+      // diamond point with 45-degree faces (issues #168, #186) -- see
+      // joints.ts's `snapLayout`. The fingers' root flare stays inside the bore.
       const base = collarBase(wasm, track, collarOutline, snap.rootOutline, segments, flange.minCornerSegments);
       const withBarb = track(base.add(stackSolid(wasm, track, snap.barb, SNAP_COLUMNS, 1)));
       // Already tracked (unionAtAngles tracks its own final reduce step).
       const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, angle), SNAP_HOOK_COUNT);
       collar = track(withBarb.subtract(slots));
     } else {
-      // Press, or a snap on a core too small for its relief.
+      // Press, or a bayonet or snap the core can't take (joints.ts's `resolveCapJoint`).
       collar = straight();
     }
 
@@ -601,7 +598,10 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     // Issue #127: a straight through-hole down the middle -- the collar is a
     // tube, and in the cap's print orientation (face down) the hole's walls
     // rise straight up from the bed with nothing spanning it.
-    if (holeOutline) {
+    // Issue #186: the snap fingers' tips are bevelled on the inside.
+    if (snap?.hole) {
+      assembled = track(assembled.subtract(stackSolid(wasm, track, snap.hole, segments, flange.minCornerSegments)));
+    } else if (holeOutline) {
       const hole = track(outlinePrismSolid(wasm, holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2, -JOINT_ENGAGE_DEPTH - 1, segments, flange.minCornerSegments));
       assembled = track(assembled.subtract(hole));
     }

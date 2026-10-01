@@ -262,15 +262,15 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // unchanged whenever the top cap is off OR the joint is "press" -- see
   // manifold.ts's CoreJointCut.
   const topCapEnabled = solution.topCapEnabled;
-  // Issue #167: the twist lock is laid out (or turned down, for a non-round
-  // or too-small core, or a wall too thin under the rim) once, by the same
-  // `bayonetLayout` the STEP backend calls -- a fallback builds the plain
+  // Issue #167: the twist lock or the snap clips are laid out (or turned
+  // down, for a non-round or too-small core) once, by the same
+  // `resolveCapJoint` the STEP backend calls -- a fallback builds the plain
   // press-fit collar in both, with a warning. The spec keeps its joint.
   const capJoint = resolveCapJoint(spec, wallSpec);
   if (topCapEnabled && capJoint.warning) warnings.push(capJoint.warning);
   const coreJoint: CoreJointCut | undefined =
     topCapEnabled && capJoint.joint !== "press"
-      ? { boreOutline, height: solution.height, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet }
+      ? { boreOutline, height: solution.height, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap }
       : undefined;
 
   const innerEndCut: InnerEndCut = { wireDiameter, tolerance: spec.tolerance, bendRadius, channelDepth, flangeThickness: thickness };
@@ -325,7 +325,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (labelWarning) warnings.push(labelWarning);
 
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: flangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, label, clip: cable.capClip, coreHeight: solution.height });
+    const capMesh = await buildTopCap({ flange: flangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, clip: cable.capClip });
     // `capMesh` is built in a LOCAL frame (plate z=[0, CAP_THICKNESS], collar
     // reaching down to z=-JOINT_ENGAGE_DEPTH); translating by `height` lands
     // it in the shared assembly frame, flush against the wall's top rim.

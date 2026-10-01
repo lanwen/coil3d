@@ -133,22 +133,27 @@ export function insideAt(crossings: number[], z: number): boolean {
 /**
  * Issue #168: the snap joint's chamfered barb and ridge sit where the mesh
  * has them. Probe points 0.15 mm either side of every place a vertical line
- * through the joint (just inside the bore, on a flat side's middle) crosses
- * the core's or the cap's mesh surface: inside or outside the STEP model
- * exactly as in the mesh.
+ * through the joint (on a flat side's middle) crosses the core's or the
+ * cap's mesh surface: inside or outside the STEP model exactly as in the
+ * mesh. Issue #186: three lines, 0.1 mm inside the bore (the ridge), 0.5 mm
+ * (the barb's point and the ridge) and 2 mm (the bevel on the fingers' tips).
  */
 export function snapProbes(d: Design): { points: Array<[number, number, number]>; expected: boolean[] } {
   const { boreOutline } = d.flangeSpec;
   const h = d.solution.height;
   const angle = Math.PI / boreOutline.n;
-  const [x, y] = [(boreOutline.apothem - 0.1) * Math.cos(angle), (boreOutline.apothem - 0.1) * Math.sin(angle)];
-  const crossings = d.parts.map((p) => verticalCrossings(p.mesh, x, y));
-  const zs = crossings.flat().filter((z) => z > h - JOINT_ENGAGE_DEPTH - 2 && z < h - 0.5);
-  const points = zs.flatMap((z): Array<[number, number, number]> => [
-    [x, y, z - 0.15],
-    [x, y, z + 0.15],
-  ]);
-  return { points, expected: points.map(([, , z]) => crossings.some((c) => insideAt(c, z))) };
+  const points: Array<[number, number, number]> = [];
+  const expected: boolean[] = [];
+  for (const inset of [0.1, 0.5, 2]) {
+    const [x, y] = [(boreOutline.apothem - inset) * Math.cos(angle), (boreOutline.apothem - inset) * Math.sin(angle)];
+    const crossings = d.parts.map((p) => verticalCrossings(p.mesh, x, y));
+    const zs = crossings.flat().filter((z) => z > h - JOINT_ENGAGE_DEPTH - 2 && z < h - 0.5);
+    for (const z of zs.flatMap((z) => [z - 0.15, z + 0.15])) {
+      points.push([x, y, z]);
+      expected.push(crossings.some((c) => insideAt(c, z)));
+    }
+  }
+  return { points, expected };
 }
 
 /**

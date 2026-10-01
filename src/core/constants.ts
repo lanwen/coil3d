@@ -127,11 +127,21 @@ export const BAYONET_MIN_WALL = 1.2; // mm
 /** Least collar wall between one groove's end stop and the next entry slot, mm. Narrower: fall back to press fit. */
 export const BAYONET_MIN_LAND = 1.5; // mm
 
+// Snap clips (issues #168, #186, joints.ts's `snapLayout`): the cap's collar
+// is split into SNAP_HOOK_COUNT fingers, each with a diamond-profile barb
+// that clicks under a ridge standing in the core's bore. The barbs stay
+// inside the bore, so nothing is cut into the core's wall.
 export const SNAP_HOOK_COUNT = 3;
-export const SNAP_GAP = 0.3; // mm, fixed clearance so the fingers always enter freely
 export const SNAP_BARB = 0.9; // mm, how far each hook's barb protrudes past the finger's nominal OD
-export const SNAP_BARB_HEIGHT = 1.6; // mm, axial height of the barb band
+/** Least gap between a barb's tip and the bore wall, mm, on top of the user's tolerance. */
+export const SNAP_BARB_CLEARANCE = 0.1; // mm
+/** How far the core's retaining ridge stands into the bore, mm. The barb then overlaps it by SNAP_RIDGE_DEPTH - SNAP_BARB_CLEARANCE - tolerance (0.7 - tolerance), and the finger clears it by SNAP_BARB + SNAP_BARB_CLEARANCE - SNAP_RIDGE_DEPTH + tolerance (0.2 + tolerance), both as in #168. */
+export const SNAP_RIDGE_DEPTH = 0.8; // mm
 export const SNAP_RIDGE_THICKNESS = 1.4; // mm, axial height of the core-side retaining ridge
+/** Issue #186: the snap fingers' wall, mm: three 0.4 mm extrusion widths. Thinner than CAP_COLLAR_WALL, so the cap's inner step is smaller and the fingers bend more easily. */
+export const SNAP_COLLAR_WALL = 1.2; // mm
+/** Issue #186: the 45-degree bevel on the inner edge of the fingers' tips, mm, so the step from the core's bore up to the cap's hole reads as a bevel. */
+export const SNAP_TIP_BEVEL = 0.8; // mm
 export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot between fingers
 
 // Cable fix points (issue #117, src/core/innerEnd.ts): both cable ends are
