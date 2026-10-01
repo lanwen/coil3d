@@ -13,7 +13,17 @@
 // within the same file share one instance, and different step-*.test.ts
 // files (running in different workers) each get their own, never leaking
 // WASM heap across files.
+import { beforeEach } from "vitest";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
+
+// Issue #163: OCCT runs inline in the test worker, so one STEP test blocks
+// its event loop for 30+ s (60+ s on a busy machine). Vitest's worker->main
+// RPC has a fixed 60 s timeout (not configurable), and the "task started"
+// update it sends just before a test is still waiting for its reply when the
+// block begins. A slow machine then ends the run with an unhandled
+// `Timeout calling "onTaskUpdate"` although every test passed. Pausing
+// briefly before each test lets that reply arrive first.
+beforeEach(() => new Promise((resolve) => setTimeout(resolve, 500)));
 
 // Issue #32: every OCCT build/re-import is the slowest operation in the
 // suite, and gets much slower under CPU contention -- so every test using it
