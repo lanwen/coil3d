@@ -33,7 +33,6 @@ import {
   BAYONET_LUG_HEIGHT,
   BAYONET_LUG_WIDTH,
   CAP_THICKNESS,
-  DEFAULT_THROUGH_HOLE_DIAMETER,
   JOINT_ENGAGE_DEPTH,
   JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
@@ -65,8 +64,8 @@ import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd, sweepMesh } from "./innerEnd";
 import type { CapClipLayout, InnerEndLayout, SweepSolid } from "./innerEnd";
-import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
-import { layoutFlangePads, plateTopZ } from "./flangePads";
+import { layoutKeyholeMount } from "./mount";
+import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
@@ -515,10 +514,9 @@ export async function fuseFlange(
 
     if (flange.mount === "through") {
       // No inner-end cut was passed (only some direct/test callers ever omit
-      // it -- design.ts always provides one): fall back to a channel guard
-      // far from the flange, which never collides, rather than crashing.
-      const channelGuard = innerEndLayout ?? { channelRibbon: [] };
-      const layout = layoutThroughHoleMount(flange.outline, flange.boreOutline, flange.margin, flange.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER, channelGuard, flange.envelopeRadius ?? 0);
+      // it -- design.ts always provides one): then there is no channel or
+      // channel pad to keep clear of, just the collar.
+      const layout = layoutFlangeThroughHoles(flange, innerEndLayout);
       for (const hole of layout.holes) {
         const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, flange.thickness));
         fused = track(fused.subtract(cutter));

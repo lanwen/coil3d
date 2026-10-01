@@ -81,3 +81,20 @@ export async function reimportStep(bytes: Uint8Array, tag: string): Promise<Reim
 
   return { valid, solidVolumes };
 }
+
+/** For each point, whether it lies inside the STEP file's shape: OCCT's distance from a vertex there to the shape is zero, as an inner solution. */
+export async function stepContains(bytes: Uint8Array, tag: string, points: Array<[number, number, number]>): Promise<boolean[]> {
+  const oc = await getOC();
+  const path = `/${tag}.step`;
+  oc.FS.writeFile(path, bytes);
+  const reader = new oc.STEPControl_Reader();
+  reader.ReadFile(path);
+  reader.TransferRoots();
+  const shape = reader.OneShape();
+  oc.FS.unlink(path);
+  return points.map(([x, y, z]) => {
+    const vertex = new oc.BRepBuilderAPI_MakeVertex(new oc.gp_Pnt(x, y, z)).Shape();
+    const dist = new oc.BRepExtrema_DistShapeShape(shape, vertex);
+    return dist.IsDone() && dist.InnerSolution() && dist.Value() < 1e-6;
+  });
+}

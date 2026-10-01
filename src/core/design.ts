@@ -40,7 +40,8 @@ import { buildMountPlate, buildPeg, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
 import { printBBox } from "./plate";
-import { distanceToClosedPolygon, layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
+import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
+import { layoutFlangeThroughHoles } from "./flangePads";
 import type { MountLayout } from "./mount";
 import { mountPlateLayoutFor, skadisBoard } from "./mountPlate";
 import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing, stackedKeyholeThickness } from "./flange";
@@ -211,10 +212,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // that got GROWN to fit and the layout that actually CUTS the holes can
   // never disagree about where "outside the envelope" starts.
   const envelopeRadius = solution.flangeSize / 2;
-  if (wantsThrough) {
-    const throughLayout = layoutThroughHoleMount(outline, boreOutline, margin, spec.throughHoleDiameter, innerEndLayout, envelopeRadius);
-    if (throughLayout.warning) warnings.push(throughLayout.warning);
-  }
 
   const flangeSpec = {
     outline,
@@ -229,6 +226,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     throughHoleDiameter: spec.throughHoleDiameter,
     envelopeRadius,
   };
+  // Issue #139: laid out from the finished flange spec, as both backends do,
+  // so it keeps clear of the same pads they build.
+  if (wantsThrough) {
+    const throughLayout = layoutFlangeThroughHoles(flangeSpec, innerEndLayout);
+    if (throughLayout.warning) warnings.push(throughLayout.warning);
+  }
 
   // Issue #14: lay out the clip mount plate (SKÅDIS/openGrid) against the
   // flange's own TRUE outer outline (offsetOutline(outline, margin) --

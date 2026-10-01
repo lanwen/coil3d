@@ -24,6 +24,7 @@ import {
 } from "../src/core/constants";
 import { layoutKeyholeMount, layoutThroughHoleMount, requiredFlangeMargin, requiredThroughMountMargin } from "../src/core/mount";
 import { layoutInnerEnd } from "../src/core/innerEnd";
+import { layoutFlangeThroughHoles } from "../src/core/flangePads";
 import { mountPlateLayoutFor } from "../src/core/mountPlate";
 import { makeOutline, offsetOutline, radiusAtAngle } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
@@ -370,7 +371,7 @@ describe("through-hole mount mesh (issue #70): manifold, single-piece, across sh
       // assuming every corner always fits.
       const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
       const innerEndLayout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius);
-      const layout = layoutThroughHoleMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, DEFAULT_THROUGH_HOLE_DIAMETER, innerEndLayout, d.flangeSpec.envelopeRadius);
+      const layout = layoutFlangeThroughHoles(d.flangeSpec, innerEndLayout);
       expect(layout.holes.length).toBeGreaterThan(0);
 
       const wasm = await Module();
@@ -442,7 +443,7 @@ describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge, t
         const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
         const innerEndLayout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius);
         const envelopeRadius = d.flangeSpec.envelopeRadius ?? 0;
-        const layout = layoutThroughHoleMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, d.spec.throughHoleDiameter, innerEndLayout, envelopeRadius);
+        const layout = layoutFlangeThroughHoles(d.flangeSpec, innerEndLayout);
         expect(layout.holes.length).toBeGreaterThan(0);
         const flangeOutline = offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin);
         for (const h of layout.holes) {

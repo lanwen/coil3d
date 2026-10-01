@@ -2,8 +2,9 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design, parseHash } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
-import { DEFAULT_THROUGH_HOLE_DIAMETER, FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PEG_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core/constants";
-import { layoutKeyholeMount, layoutThroughHoleMount } from "../src/core/mount";
+import { FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PEG_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core/constants";
+import { layoutKeyholeMount } from "../src/core/mount";
+import { layoutFlangeThroughHoles } from "../src/core/flangePads";
 import { mountPlateLayoutFor, pegHoleRadius } from "../src/core/mountPlate";
 import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
 import { offsetOutline, outlineOffsetAt, pointAt } from "../src/core/shapes";
@@ -171,7 +172,7 @@ describe("thin bottom flange (issue #122)", () => {
     const wireDiameter = through.spec.wire.diameter;
     const bendRadius = bendMultiplierOf(through.spec.wire) * wireDiameter;
     const innerEndLayout = layoutInnerEnd(f.outline, f.margin, wireDiameter, through.spec.tolerance, bendRadius);
-    const layout = layoutThroughHoleMount(f.outline, f.boreOutline, f.margin, f.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER, innerEndLayout, f.envelopeRadius ?? 0);
+    const layout = layoutFlangeThroughHoles(f, innerEndLayout);
     expect(layout.holes.length).toBeGreaterThan(0);
 
     for (const hole of layout.holes) {

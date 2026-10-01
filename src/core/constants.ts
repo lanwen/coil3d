@@ -403,6 +403,8 @@ export const DEFAULT_THROUGH_HOLE_DIAMETER = 4.5; // mm: shank clearance for a c
 export const THROUGH_MOUNT_EDGE_MARGIN = 2; // mm
 /** Minimum clearance kept between a through-hole and the wound cable's outer envelope, so the hole is genuinely reachable with a screwdriver from outside the winding (issue #70 AC). */
 export const THROUGH_MOUNT_ENVELOPE_MARGIN = 2; // mm
+/** Issue #139: the screw head (the hole plus its THROUGH_MOUNT_EDGE_MARGIN bearing ring) keeps at least this much plain plate between it and any flange pad's footprint, mm. */
+export const THROUGH_MOUNT_PAD_CLEARANCE = 0.5; // mm
 /** Evenly-spaced hole counts tried on a round flange, widest first (issue #70 AC: "evenly spaced (3 or 4) on round"). */
 export const THROUGH_MOUNT_ROUND_HOLE_COUNTS = [4, 3] as const;
 

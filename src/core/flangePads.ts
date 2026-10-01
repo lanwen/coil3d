@@ -27,10 +27,11 @@
 // ring before fusing the wall. Each pad is a `SweepSolid` (innerEnd.ts), so
 // both backends mesh it from the same rings.
 
-import { CABLE_BRIDGE_STEP, FLANGE_PAD_BLEND_BURY, FLANGE_PAD_BLEND_RADIUS, FLANGE_PAD_BLEND_STEP, FLANGE_PAD_COLLAR, FLANGE_PAD_COLLAR_COLUMNS, FLANGE_PAD_EMBED, FLANGE_PAD_RISE, FLANGE_PAD_STEP, FLANGE_PAD_WALL, SCREW_MOUNT_HEAD_RADIUS } from "./constants";
+import { CABLE_BRIDGE_STEP, DEFAULT_THROUGH_HOLE_DIAMETER, FLANGE_PAD_BLEND_BURY, FLANGE_PAD_BLEND_RADIUS, FLANGE_PAD_BLEND_STEP, FLANGE_PAD_COLLAR, FLANGE_PAD_COLLAR_COLUMNS, FLANGE_PAD_EMBED, FLANGE_PAD_RISE, FLANGE_PAD_STEP, FLANGE_PAD_WALL, SCREW_MOUNT_HEAD_RADIUS } from "./constants";
 import { pegHoleRadius } from "./mountPlate";
 import type { InnerEndLayout, SweepSolid, XY, XYZ } from "./innerEnd";
-import { layoutKeyholeMount } from "./mount";
+import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
+import type { ThroughMountLayout } from "./mount";
 import { offsetPerimeter, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { MountKind } from "./types";
@@ -74,6 +75,8 @@ export function padLevels(zPlate: number): number[] {
  */
 export interface FlangePad {
   sweep: SweepSolid;
+  /** Its outline at its lowest level, inside the plate (its widest: FLANGE_PAD_EMBED past the chamfer's foot on the plate's top), a closed polygon in plan. */
+  footprint: XY[];
   /** "collar": the wall's outline at `offset` (at the face); "stadium": the stadium from `a` to `b` at `radius` (at the face) -- both grow by `offsetAtZ` below the face; "sweep" (the channel pad and its fillet, issue #133): only the sweep. */
   shape: { kind: "collar"; offset: number } | { kind: "stadium"; a: XY; b: XY; radius: number } | { kind: "sweep" };
 }
@@ -104,7 +107,8 @@ function stadiumPad(a: XY, b: XY, r: number, wall: number, zPlate: number): Flan
   };
   const levels = padLevels(zPlate);
   const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-  return { sweep: { rings: levels.map(ring), start: { ...mid, z: levels[0] }, end: { ...mid, z: levels[levels.length - 1] } }, shape: { kind: "stadium", a, b, radius: r + wall } };
+  const rings = levels.map(ring);
+  return { sweep: { rings, start: { ...mid, z: levels[0] }, end: { ...mid, z: levels[levels.length - 1] } }, footprint: rings[0], shape: { kind: "stadium", a, b, radius: r + wall } };
 }
 
 /** The collar: the wall's own outline, `FLANGE_PAD_COLLAR` beyond it at the face. Covers the bore too (the ring has none there to cut). */
@@ -117,7 +121,7 @@ function collarPad(flange: PaddedFlange, zPlate: number): FlangePad {
       return { x: p.x, y: p.y, z };
     }),
   );
-  return { sweep: { rings, start: { x: 0, y: 0, z: levels[0] }, end: { x: 0, y: 0, z: levels[levels.length - 1] } }, shape: { kind: "collar", offset: FLANGE_PAD_COLLAR } };
+  return { sweep: { rings, start: { x: 0, y: 0, z: levels[0] }, end: { x: 0, y: 0, z: levels[levels.length - 1] } }, footprint: rings[0], shape: { kind: "collar", offset: FLANGE_PAD_COLLAR } };
 }
 
 /**
@@ -241,7 +245,9 @@ function channelPads(outline: ShapeOutline, innerEnd: InnerEndLayout, zPlate: nu
   const rings = [...tailRings, ...mainRings];
   const zMid = (zLo + zHi) / 2;
   const centre = (r: XYZ[]): XYZ => ({ x: r.reduce((a, q) => a + q.x, 0) / r.length, y: r.reduce((a, q) => a + q.y, 0) / r.length, z: zMid });
-  const pad: FlangePad = { sweep: { rings, start: centre(rings[0]), end: { x: path[path.length - 1].x, y: path[path.length - 1].y, z: zMid } }, shape: { kind: "sweep" } };
+  // Each ring's two points at zLo (see `ringOf`): down one side and back up the other.
+  const footprint = [...rings.map((r) => r[2]), ...rings.map((r) => r[3]).reverse()];
+  const pad: FlangePad = { sweep: { rings, start: centre(rings[0]), end: { x: path[path.length - 1].x, y: path[path.length - 1].y, z: zMid } }, footprint, shape: { kind: "sweep" } };
   const fillet = channelFillet(
     outline,
     path.map((_, i) => (z: number) => edgeAt(i, -1, z)),
@@ -333,7 +339,7 @@ function channelFillet(outline: ShapeOutline, edge: Array<(z: number) => XY>, aw
     const m = ring[steps >> 1];
     return { x: (c.x + m.x) / 2, y: (c.y + m.y) / 2, z: c.z };
   };
-  return { sweep: { rings, start: mid(rings[0]), end: mid(rings[rings.length - 1]) }, shape: { kind: "sweep" } };
+  return { sweep: { rings, start: mid(rings[0]), end: mid(rings[rings.length - 1]) }, footprint: rings[0], shape: { kind: "sweep" } };
 }
 
 /**
@@ -358,4 +364,23 @@ export function layoutFlangePads(flange: PaddedFlange, innerEnd: InnerEndLayout 
   // thickness right up to the hole's own edge, flat on the wall face.
   for (const anchor of anchors) pads.push(stadiumPad(anchor, anchor, pegHoleRadius(tolerance), FLANGE_PAD_WALL, zPlate));
   return pads;
+}
+
+/**
+ * Issue #139: the through-hole mount's layout (mount.ts's
+ * `layoutThroughHoleMount`), kept clear of the inner-end channel and of
+ * every pad's footprint -- the collar, and the channel pad with its fillet
+ * and tail -- so each screw head sits on the plain plate. design.ts and both
+ * backends call this, so they cut the same holes.
+ */
+export function layoutFlangeThroughHoles(flange: PaddedFlange, innerEnd: InnerEndLayout | undefined): ThroughMountLayout {
+  const pads = layoutFlangePads(flange, innerEnd).map((pad) => pad.footprint);
+  return layoutThroughHoleMount(
+    flange.outline,
+    flange.boreOutline,
+    flange.margin,
+    flange.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER,
+    { channelRibbon: innerEnd?.channelRibbon ?? [], pads },
+    flange.envelopeRadius ?? 0,
+  );
 }
