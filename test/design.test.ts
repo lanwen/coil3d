@@ -254,8 +254,10 @@ describe("design() solver (round core)", () => {
   });
 
   it("warns and reduces the bore when the locked core is too small for the fixed wall thickness", async () => {
+    // A 1 mm cable: its bend limit (issue #195 raises a round core to it)
+    // still allows a core under 8 mm, too small for two 3 mm walls.
     const spec = baseSpec({
-      wire: { length: 50, diameter: 2, type: "usb" },
+      wire: { length: 50, diameter: 1, type: "usb" },
       coreSize: { locked: true, dimension: "outer", value: 4 },
       height: { locked: true, value: 30 },
       layers: { locked: true, value: 1 },
@@ -495,7 +497,7 @@ describe("design() keeps square/triangle distinct at small sizes (issue #54)", (
     }
   });
 
-  it("never raises the size for round (round has no flats to keep, so minOuterSizeForShape falls back to the bend-limit floor)", async () => {
+  it("raises a round core only to the bend-limit floor (round has no flats to keep, so minOuterSizeForShape falls back to it; issue #195)", async () => {
     const d = await design(
       baseSpec({
         wire: { length: 2000, diameter: 3.8, type: "stiff" },
@@ -506,7 +508,9 @@ describe("design() keeps square/triangle distinct at small sizes (issue #54)", (
       }),
     );
     expect(d.solution.minOuterSizeForShape).toBeCloseTo(d.solution.minOuterSizeForBend, 6);
-    expect(d.warnings.some((w) => /core size raised/i.test(w))).toBe(false);
+    expect(d.solution.outerSize).toBeCloseTo(d.solution.minOuterSizeForBend, 6);
+    expect(d.warnings.some((w) => /core size raised.*bend radius/i.test(w))).toBe(true);
+    expect(d.warnings.some((w) => /straight sides/i.test(w))).toBe(false);
   });
 
   it("a FREE size never resolves below the shape's own minimum either (not just a locked one)", async () => {

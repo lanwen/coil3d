@@ -438,7 +438,32 @@ interface SizeHeightSearchResult {
   closest: { g: Resolved; length: number };
 }
 
-/** Grid-search height, bisect size at each sample, for a FIXED layer count. Shared by freeCount 2's third branch and freeCount 3's per-layer-count search. */
+/**
+ * The tight candidate for one height sample (issue #195): the smallest size
+ * that covers the target at this height and layer count, and -- when even
+ * the size floor already overshoots -- the smallest height that still covers
+ * it at that floor. Without the second step a tall sample at the size floor
+ * kept every surplus turn (the default cable with all three dimensions free
+ * and the "aspectRatio" objective picked +111%), so the overshoot is now at
+ * most one turn per layer there, and ~0 wherever the size is free to shrink.
+ */
+function sizeThenHeight(spec: CoilSpec, height: number, layers: number, sizeLo: number, sizeHi: number, heightLo: number, target: number): Resolved {
+  const outerSize = bisect((s) => lengthFor(spec, { outerSize: s, height, layers }), sizeLo, sizeHi, target);
+  if (outerSize > sizeLo) return { outerSize, height, layers };
+  return { outerSize, height: bisect((h) => lengthFor(spec, { outerSize, height: h, layers }), heightLo, height, target), layers };
+}
+
+/**
+ * With a free layer count, a candidate only counts when one layer fewer at
+ * the same size and height falls short (issue #195): otherwise its last
+ * layer is pure overshoot -- e.g. a second layer at the bend-limited size
+ * floor, which an "aspectRatio" pick liked for its wider flange.
+ */
+function needsEveryLayer(spec: CoilSpec, g: Resolved, target: number): boolean {
+  return g.layers <= 1 || !coversTarget(lengthFor(spec, { ...g, layers: g.layers - 1 }), target);
+}
+
+/** Grid-search height, with the tight size (and, at the size floor, height) per sample, for one layer count of freeCount 3's per-layer-count search. */
 function searchSizeAndHeight(
   spec: CoilSpec,
   layers: number,
@@ -455,11 +480,10 @@ function searchSizeAndHeight(
   let closest: { g: Resolved; length: number } | undefined;
   for (let i = 0; i <= samples; i++) {
     const height = heightLo + ((heightHi - heightLo) * i) / samples;
-    const size = bisect((s) => lengthFor(spec, { outerSize: s, height, layers }), sizeLo, sizeHi, target);
-    const g: Resolved = { outerSize: size, height, layers };
+    const g = sizeThenHeight(spec, height, layers, sizeLo, sizeHi, heightLo, target);
     const length = lengthFor(spec, g);
     if (!closest || length > closest.length) closest = { g, length };
-    if (coversTarget(length, target)) {
+    if (coversTarget(length, target) && needsEveryLayer(spec, g, target)) {
       const s = score(spec, g);
       if (!feasible || s < feasible.score) feasible = { g, length, score: s };
     }
@@ -520,12 +544,18 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   // locked size is the user's own explicit request, so raise it (rather than
   // rejecting the spec outright) and say so -- mirrors how a fully-locked
   // spec still gets its capacity warnings instead of throwing.
+  //
+  // Issue #195: a round core gets the same treatment against its own floor,
+  // the bend limit itself -- below it, layer 1 (and every step out to the
+  // next layer) would bend the cable tighter than its bend radius, under an
+  // "ok" status.
   let lockedOuterSize = spec.coreSize.locked ? toOuterSize(spec.coreSize) : undefined;
-  if (spec.shape.kind !== "round" && lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - 1e-9) {
-    const label = shapePlugin(spec.shape.kind).label.toLowerCase();
-    note(
-      `Core size raised from ${lockedOuterSize.toFixed(1)} mm to ${minOuterSizeForShapeVal.toFixed(1)} mm: this cable's bend limit needs at least that much to keep the ${label} core's straight sides meaningful, or the shape would be indistinguishable from round.`,
-    );
+  if (lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - 1e-9) {
+    const why =
+      spec.shape.kind === "round"
+        ? `this cable's ${mbr.toFixed(1)} mm bend radius needs at least that much`
+        : `this cable's bend limit needs at least that much to keep the ${shapePlugin(spec.shape.kind).label.toLowerCase()} core's straight sides meaningful, or the shape would be indistinguishable from round`;
+    note(`Core size raised from ${lockedOuterSize.toFixed(1)} mm to ${minOuterSizeForShapeVal.toFixed(1)} mm: ${why}.`);
     lockedOuterSize = minOuterSizeForShapeVal;
   }
   const lockedHeight = spec.height.locked ? spec.height.value : undefined;
@@ -617,19 +647,19 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
         candidates.push({ g, length: lengthFor(spec, g) });
       }
     } else {
-      // coreSize + height free, layers locked: coarse grid over height, bisect size per sample.
+      // coreSize + height free, layers locked: coarse grid over height, the tight size (and height) per sample.
       const SAMPLES = 48;
       for (let i = 0; i <= SAMPLES; i++) {
         const height = heightLo + ((heightHi - heightLo) * i) / SAMPLES;
-        const size = bisect((s) => lengthFor(spec, { outerSize: s, height, layers: lockedLayers! }), sizeLo, sizeHi, target);
-        const g = { outerSize: size, height, layers: lockedLayers! };
+        const g = sizeThenHeight(spec, height, lockedLayers!, sizeLo, sizeHi, heightLo, target);
         candidates.push({ g, length: lengthFor(spec, g) });
       }
     }
 
     // Only candidates that actually cover the target are eligible: capacity
-    // must be >= target (tail >= 0), never just "close" to it either way.
-    const feasible = candidates.filter((c) => coversTarget(c.length, target));
+    // must be >= target (tail >= 0), never just "close" to it either way --
+    // and, with a free layer count, only ones that need every layer.
+    const feasible = candidates.filter((c) => coversTarget(c.length, target) && (!layersFree || needsEveryLayer(spec, c.g, target)));
 
     if (feasible.length === 0) {
       const closest = candidates.reduce((a, b) => (b.length > a.length ? b : a));
@@ -669,7 +699,9 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
       // the other objective -- no recursive solve() call (see the file header).
       const otherObjective: Objective = objective === "minVolume" ? "aspectRatio" : "minVolume";
       const altBest = pickBest(otherObjective);
-      if (altBest !== primary) {
+      // Several height samples at the size floor tighten to the same candidate.
+      const sameGeometry = altBest.g.outerSize === primary.g.outerSize && altBest.g.height === primary.g.height && altBest.g.layers === primary.g.layers;
+      if (!sameGeometry) {
         const altDiagnosis: Diagnosis = {
           ...diagnosis,
           message: `Two free dimensions: the "${otherObjective}" objective's pick among the same target-covering candidates.`,

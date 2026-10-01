@@ -178,8 +178,10 @@ describe("design() clip mount plate (issue #14)", () => {
   // test's own pre-fix name/assertions); now it gets a flange grown just
   // wide enough instead.
   it("still fits the plate (no silent skip) on a tiny, locked core by growing the flange margin, warned about", async () => {
-    const none = await design(baseSpec({ mount: "none", coreSize: { locked: true, dimension: "outer", value: 12 }, height: { locked: true, value: 20 } }));
-    const d = await design(baseSpec({ mount: "skadis", coreSize: { locked: true, dimension: "outer", value: 12 }, height: { locked: true, value: 20 } }));
+    // A thin 1.5 mm cable, so the round core's bend-limit floor (issue #195) stays under 12 mm.
+    const tiny: Partial<CoilSpec> = { wire: { length: 2000, diameter: 1.5, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: 12 }, height: { locked: true, value: 20 } };
+    const none = await design(baseSpec({ ...tiny, mount: "none" }));
+    const d = await design(baseSpec({ ...tiny, mount: "skadis" }));
     expect(d.flangeSpec.margin).toBeGreaterThan(none.flangeSpec.margin);
     expect(d.warnings.some((w) => /margin increased.*SK.DIS/i.test(w))).toBe(true);
     expect(d.warnings.some((w) => /too small to fit/i.test(w))).toBe(false);

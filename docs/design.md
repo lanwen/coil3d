@@ -140,6 +140,15 @@ candidate. With three free variables it tries a few layer counts, returns
 two or three candidates and warns that defaults were applied. The solver never
 reports "ok" when the capacity is below the target length.
 
+Every candidate is tight: no free variable can shrink and still hold the
+cable. Where the size is free it is the smallest that covers the target. At
+the size floor a free height drops to the smallest that still covers it, and a
+free layer count never keeps a layer the cable doesn't need. So a candidate
+overshoots by less than one step of a free variable: about 0 for a free size
+above its floor, less than one turn per layer for a free height, less than the
+outer layer for a free layer count. An objective only chooses among these
+candidates; it can't buy proportions with extra capacity.
+
 **Constraints.**
 
 - The innermost layer's corner radius must be at least the minimum bend
@@ -150,9 +159,10 @@ reports "ok" when the capacity is below the target length.
   corner radius, but a core that is too small turns into a circle. So the
   solver also keeps every flat side at least two cable diameters and 15 % of
   the perimeter long. It raises a locked size that is below this floor and
-  warns.
+  warns, for a round core too (where the floor is the bend limit alone).
 - The whole drawn cable (lead-in, layer transitions, outer end) stays within
-  the bend radius. Tests check this (`test/cableBend.test.ts`).
+  the bend radius. Tests check this for every "ok" design, piece by piece
+  (`test/cableBend.test.ts`).
 - The flange is at least the outermost layer plus a margin.
 - The label only renders when its bounding box fits the cap annulus.
 - Each part is checked against the bed size.
