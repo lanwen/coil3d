@@ -58,6 +58,7 @@ import type { CapClipLayout, InnerEndLayout, SweepSolid } from "./innerEnd";
 import { layoutKeyholeMount } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
+import { weldShortEdges } from "./weld";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
@@ -510,12 +511,16 @@ export async function fuseFlange(
       }
     }
 
-    // Issue #180: the same needle triangles in the flange's flat faces (see flatFaces.ts).
+    // Issues #180, #193: the same needle triangles in the flange's flat faces
+    // and near-coincident vertices in its grooved wall (see flatFaces.ts, weld.ts).
     const outMesh = track(fused.refineToLength(FLAT_FACE_MAX_EDGE)).getMesh();
-    return improveFlatFaces({
-      positions: new Float32Array(outMesh.vertProperties),
-      indices: new Uint32Array(outMesh.triVerts),
-    });
+    return improveFlatFaces(
+      weldShortEdges({
+        positions: new Float32Array(outMesh.vertProperties),
+        indices: new Uint32Array(outMesh.triVerts),
+      }).mesh,
+      { horizontalOnly: true },
+    );
   } finally {
     for (const m of trash) m.delete();
   }
@@ -628,24 +633,29 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       throw new Error(`Top cap mesh is not a valid manifold: ${assembled.status()}`);
     }
 
-    // Issue #180: the booleans leave needle-thin triangles in the plate's
-    // flat faces, which the line-art renderer draws as a dotted line (see
-    // flatFaces.ts). The flips keep each triangle's place in the list and
-    // swap edges only inside one flat face, so the label's triangles stay
-    // the label's.
+    // Issues #180, #193: the booleans leave needle-thin triangles, which the
+    // line-art renderer draws as a dotted line: in the plate's flat faces
+    // (flatFaces.ts) and, where curved surfaces cross, on the collar and the
+    // plate rim (weld.ts). Welding drops triangles, so `origin` carries the
+    // label's marks over; the flips keep each triangle's place in the list and
+    // swap edges only inside one flat face, so the label's triangles stay the
+    // label's.
     const outMesh = track(assembled.refineToLength(FLAT_FACE_MAX_EDGE)).getMesh();
-    const mesh: CoilMesh = improveFlatFaces({
-      positions: new Float32Array(outMesh.vertProperties),
-      indices: new Uint32Array(outMesh.triVerts),
-    });
+    const raw: CoilMesh = { positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) };
+    const welded = weldShortEdges(raw);
+    const mesh: CoilMesh = improveFlatFaces(welded.mesh);
     if (labelId !== undefined) {
-      const labelTriangles: number[] = [];
+      const isLabel = new Uint8Array(raw.indices.length / 3);
       const runIndex = outMesh.runIndex!;
       const runOriginalID = outMesh.runOriginalID!;
       for (let r = 0; r < runOriginalID.length; r++) {
         if (runOriginalID[r] !== labelId) continue;
-        for (let t = runIndex[r] / 3; t < runIndex[r + 1] / 3; t++) labelTriangles.push(t);
+        for (let t = runIndex[r] / 3; t < runIndex[r + 1] / 3; t++) isLabel[t] = 1;
       }
+      const labelTriangles: number[] = [];
+      welded.origin.forEach((old, t) => {
+        if (isLabel[old]) labelTriangles.push(t);
+      });
       mesh.labelTriangles = new Uint32Array(labelTriangles);
     }
     return mesh;
