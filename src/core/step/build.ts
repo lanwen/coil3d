@@ -23,7 +23,6 @@ import {
   BAYONET_LUG_HEIGHT,
   BAYONET_LUG_WIDTH,
   CAP_THICKNESS,
-  DEFAULT_THROUGH_HOLE_DIAMETER,
   JOINT_ENGAGE_DEPTH,
   JOINT_MIN_BORE_RADIUS,
   JOINT_TRANSITION_HEIGHT,
@@ -54,8 +53,8 @@ import type { LabelLoop, ResolvedLabel } from "../label";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
 import type { InnerEndLayout, SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
-import { layoutKeyholeMount, layoutThroughHoleMount } from "../mount";
-import { layoutFlangePads, offsetAtZ, padLevels, plateTopZ } from "../flangePads";
+import { layoutKeyholeMount } from "../mount";
+import { layoutFlangePads, layoutFlangeThroughHoles, offsetAtZ, padLevels, plateTopZ } from "../flangePads";
 import type { FlangePad } from "../flangePads";
 import type { KeyholeSlot, ThroughHole } from "../mount";
 import { mountPlateLayoutFor as layoutFor, pegHoleOutline, pegSweep } from "../mountPlate";
@@ -405,17 +404,11 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
 
   // Issue #70: cut the same through-hole mount the mesh backend cuts into
   // the CORE part's own bottom flange (manifold.ts's fuseFlange), from the
-  // identical layout (mount.ts) and the SAME inner-end channel footprint
-  // just cut above, so STEP and STL/preview never drift apart.
+  // identical layout (flangePads.ts's `layoutFlangeThroughHoles`), kept clear
+  // of the SAME inner-end channel and pads just built above, so STEP and
+  // STL/preview never drift apart.
   if (design.flangeSpec.mount === "through") {
-    const layout = layoutThroughHoleMount(
-      flangeSpec.outline,
-      flangeSpec.boreOutline,
-      flangeSpec.margin,
-      flangeSpec.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER,
-      innerEndCutter.layout,
-      flangeSpec.envelopeRadius ?? 0,
-    );
+    const layout = layoutFlangeThroughHoles(flangeSpec, innerEndCutter.layout);
     for (const hole of layout.holes) {
       const cutter = throughHoleCutterSolid(hole, layout.holeRadius, flangeSpec.thickness);
       coreSolid = coreSolid.cut(cutter);

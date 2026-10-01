@@ -104,6 +104,7 @@ import {
   SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD,
   THROUGH_MOUNT_EDGE_MARGIN,
   THROUGH_MOUNT_ENVELOPE_MARGIN,
+  THROUGH_MOUNT_PAD_CLEARANCE,
   THROUGH_MOUNT_ROUND_HOLE_COUNTS,
 } from "./constants";
 import type { XY } from "./innerEnd";
@@ -485,10 +486,16 @@ export function distanceToClosedPolygon(px: number, py: number, points: XY[]): n
  * one per corner for sq/tri (in the flange's own corner areas -- AC), or
  * evenly spaced (issue #70 AC: "3 or 4") for round, widest count first. Every
  * candidate is also checked against the inner-end cable channel's own real,
- * computed footprint (`innerEndChannel`, innerEnd.ts's `layoutInnerEnd` --
- * AC: "clear of ... the inner-end channel") -- never just assumed clear:
- * round retries a half-step-rotated ring if the plain one collides (round
- * has full rotational freedom, unlike sq/tri's fixed corners), and sq/tri
+ * computed footprint (`keepOut.channelRibbon`, innerEnd.ts's `layoutInnerEnd`
+ * -- AC: "clear of ... the inner-end channel") and, issue #139, against every
+ * flange pad's footprint on the plate (`keepOut.pads`, flangePads.ts's
+ * `layoutFlangeThroughHoles`): the screw head bears on the plate's top
+ * (issue #129), so the head -- the hole plus its THROUGH_MOUNT_EDGE_MARGIN
+ * bearing ring -- keeps THROUGH_MOUNT_PAD_CLEARANCE of plain plate between
+ * it and the channel pad's chamfers, fillet and tail, and the collar. Never
+ * just assumed clear:
+ * round rotates the ring if the plain one collides (round has full
+ * rotational freedom, unlike sq/tri's fixed corners), and sq/tri
  * simply skips (and warns about) whichever corner doesn't clear, keeping
  * every other corner's hole rather than giving up the whole mount over one
  * conflict.
@@ -507,7 +514,7 @@ export function layoutThroughHoleMount(
   _boreOutline: ShapeOutline,
   margin: number,
   holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
-  innerEndChannel: { channelRibbon: XY[] },
+  keepOut: { channelRibbon: XY[]; pads?: XY[][] },
   envelopeRadius = 0,
 ): ThroughMountLayout {
   const holeRadius = holeDiameter / 2;
@@ -517,8 +524,9 @@ export function layoutThroughHoleMount(
   const tooNarrowWarning = "The flange is too narrow (or too close to the inner-end cable channel) to fit the through-hole mount (increase the core size, or the mount was skipped).";
 
   const clearOfChannel = (x: number, y: number): boolean => {
-    const requiredClearance = holeRadius + THROUGH_MOUNT_EDGE_MARGIN;
-    return innerEndChannel.channelRibbon.length < 3 || distanceToClosedPolygon(x, y, innerEndChannel.channelRibbon) >= requiredClearance;
+    const headRadius = holeRadius + THROUGH_MOUNT_EDGE_MARGIN;
+    const clearOfRibbon = keepOut.channelRibbon.length < 3 || distanceToClosedPolygon(x, y, keepOut.channelRibbon) >= headRadius;
+    return clearOfRibbon && (keepOut.pads ?? []).every((pad) => distanceToClosedPolygon(x, y, pad) >= headRadius + THROUGH_MOUNT_PAD_CLEARANCE);
   };
 
   /** A hole centred on standard angle `phi` (shapes.ts convention), or null if it doesn't fit there. */
@@ -534,20 +542,29 @@ export function layoutThroughHoleMount(
 
   if (isRound) {
     for (const count of THROUGH_MOUNT_ROUND_HOLE_COUNTS) {
-      for (const offsetDeg of [0, 180 / count]) {
+      /** The ring of `count` holes rotated by `offsetDeg`, or null if any of them doesn't fit or clear. */
+      const ringAt = (offsetDeg: number): ThroughHole[] | null => {
         const holes: ThroughHole[] = [];
-        let ok = true;
-        for (let i = 0; i < count && ok; i++) {
-          const phi = (2 * Math.PI * i) / count + (offsetDeg * Math.PI) / 180;
-          const h = holeAt(phi);
-          if (!h || !clearOfChannel(h.x, h.y)) {
-            ok = false;
-            break;
-          }
+        for (let i = 0; i < count; i++) {
+          const h = holeAt((2 * Math.PI * i) / count + (offsetDeg * Math.PI) / 180);
+          if (!h || !clearOfChannel(h.x, h.y)) return null;
           holes.push(h);
         }
-        if (ok) return { ...base, holes };
+        return holes;
+      };
+      const plain = ringAt(0);
+      if (plain) return { ...base, holes: plain };
+      // Issue #139: rotate the ring (in whole degrees) to the middle of the
+      // widest range of rotations that clears, so the holes either side of
+      // the channel pad keep about the same room.
+      let best: { from: number; to: number } | undefined;
+      let run: { from: number; to: number } | undefined;
+      for (let o = 1; o < 360 / count; o++) {
+        run = ringAt(o) ? { from: run?.from ?? o, to: o } : undefined;
+        if (run && (!best || run.to - run.from > best.to - best.from)) best = run;
       }
+      const rotated = best && ringAt(Math.round((best.from + best.to) / 2));
+      if (rotated) return { ...base, holes: rotated };
     }
     return { ...base, holes: [], warning: tooNarrowWarning };
   }
