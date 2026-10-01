@@ -49,13 +49,101 @@ import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizin
 import { circumscribedRadius, makeOutline, minCornerSegments, offsetOutline } from "./shapes";
 import { resolveLabel } from "./label";
 import { solve } from "./solve";
-import { bendMultiplierOf } from "./types";
-import type { CoilMesh, CoilSpec, Design, Part, Resolution } from "./types";
+import type { ShapeOutline } from "./shapes";
+import { bendMultiplierOf, noticeCollector } from "./types";
+import type { CoilMesh, CoilSpec, Design, Part, Resolution, Solution } from "./types";
 import { buildWall } from "./wall";
 import { buildCable } from "./wire";
 
+/**
+ * The flange's real sizing for a solved geometry, without building any mesh:
+ * margin and thickness (including whatever the mount needs), the inner-end
+ * channel and clip, and the screw-keyhole layout. design() builds the parts
+ * from this, and also runs it on each alternate candidate (issue #192), so
+ * an option card's size is exactly what picking that option builds.
+ */
+function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, boreOutline: ShapeOutline) {
+  const wireDiameter = spec.wire.diameter;
+  // Issue #14: skadis/opengrid don't cut anything into the flange's own
+  // OUTLINE (unlike keyhole) -- the separate mount plate's footprint
+  // shrinks to fit whatever margin the flange already has (mountPlate.ts's
+  // `layoutMountPlate` insets it) -- but its peg holes still
+  // need the flange to be a bit THICKER, exactly like the keyhole mount.
+  const mountKindForPlate = spec.mount === "skadis" || spec.mount === "opengrid" ? spec.mount : undefined;
+
+  // The flange must clear the outermost wound layer, not just the core's
+  // own wall (docs/design.md, Parts and printing: flange size = final
+  // outer envelope + margin), thick enough for the inner-end channel plus whatever the
+  // requested mount/plate needs -- see flange.ts's `resolveFlangeSizing`
+  // for the full derivation, factored out (issue #63) so solve.ts's search
+  // can score candidates against these SAME real numbers instead of a
+  // cruder envelope-only proxy.
+  const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
+  const sizing = resolveFlangeSizing(
+    outline,
+    boreOutline,
+    solution.flangeSize,
+    wireDiameter,
+    spec.mount,
+    { tolerance: spec.tolerance, bendRadius, topCap: solution.topCapEnabled },
+    spec.keyholeRotation,
+    spec.throughHoleDiameter,
+  );
+  let thickness = sizing.thickness;
+  const channelDepth = resolveChannelDepth(wireDiameter, thickness);
+
+  // Inner-end fixing (issues #8, #117): the bottom flange's recessed channel
+  // and cable clip for the inner cable end, leading it to the groove
+  // start -- always present, unlike the (optional) mount. Computed BEFORE
+  // the mount layouts (issue #70's through-hole mount needs this
+  // SAME real channel footprint to keep its own holes clear of it).
+  // `layoutInnerEnd` is called again, identically, inside `fuseFlange`/
+  // `buildStep` (the same "one shared pure function, called once per
+  // backend" convention as `layoutKeyholeMount`/`layoutThroughHoleMount`),
+  // so it's computed here only to surface its warning, to keep the
+  // through-hole mount clear of it, and to build the wound-cable
+  // schematic's lead-in (wire.ts).
+  const innerEndLayout = layoutInnerEnd(outline, sizing.margin, wireDiameter, spec.tolerance, bendRadius, channelDepth);
+
+  // Kept (not just its warning) so it can be surfaced on the returned
+  // Design: a consumer that wants to actually SHOW the mount's real
+  // hung orientation -- not just cut it -- needs `axisDeg` too (see
+  // mount.ts's own MountLayout doc comment).
+  let mountLayout: MountLayout | undefined;
+  if (spec.mount === "keyhole") {
+    const layout = layoutKeyholeMount(outline, boreOutline, sizing.margin, spec.keyholeRotation);
+    mountLayout = layout;
+    // Issue #122: the keyhole's pocket (wall face) and the channel (winding
+    // face) sit on separate pads, so the flange is only as thick as the
+    // deeper of the two. The keyhole layout doesn't steer around the
+    // channel, so if a slot ever lands on it, stack the two depths there
+    // (the pre-#122 sizing) rather than let them meet.
+    const clearance = SCREW_MOUNT_HEAD_RADIUS + INNER_CHANNEL_MIN_SHELF;
+    const onChannel = layout.slots.some((slot) =>
+      Array.from({ length: 9 }, (_, i) => i / 8).some(
+        (k) =>
+          innerEndLayout.channelRibbon.length >= 3 &&
+          distanceToClosedPolygon(slot.head.x + (slot.shankEnd.x - slot.head.x) * k, slot.head.y + (slot.shankEnd.y - slot.head.y) * k, innerEndLayout.channelRibbon) < clearance,
+      ),
+    );
+    if (onChannel) thickness = stackedKeyholeThickness(wireDiameter, thickness);
+  }
+  return { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, thickness };
+}
+
+/** An alternate candidate with its real flange width and overall height filled in (issue #192), from the same `planFlange` design() builds the parts from. */
+function withRealExtents(spec: CoilSpec, alt: Solution): Solution {
+  const outline = makeOutline(spec.shape.kind, alt.outerSize, alt.cornerRadius);
+  const { boreOutline } = resolveBoreOutline(outline);
+  const { sizing, thickness } = planFlange(spec, alt, outline, boreOutline);
+  return { ...alt, flangeExtent: flangeExtentOf(outline, sizing.margin), overallHeight: overallHeightOf(thickness, alt.height, alt.topCapEnabled) };
+}
+
 export async function design(spec: CoilSpec, resolution: Resolution = "final"): Promise<Design> {
-  const { solution, warnings } = solve(spec);
+  const solved = solve(spec);
+  const { solution } = solved;
+  const { notices, problem, note } = noticeCollector();
+  notices.push(...solved.notices);
   const columns = resolution === "draft" ? DRAFT_COLUMNS : FINAL_COLUMNS;
   const rowsPerPitch = resolution === "draft" ? DRAFT_ROWS_PER_PITCH : FINAL_ROWS_PER_PITCH;
 
@@ -80,7 +168,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // #63).
   const { boreOutline, reduced: boreReduced } = resolveBoreOutline(outline);
   if (boreReduced) {
-    warnings.push(`Core size ${solution.outerSize.toFixed(1)} mm is too small for a ${WALL_THICKNESS} mm wall; the bore has been reduced.`);
+    note(`Core size ${solution.outerSize.toFixed(1)} mm is too small for a ${WALL_THICKNESS} mm wall; the bore has been reduced.`);
   }
 
   const wireDiameter = spec.wire.diameter;
@@ -104,107 +192,44 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   };
   const wantsKeyhole = spec.mount === "keyhole";
   const wantsThrough = spec.mount === "through";
-  // Issue #14: skadis/opengrid don't cut anything into the flange's own
-  // OUTLINE (unlike keyhole) -- the separate mount plate's footprint
-  // shrinks to fit whatever margin the flange already has (mountPlate.ts's
-  // `layoutMountPlate` insets it) -- but its peg holes still
-  // need the flange to be a bit THICKER, exactly like the keyhole mount.
-  const mountKindForPlate = spec.mount === "skadis" || spec.mount === "opengrid" ? spec.mount : undefined;
-
-  // The flange must clear the outermost wound layer, not just the core's
-  // own wall (docs/design.md, Parts and printing: flange size = final
-  // outer envelope + margin), thick enough for the inner-end channel plus whatever the
-  // requested mount/plate needs -- see flange.ts's `resolveFlangeSizing`
-  // for the full derivation, factored out (issue #63) so solve.ts's search
-  // can score candidates against these SAME real numbers instead of a
-  // cruder envelope-only proxy.
-  const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
-  const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness } = resolveFlangeSizing(
-    outline,
-    boreOutline,
-    solution.flangeSize,
-    wireDiameter,
-    spec.mount,
-    { tolerance: spec.tolerance, bendRadius, topCap: solution.topCapEnabled },
-    spec.keyholeRotation,
-    spec.throughHoleDiameter,
-  );
+  const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, thickness } = planFlange(spec, solution, outline, boreOutline);
+  const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness } = sizing;
   if (innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= capClipMargin) {
-    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
+    note(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
   }
   if (capClipMargin > Math.max(mountMargin, innerEndMargin) + 1e-9) {
-    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm so the top cap's cable clip fits outside the wound cable.`);
+    note(`Flange margin increased to ${margin.toFixed(1)} mm so the top cap's cable clip fits outside the wound cable.`);
   }
   if (wantsKeyhole && mountMargin > baseMargin) {
-    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
+    note(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
   }
   if (wantsThrough && mountMargin > baseMargin) {
-    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the through-hole mount.`);
+    note(`Flange margin increased to ${margin.toFixed(1)} mm to fit the through-hole mount.`);
   }
-  let thickness = sizedThickness;
   // Issue #129: the through-hole mount no longer needs a thickness floor of
   // its own (no counterbore) -- `thickness` is always `channelOnlyThickness`
   // for it, exactly like `mount === "none"`, so there is nothing to warn
   // about here any more.
   if (mountKindForPlate && mountMargin > baseMargin) {
-    warnings.push(`Flange margin increased to ${margin.toFixed(1)} mm to fit the ${mountKindForPlate === "skadis" ? "SKÅDIS" : "openGrid"} clip mount plate's grid.`);
+    note(`Flange margin increased to ${margin.toFixed(1)} mm to fit the ${mountKindForPlate === "skadis" ? "SKÅDIS" : "openGrid"} clip mount plate's grid.`);
   }
-  if (mountKindForPlate && thickness > channelOnlyThickness + 1e-9) {
-    warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the mount plate's alignment features.`);
+  if (mountKindForPlate && sizedThickness > channelOnlyThickness + 1e-9) {
+    note(`Flange thickness increased to ${sizedThickness.toFixed(1)} mm to fit the mount plate's alignment features.`);
   }
-
   // `resolveChannelDepth` caps the channel to whatever `thickness` leaves
   // below a small shelf -- with `thickness` now
   // ALWAYS provisioned for the full ideal depth (see above), this never
   // actually caps it in the ordinary case; the warning below is now only
   // reachable for a genuinely exotic input this sizing doesn't anticipate.
-  const idealDepth = idealChannelDepth(wireDiameter);
-  const channelDepth = resolveChannelDepth(wireDiameter, thickness);
-  if (channelDepth < idealDepth - 1e-6) {
-    warnings.push(
+  if (channelDepth < idealChannelDepth(wireDiameter) - 1e-6) {
+    problem(
       `The inner-end channel is only ${channelDepth.toFixed(1)} mm deep, limited by the flange's own thickness; the first turn may sit slightly proud of the surrounding flange face.`,
     );
   }
-
-  // Inner-end fixing (issues #8, #117): the bottom flange's recessed channel
-  // and cable clip for the inner cable end, leading it to the groove
-  // start -- always present, unlike the (optional) mount. Computed BEFORE
-  // the mount layouts below (issue #70's through-hole mount needs this
-  // SAME real channel footprint to keep its own holes clear of it).
-  // `layoutInnerEnd` is called again, identically, inside `fuseFlange`/
-  // `buildStep` (the same "one shared pure function, called once per
-  // backend" convention as `layoutKeyholeMount`/`layoutThroughHoleMount`
-  // below), so it's computed here only to surface its warning, to keep the
-  // through-hole mount clear of it, and to build the wound-cable
-  // schematic's lead-in (wire.ts).
-  const innerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, spec.tolerance, bendRadius, channelDepth);
-  if (innerEndLayout.warning) warnings.push(innerEndLayout.warning);
-
-  // Kept (not just its warning) so it can be surfaced on the returned
-  // Design below: a consumer that wants to actually SHOW the mount's real
-  // hung orientation -- not just cut it -- needs `axisDeg` too (see
-  // mount.ts's own MountLayout doc comment).
-  let mountLayout: MountLayout | undefined;
-  if (wantsKeyhole) {
-    mountLayout = layoutKeyholeMount(outline, boreOutline, margin, spec.keyholeRotation);
-    if (mountLayout.warning) warnings.push(mountLayout.warning);
-    // Issue #122: the keyhole's pocket (wall face) and the channel (winding
-    // face) sit on separate pads, so the flange is only as thick as the
-    // deeper of the two. The keyhole layout doesn't steer around the
-    // channel, so if a slot ever lands on it, stack the two depths there
-    // (the pre-#122 sizing) rather than let them meet.
-    const clearance = SCREW_MOUNT_HEAD_RADIUS + INNER_CHANNEL_MIN_SHELF;
-    const onChannel = mountLayout.slots.some((slot) =>
-      Array.from({ length: 9 }, (_, i) => i / 8).some(
-        (k) =>
-          innerEndLayout.channelRibbon.length >= 3 &&
-          distanceToClosedPolygon(slot.head.x + (slot.shankEnd.x - slot.head.x) * k, slot.head.y + (slot.shankEnd.y - slot.head.y) * k, innerEndLayout.channelRibbon) < clearance,
-      ),
-    );
-    if (onChannel) thickness = stackedKeyholeThickness(wireDiameter, thickness);
-    if (thickness > channelOnlyThickness + 1e-9) {
-      warnings.push(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
-    }
+  if (innerEndLayout.warning) problem(innerEndLayout.warning);
+  if (mountLayout?.warning) problem(mountLayout.warning);
+  if (wantsKeyhole && thickness > channelOnlyThickness + 1e-9) {
+    note(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
   }
   // Issue #70 PR review: reuses `solution.flangeSize / 2` as the wound
   // envelope's own radius -- mirrors flange.ts's `resolveFlangeSizing`
@@ -231,7 +256,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // so it keeps clear of the same pads they build.
   if (wantsThrough) {
     const throughLayout = layoutFlangeThroughHoles(flangeSpec, innerEndLayout);
-    if (throughLayout.warning) warnings.push(throughLayout.warning);
+    if (throughLayout.warning) problem(throughLayout.warning);
   }
 
   // Issue #14: lay out the clip mount plate (SKÅDIS/openGrid) against the
@@ -242,12 +267,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   let mountPlateLayout: ReturnType<typeof mountPlateLayoutFor> | undefined;
   if (mountKindForPlate) {
     mountPlateLayout = mountPlateLayoutFor(mountKindForPlate, offsetOutline(outline, margin), boreOutline, innerEndLayout);
-    if (mountPlateLayout.warning) warnings.push(mountPlateLayout.warning);
+    if (mountPlateLayout.warning) problem(mountPlateLayout.warning);
     // Issue #106: snap tabs on the plate's front face would print hanging
     // in mid-air (the plate prints back-face up, the flange face-down), so
     // every plate now uses the peg + glue joint. Old links that
     // still ask for "snap" get it, with this notice.
-    if (spec.plateJoint === "snap") warnings.push("Snap tabs can't print without supports, so the mount plate uses two printed pegs and glue instead.");
+    if (spec.plateJoint === "snap") note("Snap tabs can't print without supports, so the mount plate uses two printed pegs and glue instead.");
   }
   const mountPlateCut: MountPlateFlangeCut | undefined =
     mountPlateLayout && mountPlateLayout.clips.length > 0 && mountPlateLayout.anchors.length > 0
@@ -267,7 +292,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // `resolveCapJoint` the STEP backend calls -- a fallback builds the plain
   // press-fit collar in both, with a warning. The spec keeps its joint.
   const capJoint = resolveCapJoint(spec, wallSpec);
-  if (topCapEnabled && capJoint.warning) warnings.push(capJoint.warning);
+  if (topCapEnabled && capJoint.warning) note(capJoint.warning);
   const coreJoint: CoreJointCut | undefined =
     topCapEnabled && capJoint.joint !== "press"
       ? { boreOutline, height: solution.height, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap }
@@ -290,7 +315,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // (`envelopeDiameter` is already a circumscribed, across-corners extent;
   // for round, across-corners === across-flats, so this still holds).
   if (solution.envelopeDiameter > flangeExtent.acrossCorners + 1e-6) {
-    warnings.push(
+    problem(
       `Cable outer size (${solution.envelopeDiameter.toFixed(1)} mm, across corners) is bigger than the flange (${flangeExtent.acrossCorners.toFixed(1)} mm, across corners) -- the wound cable would stick out past the flange.`,
     );
   }
@@ -309,7 +334,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     tolerance: spec.tolerance,
     bendRadius,
   });
-  warnings.push(...cable.warnings);
+  for (const warning of cable.warnings) problem(warning);
 
   const wall = buildWall(wallSpec);
   const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint, innerEndCut, mountPlateCut);
@@ -322,7 +347,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // never fit the text differently -- mirrors how CoreJointCut/wallSpec/
   // flangeSpec already keep the mesh and STEP walls from drifting.
   const { label, fit: labelFit, warning: labelWarning } = await resolveLabel(spec.label, outline, boreOutline, flangeSpec.margin, topCapEnabled);
-  if (labelWarning) warnings.push(labelWarning);
+  if (labelWarning) problem(labelWarning);
 
   if (topCapEnabled) {
     const capMesh = await buildTopCap({ flange: flangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, clip: cable.capClip });
@@ -388,28 +413,35 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // that snap only moves WHERE min Z lands (0), not how tall the part
   // is -- so this is already the same height that ends up printed between
   // z=0 and z=bedZ on the actual plate.
+  let fitsBed = true;
+  const cmText = (mm: number) => (mm / 10).toFixed(1).replace(/\.0$/, "");
   for (const part of parts) {
     const box = printBBox(part);
+    // "peg-1"/"peg-2" -> "peg", "top-cap" -> "top cap": the part's name in plain words.
+    const partName = part.name.replace(/-\d+$/, "").replace(/-/g, " ");
     const footprintX = box.maxX - box.minX;
     const footprintY = box.maxY - box.minY;
     const partHeight = box.maxZ - box.minZ;
+    // Issue #105 AC #3: `bedX/Y/Z` come straight from the user's own number
+    // input (no `step`-style rounding on typed values, unlike the slider),
+    // so an unrounded request must still print rounded here. Issue #192:
+    // plain words, in cm.
     if (footprintX > spec.print.bedX || footprintY > spec.print.bedY) {
-      warnings.push(
-        // Issue #105 AC #3: `bedX/Y/Z` come straight from the user's own
-        // number input (no `step`-style rounding on typed values, unlike
-        // the slider), so an unrounded request must still print rounded here.
-        `Part "${part.name}" footprint (${footprintX.toFixed(1)} x ${footprintY.toFixed(1)} mm) doesn't fit the ${spec.print.bedX.toFixed(1)} x ${spec.print.bedY.toFixed(1)} mm bed.`,
-      );
+      fitsBed = false;
+      problem(`The ${partName}'s footprint is ${cmText(footprintX)} × ${cmText(footprintY)} cm; it doesn't fit your ${cmText(spec.print.bedX)} × ${cmText(spec.print.bedY)} cm bed.`);
     }
     if (partHeight > spec.print.bedZ) {
-      warnings.push(`Part "${part.name}" height (${partHeight.toFixed(1)} mm) is taller than the ${spec.print.bedZ.toFixed(1)} mm bed.`);
+      fitsBed = false;
+      problem(`The ${partName} is ${cmText(partHeight)} cm tall; your printer fits ${cmText(spec.print.bedZ)} cm.`);
     }
   }
 
   return {
     spec,
-    solution: { ...solution, overallHeight, flangeExtent },
-    warnings,
+    solution: { ...solution, overallHeight, flangeExtent, alternates: solution.alternates.map((alt) => withRealExtents(spec, alt)) },
+    notices,
+    warnings: notices.map((n) => n.message),
+    fitsBed,
     labelFit,
     parts,
     mesh,

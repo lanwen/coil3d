@@ -51,16 +51,20 @@ test("opens and closes from the keyboard, and the fields work once open", async 
 });
 
 test("a hash with advanced values stays collapsed, and the values still apply", async ({ page }) => {
-  // Two free dimensions show the objective picker, which used to force the
-  // section open. Winding quality and objective both come from the hash.
-  await page.goto("/#v=1&L=1000&d=4&lock=outer&size=40&q=0.3&obj=ar");
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  // Two free dimensions used to show an objective picker in this section,
+  // which forced it open. Issue #192 replaced the picker with the option
+  // cards: an old link's obj=ar now shows as the active "Even proportions"
+  // card. Winding quality still comes from the hash.
+  await page.goto("/#v=1&L=2000&d=3.8&lock=outer&size=30&q=0.3&obj=ar");
+  await expect(page.getByTestId("verdict")).toBeVisible();
   await expect(details(page)).not.toHaveAttribute("open", "");
-  await expect(page.getByTestId("select-objective")).toBeHidden();
+  await expect(page.getByTestId("select-objective")).toHaveCount(0);
+  await expect(page.locator('[data-testid^="option-"][data-active="true"]')).toContainText("Even proportions");
+  await expect(page.getByRole("radio", { name: "Even proportions" })).toBeChecked();
 
   await openAdvanced(page);
   await expect(page.getByTestId("input-windingQuality")).toHaveValue("0.3");
-  await expect(page.getByTestId("select-objective")).toHaveValue("aspectRatio");
+  await expect(page.getByTestId("select-objective")).toHaveCount(0);
 });
 
 test("the open state is not stored in the URL hash or browser storage", async ({ page }) => {

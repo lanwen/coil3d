@@ -310,20 +310,28 @@ describe("exportDesign(design, '3mf')", () => {
   });
 });
 
+/** A bed-fit problem (issue #192's plain-words, cm wording of issue #10's per-part checks). */
+const FOOTPRINT_PROBLEM = /footprint is .* cm; it doesn't fit your .* cm bed/;
+const HEIGHT_PROBLEM = /cm tall; your printer fits .* cm/;
+
 describe("design().warnings: per-part bed-fit (issue #10)", () => {
   it("warns when a part's footprint doesn't fit a too-small bed", async () => {
     const d = await design(baseSpec({ print: { bedX: 20, bedY: 20, bedZ: 256 } }));
-    expect(d.warnings.some((w) => /footprint/i.test(w) && /doesn't fit/i.test(w))).toBe(true);
+    expect(d.notices.some((n) => n.severity === "problem" && FOOTPRINT_PROBLEM.test(n.message))).toBe(true);
+    expect(d.notices.some((n) => n.message.includes("your 2 × 2 cm bed"))).toBe(true);
+    expect(d.fitsBed).toBe(false);
   });
 
   it("warns when a part is taller than a too-short bed", async () => {
     const d = await design(baseSpec({ print: { bedX: 256, bedY: 256, bedZ: 10 } }));
-    expect(d.warnings.some((w) => /taller than/i.test(w))).toBe(true);
+    expect(d.notices.some((n) => n.severity === "problem" && HEIGHT_PROBLEM.test(n.message) && n.message.includes("your printer fits 1 cm"))).toBe(true);
+    expect(d.fitsBed).toBe(false);
   });
 
   it("has no bed-fit warnings for the default 256mm bed with a small coil", async () => {
     const d = await design(baseSpec());
-    expect(d.warnings.some((w) => /bed/i.test(w))).toBe(false);
+    expect(d.warnings.some((w) => /bed|printer fits/i.test(w))).toBe(false);
+    expect(d.fitsBed).toBe(true);
   });
 
   it("accounts for the thicker flange a bigger cable now derives (issue #43) in the height bed-fit warning", async () => {
@@ -339,10 +347,12 @@ describe("design().warnings: per-part bed-fit (issue #10)", () => {
     const bedZ = height + 3.5; // clears height + the 3mm floor, nothing more
     const thin = await design(baseSpec({ wire: { length: 500, diameter: 1, type: "usb" }, height: { locked: true, value: height }, print: { bedX: 256, bedY: 256, bedZ } }));
     expect(thin.flangeSpec.thickness).toBeCloseTo(3, 9);
-    expect(thin.warnings.some((w) => /taller than/i.test(w))).toBe(false);
+    expect(thin.warnings.some((w) => HEIGHT_PROBLEM.test(w))).toBe(false);
+    expect(thin.fitsBed).toBe(true);
 
     const thick = await design(baseSpec({ wire: { length: 500, diameter: 8, type: "stiff" }, height: { locked: true, value: height }, print: { bedX: 256, bedY: 256, bedZ } }));
     expect(thick.flangeSpec.thickness).toBeGreaterThan(bedZ - height);
-    expect(thick.warnings.some((w) => /taller than/i.test(w))).toBe(true);
+    expect(thick.warnings.some((w) => HEIGHT_PROBLEM.test(w))).toBe(true);
+    expect(thick.fitsBed).toBe(false);
   });
 });

@@ -49,7 +49,7 @@ test("an old link storing an exact mm length keeps it exactly, even when it isn'
 
 test("the result panel reports wound length and capacity in centimetres", async ({ page }) => {
   await page.goto("/#v=1&L=1000&d=4&lock=outer,ly&size=40");
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   await expect(page.getByTestId("wound-length")).toContainText("cm");
   await expect(page.getByTestId("wound-length")).not.toContainText("mm");

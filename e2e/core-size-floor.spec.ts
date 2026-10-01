@@ -32,7 +32,7 @@ const TRIANGLE_WITH_ROOM_ABOVE_FLOOR = "/#v=1&shape=tri&tri.rc=5&lock=outer,ly&s
 test("a locked size below the shape's minimum shows the EFFECTIVE (raised) size in the field itself, matching the note next to it", async ({ page }) => {
   await page.goto(TOO_SMALL_TRIANGLE);
   await expect(page.getByTestId("hash-notice")).toHaveCount(0);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   // PR review: the field must show the EFFECTIVE value, not the user's own
   // too-small request -- a field reading "20mm" next to a note saying the
@@ -74,7 +74,7 @@ test("a locked size below the shape's minimum shows the EFFECTIVE (raised) size 
 
 test("typing or dragging the locked core size below the minimum clamps it right back up, immediately", async ({ page }) => {
   await page.goto(TOO_SMALL_TRIANGLE);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const outerInput = page.getByTestId("input-outer");
   const min = Number(await outerInput.getAttribute("min"));
@@ -92,7 +92,7 @@ test("typing or dragging the locked core size below the minimum clamps it right 
 
 test("the size slider's own minimum follows the shape's floor for sq/tri, but not for round", async ({ page }) => {
   await page.goto(TOO_SMALL_TRIANGLE);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   await expect(async () => {
     const min = await page.getByTestId("input-outer").getAttribute("min");
@@ -125,7 +125,7 @@ test("a locked corner radius below the bend-limit floor shows the EFFECTIVE (cla
   // type it goes away), so this is deliberately left on TOO_SMALL_TRIANGLE
   // rather than moved to the enabled fixture below.
   await page.goto(TOO_SMALL_TRIANGLE); // tri.rc=5, well below this cable's bend-limit floor
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
   const fieldValue = await cornerInput.inputValue();
@@ -149,7 +149,7 @@ test("typing or dragging the corner radius below the bend-limit floor clamps it 
   // bend-limit clamp-up behavior under test, just with a locked size that
   // leaves the field enabled (see the fixture's own doc comment above).
   await page.goto(TRIANGLE_WITH_ROOM_ABOVE_FLOOR);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
   const min = Number(await cornerInput.getAttribute("min"));

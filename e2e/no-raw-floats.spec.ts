@@ -25,6 +25,10 @@ const DESIGNS = [
   // dimensions -- exercises the objective picker and the alternate
   // candidate's own full SolutionSummary (a second copy of every numeric row).
   { name: "custom cable type, 2 free dimensions (alternate candidate)", hash: "#v=1&L=1000&d=4&wt=custom&mbr=7.5&lock=outer&size=40" },
+  // Issue #192: the option cards, two free dimensions (one card per
+  // objective) and three (one per layer count), each showing a size.
+  { name: "option cards, 2 free dimensions", hash: "#v=1&L=2000&d=3.8&lock=outer&size=30" },
+  { name: "option cards, 3 free dimensions", hash: "#s=eyJ2IjoyLCJsb2NrIjpbXX0" },
   // A small coil (below the 20mm small-coil rounding threshold) and a big
   // one, so both ends of `roundMm`'s own 0.5mm/1mm split get exercised.
   { name: "small coil", hash: "#v=1&L=250&d=1.3&lock=outer,ly&size=8&ly=2" },
@@ -40,13 +44,17 @@ const RAW_FLOAT = /-?\d+\.\d{3,}/g;
 for (const { name, hash } of DESIGNS) {
   test(`no raw floats in the controls/result panel: ${name}`, async ({ page }) => {
     await page.goto(`/${hash}`);
-    await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+    await expect(page.getByTestId("verdict")).toBeVisible();
     // Wait for the FINAL-resolution mesh (issue #61/#62: a fixed sleep
     // alone can race the draft->final swap) before scanning -- warnings and
     // result numbers are identical between draft/final, but this keeps the
     // scan deterministic and matches every other test's own convention.
     await expect(page.getByTestId("download-stl")).toBeEnabled({ timeout: 20_000 });
 
+    // Issue #192: the full numbers sit behind "All numbers"; open it so
+    // they're scanned too (innerText skips a closed disclosure's content).
+    await page.getByTestId("all-numbers").locator("summary").click();
+    await expect(page.getByTestId("mesh-detail")).toBeVisible();
     const text = await page.locator(".sidebar").innerText();
     const matches = text.match(RAW_FLOAT) ?? [];
     expect(matches, `found un-rounded number(s) in the sidebar:\n${matches.join(", ")}\n\nfull text:\n${text}`).toEqual([]);

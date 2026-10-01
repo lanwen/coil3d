@@ -18,7 +18,7 @@ test("a hash URL with explicit locks drives the result panel and the STL downloa
   await expect(page.getByTestId("hash-notice")).toHaveCount(0);
   await expect(page.getByTestId("outer-size")).toHaveText("40.0 mm");
   await expect(page.getByTestId("layers")).toHaveText("1");
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   // The 3D viewer mounted and rendered something (a <canvas>).
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();

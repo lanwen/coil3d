@@ -90,7 +90,7 @@ test("advanced settings and the top-cap/joint/label/mount/print-bed controls all
   // the top cap is off -- a two-layer link keeps the (auto) cap on so those
   // fields are actually in the DOM to check.
   await page.goto("/#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2");
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
   await openAdvanced(page);
   for (const heading of ["Winding quality"]) {
     const field = page.locator(".field").filter({ hasText: heading });
@@ -103,19 +103,18 @@ test("advanced settings and the top-cap/joint/label/mount/print-bed controls all
   }
 });
 
-test("the conditional advanced fields (custom bend multiplier, objective) have hints when they're shown", async ({ page }) => {
+test("the conditional fields (custom bend multiplier, the option cards) have hints when they're shown", async ({ page }) => {
   // wt=custom shows the custom-bend-multiplier field; leaving only "outer"
-  // locked (height + layers both free) shows the objective picker (issue
-  // #23: freeCount >= 2).
-  await page.goto("/#v=1&L=1000&d=4&wt=custom&lock=outer&size=40");
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  // locked (height + layers both free) shows the option cards (issue #192,
+  // which replaced the objective picker).
+  await page.goto("/#v=1&L=2000&d=3.8&wt=custom&lock=outer&size=30");
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const customField = page.locator(".field").filter({ hasText: "Custom bend multiplier" });
   await expect(customField.getByTestId("hint-btn")).toBeVisible();
 
-  await openAdvanced(page);
-  const objectiveField = page.locator(".field").filter({ hasText: "Objective" });
-  await expect(objectiveField.getByTestId("hint-btn")).toBeVisible();
+  const optionsSection = page.locator("section.ctl-section").filter({ has: page.getByTestId("options") });
+  await expect(optionsSection.getByTestId("hint-btn")).toBeVisible();
 });
 
 test("the conditional mount fields (keyhole rotation, through-hole diameter) have hints when they're shown", async ({ page }) => {
@@ -133,7 +132,7 @@ test("the conditional mount fields (keyhole rotation, through-hole diameter) hav
 
 test("the viewer's wound-cable toggle has a hint too", async ({ page }) => {
   await page.goto("/#v=1&L=1000&d=4&lock=outer,ly&size=40");
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
   const wireToggle = page.locator(".wire-toggle");
   await expect(wireToggle.getByTestId("hint-btn")).toBeVisible();
 });

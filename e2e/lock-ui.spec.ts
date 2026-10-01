@@ -1,5 +1,4 @@
 import { expect, test } from "@playwright/test";
-import { openAdvanced } from "./advanced";
 import { decodeHashDoc } from "./hashDoc";
 
 // Issue #5 acceptance criteria: lock toggles update both the result panel
@@ -76,10 +75,11 @@ test("unlocking layers (2 free: height + layers) shows an alternate candidate", 
   // Unlocking layers too leaves outer size locked and height + layers free.
   await page.getByTestId("lock-layers").uncheck();
 
-  // Advanced settings stays collapsed (issue #169): open it to reach the picker.
-  await openAdvanced(page);
-  await expect(page.getByTestId("select-objective")).toBeVisible();
-  await expect(page.getByTestId("alternate-candidate")).toBeVisible();
+  // Issue #192: the alternative shows as a second option card (the objective
+  // picker that used to sit in Advanced settings is gone).
+  await expect(page.getByTestId("options").getByRole("radio")).toHaveCount(2);
+  await expect(page.getByRole("radio", { name: "Smallest" })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Even proportions" })).not.toBeChecked();
 });
 
 // Issue #119 AC #1: at most 2 of {core size, height, layers} can be locked
@@ -123,7 +123,7 @@ test.describe("at most 2 of core size / height / layers can be locked (issue #11
     const s = Buffer.from(JSON.stringify(doc)).toString("base64url");
     await page.goto(`/#s=${s}`);
 
-    await expect(page.getByTestId("diagnosis-status")).toBeVisible(); // renders -- no crash
+    await expect(page.getByTestId("verdict")).toBeVisible(); // renders -- no crash
     await expect(page.getByTestId("hash-notice")).toContainText(/layers/i);
     // Normalized down to 2 locked: core size + height stay locked (as requested), layers ends up free.
     await expect(page.getByTestId("lock-outer")).toBeChecked();

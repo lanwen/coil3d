@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { hoverHint } from "./hint";
+import { openAllNumbers } from "./advanced";
 
 // End-to-end checks for the overall-dimension axes: issue #50's IKEA-style
 // dimensions (values fixed by #63), redrawn by issue #69 as 3D axes inside
@@ -530,7 +531,8 @@ test.describe("the cable/flange rows are comparable (issue #65)", () => {
     expect(envelopeCm).toBeLessThanOrEqual(acrossCornersCm);
 
     // Every one of the three rows has its own (i) hint, and none of them
-    // are empty.
+    // are empty. They sit under "All numbers" (issue #192).
+    await openAllNumbers(page);
     for (const testId of ["envelope", "flange", "flange-across-corners"]) {
       const row = page.locator(".result-row").filter({ has: page.getByTestId(testId) });
       const hintBtn = row.getByTestId("hint-btn");

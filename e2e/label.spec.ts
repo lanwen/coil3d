@@ -148,9 +148,12 @@ test.describe("engraved label render, round/square/triangle (issue #12)", () => 
 test.describe("too-long-text warning (issue #12)", () => {
   test("the result panel shows the fit warning for text that doesn't fit", async ({ page }) => {
     await gotoDesign(page, `${ROOMY_ROUND}&label=${encodeURIComponent("The Quick Brown Fox Jumps")}`);
-    const warnings = page.getByTestId("warnings");
-    await expect(warnings).toContainText("doesn't fit");
-    await expect(warnings).toHaveScreenshot("label-too-long-warning.png");
+    // Issue #192: a problem, so it's in the visible problems list (and also
+    // under "All numbers", with every other message).
+    await expect(page.getByTestId("warnings")).toContainText("doesn't fit");
+    const problems = page.getByTestId("problems");
+    await expect(problems).toContainText("doesn't fit");
+    await expect(problems).toHaveScreenshot("label-too-long-warning.png");
   });
 });
 

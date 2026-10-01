@@ -325,7 +325,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
         limit,
         TRANSITION_TURNS_MAX,
       );
-      if (!found.ok) warnings.push(`The cable's step from layer ${prev.layer} to layer ${result.layer} bends tighter than its ${ends.bendRadius.toFixed(1)} mm bend radius.`);
+      if (!found.ok) warnings.push(`Between layers ${prev.layer} and ${result.layer} the cable bends tighter than it should (its bend radius is ${(ends.bendRadius / 10).toFixed(1)} cm).`);
       layerTransitions.push(found.points);
       start = u0 + found.turns;
     }
@@ -387,7 +387,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
       limit,
       LEAD_OUT_TURNS_MAX,
     );
-    if (!found.ok) warnings.push(`The cable's run up to the top cap's clip bends tighter than its ${ends.bendRadius.toFixed(1)} mm bend radius.`);
+    if (!found.ok) warnings.push(`On its way up to the top cap's clip the cable bends tighter than it should (its bend radius is ${(ends.bendRadius / 10).toFixed(1)} cm).`);
     // The lead-out, in the cap's local frame: repeated clips (issue #121)
     // are left out where they would stand in its way.
     const avoid = Array.from({ length: found.points.length / 3 }, (_, i) => ({ x: found.points[i * 3], y: found.points[i * 3 + 1], z: found.points[i * 3 + 2] - ends.height }));

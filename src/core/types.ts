@@ -148,6 +148,27 @@ export interface CoilSpec {
   throughHoleDiameter?: number;
 }
 
+/**
+ * One message about a solved design (issue #192). A `"problem"` needs the
+ * user's attention before printing (the cable won't fit, a part is too big
+ * for the bed, the label won't show). A `"note"` only explains an automatic
+ * adjustment the core already made (e.g. a wider flange margin).
+ */
+export interface Notice {
+  severity: "problem" | "note";
+  message: string;
+}
+
+/** Collects notices where they're created: `problem(...)`/`note(...)` push one each. Core-internal. */
+export function noticeCollector() {
+  const notices: Notice[] = [];
+  return {
+    notices,
+    problem: (message: string) => void notices.push({ severity: "problem", message }),
+    note: (message: string) => void notices.push({ severity: "note", message }),
+  };
+}
+
 export interface LayerResult {
   layer: number;
   turns: number;
@@ -234,8 +255,9 @@ export interface Solution {
    * convention). Set once `design()` has resolved the real flange
    * thickness and whether a cap is attached (both mount- and
    * layer-count-dependent, so `solve()` alone can't compute this --
-   * see design.ts); left undefined on `alternates`, whose geometry
-   * `design()` never actually builds.
+   * see design.ts). Also set on each of `design()`'s `alternates` (issue
+   * #192), from the same flange sizing, so an option card shows exactly
+   * what picking it builds; undefined only straight out of `solve()`.
    */
   overallHeight?: number;
   /**
@@ -254,7 +276,7 @@ export interface Solution {
    * corner-arc extent -- together they bound whatever direction the
    * viewer's own width/depth dimension axes (`DimensionAxes.tsx`,
    * measured along the model's own X/Y) read off the SAME flange.
-   * Undefined on `alternates` (see `overallHeight`).
+   * Set on `alternates` too (see `overallHeight`).
    */
   flangeExtent?: FlangeExtent;
   /** True iff layers > 1 -- the AUTOMATIC recommendation, independent of `CoilSpec.topCap`'s override. */
@@ -369,8 +391,12 @@ export interface PegboardSection {
 export interface Design {
   spec: CoilSpec;
   solution: Solution;
-  /** Non-fatal notices about the solved design (solver + geometry). */
+  /** Non-fatal messages about the solved design (solver + geometry), each tagged "problem" or "note" (issue #192). */
+  notices: Notice[];
+  /** Every notice's message, in order: trivial derived convenience, `notices.map(n => n.message)`. */
   warnings: string[];
+  /** True when every part fits the print bed (`spec.print`) in its own print orientation (issue #192); false exactly when a bed-fit problem is reported. */
+  fitsBed: boolean;
   /** How the label text fits the top cap. Absent when there is no top cap or
    * no (non-blank) label. `maxChars` is the length of the longest prefix of
    * `spec.label` that fits; it equals `spec.label.length` when `fits`. */

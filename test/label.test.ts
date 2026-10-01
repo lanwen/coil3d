@@ -75,7 +75,7 @@ describe("top cap label (issue #12)", () => {
   it("label set but no top cap: warns and leaves the (single) part unaffected", async () => {
     const d = await design(baseSpec({ topCap: "off", label: "USB-C 2m" }));
     expect(d.parts).toHaveLength(1);
-    expect(d.warnings.some((w) => w.includes('"USB-C 2m"') && w.toLowerCase().includes("no top cap"))).toBe(true);
+    expect(d.notices.some((n) => n.severity === "problem" && n.message.includes('"USB-C 2m"') && n.message.includes("needs a top cap"))).toBe(true);
   });
 
   it("a short label that fits: engraves real material out of the cap, stays manifold, no fit warning", async () => {

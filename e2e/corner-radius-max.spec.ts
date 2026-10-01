@@ -24,7 +24,7 @@ const SQUARE_100 = "/#v=1&shape=sq&lock=outer,ly&size=100";
 
 test("the corner-radius slider's max is well short of a literal circle (outerSize/2), for a rounded square", async ({ page }) => {
   await page.goto(SQUARE_100);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
   const max = Number(await cornerInput.getAttribute("max"));
@@ -35,7 +35,7 @@ test("the corner-radius slider's max is well short of a literal circle (outerSiz
 
 test("dragging/typing the corner radius above the useful max clamps it right back down, immediately (issue #134)", async ({ page }) => {
   await page.goto(SQUARE_100);
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
   const max = Number(await cornerInput.getAttribute("max"));
@@ -53,7 +53,7 @@ test("a shared link requesting a corner radius above the useful max loads clampe
   // to be honored as-is, right up against a near-exact circle -- but past
   // the new useful max.
   await page.goto("/#v=1&shape=sq&sq.rc=49&lock=outer,ly&size=100");
-  await expect(page.getByTestId("diagnosis-status")).toBeVisible();
+  await expect(page.getByTestId("verdict")).toBeVisible();
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
   const max = Number(await cornerInput.getAttribute("max"));

@@ -1,5 +1,5 @@
 import { useId, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, Design, JointKind, KeyholeRotation, Lock, MountKind, Objective, ShapeKind, Solution, WireTypeId } from "../core";
+import type { CoilSpec, CoreSizeLock, Design, JointKind, KeyholeRotation, Lock, MountKind, ShapeKind, Solution, WireTypeId } from "../core";
 import {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
@@ -185,11 +185,7 @@ export function ControlsForm({
   const coreSizeDimensionId = useId();
   const mountId = useId();
   const keyholeRotationId = useId();
-  const objectiveId = useId();
   const jointId = useId();
-
-  const freeCount = [spec.coreSize.locked, spec.height.locked, spec.layers.locked].filter((locked) => !locked).length;
-  const showObjective = freeCount >= 2;
 
   // Issue #119 AC #1: at most 2 of {core size, height, layers} can be locked
   // at once -- something has to stay free so the solver can fit the cable
@@ -496,21 +492,6 @@ export function ControlsForm({
             hint={HINTS.windingQuality}
             onChange={(v) => onChange({ ...spec, windingQuality: v })}
           />
-          {showObjective && (
-            <div className="field">
-              <FieldTop label={`Objective (${freeCount} free dimensions)`} hint={HINTS.objective} htmlFor={objectiveId} />
-              <select
-                id={objectiveId}
-                className="field-select"
-                data-testid="select-objective"
-                value={spec.objective}
-                onChange={(e) => onChange({ ...spec, objective: e.target.value as Objective })}
-              >
-                <option value="minVolume">Minimum volume</option>
-                <option value="aspectRatio">Cube-like proportions</option>
-              </select>
-            </div>
-          )}
         </div>
       </details>
 

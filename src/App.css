@@ -1147,9 +1147,10 @@ header p {
   }
 }
 
-/* ---------- Advanced disclosure ---------- */
+/* ---------- Advanced disclosure (and "All numbers", issue #192: `.disclosure`) ---------- */
 
-.advanced {
+.advanced,
+.disclosure {
   /* Same divider as `.ctl-section`. The 44px summary below is a comfortable
      tap target; 6px here puts its title about where a section title sits. */
   padding: 6px 0;
@@ -1186,7 +1187,8 @@ header p {
   transform: translateY(-2px) rotate(45deg);
 }
 
-.advanced[open] > .advanced-summary::after {
+.advanced[open] > .advanced-summary::after,
+.disclosure[open] > .advanced-summary::after {
   transform: translateY(2px) rotate(-135deg);
 }
 
@@ -1254,16 +1256,295 @@ header p {
   text-align: left;
 }
 
-.alternate-candidate {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px dashed var(--hairline-soft);
+/* The verdict (issue #192): does the cable fit, and is it ready to print.
+   Same framed box as the old diagnosis line: solid when ready, dashed when
+   something needs a look, inverted when the cable won't fit. */
+.verdict {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
 }
 
-.alternate-candidate h3 {
+.verdict-warn {
+  border-style: dashed;
+}
+
+.verdict-bad {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.verdict-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
   font-size: 0.85rem;
+  line-height: 1;
+}
+
+.verdict-title {
+  margin: 0;
+  font-family: "Kanit", "system-ui", -apple-system, "Segoe UI", sans-serif;
+  font-size: 1.1rem;
   font-weight: 700;
-  margin: 0 0 8px;
+  line-height: 1.2;
+}
+
+.verdict-detail {
+  margin: 3px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.verdict-bad .verdict-detail {
+  color: var(--paper);
+}
+
+.facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fact {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--hairline-soft);
+  font-size: 0.88rem;
+}
+
+.fact dt {
+  color: var(--muted);
+  flex: none;
+}
+
+.fact dd {
+  margin: 0;
+  font-weight: 700;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 4px 8px;
+  text-align: right;
+}
+
+.fact-note {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.fit-chip {
+  font-weight: 400;
+  font-size: 0.75rem;
+  padding: 1px 7px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.fit-chip::before {
+  content: "✓ ";
+}
+
+.fit-chip-bad {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.fit-chip-bad::before {
+  content: "! ";
+  font-weight: 800;
+}
+
+/* Problems only (issue #192): notes about automatic adjustments are under "All numbers". */
+.problems {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.problems li {
+  display: flex;
+  gap: 8px;
+}
+
+.problems li::before {
+  content: "!";
+  flex: none;
+  font-weight: 800;
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  line-height: 14px;
+  text-align: center;
+  font-size: 0.7rem;
+}
+
+/* Option cards (issue #192): a radio group, one card per solver option. */
+.options-intro-row {
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.options-intro {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 8px;
+  border: 1.5px solid var(--hairline-soft);
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.option:hover {
+  border-color: var(--ink);
+}
+
+/* 0.5px less padding pays for the 0.5px thicker border, so the card doesn't shift. */
+.option-active {
+  border: 2px solid var(--ink);
+  padding: 7.5px 11.5px 7.5px 7.5px;
+}
+
+/* The native radio stays in place (keyboard and screen readers use it) but is invisible: the whole card is its hit area. */
+.option-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.option:has(.option-input:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.option-art {
+  flex: none;
+}
+
+.option-art-part {
+  fill: var(--paper);
+  stroke: var(--ink);
+  stroke-width: 1.4;
+}
+
+.option-art-wall {
+  stroke: var(--ink);
+  stroke-width: 1.4;
+}
+
+.option-art-cable {
+  fill: #bdbdbd;
+}
+
+.option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.option-title {
+  font-family: "Kanit", "system-ui", -apple-system, "Segoe UI", sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.option-tag {
+  font-family: "system-ui", -apple-system, "Segoe UI", sans-serif;
+  font-weight: 400;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 0 6px;
+  border: 1px solid var(--ink);
+  border-radius: 999px;
+}
+
+.option-active .option-tag {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.option-diff {
+  font-size: 0.82rem;
+}
+
+.option-detail {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.option-back {
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 4px 0;
+  background: none;
+  border: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.option-back:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* "All numbers" (issue #192): the full detail, behind a disclosure styled like "Advanced settings". */
+.all-numbers-body {
+  gap: 0;
+}
+
+.all-numbers-heading {
+  margin: 14px 0 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
 .result-row {
