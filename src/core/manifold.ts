@@ -57,6 +57,7 @@ import { layoutInnerEnd, sweepMesh } from "./innerEnd";
 import type { CapClipLayout, InnerEndLayout, SweepSolid } from "./innerEnd";
 import { layoutKeyholeMount } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
+import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
@@ -509,11 +510,12 @@ export async function fuseFlange(
       }
     }
 
-    const outMesh = fused.getMesh();
-    return {
+    // Issue #180: the same needle triangles in the flange's flat faces (see flatFaces.ts).
+    const outMesh = track(fused.refineToLength(FLAT_FACE_MAX_EDGE)).getMesh();
+    return improveFlatFaces({
       positions: new Float32Array(outMesh.vertProperties),
       indices: new Uint32Array(outMesh.triVerts),
-    };
+    });
   } finally {
     for (const m of trash) m.delete();
   }
@@ -626,11 +628,16 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       throw new Error(`Top cap mesh is not a valid manifold: ${assembled.status()}`);
     }
 
-    const outMesh = assembled.getMesh();
-    const mesh: CoilMesh = {
+    // Issue #180: the booleans leave needle-thin triangles in the plate's
+    // flat faces, which the line-art renderer draws as a dotted line (see
+    // flatFaces.ts). The flips keep each triangle's place in the list and
+    // swap edges only inside one flat face, so the label's triangles stay
+    // the label's.
+    const outMesh = track(assembled.refineToLength(FLAT_FACE_MAX_EDGE)).getMesh();
+    const mesh: CoilMesh = improveFlatFaces({
       positions: new Float32Array(outMesh.vertProperties),
       indices: new Uint32Array(outMesh.triVerts),
-    };
+    });
     if (labelId !== undefined) {
       const labelTriangles: number[] = [];
       const runIndex = outMesh.runIndex!;

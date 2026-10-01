@@ -265,9 +265,18 @@ describe("the top cap marks its label pocket faces (labelTriangles)", () => {
     const depth = -Math.min(...[...marked].flatMap(zOf));
     expect(depth).toBeGreaterThan(0.1);
     expect(depth).toBeLessThan(CAP_THICKNESS);
+    // The cap mesh also has vertices in that height band on its outer wall (it
+    // cuts every edge short), so only the engraving's own area counts.
+    const xy = [...marked].flatMap((t) => [0, 1, 2].map((k) => [mesh.positions[mesh.indices[t * 3 + k] * 3], mesh.positions[mesh.indices[t * 3 + k] * 3 + 1]]));
+    const [x0, x1] = [Math.min(...xy.map((p) => p[0])) - 0.5, Math.max(...xy.map((p) => p[0])) + 0.5];
+    const [y0, y1] = [Math.min(...xy.map((p) => p[1])) - 0.5, Math.max(...xy.map((p) => p[1])) + 0.5];
+    const inArea = (t: number) => [0, 1, 2].every((k) => {
+      const v = mesh.indices[t * 3 + k] * 3;
+      return mesh.positions[v] >= x0 && mesh.positions[v] <= x1 && mesh.positions[v + 1] >= y0 && mesh.positions[v + 1] <= y1;
+    });
     for (let t = 0; t < mesh.indices.length / 3; t++) {
       const z = zOf(t);
-      const inPocket = z.every((v) => v > -depth - 1e-4 && v < 1e-4) && !z.every((v) => v > -1e-4);
+      const inPocket = inArea(t) && z.every((v) => v > -depth - 1e-4 && v < 1e-4) && !z.every((v) => v > -1e-4);
       expect(marked.has(t), `triangle ${t} at z ${z.map((v) => v.toFixed(3)).join(", ")}`).toBe(inPocket);
     }
   });

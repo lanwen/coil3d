@@ -306,6 +306,13 @@ the letters in. The top cap mesh marks the label's pocket faces
 and the edge shader draws only the outline of the marked area, with a finer
 pen than the other lines.
 
+The edge shader reads a needle-thin triangle (a thousandth of a millimetre
+wide) as isolated pixels, which show as a dotted line on a flat face. The
+booleans leave such triangles in the flat faces of the top cap and of the
+core's flange, so those meshes have every edge cut to 10 mm and the edges
+inside each horizontal flat face flipped to the triangulation with the best
+smallest angle (`src/core/flatFaces.ts`).
+
 The camera is refitted to the projected bounds when the geometry changes.
 The wound cable is drawn as one merged tube per layer, with smooth normals so
 the tube's facets do not draw lines. A layer with many turns (over 60) is
