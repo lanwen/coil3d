@@ -210,3 +210,30 @@ describe("bayonet falls back to the press-fit collar (issue #167)", () => {
     expect(d.warnings.join("\n")).not.toMatch(/twist lock/i);
   });
 });
+
+// Issue #201: a flip across a quad that was a hair reflex left an inverted
+// triangle, and at a few core sizes that cut the cap into two or three pieces.
+// The sizes are the ones found by sweeping 28.3 to 29.5 mm in 0.01 mm steps
+// (on 3000 mm of 3.8 mm cable, 40 mm high); the sweep around them checks that
+// it was not just those three.
+describe("every part of a round bayonet design is one solid at any core size (issue #201)", () => {
+  const sizes = [28.31, 28.37, 28.88];
+  for (let size = 26; size <= 34; size += 0.25) sizes.push(size);
+
+  it.each(sizes)("outer size %f mm", async (size) => {
+    const d = await design(
+      spec({ coreSize: { locked: true, dimension: "outer", value: size }, height: { locked: true, value: 40 }, wire: { length: 3000, diameter: 3.8, type: "usb" } }),
+    );
+    for (const part of d.parts) {
+      const m = toManifold(part.mesh);
+      try {
+        expect(m.status(), part.role).toBe("NoError");
+        const pieces = m.decompose();
+        expect(pieces.length, `${part.role}: one connected solid`).toBe(1);
+        pieces.forEach((p) => p.delete());
+      } finally {
+        m.delete();
+      }
+    }
+  });
+});
