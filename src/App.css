@@ -787,8 +787,8 @@ header p {
   justify-content: center;
   transform: translateY(-50%);
   font-family: "Kanit", "system-ui", -apple-system, "Segoe UI", sans-serif;
-  /* Deliberately not any smaller: below this, this sandbox's software text
-     rasterizer (SwiftShader/headless) prints the digit with visible
+  /* Deliberately not any smaller: below this, software text rasterizers
+     (SwiftShader/headless Chromium) print the digit with visible
      R/G/B subpixel fringing instead of a clean grayscale glyph -- verified
      by screenshot at 0.55rem/14px, illegible; fine from 0.6rem/16px up. */
   font-size: 0.62rem;

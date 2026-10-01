@@ -10,7 +10,7 @@
 // circle (see shapes.ts).
 //
 // manifold-3d ships a single-threaded WASM build, so this works without
-// COOP/COEP headers (fine for GitHub Pages / `vite preview`).
+// COOP/COEP headers (fine on any static host and under `vite preview`).
 //
 // Issue #9 (top cap, joints, keyhole): `buildTopCap` builds the cap as a
 // second manifold part, mirroring the bottom flange (same footprint, but a

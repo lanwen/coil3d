@@ -1,21 +1,19 @@
-import { existsSync } from "node:fs";
 import { defineConfig, devices } from "@playwright/test";
 
-// E2E_PORT lets parallel checkouts (e.g. agent worktrees) use their own port.
+// E2E_PORT lets several checkouts run the suite at once, each on its own port.
 const PORT = Number(process.env.E2E_PORT ?? 5182);
 
-// The sandbox's globally-installed Chromium (kept in sync with the kit's
-// pinned revision) is the only build in this environment that can create a
-// WebGL context via SwiftShader; the npm-installed browser resolves a newer
-// revision that cannot. Outside that sandbox this path won't exist, so fall
-// back to Playwright's own browser resolution.
-const PINNED_CHROMIUM = "/opt/ms-playwright/chromium-1228/chrome-linux/chrome";
+// Optional: path to a specific Chromium executable. Unset (the default) uses
+// the browser Playwright installed (`npx playwright install chromium`). Set it
+// when that browser is unavailable, or to match the build the screenshot
+// baselines were taken with (Chromium 1228, as in the CI image below).
+const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_PATH;
 const swiftshaderArgs = ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
 
 export default defineConfig({
   testDir: "./e2e",
   // Real GitHub-hosted runners (2 shared vCPUs, no GPU) are far slower at
-  // software-rendered WebGL than this sandbox (see .github/workflows/ci.yml
+  // software-rendered WebGL than a typical dev machine (see .github/workflows/ci.yml
   // and issue #18's PR): tests that touch the canvas took several times
   // longer than locally. `reducedMotion` below closes most of that gap for
   // the majority of tests, but NOT for: (a) the few files that
@@ -44,12 +42,12 @@ export default defineConfig({
   // report. "github" adds inline PR annotations on failures at no extra
   // cost. Locally (no sharding) plain "list" is all that's needed.
   reporter: process.env.CI ? [["blob"], ["github"]] : "list",
-  // Software-rendered WebGL (SwiftShader, see PINNED_CHROMIUM above) is
+  // Software-rendered WebGL (SwiftShader) is
   // deterministic per-machine but not bit-identical across environments, so
   // screenshot assertions get a small pixel-ratio allowance rather than an
-  // exact match. Verified in the official mcr.microsoft.com/playwright:
-  // v1.61.1-noble image (same Chromium 1228 build the baselines were shot
-  // with, via PLAYWRIGHT_BROWSERS_PATH -- see PINNED_CHROMIUM below): every
+  // exact match. Verified in the mcr.microsoft.com/playwright:
+  // v1.61.1-noble image (the same Chromium 1228 build the baselines were shot
+  // with): every
   // screenshot matched pixel-for-pixel there, so `expect.timeout` (not the
   // pixel allowance) is what needed raising for CI -- the real bottleneck is
   // render speed on that shared, GPU-less hardware, not a rendering
@@ -98,7 +96,7 @@ export default defineConfig({
     // opt back into real motion with their own `test.use(...)`.
     contextOptions: { reducedMotion: "reduce" },
     launchOptions: {
-      ...(existsSync(PINNED_CHROMIUM) ? { executablePath: PINNED_CHROMIUM } : {}),
+      ...(CHROMIUM_PATH ? { executablePath: CHROMIUM_PATH } : {}),
       args: swiftshaderArgs,
     },
   },
