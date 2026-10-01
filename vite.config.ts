@@ -12,6 +12,12 @@ export default defineConfig({
   // "/", unchanged.
   base: process.env.VITE_BASE ?? "/",
   plugins: [react()],
+  // The dev server pre-bundles deps into node_modules/.vite/deps, but
+  // manifold-3d loads manifold.wasm relative to its own script, and the
+  // wasm isn't copied there: the request fell through to index.html
+  // ("unsupported MIME type 'text/html'"). Serving it from its own package
+  // keeps the wasm next to the script. The production build is unaffected.
+  optimizeDeps: { exclude: ["manifold-3d"] },
   server: { port: 5182, host: "0.0.0.0" },
   preview: { port: 5182, host: "0.0.0.0" },
   // The STEP export worker (src/core/step/worker.ts) dynamically imports
