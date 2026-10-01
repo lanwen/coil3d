@@ -138,7 +138,13 @@ objective: `minVolume` (smallest envelope, the default) or `aspectRatio`
 (height close to the envelope diameter), and it also returns an alternative
 candidate. With three free variables it tries a few layer counts, returns
 two or three candidates and warns that defaults were applied. The solver never
-reports "ok" when the capacity is below the target length.
+reports "ok" when the capacity is below the target length. A design that holds
+the cable is "ok" ("under-constrained" with all three free), whatever the
+number of free variables, even when the locks or the bend limit force more
+room than the cable needs. Above 10 % that room gets a note naming the cause:
+the locks that could shrink and still hold the cable, or else the smallest
+core the bend limit allows. "infeasible" (or, fully locked,
+"over-constrained") always means the cable doesn't fit.
 
 Every candidate is tight: no free variable can shrink and still hold the
 cable. Where the size is free it is the smallest that covers the target. At
