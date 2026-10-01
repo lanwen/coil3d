@@ -175,6 +175,9 @@ function collarBase(
 /** Columns for the snap joint's outlines: fine enough that a faceted 45-degree chamfer leans well under a degree past 45 even on a big bore. */
 const SNAP_COLUMNS = 96;
 
+/** Columns for a round cap collar (issue #200): 2.5 degree facets, so a facet seam seen edge-on lies within the wall's own outline. */
+const ROUND_COLLAR_SEGMENTS = 144;
+
 /** joints.ts's `OutlineStack` as one solid: the hull of each neighbouring pair of stations (a prism or a convex frustum), unioned. */
 function stackSolid(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, stack: OutlineStack, columns: number, cornerSegments: number): Manifold {
   const pieces: Manifold[] = [];
@@ -575,7 +578,13 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     }
 
     const { collarOutline, holeOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
-    const segments = 48;
+    // Issue #200: columns on the collar's walls. The line-art renderer draws a
+    // facet seam that is seen almost edge-on, beside the wall's side outline, as
+    // a depth step: 7.5 degree facets (48) left dotted vertical lines on a round
+    // collar, and facets under about 3 degrees put every seam in the outline.
+    // Other shapes keep 48: their corner arcs get their own columns
+    // (`minCornerSegments`), and a finer budget only adds triangles on the flats.
+    const segments = collarOutline.cornerRadius >= collarOutline.apothem - 1e-6 ? ROUND_COLLAR_SEGMENTS : 48;
 
     // Issue #172: the collar is a straight tube run WELD_OVERLAP up into the
     // plate, which is solid under it since #127. It never flares out to the
