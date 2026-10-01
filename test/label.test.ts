@@ -1,6 +1,6 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { DEFAULT_SPEC, design } from "../src/core";
 import type { CoilSpec, ShapeSpec } from "../src/core";
 
 // Issue #12 acceptance criteria: "Label text in the UI and hash; embossed
@@ -106,5 +106,49 @@ describe("top cap label (issue #12)", () => {
     for (const part of d.parts) {
       await assertManifold(part.mesh, `${shape.kind}/${part.name}`);
     }
+  });
+
+  describe("labelFit: how much of the label the cap can hold", () => {
+    const DEFAULT_CAP = { ...DEFAULT_SPEC, topCap: "on" as const };
+    const maxChars = async (spec: CoilSpec, label: string) => (await design({ ...spec, label })).labelFit?.maxChars;
+
+    it("is absent without a label, with a blank label, and without a top cap", async () => {
+      expect((await design(DEFAULT_CAP)).labelFit).toBeUndefined();
+      expect((await design({ ...DEFAULT_CAP, label: "   " })).labelFit).toBeUndefined();
+      expect((await design({ ...DEFAULT_CAP, topCap: "off", label: "ABC" })).labelFit).toBeUndefined();
+    });
+
+    it("a label that fits reports fits with maxChars equal to its length", async () => {
+      expect((await design({ ...DEFAULT_CAP, label: "USB-C 2m" })).labelFit).toEqual({ fits: true, maxChars: 8 });
+    });
+
+    it("on the default cap, ABCDEFGHIJK holds 8 characters and the fit warning stays", async () => {
+      const d = await design({ ...DEFAULT_CAP, label: "ABCDEFGHIJK" });
+      expect(d.labelFit).toEqual({ fits: false, maxChars: 8 });
+      expect(d.warnings.some((w) => w.toLowerCase().includes("doesn't fit"))).toBe(true);
+      // The prefix it names really fits, and one more character does not.
+      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGH" })).labelFit?.fits).toBe(true);
+      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGHI" })).labelFit?.fits).toBe(false);
+    });
+
+    it("a roomier cap holds at least 11 characters", async () => {
+      const d = await design({ ...ROOMY_CAP, label: "ABCDEFGHIJK" });
+      expect(d.labelFit).toEqual({ fits: true, maxChars: 11 });
+    });
+
+    it("counts a leading space in the raw text it measures", async () => {
+      expect(await maxChars(DEFAULT_CAP, " ABCDEFGHIJK")).toBe(9);
+    });
+
+    it("never shrinks as the cap grows (more layers, then a bigger core)", async () => {
+      const long = "ABCDEFGHIJKLMNOP";
+      const byLayers: number[] = [];
+      for (const ly of [1, 2, 3, 4, 6]) byLayers.push((await maxChars({ ...DEFAULT_CAP, layers: { locked: true, value: ly } }, long))!);
+      const byCore: number[] = [];
+      for (const size of [40, 50, 60, 80, 120]) byCore.push((await maxChars({ ...DEFAULT_CAP, coreSize: { locked: true, dimension: "outer", value: size } }, long))!);
+      for (const series of [byLayers, byCore]) {
+        for (let i = 1; i < series.length; i++) expect(series[i], series.join(",")).toBeGreaterThanOrEqual(series[i - 1]);
+      }
+    });
   });
 });

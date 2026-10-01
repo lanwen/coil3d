@@ -1,5 +1,5 @@
 import { useId, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, Objective, ShapeKind, Solution, WireTypeId } from "../core";
+import type { CoilSpec, CoreSizeLock, Design, JointKind, KeyholeRotation, Lock, MountKind, Objective, ShapeKind, Solution, WireTypeId } from "../core";
 import {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
@@ -7,7 +7,6 @@ import {
   DEFAULT_CUSTOM_BEND_MULTIPLIER,
   DEFAULT_THROUGH_HOLE_DIAMETER,
   KEYHOLE_ROTATION_OPTIONS,
-  LABEL_MAX_LENGTH,
   SHAPES,
   THROUGH_HOLE_DIAMETER_MAX,
   THROUGH_HOLE_DIAMETER_MIN,
@@ -15,8 +14,9 @@ import {
   TOLERANCE_MIN,
   WIRE_TYPE_PRESETS,
 } from "../core";
-import { FieldTop, LockRangeField, RangeField, Section, Switch, TextField, cmToMm, mmToCm, roundMm } from "./fields";
+import { FieldTop, LockRangeField, RangeField, Section, Switch, cmToMm, mmToCm, roundMm } from "./fields";
 import { HINTS } from "./hints";
+import { LabelField } from "./LabelField";
 import { ShapePicker } from "./ShapePicker";
 
 /** Slider bounds in cm (issue #51 AC: "20-1500 cm"); converted to the mm `CoilSpec` stores. */
@@ -63,11 +63,16 @@ const KEYHOLE_ROTATION_LABELS: Record<KeyholeRotation, string> = {
 export function ControlsForm({
   spec,
   solution,
+  design,
+  finalReady,
   onChange,
 }: {
   spec: CoilSpec;
   /** The current design's solved numbers, so free fields can show them instead of a placeholder. Undefined before the first design() resolves. */
   solution?: Solution;
+  /** The latest design and whether it is the final one for the current spec; the label field uses them to stop text the cap can't hold. */
+  design?: Design | null;
+  finalReady?: boolean;
   onChange: (next: CoilSpec) => void;
 }) {
   const setWire = (patch: Partial<CoilSpec["wire"]>) => onChange({ ...spec, wire: { ...spec.wire, ...patch } });
@@ -581,14 +586,7 @@ export function ControlsForm({
                 "clears the hash" falls out of the existing encode rule for
                 free. */}
             {labelEnabled && (
-              <TextField
-                testId="label"
-                label="Label text"
-                placeholder="e.g. USB-C 2m"
-                maxLength={LABEL_MAX_LENGTH}
-                value={spec.label ?? ""}
-                onChange={(v) => onChange({ ...spec, label: v })}
-              />
+              <LabelField spec={spec} design={design} finalReady={finalReady} onChange={onChange} />
             )}
           </>
         )}
