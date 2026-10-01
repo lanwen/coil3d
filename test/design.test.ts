@@ -509,7 +509,7 @@ describe("design() keeps square/triangle distinct at small sizes (issue #54)", (
     );
     expect(d.solution.minOuterSizeForShape).toBeCloseTo(d.solution.minOuterSizeForBend, 6);
     expect(d.solution.outerSize).toBeCloseTo(d.solution.minOuterSizeForBend, 6);
-    expect(d.warnings.some((w) => /core size raised.*bend radius/i.test(w))).toBe(true);
+    expect(d.notices.find((n) => /core size raised.*bend radius/i.test(n.message))?.severity, "an automatic adjustment, so a note").toBe("note");
     expect(d.warnings.some((w) => /straight sides/i.test(w))).toBe(false);
   });
 
