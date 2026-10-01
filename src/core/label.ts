@@ -285,7 +285,17 @@ export interface ResolvedLabel {
   bearingDeg: number;
 }
 
+/** How the label text sits on the cap: whether all of it fits, and the length
+ * (in characters of the raw `spec.label`) of the longest prefix that does. */
+export interface LabelFitInfo {
+  fits: boolean;
+  maxChars: number;
+}
+
 export interface LabelResolution {
+  /** Set only when there is a top cap AND a non-blank label: whether the
+   * label fits and how much of it would. */
+  fit?: LabelFitInfo;
   /** Set only when there IS a top cap and the text fits at >= the minimum
    * legible height -- absent (with a `warning`) otherwise. */
   label?: ResolvedLabel;
@@ -323,11 +333,19 @@ export async function resolveLabel(rawText: string | undefined, outline: ShapeOu
   const outerSafe = outline.apothem + flangeMargin;
   const fit = fitLabel(metrics, innerExclusion, outerSafe);
   if (!fit) {
+    // Longest prefix of the raw text that still fits; 0 when not even one character does.
+    let maxChars = rawText!.length - 1;
+    while (maxChars > 0) {
+      const prefix = rawText!.slice(0, maxChars).trim();
+      if (!prefix || fitLabel(measureLabel(font, prefix), innerExclusion, outerSafe)) break;
+      maxChars--;
+    }
     return {
+      fit: { fits: false, maxChars: Math.max(0, maxChars) },
       warning: `Label text "${text}" doesn't fit the top cap at a legible height (>= ${LABEL_MIN_HEIGHT} mm) and has been hidden. Use shorter text or a bigger cap.`,
     };
   }
-  return { label: { text, fontSize: fit.fontSize, yLo: innerExclusion + LABEL_MARGIN, bearingDeg } };
+  return { fit: { fits: true, maxChars: rawText!.length }, label: { text, fontSize: fit.fontSize, yLo: innerExclusion + LABEL_MARGIN, bearingDeg } };
 }
 
 /**

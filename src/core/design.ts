@@ -314,7 +314,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // (step/build.ts calls the same `resolveLabel`), so the two backends can
   // never fit the text differently -- mirrors how CoreJointCut/wallSpec/
   // flangeSpec already keep the mesh and STEP walls from drifting.
-  const { label, warning: labelWarning } = await resolveLabel(spec.label, outline, boreOutline, flangeSpec.margin, topCapEnabled);
+  const { label, fit: labelFit, warning: labelWarning } = await resolveLabel(spec.label, outline, boreOutline, flangeSpec.margin, topCapEnabled);
   if (labelWarning) warnings.push(labelWarning);
 
   if (topCapEnabled) {
@@ -403,6 +403,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     spec,
     solution: { ...solution, overallHeight, flangeExtent },
     warnings,
+    labelFit,
     parts,
     mesh,
     resolution,

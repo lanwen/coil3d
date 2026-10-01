@@ -369,6 +369,10 @@ export interface Design {
   solution: Solution;
   /** Non-fatal notices about the solved design (solver + geometry). */
   warnings: string[];
+  /** How the label text fits the top cap. Absent when there is no top cap or
+   * no (non-blank) label. `maxChars` is the length of the longest prefix of
+   * `spec.label` that fits; it equals `spec.label.length` when `fits`. */
+  labelFit?: { fits: boolean; maxChars: number };
   /** Every printable part (issue #9): always includes the core (wall +
    * integral bottom flange); a topCap part is appended when
    * `solution.topCapEnabled`, then (SKÅDIS/openGrid) the mount plate and

@@ -153,3 +153,69 @@ test.describe("too-long-text warning (issue #12)", () => {
     await expect(warnings).toHaveScreenshot("label-too-long-warning.png");
   });
 });
+
+// Default cable and core with the top cap forced on: ABCDEFGH is the longest
+// all-caps prefix of ABCDEFGHIJKLMNOP that fits this cap (test/label.test.ts).
+const DEFAULT_CAP_ON = "#v=1&cap=on";
+
+test.describe("the label field stops at what the cap can hold", () => {
+  async function openLabelField(page: Page, hash: string) {
+    await gotoDesign(page, hash);
+    await page.getByTestId("label-enabled").check();
+    return page.getByTestId("input-label");
+  }
+
+  test("typing past the cap's room cuts the text to the fitting prefix and says so", async ({ page }) => {
+    const input = await openLabelField(page, DEFAULT_CAP_ON);
+    await expect(page.getByTestId("label-full-note")).toHaveCount(0);
+    await input.pressSequentially("ABCDEFGHIJKLMNOP");
+    await expect(input).toHaveValue("ABCDEFGH");
+    await expect(page.getByTestId("label-full-note")).toBeVisible();
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
+  });
+
+  test("pasting a long string is cut the same way", async ({ page }) => {
+    const input = await openLabelField(page, DEFAULT_CAP_ON);
+    await input.fill("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    await expect(input).toHaveValue("ABCDEFGH");
+    await expect(page.getByTestId("label-full-note")).toBeVisible();
+  });
+
+  test("text that fits is kept and shows no note; deleting clears the note", async ({ page }) => {
+    const input = await openLabelField(page, DEFAULT_CAP_ON);
+    await input.fill("USB-C 2m");
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await expect(input).toHaveValue("USB-C 2m");
+    await expect(page.getByTestId("label-full-note")).toHaveCount(0);
+
+    await input.fill("ABCDEFGHIJK");
+    await expect(input).toHaveValue("ABCDEFGH");
+    await expect(page.getByTestId("label-full-note")).toBeVisible();
+    await input.press("Backspace");
+    await expect(page.getByTestId("label-full-note")).toHaveCount(0);
+  });
+
+  test("shrinking the core after typing keeps the text and shows the fit warning", async ({ page }) => {
+    const input = await openLabelField(page, "#v=1&cap=on&lock=outer,ly&size=80");
+    await input.fill("ABCDEFGHI");
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await expect(input).toHaveValue("ABCDEFGHI");
+    await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
+
+    await page.getByTestId("input-outer").fill("50");
+    await page.getByTestId("input-outer").blur();
+    await expect(page.getByTestId("warnings")).toContainText("doesn't fit");
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await expect(input).toHaveValue("ABCDEFGHI");
+    await expect(page.getByTestId("label-full-note")).toHaveCount(0);
+  });
+
+  test("a link with an overlong label loads it unchanged and warns instead of cutting", async ({ page }) => {
+    await gotoDesign(page, `${DEFAULT_CAP_ON}&label=ABCDEFGHIJKLMNOP`);
+    await expect(page.getByTestId("input-label")).toHaveValue("ABCDEFGHIJKLMNOP");
+    await expect(page.getByTestId("warnings")).toContainText("doesn't fit");
+    await expect(page.getByTestId("label-full-note")).toHaveCount(0);
+    expect(decodeHashDoc(page.url()).label).toBe("ABCDEFGHIJKLMNOP");
+  });
+});
