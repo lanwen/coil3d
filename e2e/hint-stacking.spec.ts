@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openAdvanced } from "./advanced";
+import { encodeHashDoc } from "./hashDoc";
 
 // An open (i) hint bubble must be painted on top of everything around it --
 // in particular the next viewport-toggle row, whose own box (a separate
@@ -11,7 +12,7 @@ import { openAdvanced } from "./advanced";
 // for the bubble only for the duration of the probe -- paint order is what
 // decides the answer, not the pointer-events flag.
 
-const SKADIS = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis";
+const SKADIS = encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60, mount: "skadis" });
 
 async function bubbleIsTopmost(bubble: Locator) {
   return bubble.evaluate((el: HTMLElement) => {

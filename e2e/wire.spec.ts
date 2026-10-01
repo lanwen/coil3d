@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #4 (docs/design.md, Rendering): the schematic
 // wound-cable render. A distinct wound body at ordinary turn counts, legible
@@ -10,15 +10,15 @@ import { decodeHashDoc } from "./hashDoc";
 // wire render now shows by default; this file adds the many-turn case and
 // the toggle behaviour those don't cover.
 
-const ONE_LAYER = "#v=1&L=1000&d=4&size=40";
+const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 });
 // A single layer with ~300 turns: well past the full-tube-to-envelope
 // switchover, so this exercises the "doesn't read as a black mass" path.
-const MANY_TURN = "#v=1&L=15000&d=0.5&size=15";
+const MANY_TURN = encodeHashDoc({ L: 15000, d: 0.5, size: 15 });
 // A large outer size and a corner radius comfortably clear of the bend-limit
 // floor (see test/wire.test.ts), so the shape is genuinely rounded-square /
 // rounded-triangle, not clamped back toward round.
-const SQUARE_TWO_LAYER = "#v=1&L=4000&d=4&size=60&shape=sq&sq.rc=20&lock=outer,ly&ly=2";
-const TRIANGLE = "#v=1&L=2000&d=4&size=60&shape=tri&tri.rc=20";
+const SQUARE_TWO_LAYER = encodeHashDoc({ L: 4000, d: 4, size: 60, shape: "sq", rc: 20, ly: 2 });
+const TRIANGLE = encodeHashDoc({ L: 2000, d: 4, size: 60, shape: "tri", rc: 20 });
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -101,7 +101,7 @@ test.describe("wound-cable schematic (issue #4)", () => {
   });
 
   test("a wire=0 link loads with the toggle unchecked and no wire drawn", async ({ page }) => {
-    await gotoDesign(page, `${ONE_LAYER}&wire=0`);
+    await gotoDesign(page, withHashDoc(ONE_LAYER, { ui: { wire: false } }));
     await expect(page.getByTestId("toggle-wire")).not.toBeChecked();
 
     const canvas = page.getByTestId("coil-viewer").locator("canvas");

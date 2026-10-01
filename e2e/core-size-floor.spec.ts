@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { hoverHint } from "./hint";
+import { encodeHashDoc } from "./hashDoc";
 
 // Issues #54/#58 (core) + this PR's own follow-up: for a square/triangle
 // core, this cable's bend limit can force a bigger minimum core size than a
@@ -13,7 +14,7 @@ import { hoverHint } from "./hint";
 // 2000mm, diameter 3.8mm) needs a bigger minimum than 20mm for a triangle
 // (see test/design.test.ts's "raises a too-small locked size" case, same
 // fixture).
-const TOO_SMALL_TRIANGLE = "/#v=1&shape=tri&tri.rc=5&lock=outer,ly&size=20&h=40";
+const TOO_SMALL_TRIANGLE = `/${encodeHashDoc({ shape: "tri", rc: 5, size: 20, h: 40 })}`;
 
 // Issue #140: TOO_SMALL_TRIANGLE above sits exactly on the boundary where
 // the bend-limit floor and the useful max (`Solution.cornerRadiusRange`)
@@ -27,7 +28,7 @@ const TOO_SMALL_TRIANGLE = "/#v=1&shape=tri&tri.rc=5&lock=outer,ly&size=20&h=40"
 // forces `tri.rc=5` to clamp up to the SAME bend-limit floor but leaves a
 // real, enabled range above it -- so the "typing below the floor clamps
 // back up" behavior below still has a field it can actually type into.
-const TRIANGLE_WITH_ROOM_ABOVE_FLOOR = "/#v=1&shape=tri&tri.rc=5&lock=outer,ly&size=60&h=40";
+const TRIANGLE_WITH_ROOM_ABOVE_FLOOR = `/${encodeHashDoc({ shape: "tri", rc: 5, size: 60, h: 40 })}`;
 
 test("a locked size below the shape's minimum shows the EFFECTIVE (raised) size in the field itself, matching the note next to it", async ({ page }) => {
   await page.goto(TOO_SMALL_TRIANGLE);
@@ -114,7 +115,7 @@ test("the size slider's own minimum follows the shape's floor: the flats for sq/
 // 30 mm core with a stiff 3.6 mm cable, whose 36 mm bend radius needs a
 // 70.6 mm core) shows the raised size in the field, exactly like sq/tri.
 test("a locked round core below the bend limit shows the EFFECTIVE (raised) size in the field, matching the note", async ({ page }) => {
-  await page.goto("/#v=1&d=3.6&wt=stiff&lock=outer,ly&size=30&ly=2");
+  await page.goto(`/${encodeHashDoc({ d: 3.6, wt: "stiff", size: 30, ly: 2 })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
   const outerInput = page.getByTestId("input-outer");
   await expect(outerInput).toHaveValue("71");

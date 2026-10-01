@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #3 (docs/design.md, Rendering): the IKEA
 // line-art look. White fill, a continuous black silhouette plus crease lines,
@@ -7,10 +8,10 @@ import { expect, test, type Page } from "@playwright/test";
 // background, rotates the camera -- #3's original alpha hit-test, which
 // only let a drag starting on the model orbit, is gone) is covered below.
 
-const SQUAT = "#v=1&L=1000&d=4&size=40";
-const LONG = "#v=1&L=6000&d=4&size=30";
+const SQUAT = encodeHashDoc({ L: 1000, d: 4, size: 40 });
+const LONG = encodeHashDoc({ L: 6000, d: 4, size: 30 });
 // Layers locked at 2: the solver sizes the flange to clear both wound layers.
-const TWO_LAYER = "#v=1&L=3000&d=4&size=40&ly=2";
+const TWO_LAYER = encodeHashDoc({ L: 3000, d: 4, size: 40, ly: 2 });
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);

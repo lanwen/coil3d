@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 
 // Issue #51 acceptance criteria: cable length is entered and shown in
 // centimetres, with a 1cm step and a 20-1500cm range; other dimensions stay
@@ -33,7 +33,7 @@ test("editing the cable length in cm updates the hash's mm value (L)", async ({ 
 });
 
 test("an old link storing an exact mm length keeps it exactly, even when it isn't a whole number of centimetres", async ({ page }) => {
-  await page.goto("/#v=1&L=1234&d=4&lock=outer,ly&size=40");
+  await page.goto(`/${encodeHashDoc({ L: 1234, d: 4, size: 40 })}`);
   await expect(page.getByTestId("hash-notice")).toHaveCount(0);
   // 1234mm = 123.4cm exactly -- shown, not rounded away.
   await expect(page.getByTestId("input-wireLength")).toHaveValue("123.4");
@@ -48,7 +48,7 @@ test("an old link storing an exact mm length keeps it exactly, even when it isn'
 });
 
 test("the result panel reports wound length and capacity in centimetres", async ({ page }) => {
-  await page.goto("/#v=1&L=1000&d=4&lock=outer,ly&size=40");
+  await page.goto(`/${encodeHashDoc({ L: 1000, d: 4, size: 40 })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
 
   await expect(page.getByTestId("wound-length")).toContainText("cm");

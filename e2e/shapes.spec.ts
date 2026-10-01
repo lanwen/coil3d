@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 import { openAllNumbers } from "./advanced";
 
 // Issue #6 acceptance criteria: the user can choose a rounded-square or
@@ -61,7 +61,7 @@ test("editing the corner radius for a rounded triangle updates the hash and repr
   // A large-enough locked outer size that the requested corner radius (15mm)
   // isn't clamped by the bend limit (see test/design.test.ts for the
   // clamping/"became round" cases).
-  await page.goto("/#v=1&shape=tri&tri.rc=15&lock=outer,ly&size=60");
+  await page.goto(`/${encodeHashDoc({ shape: "tri", rc: 15, size: 60 })}`);
   await expect(page.getByTestId("shape-option-tri")).toBeChecked();
   await expect(page.getByTestId("input-shapeCornerRadius")).toHaveValue("15");
   await expect(page.getByTestId("corner-radius")).toHaveText("15.0 mm");
@@ -84,7 +84,7 @@ test("a rounded-square core renders and the STL download works", async ({ page }
     if (msg.type() === "error") consoleErrors.push(msg.text());
   });
 
-  await page.goto("/#v=1&L=1500&d=4&shape=sq&sq.rc=15&lock=outer,ly&size=60");
+  await page.goto(`/${encodeHashDoc({ L: 1500, d: 4, shape: "sq", rc: 15, size: 60 })}`);
   await expect(page.getByTestId("hash-notice")).toHaveCount(0);
   await expect(page.getByTestId("verdict")).toBeVisible();
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // Issue #145: at phone widths the viewport overlay used to be crowded --
 // the projection switch sat on the Dimensions toggle's (i) button and the
@@ -11,9 +12,9 @@ import { expect, test, type Page } from "@playwright/test";
 const DESIGNS = {
   // Several parts (core + mount plate + pegs), so the Exploded-view toggle
   // shows too, plus a SKÅDIS mount for the fifth preset button.
-  skadis: "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis",
+  skadis: encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60, mount: "skadis" }),
   // One part, no exploded toggle: a different row wrap in the strip.
-  plain: "#v=1&L=1000&d=4&size=40",
+  plain: encodeHashDoc({ L: 1000, d: 4, size: 40 }),
 };
 const CONTROLS = [".wire-toggle", ".dimensions-toggle", ".explode-toggle", ".projection-toggle-box", ".preset-bar", ".wall-view-caption"];
 

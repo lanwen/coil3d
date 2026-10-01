@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #14 (clip mount plate: SKÅDIS and openGrid).
 // Solver/geometry numbers themselves are covered by vitest against the
@@ -11,9 +11,9 @@ import { decodeHashDoc } from "./hashDoc";
 // A comfortably large round core: big enough that the plate actually fits
 // (>= 2 SKÅDIS clips on the 40mm grid) -- mirrors mount.spec.ts's own
 // KEYHOLE_HASH convention for the same reason.
-const SKADIS_ROUND = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis";
-const SKADIS_SQUARE = "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&shape=sq&sq.rc=15&mount=skadis";
-const SKADIS_TRIANGLE = "#v=1&L=2000&d=3.8&lock=outer,ly&size=120&h=60&shape=tri&tri.rc=15&mount=skadis";
+const SKADIS_ROUND = encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60, mount: "skadis" });
+const SKADIS_SQUARE = encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60, shape: "sq", rc: 15, mount: "skadis" });
+const SKADIS_TRIANGLE = encodeHashDoc({ L: 2000, d: 3.8, size: 120, h: 60, shape: "tri", rc: 15, mount: "skadis" });
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -39,7 +39,7 @@ test.describe("mount plate controls (issue #14)", () => {
   });
 
   test("a shared link with mount=opengrid falls back to defaults with a notice, not a silently-wrong plate", async ({ page }) => {
-    await page.goto("/#v=1&mount=opengrid");
+    await page.goto(`/${encodeHashDoc({ mount: "opengrid" })}`);
     await expect(page.getByTestId("hash-notice")).toBeVisible();
     // Issue #131: the fallback is "off" -- the toggle unchecked, no dropdown.
     await expect(page.getByTestId("mount-enabled")).not.toBeChecked();
@@ -47,7 +47,7 @@ test.describe("mount plate controls (issue #14)", () => {
   });
 
   test("the skapa credit link only shows for the skadis mount, not keyhole or through (issue #131)", async ({ page }) => {
-    await page.goto("/#v=1&L=2000&d=4&lock=outer,ly&size=100&h=60");
+    await page.goto(`/${encodeHashDoc({ L: 2000, d: 4, size: 100, h: 60 })}`);
     await page.getByTestId("mount-enabled").check();
 
     await page.getByTestId("select-mount").selectOption("keyhole");
@@ -62,7 +62,7 @@ test.describe("mount plate controls (issue #14)", () => {
   });
 
   test("switching to skadis adds the plate, jumps to the mount-side view once, and reproduces on reload (issue #106)", async ({ page }) => {
-    await gotoDesign(page, "#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60");
+    await gotoDesign(page, encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60 }));
     await expect(page.getByTestId("preset-mountSide")).toHaveCount(0); // no plate, no mount-side view
     await page.getByTestId("mount-enabled").check();
     await page.getByTestId("select-mount").selectOption("skadis");
@@ -87,7 +87,7 @@ test.describe("mount plate controls (issue #14)", () => {
   });
 
   test("an old snap-tab link still opens, builds the peg + glue plate and says so", async ({ page }) => {
-    await gotoDesign(page, `#v=1&L=2000&d=3.8&lock=outer,ly&size=100&h=60&mount=skadis&pj=snap`);
+    await gotoDesign(page, encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60, mount: "skadis", pj: "snap" }));
     await expect(page.getByTestId("hash-notice")).toHaveCount(0);
     await expect(page.getByTestId("mesh-detail")).toContainText("4 parts");
     await expect(page.getByTestId("warnings")).toContainText(/snap tabs can't print without supports/i);
@@ -103,7 +103,7 @@ test.describe("mount plate controls (issue #14)", () => {
     page.on("console", (msg) => {
       if (msg.type() === "error") consoleErrors.push(msg.text());
     });
-    await gotoDesign(page, "#v=1&L=20&d=1&lock=outer,ly&size=12&h=20&mount=skadis");
+    await gotoDesign(page, encodeHashDoc({ L: 20, d: 1, size: 12, h: 20, mount: "skadis" }));
     await expect(page.getByTestId("warnings")).toContainText(/margin increased.*SK.DIS/i);
     await expect(page.getByTestId("warnings")).not.toContainText(/too small to fit/i);
     await expect(page.getByTestId("mesh-detail")).toContainText("4 parts");

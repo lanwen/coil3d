@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 
 // 3MF export, plate layout and bed warnings (issue #10).
 
 test("Download 3MF produces a real zip package and the part count is shown", async ({ page }) => {
-  await page.goto("/#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2");
+  await page.goto(`/${encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 })}`);
   await expect(page.getByTestId("download-3mf")).toBeVisible();
 
   // Two-part design (core + auto top cap): the mesh-detail row shows the count.
@@ -28,7 +28,7 @@ test("Download 3MF produces a real zip package and the part count is shown", asy
 });
 
 test("the bed-size fields exist and shrinking the bed produces a fit warning", async ({ page }) => {
-  await page.goto("/#v=1&L=2000&d=3.8&size=30");
+  await page.goto(`/${encodeHashDoc({ L: 2000, d: 3.8, size: 30 })}`);
   await expect(page.getByTestId("input-bedX")).toBeVisible();
   await expect(page.getByTestId("input-bedY")).toBeVisible();
   await expect(page.getByTestId("input-bedZ")).toBeVisible();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SHOW_WIRE, DEFAULT_SPEC, parseHash, toHash } from "../src/core";
 import type { CoilSpec } from "../src/core";
+import { encodeHashDoc } from "../e2e/hashDoc";
 
 const DESIGN = { spec: DEFAULT_SPEC, showWire: DEFAULT_SHOW_WIRE, view: "design" as const };
 
@@ -102,14 +103,6 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const { spec, notice } = parseHash(toHash(fullyLocked));
     expect(spec).toEqual({ ...fullyLocked, layers: { locked: false } });
     expect(notice).toMatch(/layers/i);
-  });
-
-  it("does not touch a legacy (#v=1) link locking all three -- that codec is frozen, byte-for-byte compatible", () => {
-    const { spec, notice } = parseHash("#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2");
-    expect(spec.coreSize).toEqual({ locked: true, dimension: "outer", value: 60 });
-    expect(spec.height).toEqual({ locked: true, value: 60 });
-    expect(spec.layers).toEqual({ locked: true, value: 2 });
-    expect(notice).toBeUndefined();
   });
 
   it("falls back to defaults with a notice on an unsupported document version", () => {
@@ -426,116 +419,45 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(notice).toBeDefined();
   });
 
-  describe("legacy #v=1&... links (pre-issue-56 flat query string)", () => {
-    it("keep working with no lock param (default lock: outer size + layers)", () => {
-      const { spec, notice } = parseHash("#v=1&L=1000&d=4&size=40");
-      expect(notice).toBeUndefined();
-      expect(spec.coreSize).toEqual({ locked: true, dimension: "outer", value: 40 });
-      expect(spec.layers).toEqual({ locked: true, value: 1 });
-      expect(spec.height).toEqual({ locked: false });
-      expect(spec.wire.length).toBe(1000);
-      expect(spec.wire.diameter).toBe(4);
-    });
+  // Beta: there is no compatibility layer for the old flat `#v=1&...` links.
+  it.each(["#v=1&L=1000&d=4&size=40", "#v=1", "#L=1000&d=4"])("falls back to defaults with the usual notice on a link without an 's' document: %s", (hash) => {
+    const { spec, notice, showWire, view } = parseHash(hash);
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(showWire).toBe(DEFAULT_SHOW_WIRE);
+    expect(view).toBe("design");
+    expect(notice).toMatch(/could not read this link/i);
+  });
 
-    it("fall back to defaults with a notice on an unsupported version", () => {
-      const { spec, notice } = parseHash("#v=99&L=5000");
-      expect(spec).toEqual(DEFAULT_SPEC);
-      expect(notice).toMatch(/version/i);
-    });
+  // Every document field survives parse -> toHash -> parse unchanged.
+  const ROUND_TRIP_DOCS: Record<string, unknown>[] = [
+    { L: 1000, d: 4, size: 40 },
+    { L: 2000, d: 4, wt: "stiff", size: 60, ly: 1 },
+    { L: 3000, d: 4, wt: "custom", mbr: 7, lock: ["inner"], size: 25 },
+    { shape: "sq", rc: 20, size: 60 },
+    { shape: "tri", rc: 15, size: 60 },
+    { q: 0.4, obj: "ar", lock: [], h: 45 },
+    { cap: "on", joint: "bayonet", tol: 0.35 },
+    { cap: "off", joint: "snap" },
+    { bx: 220, by: 220, bz: 250 },
+    { mount: "keyhole" },
+    { mount: "keyhole", kr: 45 },
+    { mount: "skadis", pj: "snap" },
+    { mount: "through", thd: 6 },
+    { label: "USB-C 2m" },
+    { label: "Кабель \u{1F50C}" },
+    { ui: { wire: false } },
+    { L: 1000, d: 4, size: 40, ui: { view: "guide" } },
+    { ui: { wire: false, view: "guide" } },
+    { L: 20, d: 1, size: 6, h: 20 }, // small-values edge case
+    { L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 },
+  ];
+  it.each(ROUND_TRIP_DOCS)("round-trips %j through parseHash/toHash", (...[doc]) => {
+    const first = parseHash(encodeHashDoc(doc));
+    expect(first.notice).toBeUndefined();
 
-    it("fall back to defaults with a notice on a garbage value", () => {
-      const { spec, notice } = parseHash("#v=1&L=not-a-number");
-      expect(spec).toEqual(DEFAULT_SPEC);
-      expect(notice).toBeDefined();
-    });
-
-    it("fall back to defaults with a notice on an unknown lock token", () => {
-      const { spec, notice } = parseHash("#v=1&lock=bogus");
-      expect(spec).toEqual(DEFAULT_SPEC);
-      expect(notice).toBeDefined();
-    });
-
-    it("fall back to defaults with a notice when both outer and inner are locked", () => {
-      const { spec, notice } = parseHash("#v=1&lock=outer,inner&size=40");
-      expect(spec).toEqual(DEFAULT_SPEC);
-      expect(notice).toBeDefined();
-    });
-
-    it("fall back to defaults with a notice when a shape's corner radius is set without selecting that shape", () => {
-      const { spec, notice } = parseHash("#v=1&sq.rc=20");
-      expect(spec).toEqual(DEFAULT_SPEC);
-      expect(notice).toBeDefined();
-    });
-
-    it("reject mount=opengrid the same way as the new format", () => {
-      const { spec, notice } = parseHash("#v=1&mount=opengrid");
-      expect(spec).toEqual(DEFAULT_SPEC);
-      expect(notice).toBeDefined();
-    });
-
-    it("a legacy link with a trailing '&view=guide' reads as the guide view, leniently (no schema validation)", () => {
-      const { spec, notice, view } = parseHash("#v=1&L=1000&d=4&size=40&view=guide");
-      expect(notice).toBeUndefined();
-      expect(spec.wire.length).toBe(1000);
-      expect(view).toBe("guide");
-    });
-
-    // issue #56 AC: "legacy links migrate losslessly" -- every legacy field,
-    // round-tripped through the OLD codec then re-encoded/re-parsed through
-    // the NEW one, must resolve to the exact same spec + showWire + view.
-    // This is the migration `App.tsx` relies on (parse the old hash once,
-    // then `toHash` immediately rewrites the URL bar to the new format).
-    // Issue #119: a legacy link locking all three is deliberately EXCLUDED
-    // from this "losslessly" list -- see the dedicated test right below it.
-    // The legacy codec itself still reads it unchanged (frozen, byte-for-
-    // byte), but migrating it forward through `toHash` now produces an
-    // `#s=` document, and re-parsing THAT applies the new max-2-locked
-    // normalization (`capMaxTwoLocked`), which this specific input triggers.
-    const LEGACY_LINKS = [
-      "#v=1&L=1000&d=4&size=40",
-      "#v=1&L=2000&d=4&wt=stiff&lock=outer,ly&size=60&ly=1",
-      "#v=1&L=3000&d=4&wt=custom&mbr=7&lock=inner&size=25",
-      "#v=1&shape=sq&sq.rc=20&lock=outer,ly&size=60",
-      "#v=1&shape=tri&tri.rc=15&lock=outer,ly&size=60",
-      "#v=1&q=0.4&obj=ar&lock=&h=45",
-      "#v=1&cap=on&joint=bayonet&tol=0.35",
-      "#v=1&cap=off&joint=snap",
-      "#v=1&bx=220&by=220&bz=250",
-      "#v=1&mount=keyhole",
-      "#v=1&mount=skadis&pj=snap",
-      "#v=1&label=USB-C+2m",
-      "#v=1&wire=0",
-      "#v=1&L=1000&d=4&size=40&view=guide",
-      "#v=1&wire=0&view=guide",
-      "#v=1&L=20&d=1&lock=outer,ly&size=6&h=20", // small-values edge case (mount e2e fixture)
-    ];
-    it.each(LEGACY_LINKS)("migrates '%s' losslessly through toHash/parseHash", (legacyHash) => {
-      const first = parseHash(legacyHash);
-      expect(first.notice).toBeUndefined();
-
-      const migratedHash = toHash(first.spec, first.showWire, first.view);
-      expect(migratedHash).toMatch(/^#s=/); // toHash always re-emits the new format
-
-      const second = parseHash(migratedHash);
-      expect(second).toEqual(first);
-    });
-
-    // Issue #119: the one legacy shape that does NOT migrate losslessly any
-    // more -- the legacy codec itself still parses all three locks
-    // unchanged (first), but migrating forward to the current `#s=` format
-    // and re-parsing normalizes it to 2 locked (dropping "ly"), with a
-    // notice explaining why.
-    it("a legacy link locking all three migrates forward with the layers lock dropped, and a notice", () => {
-      const legacyHash = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2";
-      const first = parseHash(legacyHash);
-      expect(first.notice).toBeUndefined();
-      expect(first.spec.layers).toEqual({ locked: true, value: 2 });
-
-      const migratedHash = toHash(first.spec, first.showWire, first.view);
-      const second = parseHash(migratedHash);
-      expect(second.notice).toMatch(/layers/i);
-      expect(second.spec).toEqual({ ...first.spec, layers: { locked: false } });
-    });
+    const rewritten = toHash(first.spec, first.showWire, first.view);
+    expect(rewritten).toMatch(/^#s=/);
+    expect(parseHash(rewritten)).toEqual(first);
   });
 
   describe("typical link lengths (issue #56 AC: 'typical links stay short')", () => {

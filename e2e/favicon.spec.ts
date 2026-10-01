@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // The favicon is the selected front-view preset button: the paper glyph
 // knocked out of an ink pill. The SVG carries the button's own path data.
@@ -20,7 +21,7 @@ test("index.html links the favicon files and they are served", async ({ page }) 
 });
 
 test("the favicon glyph is the front-view button's glyph", async ({ page }) => {
-  await page.goto("/#v=1&L=1000&d=4&size=40");
+  await page.goto(`/${encodeHashDoc({ L: 1000, d: 4, size: 40 })}`);
   await expect(page.getByTestId("download-stl")).toBeEnabled();
   const button = await page
     .getByTestId("preset-front")

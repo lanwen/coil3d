@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { encodeHashDoc } from "./hashDoc";
 
 // Issue #7 acceptance criteria: design() runs off the main thread with a
 // debounced draft-to-final preview, and exports always use the final
@@ -15,7 +16,7 @@ test("editing disables downloads until the design re-settles to final resolution
     if (msg.type() === "error") consoleErrors.push(msg.text());
   });
 
-  await page.goto("/#v=1&L=1000&d=4&size=40");
+  await page.goto(`/${encodeHashDoc({ L: 1000, d: 4, size: 40 })}`);
   await expect(page.getByTestId("download-stl")).toBeEnabled();
   await expect(page.getByTestId("download-step")).toBeEnabled();
   await expect(page.getByTestId("mesh-detail")).toContainText("final");
@@ -40,7 +41,7 @@ test("editing disables downloads until the design re-settles to final resolution
 });
 
 test("the downloaded STL always matches the final-resolution triangle count, never a draft's", async ({ page }) => {
-  await page.goto("/#v=1&L=1000&d=4&size=40");
+  await page.goto(`/${encodeHashDoc({ L: 1000, d: 4, size: 40 })}`);
   await expect(page.getByTestId("download-stl")).toBeEnabled();
 
   const detail = await page.getByTestId("mesh-detail").textContent();

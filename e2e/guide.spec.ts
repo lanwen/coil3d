@@ -1,18 +1,16 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 
 // End-to-end checks for issue #17 (the printable, IKEA-style assembly
-// guide). The guide is generated from the current design via `&view=guide`
-// in the URL hash -- a legacy-format trailing param that still works on
-// load, but once the app rewrites the URL (issue #56) the view lives nested
-// under the document's own `ui.view`, see `./hashDoc.ts` -- so these check
+// guide). The guide is generated from the current design via `ui.view` in
+// the URL hash's document (see `./hashDoc.ts`) -- so these check
 // that seam -- hash -> UI -> step content/screenshots -- not the solver
 // itself (see test/design.test.ts for that). Every step's illustration
 // reuses the same line-art pipeline as the interactive viewer
 // (src/viewer/CoilScene.tsx, src/viewer/GuideFigure.tsx).
 
-const ONE_LAYER = "#v=1&L=1000&d=4&size=40"; // layers=1 (default): no top cap, so the two cap steps are skipped
-const TWO_LAYER_CAP = "#v=1&L=6000&d=3.8&lock=outer,h,ly&size=60&h=60&ly=2"; // layers=2: top cap auto-on
+const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 }); // layers=1 (default): no top cap, so the two cap steps are skipped
+const TWO_LAYER_CAP = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 }); // layers=2: top cap auto-on
 
 // The guide's own screenshots render several distinct WebGL figures at
 // once (one per step), so they're the heaviest screenshots in the whole
@@ -36,7 +34,7 @@ async function revealFigures(page: Page, scope: Locator = page.locator("body")) 
 }
 
 async function gotoGuide(page: Page, hash: string, { reveal = false } = {}) {
-  await page.goto(`/${hash}&view=guide`);
+  await page.goto(`/${withHashDoc(hash, { ui: { view: "guide" } })}`);
   await expect(page.getByTestId("guide-view")).toBeVisible();
   // Wait for the FINAL-resolution design, not just the fast draft the guide
   // may still be showing right after load: the draft->final swap (issue #7)
@@ -50,9 +48,9 @@ async function gotoGuide(page: Page, hash: string, { reveal = false } = {}) {
 }
 
 test.describe("printable assembly guide (issue #17)", () => {
-  // Also covers: a shared link with &view=guide opens the guide directly,
+  // Also covers: a shared link with ui.view=guide opens the guide directly,
   // generated from that design (gotoGuide's own goto IS that direct
-  // `&view=guide` load -- a separate test asserting only guide-step-1's text
+  // `ui.view` load -- a separate test asserting only guide-step-1's text
   // duplicated this one's first assertion with no distinct risk); the
   // unwind-by-rotating tip; and the generic (no mount selected) wall-mount
   // step wording. All three used to be their own tests, but each loaded this
@@ -105,7 +103,7 @@ test.describe("printable assembly guide (issue #17)", () => {
   ];
   for (const { id, wording } of JOINTS) {
     test(`joint=${id}: the fit-the-cap step uses joint-specific wording, plus the glue note`, async ({ page }) => {
-      await gotoGuide(page, `${TWO_LAYER_CAP}&joint=${id}`);
+      await gotoGuide(page, withHashDoc(TWO_LAYER_CAP, { joint: id === "press" ? undefined : id }));
       await expect(page.getByTestId("guide-step-4")).toContainText(wording);
       // Every joint is permanent (docs/design.md, Decisions): the glue note always appears.
       await expect(page.getByTestId("guide-step-4")).toContainText("glue");
@@ -113,7 +111,7 @@ test.describe("printable assembly guide (issue #17)", () => {
   }
 
   test("the wall-mount step gives real instructions once the screw-keyhole mount is selected", async ({ page }) => {
-    await gotoGuide(page, `${ONE_LAYER}&mount=keyhole`);
+    await gotoGuide(page, withHashDoc(ONE_LAYER, { mount: "keyhole" }));
     await expect(page.getByTestId("guide-step-4")).toContainText("keyhole slot on a screw");
   });
 
@@ -126,7 +124,7 @@ test.describe("printable assembly guide (issue #17)", () => {
   // glue), then the mount step shows the clips face-on against the drawn
   // SKÅDIS slot grid.
   test("the SKÅDIS clip mount gets a fit-the-plate step, then a mount step with the clips in the board's slots", async ({ page }) => {
-    await gotoGuide(page, `${ONE_LAYER}&mount=skadis`);
+    await gotoGuide(page, withHashDoc(ONE_LAYER, { mount: "skadis" }));
     await expect(page.getByTestId("guide-step-4")).toContainText(/mount plate/i);
     await expect(page.getByTestId("guide-step-4")).toContainText(/two printed pegs/i);
     // Issue #132: the pegs are printed parts, shown once in step 1 as x2.
@@ -145,12 +143,11 @@ test.describe("printable assembly guide (issue #17)", () => {
 
   // Issue #70 landed the through-hole mount after this guide shipped, the
   // same way issue #14's SKÅDIS case did above. "through" is a new mount
-  // kind added after issue #56's `#v=1&...` legacy format was frozen (see
-  // mount.spec.ts's own comment on this), so this navigates via the current
-  // `#s=<base64url(JSON)>` document format directly instead.
+  // kind added after this guide shipped, so this navigates with the
+  // `#s=<base64url(JSON)>` document format directly.
   test("the wall-mount step gives real instructions once the through-hole mount is selected", async ({ page }) => {
-    const doc = { v: 2, L: 1000, d: 4, size: 40 };
-    await gotoGuide(page, `#s=${Buffer.from(JSON.stringify({ ...doc, mount: "through" })).toString("base64url")}`);
+    const doc = { L: 1000, d: 4, size: 40 };
+    await gotoGuide(page, encodeHashDoc({ ...doc, mount: "through" }));
     await expect(page.getByTestId("guide-step-4")).toContainText(/screw straight through/i);
     await expect(page.getByTestId("guide-step-4")).not.toContainText("coming soon");
   });
@@ -233,13 +230,13 @@ test.describe("printable assembly guide (issue #17)", () => {
 
     test("2-layer design with a top cap (bayonet joint)", async ({ page }) => {
       test.slow();
-      await gotoGuide(page, `${TWO_LAYER_CAP}&joint=bayonet`, { reveal: true });
+      await gotoGuide(page, withHashDoc(TWO_LAYER_CAP, { joint: "bayonet" }), { reveal: true });
       await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-two-layer-cap.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
     test("with the screw-keyhole wall mount", async ({ page }) => {
       test.slow();
-      await gotoGuide(page, `${ONE_LAYER}&mount=keyhole`, { reveal: true });
+      await gotoGuide(page, withHashDoc(ONE_LAYER, { mount: "keyhole" }), { reveal: true });
       await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-keyhole-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
@@ -251,8 +248,8 @@ test.describe("printable assembly guide (issue #17)", () => {
     for (const kr of [0, 45] as const) {
       test(`with the screw-keyhole wall mount, rotated ${kr} degrees`, async ({ page }) => {
         test.slow();
-        const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
-        await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`, { reveal: true });
+        const doc = { shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
+        await gotoGuide(page, encodeHashDoc(doc), { reveal: true });
         await expect(page.getByTestId("guide-view")).toHaveScreenshot(`guide-keyhole-mount-rotated-${kr}.png`, { timeout: GUIDE_SCREENSHOT_TIMEOUT });
       });
     }
@@ -262,8 +259,8 @@ test.describe("printable assembly guide (issue #17)", () => {
     // mount-side face-on close-ups per shape are below.
     test("with the through-hole wall mount", async ({ page }) => {
       test.slow();
-      const doc = { v: 2, L: 1000, d: 4, size: 60, mount: "through" };
-      await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`, { reveal: true });
+      const doc = { L: 1000, d: 4, size: 60, mount: "through" };
+      await gotoGuide(page, encodeHashDoc(doc), { reveal: true });
       await expect(page.getByTestId("guide-view")).toHaveScreenshot("guide-through-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
     });
 
@@ -279,8 +276,8 @@ test.describe("printable assembly guide (issue #17)", () => {
       for (const kr of [0, 45] as const) {
         test(`keyhole rotated ${kr} degrees`, async ({ page }) => {
           test.slow();
-          const doc = { v: 2, shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
-          await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+          const doc = { shape: "sq", rc: 15, L: 1000, d: 4, size: 60, mount: "keyhole", ...(kr !== 0 ? { kr } : {}) };
+          await gotoGuide(page, encodeHashDoc(doc));
           await revealFigures(page, page.getByTestId("guide-mount-inset"));
           await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-keyhole-rotated-${kr}.png`, { timeout: GUIDE_SCREENSHOT_TIMEOUT });
         });
@@ -290,8 +287,8 @@ test.describe("printable assembly guide (issue #17)", () => {
       for (const shape of ["round", "sq", "tri"] as const) {
         test(`through-hole mount (${shape})`, async ({ page }) => {
           test.slow();
-          const doc = { v: 2, L: 1000, d: 4, size: 60, mount: "through", ...(shape !== "round" ? { shape, rc: 15 } : {}) };
-          await gotoGuide(page, `#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+          const doc = { L: 1000, d: 4, size: 60, mount: "through", ...(shape !== "round" ? { shape, rc: 15 } : {}) };
+          await gotoGuide(page, encodeHashDoc(doc));
           await revealFigures(page, page.getByTestId("guide-mount-inset"));
           await expect(page.getByTestId("guide-mount-inset")).toHaveScreenshot(`mount-face-through-${shape}.png`, { timeout: GUIDE_SCREENSHOT_TIMEOUT });
         });
