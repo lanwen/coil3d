@@ -32,6 +32,7 @@ import {
 import { idealChannelDepth, requiredCapClipMargin, requiredInnerEndMargin, resolveChannelDepth } from "./innerEnd";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
 import { requiredMountPlateMargin } from "./mountPlate";
+import { requiredSkadisMargin } from "./skadisClips";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { FlangeExtent, MountKind } from "./types";
@@ -92,7 +93,7 @@ export function resolveFlangeSizing(
   wireDiameter: number,
   mount: MountKind,
   /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`); issue #117: with the top cap on, its cable clip needs room between the wound cable and the rim (`requiredCapClipMargin`). */
-  leadIn: { tolerance: number; bendRadius: number; topCap?: boolean },
+  leadIn: { tolerance: number; bendRadius: number; topCap?: boolean; heavyCable?: boolean },
   /** Issue #71: ignored unless `mount === "keyhole"`. */
   keyholeRotation = 0,
   /** Issue #70: ignored unless `mount === "through"`. */
@@ -100,7 +101,7 @@ export function resolveFlangeSizing(
 ): FlangeSizing {
   const wantsKeyhole = mount === "keyhole";
   const wantsThrough = mount === "through";
-  const mountKindForPlate = mount === "skadis" || mount === "opengrid" ? mount : undefined;
+  const mountKindForPlate = mount === "opengrid" ? mount : undefined;
 
   // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
   // (the offset term is additive, see shapes.ts), so this margin is exactly
@@ -114,18 +115,24 @@ export function resolveFlangeSizing(
   // mount's own envelope-clearance radius is a few mm more conservative than
   // the bare minimum (that pad), never less, so it's a safe stand-in with no
   // extra plumbing.
-  const mountMargin = wantsKeyhole
+  // Issue #117: the wound cable's outer surface (FLANGE_MARGIN inside
+  // `flangeSizeEnvelope`), as an offset outside the core's outline.
+  const envelopeOffset = flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0);
+  const mountMargin = mount === "skadis"
+    ? // Issue #207: the rim clips' lips must clear the wound cable.
+      Math.max(baseMargin, requiredSkadisMargin(outline, boreOutline, envelopeOffset, leadIn.heavyCable ?? false))
+    : wantsKeyhole
     ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline, keyholeRotation))
     : wantsThrough
       ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, flangeSizeEnvelope / 2))
       : mountKindForPlate
-        // Issue #120: SKÅDIS/openGrid used to just take `baseMargin` here,
+        // Issue #120: openGrid used to just take `baseMargin` here,
         // so a plate whose fixed-pitch grid needs more room than the plain
         // wound-envelope clearance gives could be silently skipped (only a
         // warning to notice) -- this grows the margin exactly like the
         // other two mount kinds already do, so the plate is never dropped
         // just because the (often solver-picked) core came out small.
-        ? Math.max(baseMargin, requiredMountPlateMargin(outline, boreOutline, mountKindForPlate))
+        ? Math.max(baseMargin, requiredMountPlateMargin(outline, boreOutline))
         : baseMargin;
 
   // Issue #122: the channel and the mount's cut sit on separate pads (the
@@ -147,9 +154,7 @@ export function resolveFlangeSizing(
   // Issue #115: wide enough for the inner-end lead-in's straight chord to
   // hold the clip past the end of its drop into the channel.
   const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness));
-  // Issue #117: the cap's clip hangs between the outermost layer (the
-  // envelope, FLANGE_MARGIN inside `flangeSizeEnvelope`) and the rim.
-  const envelopeOffset = flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0);
+  // Issue #117: the cap's clip hangs between the outermost layer and the rim.
   const capClipMargin = leadIn.topCap ? requiredCapClipMargin(envelopeOffset, wireDiameter, leadIn.tolerance) : 0;
   const margin = Math.max(mountMargin, innerEndMargin, capClipMargin);
 

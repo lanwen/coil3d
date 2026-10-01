@@ -8,8 +8,8 @@ Multiboard is not supported.
 |---|---|---|
 | Screw keyhole | A pocket recessed into the flange's outer face | Tested in geometry only |
 | Through holes | Plain screw holes through the flange | Tested in geometry only |
-| IKEA SKÅDIS | A separate clip plate, glued to the flange | Not test-fitted on a physical board |
-| openGrid | Same plate, with a placeholder connector | Not usable: hidden in the UI and rejected in links |
+| IKEA SKÅDIS | Separate rim clips that hook the board and grip the flange | Not test-fitted on a physical board |
+| openGrid | A separate plate glued to the flange, with a placeholder connector | Not usable: hidden in the UI and rejected in links |
 
 coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
 
@@ -42,72 +42,90 @@ agree across independent sources.
 |---|---|---|
 | Slot | One vertical stadium slot per position. Nominal 5 x 15 mm, measured as tight as 4.8 x 14.8 mm | [Pegboardly, SKÅDIS Sizes & Dimensions](https://pegboardly.com/skadis/skadis-sizes-and-dimensions); [Thingiverse 4939659](https://www.thingiverse.com/thing:4939659); [jbazant/esp8266-binary-clock `case/skadis.scad`](https://github.com/jbazant/esp8266-binary-clock/blob/master/case/skadis.scad) |
 | Lattice | Two 40 x 40 mm grids offset by (20, 20) mm: columns every 20 mm, slots every 40 mm in a column, neighbouring columns shifted 20 mm. Two slots 40 mm apart in a row are on the same grid | the same `.scad` (`SPACING_X=20`, `SPACING_Y=40`); Pegboardly |
-| Board thickness | About 5 mm. 5.1 mm in [florianfesti/boxes](https://github.com/florianfesti/boxes/blob/master/boxes/walledges.py) and the `.scad`. Some boards are 4 mm, some up to 5.2 mm | [Printables: Skadis Thickness Testers](https://www.printables.com/model/271676-skadis-thickness-testers) and hook listings |
+| Board thickness | About 5 mm: 4.82 mm unpainted and 5.23 mm painted, measured by the T-Clip listing. 5.1 mm in [florianfesti/boxes](https://github.com/florianfesti/boxes/blob/master/boxes/walledges.py) and the `.scad`. Some boards are 4 mm | [Printables: Skadis Thickness Testers](https://www.printables.com/model/271676-skadis-thickness-testers); [Printables: Skadis T-Clip System](https://www.printables.com/model/256896) |
+| Slot edges | Rounded over by about 1 mm on both faces | [Printables: Skadis T-Nuts](https://www.printables.com/model/228663) |
 
-The constants are in `src/core/constants.ts` (`SKADIS_*`).
+The constants are in `src/core/constants.ts` (`SKADIS_*`). Background research, with the
+designs we looked at and their licences: [research/skadis-mount.md](research/skadis-mount.md).
 
-### The clip plate
+### Rim clips
 
-The plate is a flat panel, inset from the flange outline by a fixed margin, so
-it always fits inside the flange for every shape. It is a separate part so the
-core prints flat with no clips. The clips sit on one plain 40 x 40 mm grid, in
-columns at 20 and 60 mm from the centre, so the layout stays mirrored and a
-100 mm core still fits two or more columns. The grid is placed on the same
-axis the keyhole mount uses, so a non-round core hangs level. At least two
-clip columns must fit, or the app warns.
+There is no plate. Separate clips hook into the board and grip the bottom
+flange's rim, each in a small notch. `src/core/skadisClips.ts` lays them out
+for both geometry backends.
 
-Each position has one mirrored, spring-loaded pair of legs.
+- **How many.** 1 top clip and 2 bottom clips, whatever the core size. A
+  cable estimated over 0.5 kg gets a second top clip (2 + 2). The estimate is
+  the cable's cross-section at 1.8 g/cm³ times its length: about 5.5 m of
+  8 mm cable, or 25 m of 3.8 mm cable. 0.5 kg is about a third of the 1.5 to
+  2 kg per hook that printed SKÅDIS hooks are reported to hold (a load test
+  on a T-Clip remix, Printables 637795).
+- **Where.** The coil hangs with a flat at the bottom where the shape has
+  one: a square on a side, a triangle on a side with its apex up. The top
+  clip sits in column 0, the bottom clips in columns ±20 mm. Every clip is on
+  one of the board's two 40 mm grids, and each clip's spine takes up the
+  difference between its slot and the rim. If the inner-end channel is in
+  the way, other columns are tried, then a triangle hung apex down (two top
+  clips on its top side, one at the apex).
+- **The profile.** Each clip is one flat profile, 4.4 mm thick, with:
+  - a stem through the slot (5 mm) and a tongue behind the board (3 mm
+    thick, reaching about 4.6 mm past the slot's end once seated);
+  - an outer jaw between the flange and the board (the 3 mm standoff), a
+    bight round the rim, and a lip on the winding side that reaches 5 mm in
+    from the notch floor.
+- **Print orientation.** Each clip prints lying on its flat face, so the
+  weight, a pull and the tongue's bending all run along the layers. It has
+  no overhangs or bridges. The old plate's clip legs were printed upright
+  and flexed across the layers.
+- **The flange.** A flat-floored notch at each clip keys the coil's rotation.
+  The flange is full thickness under each clip's jaws (a pad), and the lips
+  keep 1 mm clear of the wound cable. The flange margin grows if they don't
+  fit.
+- **The latch (on by default).** The top clip has a spring arm on the board
+  face, cut free from a rigid mast by a slit. Its tooth reaches 2.5 mm into
+  the slot, past the 1 mm edge fillet. While the clip is pushed in, the arm
+  flexes back (in the clip's own plane, so along the layers, at most 1.5 %
+  bending strain). It springs into the top of the slot when the clip drops.
+  Seated, the coil can lift at most about 1 mm. The tooth's upper face leans
+  25° from the board normal, so a firm lift cams it out again (an estimate:
+  about 10 to 20 N, depending on friction). Turn the latch off for a plain
+  hook.
 
-- The legs are 4.4 mm across at rest (0.2 mm of clearance per side in the
-  tightest 4.8 mm slot), 1.4 mm thick, with a 1.6 mm gap to flex into.
-- The barb's retaining face starts 5.4 mm out, so it sits behind boards up to
-  5.2 mm thick. It is 5.8 mm across, 0.5 mm wider than the slot per side.
-- Every face is vertical or a 45-degree slope, and the plate prints back-face
-  up, so it needs no supports. The clip is 11 mm long along the vertical axis,
-  short enough to clear the rounded ends of a 14.8 mm slot.
-- Only the root is embedded into the plate.
+Hanging the coil:
 
-The clip technique comes from [nmattia/skapa](https://github.com/nmattia/skapa),
-which has no licence. Only the idea and the measurements were used. The shape
-and dimensions are our own, and the code is not copied.
+1. Push each bottom clip into its slot and let it drop.
+2. Lower the coil's rim into the bottom clips.
+3. Push the top clip into its slot just above the rim and let it drop until
+   it clicks.
 
-How it engages (checked in `test/skadisFit.test.ts` on the real plate mesh,
-against a board built only from the facts above, for round, square and
-triangle cores, 4.8 x 14.8 and 5 x 15 mm slots, and 4, 5 and 5.2 mm boards):
-push the plate flat against the board. Each leg pair squeezes through its slot
-and the barbs spring out behind the board. Let go, and the plate drops about
-0.5 to 0.7 mm until each leg's bottom corner rests on the bottom of the slot,
-which carries the weight. Seated, nothing else touches the board. If it is
-pulled off, the barbs catch the back of the board within 0.7 mm of play on the
-thickest board.
+To take the coil down, lift the top clip firmly.
 
-**This has not been test-fitted on a physical board.** The geometry tests do
-not show that a printed spring clip grips, or that the thickness assumption
-holds on every board.
+`test/skadisFit.test.ts` checks the real clip meshes against a board built
+only from the facts above. It uses three boards: tight 4.8 x 14.8 mm slots in
+a 5.2 mm board, and nominal 5 x 15 mm slots in 5 mm and 4 mm boards. It
+checks that:
 
-### Plate and flange joint
+- every clip sits on the lattice and clears the board when seated;
+- each stem bears on its slot's bottom;
+- a pull is caught by the tongues;
+- a 1.6 mm lift hits the latch tooth;
+- raised by the drop, the stem and tongue pass straight through the tightest
+  slot;
+- the rim rests on the bottom clips and is held by the top lip;
+- no clip touches the wound cable;
+- every clip prints flat with only vertical faces.
 
-Neither mating face can carry a protrusion without supports (the plate prints
-back-face up and the core prints flange-down). So both faces have matching
-blind round holes, aligned with two small printed pegs (`peg-1`, `peg-2`),
-and then glued.
-
-- Each peg is a 3 mm square with its corners cut 0.5 mm at 45 degrees (an
-  octagon whose corners all lie on a 1.8 mm circle), 4.5 mm long, with a 0.4 mm
-  lead-in at both ends.
-- It prints lying on a 2 mm flat. The layers then run along the peg, so the
-  shear across the joint never splits a layer line.
-- The holes stay round, 2.4 mm deep in each part. They are sized to the corner
-  circle plus the print tolerance, so the peg goes in at any rotation.
-- A hole pair needs 3.6 mm of flange ring plus 1 mm on each side, and stays
-  3.3 mm clear of the inner-end channel.
-- Old links with `pj=snap` still parse. They get the same glued plate and a
-  warning, because snap tabs on the plate front cannot print without supports.
+**This has not been test-fitted on a physical board.** The latch's release
+force and the board play (about 1.5 mm on a 4 mm board) need a real print.
 
 ## openGrid
 
 openGrid support is a placeholder. The core can build a plate for it, but it is
-not reachable from the UI or from a link.
+not reachable from the UI or from a link. The plate (`src/core/mountPlate.ts`)
+is a flat panel inset 3 mm from the flange outline, printed back-face up, and
+glued to the flange's outer face on two printed alignment pegs (`peg-1`,
+`peg-2`: 3 mm chamfered octagons, printed lying on a flat, in matching blind
+holes 2.4 mm deep in each part). SKÅDIS used the same plate until issue #207.
 
 - Grid pitch: 28 x 28 mm (`OPENGRID_PITCH`). This is stated in the
   [openGrid docs](https://github.com/openGrid-3D/openGrid-docs) (`board.mdx`):

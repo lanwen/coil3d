@@ -19,7 +19,7 @@ This file records why the app works the way it does. The mount geometry is in
 | Core | A tube. It is hollow and open. The user locks either the inner diameter (bore) or the outer diameter (winding surface). A fixed 3 mm wall links the two. |
 | Shapes | Round, rounded square, rounded triangle. Round is a diameter, square is across flats, triangle is the inscribed-circle diameter. |
 | Cable | Round cross-section only. Bend limit: USB/audio 4x the diameter, flexible cord 4x, stiff or solid 10x, or a custom multiplier. |
-| Parts | A core with the bottom flange printed as one piece. A separate top cap, on by default when there is more than one layer. A separate mount plate with two alignment pegs for SKÅDIS and openGrid. At most five parts. |
+| Parts | A core with the bottom flange printed as one piece. A separate top cap, on by default when there is more than one layer. Separate rim clips for SKÅDIS (3 or 4), or a separate mount plate with two alignment pegs for the hidden openGrid placeholder. |
 | Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core; elsewhere the cap gets the press-fit collar, with a warning. The snap cap has three fingers with diamond-point barbs (45° faces both sides) that click under a ridge ring inside the core's bore; nothing is cut into the core's wall. Its 1.2 mm fingers leave a 2.2 mm + tolerance step inside the seated cap, bevelled at the fingers' tips. A core too small for the clips gets the press-fit collar, with a warning. |
 | Label | Text engraved into the top cap's room-facing face. It is hidden, with a warning, when it does not fit. |
 | Printer | A bed-size setting. It only produces warnings. The app never rearranges parts to fit. |
@@ -360,7 +360,7 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
 - The real openGrid snap connector (see [mounts.md](mounts.md)).
 - A fit-test coupon (a groove sample and a joint sample) so users can
   calibrate the tolerance before a long print.
-- Test a real print: the SKÅDIS clip on a board, the joints, the 3MF in a
+- Test a real print: the SKÅDIS rim clips and their latch on a board, the joints, the 3MF in a
   slicer, and the STEP file in a CAD program.
 
 ## Sources

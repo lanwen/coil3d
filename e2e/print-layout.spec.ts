@@ -16,7 +16,7 @@ import { encodeHashDoc } from "./hashDoc";
 
 const ONE_PART = encodeHashDoc({ L: 1000, d: 4, size: 50, h: 40, ly: 1, cap: "off" }); // core only
 const TWO_PART = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on" }); // core + top cap
-const SKADIS = encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60, mount: "skadis" }); // core + mount plate
+const SKADIS = encodeHashDoc({ L: 2000, d: 3.8, size: 100, h: 60, mount: "skadis" }); // core + 3 SKÅDIS rim clips
 const TRIANGLE_TWO_PART = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "tri", rc: 15 });
 
 async function gotoDesign(page: Page, hash: string) {
@@ -38,30 +38,32 @@ async function showPrintLayout(page: Page) {
  * verbatim, searchable directly in the raw downloaded bytes -- no zip
  * reader needed for a read-only check like this one.
  */
-function parseThreeMfItemTransforms(buf: Buffer): Array<{ rotateX: number; translate: [number, number, number] }> {
+function parseThreeMfItemTransforms(buf: Buffer): Array<{ rotateZ: number; rotateX: number; translate: [number, number, number] }> {
   const text = buf.toString("latin1");
   const matches = [...text.matchAll(/<item[^>]*transform="([^"]+)"/g)];
   expect(matches.length, "at least one <item transform=...> in the 3MF").toBeGreaterThan(0);
   return matches.map((m) => {
     const n = m[1].trim().split(/\s+/).map(Number);
     expect(n).toHaveLength(12);
-    // 3MF's own 4x3 row-major matrix (threeMf.ts's `transformAttr`): rows 2/3
-    // (n[4..8]) are [cos, sin, -sin, cos] -- rotateX recovered via atan2.
-    const rotateX = Math.atan2(n[5], n[4]);
-    return { rotateX, translate: [n[9], n[10], n[11]] };
+    // 3MF's own 4x3 row-major matrix (threeMf.ts's `transformAttr`): each row
+    // the image of one axis under Rz then Rx -- row 1 starts [-sin z, cos z ...]
+    // over row 0's [cos z ...], and row 2 is [0, -sin x, cos x].
+    const rotateZ = Math.atan2(-n[3], n[0]);
+    const rotateX = Math.atan2(-n[7], n[8]);
+    return { rotateZ, rotateX, translate: [n[9], n[10], n[11]] };
   });
 }
 
 /** The print-layout view's own exposed per-part transform (CoilViewer.tsx's
  * accessible `print-layout-parts` list), parsed the same shape. */
-async function readViewTransforms(page: Page): Promise<Record<string, { rotateX: number; translate: [number, number, number] }>> {
+async function readViewTransforms(page: Page): Promise<Record<string, { rotateZ: number; rotateX: number; translate: [number, number, number] }>> {
   const items = await page.getByTestId("print-layout-parts").locator("li").allTextContents();
-  const out: Record<string, { rotateX: number; translate: [number, number, number] }> = {};
+  const out: Record<string, { rotateZ: number; rotateX: number; translate: [number, number, number] }> = {};
   for (const line of items) {
-    const m = line.match(/^(.+?): rotateX=(-?[\d.]+), x=(-?[\d.]+)mm, y=(-?[\d.]+)mm, z=(-?[\d.]+)mm$/);
+    const m = line.match(/^(.+?): rotateZ=(-?[\d.]+), rotateX=(-?[\d.]+), x=(-?[\d.]+)mm, y=(-?[\d.]+)mm, z=(-?[\d.]+)mm$/);
     expect(m, `unrecognized print-layout-parts line: ${line}`).toBeTruthy();
-    const [, name, rotateX, x, y, z] = m!;
-    out[name] = { rotateX: Number(rotateX), translate: [Number(x), Number(y), Number(z)] };
+    const [, name, rotateZ, rotateX, x, y, z] = m!;
+    out[name] = { rotateZ: Number(rotateZ), rotateX: Number(rotateX), translate: [Number(x), Number(y), Number(z)] };
   }
   return out;
 }
@@ -129,7 +131,7 @@ test.describe("Print layout view (issue #78)", () => {
   for (const [label, hash, names] of [
     ["one-part", ONE_PART, ["core"]],
     ["two-part", TWO_PART, ["core", "top-cap"]],
-    ["skadis", SKADIS, ["core", "mount-plate", "peg-1", "peg-2"]],
+    ["skadis", SKADIS, ["core", "skadis-top-clip-1", "skadis-bottom-clip-1", "skadis-bottom-clip-2"]],
   ] as const) {
     test(`${label} design: view placement matches the 3MF export's own placement (shared function, issue #78 AC)`, async ({ page }) => {
       await gotoDesign(page, hash);
@@ -155,7 +157,8 @@ test.describe("Print layout view (issue #78)", () => {
       names.forEach((name, i) => {
         const view = viewTransforms[name];
         const threeMf = threeMfTransforms[i];
-        expect(view.rotateX, `${name} rotateX`).toBeCloseTo(threeMf.rotateX, 3);
+        expect(Math.cos(view.rotateZ - threeMf.rotateZ), `${name} rotateZ`).toBeCloseTo(1, 5);
+        expect(Math.cos(view.rotateX - threeMf.rotateX), `${name} rotateX`).toBeCloseTo(1, 5);
         expect(view.translate[0], `${name} x`).toBeCloseTo(threeMf.translate[0], 1);
         expect(view.translate[1], `${name} y`).toBeCloseTo(threeMf.translate[1], 1);
         expect(view.translate[2], `${name} z`).toBeCloseTo(threeMf.translate[2], 1);

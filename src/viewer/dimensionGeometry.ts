@@ -95,7 +95,7 @@ export function measureDimensionFrame(parts: Part[], forcedSpinRad?: number): { 
     const pos = part.mesh.positions;
     for (let i = 0; i < pos.length; i += 3) {
       groundZ = Math.min(groundZ, pos[i + 2]);
-      if (part.role === "mountPlate" || part.role === "peg") continue;
+      if (part.role === "mountPlate" || part.role === "peg" || part.role === "mountClip") continue;
       minZ = Math.min(minZ, pos[i + 2]);
       maxZ = Math.max(maxZ, pos[i + 2]);
       footprint.push([pos[i], pos[i + 1]]);

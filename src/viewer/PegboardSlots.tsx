@@ -1,4 +1,4 @@
-// The SKÅDIS slot grid drawn against the clip mount plate (issue #106): one
+// The SKÅDIS slot grid drawn against the rim clips (issues #106, #207): one
 // thin grey stadium outline per slot of `Design.pegboard`, lying in the
 // board's BACK plane for the mount-side view (the face that camera sees,
 // from behind the wall -- each clip pokes through its own slot and its

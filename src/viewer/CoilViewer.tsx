@@ -355,7 +355,7 @@ export function CoilViewer({
   }, [viewMode, onPrintLayoutActiveChange]);
   const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg, shapeKind), [mountAxisDeg, shapeKind]);
 
-  // Issue #106: a SKÅDIS plate sits behind the flange, where neither the Iso
+  // Issue #106: the SKÅDIS clips sit behind the flange, where neither the Iso
   // nor the Wall mount camera ever looks -- so selecting it (a change of
   // mount, not a link that already had it) jumps to the mount-side view
   // once. The view goes away again with the plate.
@@ -559,9 +559,12 @@ export function CoilViewer({
   // one label ("pegs x2") over their joint box instead of two overlapping ones.
   const printLayoutLabelParts = useMemo(() => {
     if (!printLayoutParts) return null;
+    // Issue #207: the SKÅDIS clips likewise share one label.
     const pegs = printLayoutParts.filter(({ part }) => part.role === "peg");
-    const labels = printLayoutParts.filter(({ part }) => part.role !== "peg").map(({ part, box }) => ({ name: part.name, box }));
+    const clips = printLayoutParts.filter(({ part }) => part.role === "mountClip");
+    const labels = printLayoutParts.filter(({ part }) => part.role !== "peg" && part.role !== "mountClip").map(({ part, box }) => ({ name: part.name, box }));
     if (pegs.length > 0) labels.push({ name: `pegs \u00d7${pegs.length}`, box: pegs.reduce((box, p) => box.union(p.box), new THREE.Box3()) });
+    if (clips.length > 0) labels.push({ name: `SKÅDIS clips \u00d7${clips.length}`, box: clips.reduce((box, p) => box.union(p.box), new THREE.Box3()) });
     return labels;
   }, [printLayoutParts]);
 
@@ -606,7 +609,7 @@ export function CoilViewer({
   // back (`.multiplyScalar`/`ExplodedPart`'s own per-frame `.copy`), so
   // returning the shared `explodeAxis` object as-is for the top-cap case
   // would corrupt it for every other reader.
-  const explodeAxisFor = (role: Part["role"]): THREE.Vector3 => (role === "mountPlate" || role === "peg" ? explodeAxis.clone().negate() : explodeAxis.clone());
+  const explodeAxisFor = (role: Part["role"]): THREE.Vector3 => (role === "mountPlate" || role === "peg" || role === "mountClip" ? explodeAxis.clone().negate() : explodeAxis.clone());
 
   // A stable framing geometry (issue #9, reworked for #15): every non-core
   // part contributes its FULLY exploded position whenever `exploded` is on,
@@ -791,7 +794,7 @@ export function CoilViewer({
         <ul className="visually-hidden" data-testid="print-layout-parts" aria-label="Parts on the print bed">
           {printLayoutParts.map(({ part, transform }) => (
             <li key={part.name} data-testid={`print-layout-part-${part.name}`}>
-              {part.name}: rotateX={transform.rotateX.toFixed(6)}, x={transform.translate[0].toFixed(3)}mm, y={transform.translate[1].toFixed(3)}mm, z={transform.translate[2].toFixed(3)}mm
+              {part.name}: rotateZ={(transform.rotateZ ?? 0).toFixed(6)}, rotateX={transform.rotateX.toFixed(6)}, x={transform.translate[0].toFixed(3)}mm, y={transform.translate[1].toFixed(3)}mm, z={transform.translate[2].toFixed(3)}mm
             </li>
           ))}
         </ul>

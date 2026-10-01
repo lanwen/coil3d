@@ -983,7 +983,7 @@ header p {
   flex: none;
 }
 
-/* SKÅDIS credit link (issue #131): a small, unobtrusive note under the
+/* SKÅDIS note (issues #131, #207): a small, unobtrusive note under the
    mount picker, shown only for that one mount kind -- reuses `.field-note`'s
    own muted, small-print styling (see above) for the surrounding text, with
    just the link itself in this app's one established link colour/underline

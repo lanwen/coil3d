@@ -47,13 +47,17 @@ interface Patch {
 function place(mesh: CoilMesh, t: RigidTransform): Float32Array {
   const cos = Math.cos(t.rotateX);
   const sin = Math.sin(t.rotateX);
+  const cz = Math.cos(t.rotateZ ?? 0);
+  const sz = Math.sin(t.rotateZ ?? 0);
   const [dx, dy, dz] = t.translate;
   const p = mesh.positions;
   const out = new Float32Array(p.length);
   for (let i = 0; i < p.length; i += 3) {
-    out[i] = p[i] + dx;
-    out[i + 1] = p[i + 1] * cos - p[i + 2] * sin + dy;
-    out[i + 2] = p[i + 1] * sin + p[i + 2] * cos + dz;
+    const x = p[i] * cz - p[i + 1] * sz;
+    const y = p[i] * sz + p[i + 1] * cz;
+    out[i] = x + dx;
+    out[i + 1] = y * cos - p[i + 2] * sin + dy;
+    out[i + 2] = y * sin + p[i + 2] * cos + dz;
   }
   return out;
 }
@@ -257,7 +261,10 @@ for (const shape of SHAPES) {
   });
 }
 CASES.push({ name: "sq, press, mount keyhole rotated 45", spec: baseSpec({ shape: SHAPES[1], mount: "keyhole", keyholeRotation: 45 }) });
-CASES.push({ name: "round, press, mount skadis, snap plate joint", spec: baseSpec({ mount: "skadis", plateJoint: "snap" }) });
+CASES.push({ name: "round, press, mount opengrid, snap plate joint", spec: baseSpec({ mount: "opengrid", plateJoint: "snap" }) });
+// Issue #207: the heavy-cable SKÅDIS layout (two top clips) and the latch off.
+CASES.push({ name: "round, press, mount skadis, heavy cable", spec: baseSpec({ mount: "skadis", wire: { length: 10000, diameter: 8, type: "flex" }, layers: { locked: true, value: 4 }, height: { locked: false } }) });
+CASES.push({ name: "round, press, mount skadis, no latch", spec: baseSpec({ mount: "skadis", skadisLatch: false }) });
 
 /**
  * Known failures, each a separate design problem with its own issue: a

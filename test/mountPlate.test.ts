@@ -2,11 +2,12 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilSpec } from "../src/core";
-import { layoutMountPlate, mountPlateLayoutFor, openGridClipHalfExtents, skadisClipHalfExtents } from "../src/core/mountPlate";
+import { layoutMountPlate, mountPlateLayoutFor, openGridClipHalfExtents } from "../src/core/mountPlate";
 import { bestAxisDeg } from "../src/core/mount";
 import { makeOutline, offsetOutline } from "../src/core/shapes";
 
-// Issue #14 acceptance criteria: mount=skadis|opengrid produce a separate
+// Issue #14 acceptance criteria: mount=opengrid (the hidden placeholder; the
+// SKÅDIS mount used the same plate until issue #207) produces a separate
 // "mount plate" part that glues or snaps onto the bottom flange's wall face,
 // fits inside the flange outline, respects the hanging axis, warns when the
 // flange is too small for at least 2 clips, and stays manifold in every
@@ -90,25 +91,16 @@ describe("mountPlate.ts layout math (issue #14)", () => {
     expect(layout.axisDeg).toBeCloseTo(bestAxisDeg(boreOutline, 0), 9);
   });
 
-  it("skadis/openGrid half-extents come from the actual geometry data, not a hand-maintained duplicate", () => {
-    const skadis = skadisClipHalfExtents();
-    expect(skadis.halfUp).toBeCloseTo(5.5, 6);
-    expect(skadis.halfSide).toBeCloseTo(2.9, 6);
+  it("openGrid half-extents come from the actual geometry data, not a hand-maintained duplicate", () => {
     const openGrid = openGridClipHalfExtents();
     expect(openGrid.halfUp).toBeGreaterThan(0);
     expect(openGrid.halfSide).toBeGreaterThan(0);
   });
 
-  it("SKÅDIS columns sit half a pitch off-centre, so a 100 mm core still gets 2 clips 40 mm apart (issue #106)", () => {
-    const layout = mountPlateLayoutFor("skadis", makeOutline("round", 60, 30), makeOutline("round", 40, 20));
-    const xs = [...new Set(layout.clips.map((c) => Math.round(c.x * 1000) / 1000))].sort((a, b) => a - b);
-    expect(xs).toEqual([-20, 20]);
-  });
-
   it("never puts a pin hole INSIDE the inner-end channel, however far it is from the channel's edges (issue #115)", () => {
-    const flange = makeOutline("round", 60, 30);
-    const bore = makeOutline("round", 40, 20);
-    const free = mountPlateLayoutFor("skadis", flange, bore);
+    const flange = makeOutline("round", 100, 50);
+    const bore = makeOutline("round", 60, 30);
+    const free = mountPlateLayoutFor(flange, bore);
     expect(free.anchors.length).toBe(2);
     // A wide strip whose edges are far (>3 mm) from the first free pin
     // position, but which contains it -- the pre-#115 edge-distance check
@@ -121,7 +113,7 @@ describe("mountPlate.ts layout math (issue #14)", () => {
       { x: p.x + 50, y: p.y + 5 },
       { x: p.x - 50, y: p.y + 5 },
     ];
-    const avoided = mountPlateLayoutFor("skadis", flange, bore, { channelRibbon: strip });
+    const avoided = mountPlateLayoutFor(flange, bore, { channelRibbon: strip });
     for (const a of avoided.anchors) expect(Math.hypot(a.x - p.x, a.y - p.y)).toBeGreaterThan(1);
   });
 });
@@ -134,8 +126,8 @@ describe("design() clip mount plate (issue #14)", () => {
     expect(keyhole.parts.map((p) => p.role)).not.toContain("mountPlate");
   });
 
-  it("adds a separate, named mount-plate part for mount=skadis", async () => {
-    const d = await design(baseSpec({ mount: "skadis" }));
+  it("adds a separate, named mount-plate part for mount=opengrid", async () => {
+    const d = await design(baseSpec({ mount: "opengrid" }));
     const plate = d.parts.find((p) => p.role === "mountPlate");
     expect(plate).toBeDefined();
     expect(plate!.name).toBe("mount-plate");
@@ -151,23 +143,24 @@ describe("design() clip mount plate (issue #14)", () => {
   it("still bumps the flange thickness (and warns) for a thin cable whose channel-depth baseline alone wouldn't clear the plate's own anchor-hole minimum", async () => {
     const thinWire = { length: 500, diameter: 0.5, type: "usb" as const };
     const none = await design(baseSpec({ mount: "none", wire: thinWire }));
-    const skadis = await design(baseSpec({ mount: "skadis", wire: thinWire }));
+    const skadis = await design(baseSpec({ mount: "opengrid", wire: thinWire }));
     expect(skadis.flangeSpec.thickness).toBeGreaterThan(none.flangeSpec.thickness);
     expect(skadis.warnings.some((w) => /flange thickness increased/i.test(w))).toBe(true);
   });
 
-  it("an old snap-joint link still builds, as the printable pin + glue joint, with a warning (issue #106)", async () => {
-    const snap = await design(baseSpec({ mount: "skadis", plateJoint: "snap" }));
-    const glue = await design(baseSpec({ mount: "skadis", plateJoint: "glue" }));
+  it("a snap plate joint still builds, as the printable pin + glue joint, with a warning (issue #106)", async () => {
+    const snap = await design(baseSpec({ mount: "opengrid", plateJoint: "snap" }));
+    const glue = await design(baseSpec({ mount: "opengrid", plateJoint: "glue" }));
     expect(snap.warnings.some((w) => /snap tabs can't print without supports/i.test(w))).toBe(true);
     expect(glue.warnings.some((w) => /snap tabs/i.test(w))).toBe(false);
     const plateOf = (d: typeof snap) => d.parts.find((p) => p.role === "mountPlate")!.mesh.positions;
     expect(plateOf(snap)).toEqual(plateOf(glue));
   });
 
-  it("adds a mount-plate part for mount=opengrid too (placeholder connector geometry -- see constants.ts's TODO)", async () => {
-    const d = await design(baseSpec({ mount: "opengrid" }));
-    expect(d.parts.find((p) => p.role === "mountPlate")).toBeDefined();
+  it("mount=skadis builds rim clips, not a plate (issue #207)", async () => {
+    const d = await design(baseSpec({ mount: "skadis" }));
+    expect(d.parts.find((p) => p.role === "mountPlate")).toBeUndefined();
+    expect(d.parts.filter((p) => p.role === "mountClip").length).toBe(3);
   });
 
   // Issue #120: `requiredMountPlateMargin` (mountPlate.ts) grows the flange
@@ -181,29 +174,27 @@ describe("design() clip mount plate (issue #14)", () => {
     // A thin 1.5 mm cable, so the round core's bend-limit floor (issue #195) stays under 12 mm.
     const tiny: Partial<CoilSpec> = { wire: { length: 2000, diameter: 1.5, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: 12 }, height: { locked: true, value: 20 } };
     const none = await design(baseSpec({ ...tiny, mount: "none" }));
-    const d = await design(baseSpec({ ...tiny, mount: "skadis" }));
+    const d = await design(baseSpec({ ...tiny, mount: "opengrid" }));
     expect(d.flangeSpec.margin).toBeGreaterThan(none.flangeSpec.margin);
-    expect(d.warnings.some((w) => /margin increased.*SK.DIS/i.test(w))).toBe(true);
+    expect(d.warnings.some((w) => /margin increased.*openGrid/i.test(w))).toBe(true);
     expect(d.warnings.some((w) => /too small to fit/i.test(w))).toBe(false);
     const plate = d.parts.find((p) => p.role === "mountPlate");
     expect(plate).toBeDefined();
-    const layout = mountPlateLayoutFor("skadis", offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin), d.flangeSpec.boreOutline);
+    const layout = mountPlateLayoutFor(offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin), d.flangeSpec.boreOutline);
     expect(layout.clips.length).toBeGreaterThanOrEqual(2);
   });
 
   it("mountAxisDeg is surfaced for the clip mount plate too, matching mountPlate.ts's own layout.axisDeg", async () => {
-    const d = await design(baseSpec({ mount: "skadis", shape: { kind: "tri", cornerRadius: 15 } }));
+    const d = await design(baseSpec({ mount: "opengrid", shape: { kind: "tri", cornerRadius: 15 } }));
     expect(d.mountAxisDeg).not.toBeUndefined();
     const flangeOutline = offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin);
-    const layout = mountPlateLayoutFor("skadis", flangeOutline, d.flangeSpec.boreOutline);
+    const layout = mountPlateLayoutFor(flangeOutline, d.flangeSpec.boreOutline);
     expect(d.mountAxisDeg).toBeCloseTo(layout.axisDeg!, 9);
   });
 
   it.each([
-    { label: "skadis glue, round", mount: "skadis" as const, plateJoint: "glue" as const, shape: { kind: "round" } as const },
-    { label: "skadis snap, round", mount: "skadis" as const, plateJoint: "snap" as const, shape: { kind: "round" } as const },
-    { label: "skadis glue, sq", mount: "skadis" as const, plateJoint: "glue" as const, shape: { kind: "sq", cornerRadius: 15 } as const },
-    { label: "skadis glue, tri", mount: "skadis" as const, plateJoint: "glue" as const, shape: { kind: "tri", cornerRadius: 15 } as const },
+    { label: "opengrid glue, sq", mount: "opengrid" as const, plateJoint: "glue" as const, shape: { kind: "sq", cornerRadius: 15 } as const },
+    { label: "opengrid glue, tri", mount: "opengrid" as const, plateJoint: "glue" as const, shape: { kind: "tri", cornerRadius: 15 } as const },
     { label: "opengrid glue, round", mount: "opengrid" as const, plateJoint: "glue" as const, shape: { kind: "round" } as const },
     { label: "opengrid snap, round", mount: "opengrid" as const, plateJoint: "snap" as const, shape: { kind: "round" } as const },
   ])("$label: every part (core + mount-plate) is a single valid, watertight manifold", async ({ mount, plateJoint, shape }) => {
@@ -214,13 +205,14 @@ describe("design() clip mount plate (issue #14)", () => {
     }
   });
 
-  it("keeps the core part's own genus at 1 (still a single tunnel through the solid) even with the plate's alignment cut", async () => {
-    const d = await design(baseSpec({ mount: "skadis" }));
+  it.each(["opengrid", "skadis"] as const)("keeps the core part's own genus at 1 (still a single tunnel through the solid) with the %s mount's cuts", async (mount) => {
+    const d = await design(baseSpec({ mount }));
     const wasm = await Module();
     wasm.setup();
     const core = d.parts.find((p) => p.role === "core")!;
     const m = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: core.mesh.positions, triVerts: core.mesh.indices }));
     expect(m.genus()).toBe(1);
+    expect(m.decompose().length).toBe(1);
     m.delete();
   });
 });

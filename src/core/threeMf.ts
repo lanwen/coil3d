@@ -69,7 +69,7 @@ function meshXml(mesh: CoilMesh): string {
 }
 
 /**
- * A `RigidTransform` (rotate about X, then translate -- types.ts) as a 3MF
+ * A `RigidTransform` (rotate about Z, then about X, then translate -- types.ts) as a 3MF
  * `<item transform="...">` matrix: 12 numbers, row-major over a 4x3 matrix
  * (3x3 linear part + a translation row), applied as `P' = P * M` (the OPC/
  * 3MF row-vector convention). Working out
@@ -80,8 +80,12 @@ function meshXml(mesh: CoilMesh): string {
 function transformAttr(t: RigidTransform): string {
   const cos = Math.cos(t.rotateX);
   const sin = Math.sin(t.rotateX);
+  // Issue #207: an optional turn about Z first. Each row is the image of one
+  // axis: Rz then Rx.
+  const cz = Math.cos(t.rotateZ ?? 0);
+  const sz = Math.sin(t.rotateZ ?? 0);
   const [dx, dy, dz] = t.translate;
-  return [1, 0, 0, 0, cos, sin, 0, -sin, cos, dx, dy, dz].map(fmt).join(" ");
+  return [cz, sz * cos, sz * sin, -sz, cz * cos, cz * sin, 0, -sin, cos, dx, dy, dz].map(fmt).join(" ");
 }
 
 export function write3mf(design: Design): Uint8Array<ArrayBuffer> {

@@ -41,8 +41,7 @@ import {
   SCREW_MOUNT_SLOT_DEPTH,
   SCREW_MOUNT_SLOT_RADIUS,
   SCREW_MOUNT_UNDERCUT_DEPTH,
-  SKADIS_CLIP_HEIGHT,
-  SKADIS_CLIP_PROFILE,
+  SKADIS_CLIP_WIDTH,
   SNAP_HOOK_COUNT,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
@@ -62,6 +61,8 @@ import { weldShortEdges } from "./weld";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
+import { clipFrame } from "./skadisClips";
+import type { RimClip, SkadisClipLayout } from "./skadisClips";
 import { minCornerSegments, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh, JointKind, MountKind } from "./types";
@@ -101,6 +102,8 @@ export interface FlangeSpec {
   throughHoleDiameter?: number;
   /** Issue #70 PR review: the wound cable's own outer radius (mirrors flange.ts's own `flangeSizeEnvelope / 2` reasoning) -- every through-hole is kept clear of it too, not just the wall's own surface, so it stays reachable with a screwdriver. 0/omitted when not relevant (no mount, or not yet known). */
   envelopeRadius?: number;
+  /** Issue #207: the SKÅDIS rim clips' layout (skadisClips.ts) -- its notches are cut through the rim and its pads keep the flange full thickness under the clips' jaws. Present only when `mount` is "skadis" and the clips fit. */
+  skadis?: SkadisClipLayout;
 }
 
 /** What `fuseFlange` needs to cut a bayonet/snap joint's mating feature into the core's own top rim. Press needs no core-side cut, so it's omitted entirely by the caller. */
@@ -498,6 +501,21 @@ export async function fuseFlange(
       }
     }
 
+    // Issue #207: a notch through the rim at each SKÅDIS clip, its floor
+    // the flat seat the clip's bight wraps. Cut after the pads, which keep
+    // the flange full thickness under the jaws.
+    if (flange.skadis) {
+      for (const notch of flange.skadis.notches) {
+        const poly: [number, number][] = notch.map((p) => [p.x, p.y]);
+        const cutter = track(new wasm.CrossSection([poly], "NonZero").extrude(flange.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flange.thickness - WELD_OVERLAP]));
+        fused = track(fused.subtract(cutter));
+        status = fused.status();
+        if (status !== "NoError") {
+          throw new Error(`SKÅDIS notch cut is not a valid manifold: ${status}`);
+        }
+      }
+    }
+
     // Issue #14/#106: the clip mount plate's alignment pegs sit in a
     // shallow blind hole cut into this SAME outer face (and a matching one
     // in the plate) -- see `pinHoleCutter` and `buildMountPlate` below (the
@@ -693,7 +711,7 @@ async function buildLabelCutter(wasm: ManifoldToplevel, label: ResolvedLabel): P
   return cutter.translate([0, 0, CAP_THICKNESS - LABEL_DEPTH]);
 }
 
-// --- Clip mount plate (issue #14, docs/mounts.md, SKÅDIS) -------------------------------------------------
+// --- Clip mount plate (issue #14, docs/mounts.md: the hidden openGrid placeholder) ------------------------
 //
 // The plate is a SEPARATE part (see `buildMountPlate`): a flat panel shaped
 // like `mountPlate.ts`'s own `MountPlateLayout.outline`, sitting flush
@@ -738,43 +756,16 @@ function outlinePrismSolid(wasm: ManifoldToplevel, outline: ShapeOutline, height
   return new wasm.CrossSection([poly], "NonZero").extrude(height).translate([0, 0, zBase]);
 }
 
-/**
- * One SKÅDIS clip PAIR (constants.ts's `SKADIS_CLIP_PROFILE` doc comment
- * for the mechanism and dimensions), in the canonical local frame described
- * above. Each leg's (side, reach) loop is built as (local X, local Y) so
- * `CrossSection.extrude` sweeps it along local Z by `SKADIS_CLIP_HEIGHT`,
- * then rotated -90 degrees about local X (extrusion axis -> local Y, reach
- * -> local -Z: base at Z=0, tip at the most negative Z) and a further -90
- * degrees about local Z, which swaps this construction's own (side, height)
- * axes into the shared frame (local +X = "up", local +Y = "side"); the
- * pair's side=0 mirror symmetry makes the resulting side-sign flip harmless.
- * The loop's reach-0 points are pushed MOUNT_PLATE_EMBED into the panel
- * (that constant's doc comment: a coincident base face unions unreliably)
- * WITHOUT moving the rest of the clip, so the barb stays exactly where the
- * profile puts it relative to the plate's face (issue #106: the issue #14
- * version shifted the whole clip 0.5 mm toward the plate instead).
- */
-function skadisHookSolid(wasm: ManifoldToplevel): Manifold {
-  const leg = SKADIS_CLIP_PROFILE.map(([s, r]): [number, number] => [s, r === 0 ? -MOUNT_PLATE_EMBED : r]);
-  const leftLoop: [number, number][] = leg.map(([s, r]): [number, number] => [-s, r]).reverse();
-  const solid = new wasm.CrossSection([leg, leftLoop], "NonZero").extrude(SKADIS_CLIP_HEIGHT);
-  return solid
-    .translate([0, 0, -SKADIS_CLIP_HEIGHT / 2])
-    .rotate([-90, 0, 0])
-    .rotate([0, 0, -90]);
-}
-
-/** The openGrid placeholder connector (constants.ts's `OPENGRID_PLACEHOLDER_PEG_SIZE` TODO): a plain square peg in the same canonical local frame, base flush at Z=0, reaching to local -Z. Embedded into the panel by `MOUNT_PLATE_EMBED` -- see `skadisHookSolid`'s comment. */
+/** The openGrid placeholder connector (constants.ts's `OPENGRID_PLACEHOLDER_PEG_SIZE` TODO): a plain square peg in the same canonical local frame, base flush at Z=0, reaching to local -Z. Embedded into the panel by `MOUNT_PLATE_EMBED` (a coincident base face unions unreliably). */
 function openGridConnectorSolid(wasm: ManifoldToplevel): Manifold {
   const s = OPENGRID_PLACEHOLDER_PEG_SIZE;
   const h = OPENGRID_PLACEHOLDER_PEG_REACH + MOUNT_PLATE_EMBED; // spans local Z=[-REACH, +EMBED] once centered and shifted below
   return wasm.Manifold.cube([s, s, h], true).translate([0, 0, (MOUNT_PLATE_EMBED - OPENGRID_PLACEHOLDER_PEG_REACH) / 2]);
 }
 
-/** One clip instance (hook or placeholder connector), placed at its own true (x, y) and rotated onto the layout's up/side axes -- see the file header. */
-function mountPlateClipSolid(wasm: ManifoldToplevel, mountKind: Extract<MountKind, "skadis" | "opengrid">, clip: ClipInstance, zBase: number): Manifold {
-  const canonical = mountKind === "skadis" ? skadisHookSolid(wasm) : openGridConnectorSolid(wasm);
-  return canonical.rotate([0, 0, clip.rotationDeg]).translate([clip.x, clip.y, zBase]);
+/** One placeholder connector, placed at its own true (x, y) and rotated onto the layout's up/side axes -- see the file header. */
+function mountPlateClipSolid(wasm: ManifoldToplevel, clip: ClipInstance, zBase: number): Manifold {
+  return openGridConnectorSolid(wasm).rotate([0, 0, clip.rotationDeg]).translate([clip.x, clip.y, zBase]);
 }
 
 /**
@@ -797,7 +788,6 @@ function pinHoleCutter(wasm: ManifoldToplevel, anchor: AnchorPoint, tolerance: n
 
 export interface MountPlateSpec {
   layout: MountPlateLayout;
-  mountKind: Extract<MountKind, "skadis" | "opengrid">;
   tolerance: number;
   /** The core's own flange thickness (mm), so the plate's front face lands flush against z=-flangeThickness -- see the file header. */
   flangeThickness: number;
@@ -826,7 +816,7 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { layout, mountKind, tolerance, columns, minCornerSegments, flangeThickness } = spec;
+    const { layout, tolerance, columns, minCornerSegments, flangeThickness } = spec;
     const backZ = -flangeThickness - MOUNT_PLATE_THICKNESS; // the plate's own back (clip-bearing) face
     const frontZ = -flangeThickness; // the plate's own front (flange-mating) face
 
@@ -836,7 +826,7 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
     }
 
     for (const clip of layout.clips) {
-      plate = track(plate.add(track(mountPlateClipSolid(wasm, mountKind, clip, backZ))));
+      plate = track(plate.add(track(mountPlateClipSolid(wasm, clip, backZ))));
     }
     for (const anchor of layout.anchors) {
       plate = track(plate.subtract(track(pinHoleCutter(wasm, anchor, tolerance, frontZ, -1))));
@@ -866,5 +856,30 @@ export async function buildPeg(anchor: AnchorPoint, flangeThickness: number): Pr
     return { positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) };
   } finally {
     peg.delete();
+  }
+}
+
+/**
+ * One SKÅDIS rim clip part (issue #207, skadisClips.ts): its (up, z) profile
+ * extruded SKADIS_CLIP_WIDTH along the layout's side axis, centred on the
+ * clip's own side, in the shared ASSEMBLY frame (seated on the board,
+ * wrapping the rim). The extrusion runs along local Z; one affine map (a
+ * proper rotation: up, z, side) carries it into place -- the STEP backend
+ * builds the same prism from the same profile.
+ */
+export async function buildSkadisClip(layout: SkadisClipLayout, clip: RimClip): Promise<CoilMesh> {
+  const wasm = await getWasm();
+  const { up, side } = clipFrame(layout.axisDeg, clip.side);
+  const s0 = clip.side - SKADIS_CLIP_WIDTH / 2;
+  const prism = new wasm.CrossSection([clip.profile], "NonZero").extrude(SKADIS_CLIP_WIDTH);
+  // Column-major: local x (up) -> up, local y (z) -> Z, local z (side) -> side, then the side offset.
+  const placed = prism.transform([up.x, up.y, 0, 0, 0, 0, 1, 0, side.x, side.y, 0, 0, s0 * side.x, s0 * side.y, 0, 1]);
+  try {
+    if (placed.status() !== "NoError") throw new Error(`SKÅDIS clip is not a valid manifold: ${placed.status()}`);
+    const outMesh = placed.getMesh();
+    return { positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) };
+  } finally {
+    prism.delete();
+    placed.delete();
   }
 }

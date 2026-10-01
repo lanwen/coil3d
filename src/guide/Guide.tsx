@@ -29,7 +29,14 @@ import { rotateParts, rotatePoint, wallMountRotation, wallRoomRotation } from ".
 import { ClickIcon, GlueDropIcon, KeyholeIcon, NoPullIcon, NoSupportsIcon, PressIcon, RotateIcon, ScrewdriverIcon, TwistIcon, WallMountIcon, WindIcon } from "./pictograms";
 import "./guide.css";
 
-const PART_LABELS: Record<string, string> = { core: "Core", "top-cap": "Top cap", "mount-plate": "Mount plate", "peg-1": "Alignment peg" };
+const PART_LABELS: Record<string, string> = {
+  core: "Core",
+  "top-cap": "Top cap",
+  "mount-plate": "Mount plate",
+  "peg-1": "Alignment peg",
+  "skadis-top-clip-1": "Top clip",
+  "skadis-bottom-clip-1": "Bottom clip",
+};
 
 function partLabel(part: Part): string {
   return PART_LABELS[part.name] ?? part.name;
@@ -92,24 +99,33 @@ function Callout({ icons, children }: { icons: React.ReactNode; children: React.
   );
 }
 
+/** A numbered part's group ("peg-2" -> "peg", "skadis-bottom-clip-2" -> "skadis-bottom-clip"): copies of one shape share a figure. */
+function partGroup(part: Part): string {
+  return part.name.replace(/-\d+$/, "");
+}
+
 function StepPrintParts({ design }: { design: Design }) {
-  // Issue #132: the two identical pegs share one figure, "x2".
+  // Issue #132: the two identical pegs share one figure, "x2"; issue #207:
+  // so do the SKÅDIS clips of each kind.
+  const groups = new Map<string, Part[]>();
+  for (const part of design.parts) groups.set(partGroup(part), [...(groups.get(partGroup(part)) ?? []), part]);
   const pegs = pegParts(design);
-  const shown = design.parts.filter((p) => p.role !== "peg" || p === pegs[0]);
+  const clips = design.parts.filter((p) => p.role === "mountClip");
+  const onSide = [pegs.length > 0 ? "the pegs" : "", clips.length > 0 ? "the clips" : ""].filter(Boolean).join(" and ");
   return (
     <StepCard n={1} title="Print the parts">
       <div className="guide-figure-row">
-        {shown.map((part) => (
+        {[...groups.values()].map(([part, ...more]) => (
           <figure key={part.name} className="guide-part">
             <Figure parts={[partInPrintPose(part)]} fill={0.9} testId={`guide-print-part-${part.name}`} />
             <figcaption>
-              {partLabel(part)} &times;{part.role === "peg" ? pegs.length : 1}
+              {partLabel(part)} &times;{1 + more.length}
             </figcaption>
           </figure>
         ))}
       </div>
       <Callout icons={<NoSupportsIcon label="No supports needed" />}>
-        {design.parts.length} part{design.parts.length === 1 ? "" : "s"}, prints upright{pegs.length > 0 ? " (the pegs lying on their side)" : ""} -- no supports.
+        {design.parts.length} part{design.parts.length === 1 ? "" : "s"}, prints upright{onSide ? ` (${onSide} lying on their side)` : ""} -- no supports.
       </Callout>
     </StepCard>
   );
@@ -184,8 +200,8 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
   const joint = design.spec.joint;
   const JointIcon = JOINT_ICON[joint];
 
-  // The mount plate (and its pegs, issue #132) sits UNDER the flange: lifting it with the cap would push it up through the core (issue #106).
-  const capParts = design.parts.filter((p) => p.role !== "mountPlate" && p.role !== "peg");
+  // The mount plate (and its pegs, issue #132) sits UNDER the flange, and the SKÅDIS clips (issue #207) on its rim: lifting them with the cap would push them up through the core (issue #106).
+  const capParts = design.parts.filter((p) => p.role !== "mountPlate" && p.role !== "peg" && p.role !== "mountClip");
   const posedForAlign = explodedParts(capParts, true, EXPLODE_GAP);
   const posedCap = posedForAlign.find((p) => p.role !== "core")!;
   const capBottomExploded = centerAtZ(posedCap.mesh, meshBounds(posedCap.mesh).min.z);
@@ -264,7 +280,7 @@ function mountLine(mount: MountKind): string {
     case "through":
       return "Drive a screw straight through each hole, into the wall -- reachable through the open bore or around the winding, no sliding needed.";
     case "skadis":
-      return "Line the clips up with the board's slots and press the plate flat until the clips click behind the board, then let it drop onto the slot bottoms.";
+      return "Push each bottom clip into its slot and let it drop. Lower the coil's rim into them, then push the top clip into its slot just above the rim and let it drop until it clicks. To take the coil down, lift the top clip firmly.";
     // "none" (and "opengrid", not reachable -- see this function's own doc comment).
     default:
       return "Fix the flange to the wall your own way -- mounts are coming soon.";
@@ -276,7 +292,7 @@ function mountIcon(mount: MountKind) {
   return mount === "through" ? <ScrewdriverIcon label="Drive a screw through each hole" /> : <WallMountIcon label="Mount on the wall" />;
 }
 
-/** No illustrated hung orientation (no mount, issue #70's through-hole mount, or issue #14's SKÅDIS clip-plate mount -- unlike the keyhole mount below, none of these rotate the core itself onto the wall: the through-hole mount has no gravity-seated "hung orientation" to show since it isn't sliding onto anything, and the clip plate is a separate part) -- the coil stays in its standing pose next to a plain, decorative wall strip (issue #17 review: "for SKÅDIS/none, render generically as before"). `mountLine`/`mountIcon` still give each mount its own accurate instruction text/icon.
+/** No illustrated hung orientation (no mount, or issue #70's through-hole mount -- unlike the keyhole mount below, neither rotates the core itself onto the wall: the through-hole mount has no gravity-seated "hung orientation" to show since it isn't sliding onto anything) -- the coil stays in its standing pose next to a plain, decorative wall strip (issue #17 review: "for SKÅDIS/none, render generically as before"). `mountLine`/`mountIcon` still give each mount its own accurate instruction text/icon.
  *
  * Issue #70 AC ("Screenshots: mount-side face-on view for round/sq/tri"): the
  * through-hole mount has no gravity-seated hung ORIENTATION to show (unlike
@@ -450,11 +466,12 @@ function StepFitPlate({ design, n }: { design: Design; n: number }) {
 }
 
 /**
- * Issue #106: the SKÅDIS clip plate. Main figure: the mount side, face-on
- * (the same `wallMountRotation` as the keyhole step's inset), with the
- * board's slot grid (`Design.pegboard`, drawn on its back plane, nearer this
- * camera than anything but the clip barbs) outlined over it -- every clip
- * sits in a slot. The inset shows the coil hung on the wall, room side.
+ * Issues #106, #207: the SKÅDIS rim clips. Main figure: the mount side,
+ * face-on (the same `wallMountRotation` as the keyhole step's inset), with
+ * the board's slot grid (`Design.pegboard`, drawn on its back plane, nearer
+ * this camera than anything but the clips' tongues) outlined over it --
+ * every clip sits in a slot. The inset shows the coil hung on the wall,
+ * room side.
  */
 function StepMountSkadis({ design, n }: { design: Design; n: number }) {
   const board = design.pegboard!;
@@ -538,7 +555,7 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
   // Steps 1-3 (print/thread/wind) always run; the two cap steps only exist
   // when this design has a top cap, so every step after them renumbers down
   // by 2 when it doesn't (a design with no cap never has a "step 5" gap).
-  // Issue #106: a SKÅDIS plate gets its own "fit the plate" step first.
+  // Issue #106: a mount plate (openGrid) gets its own "fit the plate" step first.
   const hasPlate = !!platePart(design) && !!design.pegboard;
   const plateN = topCapEnabled ? 6 : 4;
   const mountN = plateN + (hasPlate ? 1 : 0);

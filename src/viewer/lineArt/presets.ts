@@ -54,7 +54,7 @@ export const VIEW_PRESETS: ViewPreset[] = [
   // header on the removed "top" preset).
   // Mount side (issue #106): the wall's own view of the clip mount plate,
   // face-on, with the SKÅDIS slot grid drawn in -- only offered while a
-  // SKÅDIS plate exists (ViewControls' `showMountSide`). Like wallRoom, a
+  // SKÅDIS mount exists (ViewControls' `showMountSide`). Like wallRoom, a
   // geometry rotation in CoilViewer (wallRotations.ts's
   // WALL_MOUNT_VIEW_ROTATION, derived for this same fixed iso camera).
   { id: "mountSide", label: "Mount side", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },

@@ -52,7 +52,7 @@ const WIRE_TYPE_OPTIONS: Array<{ id: WireTypeId; label: string }> = [
 const MOUNT_KIND_OPTIONS: Array<{ id: Exclude<MountKind, "none">; label: string }> = [
   { id: "keyhole", label: "Screw keyhole (wall mount)" },
   { id: "through", label: "Through-holes (screw straight on)" },
-  { id: "skadis", label: "IKEA SKÅDIS clip plate" },
+  { id: "skadis", label: "IKEA SKÅDIS rim clips: hook on, lift off" },
 ];
 
 const KEYHOLE_ROTATION_LABELS: Record<KeyholeRotation, string> = {
@@ -432,18 +432,19 @@ export function ControlsForm({
             </select>
           </div>
         )}
-        {/* Issue #131: a small, unobtrusive credit for SKÅDIS's own clip
-            geometry, which this app's clip profile is based on (see
-            docs/mounts.md, SKÅDIS) -- shown only for the mount
-            it actually describes. */}
+        {/* Issue #207: what the SKÅDIS clips are, in one line, and the top clip's latch. */}
         {spec.mount === "skadis" && (
-          <p className="field-note mount-credit-note" data-testid="mount-credit">
-            Clip design after{" "}
-            <a href="https://github.com/nmattia/skapa" target="_blank" rel="noreferrer">
-              skapa
-            </a>
-            .
-          </p>
+          <>
+            <p className="field-note mount-credit-note" data-testid="mount-note">
+              Separate clips hook into the board and grip the flange's rim. Hang the coil on them, lift it off.
+            </p>
+            <div className="field">
+              <div className="field-top">
+                <FieldTop label="Anti-lift latch" hint={HINTS.skadisLatch} />
+                <Switch testId="skadis-latch" ariaLabel="Anti-lift latch" checked={spec.skadisLatch ?? true} onChange={(on) => onChange({ ...spec, skadisLatch: on })} />
+              </div>
+            </div>
+          </>
         )}
         {spec.mount === "keyhole" && (
           <div className="field">
