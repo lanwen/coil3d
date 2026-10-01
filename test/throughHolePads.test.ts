@@ -29,7 +29,8 @@ function rayHits(mesh: Mesh, tris: number[], x: number, y: number): number[] {
     const l1 = ((p[b + 1] - p[c + 1]) * (x - p[c]) + (p[c] - p[b]) * (y - p[c + 1])) / d;
     const l2 = ((p[c + 1] - p[a + 1]) * (x - p[c]) + (p[a] - p[c]) * (y - p[c + 1])) / d;
     const l3 = 1 - l1 - l2;
-    if (l1 < 0 || l2 < 0 || l3 < 0) continue;
+    // A ray along a shared edge counts for both triangles (the hits are merged below), whatever the triangulation puts there.
+    if (l1 < -1e-9 || l2 < -1e-9 || l3 < -1e-9) continue;
     hits.push(l1 * p[a + 2] + l2 * p[b + 2] + l3 * p[c + 2]);
   }
   hits.sort((u, v) => u - v);
