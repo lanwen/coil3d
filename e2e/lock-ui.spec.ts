@@ -232,4 +232,37 @@ test.describe("padlock before the value, layers slider (issue #164)", () => {
       expect(decodeHashDoc(page.url()).ly).toBe(4);
     }).toPass();
   });
+
+  // Core size and height do not clamp a typed value (or a hash value) to
+  // their slider's max; they only floor it. Layers behave the same way, so a
+  // value past the slider's 40 is kept as typed and a link's value is never
+  // rewritten.
+  test("a typed layer count above the slider max is kept, like height; a link's value is left alone", async ({ page }) => {
+    await page.goto("/");
+    const layers = page.getByTestId("input-layers");
+    await layers.fill("60");
+    await layers.blur();
+    await expect(layers).toHaveValue("60");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).ly).toBe(60);
+    }).toPass();
+
+    // Reference behaviour: height (slider max 400) keeps a typed 450.
+    await page.getByTestId("lock-layers").uncheck();
+    await page.getByTestId("lock-height").check();
+    const height = page.getByTestId("input-height");
+    await height.fill("450");
+    await height.blur();
+    await expect(height).toHaveValue("450");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).h).toBe(450);
+    }).toPass();
+
+    // A link carrying layers past the slider max shows it and keeps it.
+    const doc = { v: 2, L: 6000, lock: ["outer", "ly"], size: 60, ly: 60 };
+    await page.goto(`/#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+    await page.reload();
+    await expect(page.getByTestId("input-layers")).toHaveValue("60");
+    expect(decodeHashDoc(page.url()).ly).toBe(60);
+  });
 });
