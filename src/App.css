@@ -165,6 +165,31 @@ header p {
   top: 92px;
 }
 
+/* Author credit: a small GitHub link in the viewport's bottom-right corner,
+   over the same opaque backdrop as the toggles. Bottom-right is free: the
+   preset bar is top/bottom centre and the wall/print caption bottom-left. */
+.author-link {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: var(--paper);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.author-link:hover,
+.author-link:focus-visible {
+  color: var(--ink);
+}
+
 /* Present for screen readers, not drawn (e.g. the dimension values, whose
    visible labels live inside the 3D canvas). */
 .visually-hidden {
@@ -1423,6 +1448,15 @@ header p {
        would paint each later box over an earlier one's open (i) bubble. */
     z-index: auto;
     padding: 8px 0;
+    background: none;
+  }
+
+  /* The author link drops under the toggle strip, right-aligned. */
+  .author-link {
+    position: static;
+    align-self: flex-end;
+    margin: 0 16px 8px;
+    padding: 6px 0;
     background: none;
   }
 
