@@ -20,7 +20,7 @@
 
 import * as THREE from "three";
 import type { CoilMesh, Design, JointKind, MountKind, Part } from "../core";
-import { GuideFigure } from "../viewer/GuideFigure";
+import { GuideFigure, renderAllGuideFigures } from "../viewer/GuideFigure";
 import { EXPLODE_GAP } from "../viewer/CoilScene";
 import { partInPrintPose } from "./printOrientation";
 import { approxRimPoint, computeGuideFit, explodedParts, meshBounds, partsBounds, projectToFigure } from "./projection";
@@ -554,7 +554,7 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
         <button type="button" className="btn-primary guide-toolbar-btn" data-testid="guide-back" onClick={onBack}>
           &larr; Back to design
         </button>
-        <button type="button" className="btn-primary guide-toolbar-btn" data-testid="guide-print" onClick={() => window.print()}>
+        <button type="button" className="btn-primary guide-toolbar-btn" data-testid="guide-print" onClick={() => void renderAllGuideFigures().then(() => window.print())}>
           Print guide
         </button>
       </div>

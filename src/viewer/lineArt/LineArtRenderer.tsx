@@ -127,7 +127,7 @@ function easeInOutCubic(t: number): number {
 // the compositor several chances to catch up instead of just one.
 const SETTLE_KICK_FRAMES = 4;
 
-function kickInvalidate(invalidate: () => void) {
+export function kickInvalidate(invalidate: () => void) {
   invalidate();
   let remaining = SETTLE_KICK_FRAMES;
   const tick = () => {

@@ -13,8 +13,8 @@ import { Vector2 } from "three";
  * (1,1,1,1) on the model, black ink (0,0,0,coverage) where a line spreads
  * past the silhouette into the background, and (0,0,0,0) elsewhere.
  *
- * The search radius is a compile-time constant (GLSL ES 1.00 loops need
- * constant bounds). The caller clamps thicknessPx below it.
+ * `MAX_THICKEN_RADIUS` caps the search radius, and the caller clamps
+ * thicknessPx below it. The loops only visit the pixels the pens can reach.
  */
 export const MAX_THICKEN_RADIUS = 4;
 
@@ -50,9 +50,16 @@ export const ThickenShader = {
       float model = texture2D(tDiffuse, vUv).g;
       float nearest = 1e3;
       float nearestFine = 1e3;
-      for (int y = -MAX_R; y <= MAX_R; y++) {
-        for (int x = -MAX_R; x <= MAX_R; x++) {
+      // A line pixel further away than this adds no ink (both clamps below
+      // are 0 there), so its texture fetch is skipped. That leaves a circle
+      // of 20-40 taps instead of the 81 of the full MAX_R square.
+      float reach = max(thicknessPx, fineThicknessPx) + 0.5;
+      float reachSq = reach * reach;
+      int r = min(int(reach), MAX_R);
+      for (int y = -r; y <= r; y++) {
+        for (int x = -r; x <= r; x++) {
           vec2 o = vec2(float(x), float(y));
+          if (dot(o, o) >= reachSq) continue;
           vec4 edge = texture2D(tDiffuse, vUv + o * texel);
           if (edge.r > 0.5) nearest = min(nearest, length(o));
           if (edge.b > 0.5) nearestFine = min(nearestFine, length(o));
