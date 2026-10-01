@@ -18,20 +18,15 @@
 // engagement collar that reaches down into the core's bore. All three joints (press/bayonet/snap) share ONE circular
 // collar centered on the coil axis regardless of the core's own
 // round/sq/tri cross-section -- see joints.ts for why. `applyCoreJointCut`
-// cuts the matching bayonet groove/entry-slots or snap relief/ridge into the
-// core's own top rim; press needs no core-side cut at all (the collar simply
+// adds the bayonet's lugs (issue #167; its L-slots are in the cap's collar)
+// or cuts the snap relief/ridge into the core's own top rim; press needs no
+// core-side feature at all (the collar simply
 // presses against the bore's existing inner surface). Every feature here is
 // built from manifold-3d PRIMITIVES (cylinder/cube + boolean ops), never a
 // hand-rolled triangle mesh, so winding/orientation is always correct.
 
 import Module, { type ManifoldToplevel } from "manifold-3d";
 import {
-  BAYONET_GAP,
-  BAYONET_GROOVE_HEIGHT,
-  BAYONET_LEAD,
-  BAYONET_LUG_COUNT,
-  BAYONET_LUG_HEIGHT,
-  BAYONET_LUG_WIDTH,
   CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
   JOINT_MIN_BORE_RADIUS,
@@ -59,6 +54,7 @@ import {
   INNER_CHANNEL_WALL_GUARD,
 } from "./constants";
 import { jointGeometry } from "./joints";
+import type { BayonetLayout, RevolvedFeature } from "./joints";
 import { getLabelFont, labelLoops } from "./label";
 import type { ResolvedLabel } from "./label";
 import { buildOutlineRing } from "./wall";
@@ -117,6 +113,8 @@ export interface CoreJointCut {
   height: number;
   joint: Extract<JointKind, "bayonet" | "snap">;
   tolerance: number;
+  /** Issue #167: the twist lock's shared layout (joints.ts's `bayonetLayout`), present exactly when `joint` is "bayonet". */
+  bayonet?: BayonetLayout;
 }
 
 /**
@@ -199,41 +197,40 @@ function radialBox(wasm: ManifoldToplevel, rLo: number, rHi: number, width: numb
   const lenX = Math.max(rHi - rLo, 1e-6);
   const h = Math.max(zHi - zLo, 1e-6);
   return M.cube([lenX, width, h], true)
-    .translate([lenX / 2, 0, 0])
+    .translate([Math.min(rLo, rHi) + lenX / 2, 0, 0])
     .rotate([0, 0, angleDeg])
     .translate([0, 0, (zLo + zHi) / 2]);
 }
 
+/** Issue #167: a bayonet lug, slot or groove (joints.ts's `RevolvedFeature`), raised by `dz`. */
+function revolvedFeature(wasm: ManifoldToplevel, f: RevolvedFeature, dz: number): Manifold {
+  return wasm.Manifold.revolve([f.profile], 96, f.sweepDeg).rotate([0, 0, f.startDeg]).translate([0, 0, dz]);
+}
+
 /**
- * Cut the bayonet's or snap's mating feature into an already-fused core
- * manifold, near its top rim (docs/design.md, Parts and printing; ticket:
- * "3 bayonet lugs + L-slots in the core's top rim"). Bayonet: 3 straight
- * entry slots (open at the top edge) leading into a full twist-lock groove.
- * Snap: a stepped relief (wide everywhere except one narrow retaining ridge
+ * Add the bayonet's or cut the snap's mating feature into an already-fused
+ * core manifold, near its top rim (docs/design.md, Parts and printing).
+ * Bayonet (issue #167): the lugs from joints.ts's `bayonetLayout`, standing
+ * in the bore just under the rim; design.ts only asks for them once that
+ * layout said the core can take them. Snap: a stepped relief (wide everywhere except one narrow retaining ridge
  * band) that a hook's barb must flex past, then springs back under. Skips
  * silently (returns the manifold unchanged) when the bore is too small or
  * the core too short for these features to fit inside the 3 mm wall without
  * breaking through to the wound-cable side -- see JOINT_MIN_BORE_RADIUS.
  */
 function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, core: Manifold, cut: CoreJointCut): Manifold {
+  // Issue #167: the bayonet's lugs, standing in the bore under the rim,
+  // from the shared layout (which already decided the core can take them --
+  // see design.ts). Added, never cut: the wall keeps its full thickness.
+  if (cut.joint === "bayonet") {
+    return track(wasm.Manifold.union([core, ...cut.bayonet!.lugs.map((f) => track(revolvedFeature(wasm, f, cut.height)))]));
+  }
+
   const { jointRadius, boreRadius } = jointGeometry(cut.boreOutline, cut.joint, cut.tolerance);
-  const minHeight = cut.joint === "bayonet" ? BAYONET_LEAD + BAYONET_GROOVE_HEIGHT + 2 : JOINT_ENGAGE_DEPTH + 2;
-  if (boreRadius < JOINT_MIN_BORE_RADIUS || cut.height < minHeight) return core;
+  if (boreRadius < JOINT_MIN_BORE_RADIUS || cut.height < JOINT_ENGAGE_DEPTH + 2) return core;
 
   const { height } = cut;
   const segments = 48;
-
-  if (cut.joint === "bayonet") {
-    const grooveR = jointRadius + BAYONET_LUG_HEIGHT + BAYONET_GAP + 0.1;
-    const groove = wasm.Manifold.cylinder(BAYONET_GROOVE_HEIGHT, grooveR, grooveR, segments, false).translate([0, 0, height - BAYONET_LEAD - BAYONET_GROOVE_HEIGHT]);
-    const entrySlots = unionAtAngles(
-      track,
-      (angle) => radialBox(wasm, jointRadius - 1, grooveR + 0.1, BAYONET_LUG_WIDTH + 2 * BAYONET_GAP, height - BAYONET_LEAD - 0.1, height + 1, angle),
-      BAYONET_LUG_COUNT,
-    );
-    // `entrySlots` is already tracked (unionAtAngles tracks its own final reduce step).
-    return track(track(core.subtract(track(groove))).subtract(entrySlots));
-  }
 
   // snap: a stepped counterbore -- wide below and above a narrow ridge band.
   // `wideR` is forced comfortably past `boreRadius` (by WELD_OVERLAP): the
@@ -556,8 +553,11 @@ export async function fuseFlange(
 export interface TopCapSpec {
   /** Same outline/margin/boreOutline/columns as the bottom FlangeSpec -- the cap is sized to the flange (ticket: "sized to the flange"). */
   flange: FlangeSpec;
+  /** The joint actually built: design.ts passes "press" when a bayonet falls back (issue #167). */
   joint: JointKind;
   tolerance: number;
+  /** Issue #167: the twist lock's shared layout, present exactly when `joint` is "bayonet". */
+  bayonet?: BayonetLayout;
   /** Engraved label text (issue #12), already fit-checked by `label.ts`'s `resolveLabel` -- undefined means no label to cut. */
   label?: ResolvedLabel;
   /** The cable clips for the outer end (issue #117: where the cable's cap lead-out ends, repeated around the cap since issue #121, `Design.capClip`). Omitted: no clip. */
@@ -582,7 +582,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, tolerance, label, clip } = spec;
+    const { flange, joint, tolerance, label, clip, bayonet } = spec;
     // The plate: the same outer outline (and columns) as the bottom
     // flange's own ring. Issue #127: its middle is opened up below by the
     // through-hole (`holeOutline`), never by a blind pocket whose floor would
@@ -603,12 +603,12 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     if (joint === "press") {
       collar = collarBase(wasm, track, collarOutline, weldOutline, segments, flange.minCornerSegments);
     } else if (joint === "bayonet") {
-      const base = collarBase(wasm, track, collarOutline, weldOutline, segments, flange.minCornerSegments);
-      const grooveZLo = -BAYONET_LEAD - BAYONET_GROOVE_HEIGHT;
-      const grooveZHi = -BAYONET_LEAD;
-      // Already tracked (unionAtAngles tracks its own final reduce step).
-      const lugs = unionAtAngles(track, (angle) => radialBox(wasm, collarRadius - 1, collarRadius + BAYONET_LUG_HEIGHT, BAYONET_LUG_WIDTH, grooveZLo, grooveZHi, angle), BAYONET_LUG_COUNT);
-      collar = track(base.add(lugs));
+      // Issue #167: a straight round tube, run WELD_OVERLAP up into the
+      // (solid, since #127) plate -- no flare out to the bore, which would
+      // rub the core's rim through the twist -- with the L-slots cut in.
+      const base = track(outlinePrismSolid(wasm, collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH, segments, flange.minCornerSegments));
+      const slots = track(Manifold.union(bayonet!.cuts.map((f) => track(revolvedFeature(wasm, f, 0)))));
+      collar = track(base.subtract(slots));
     } else {
       // snap: a collar with a barb band at its tip (deepest point, LOCAL
       // z=[-JOINT_ENGAGE_DEPTH, -JOINT_ENGAGE_DEPTH+SNAP_BARB_HEIGHT]) and 3

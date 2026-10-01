@@ -213,6 +213,35 @@ test.describe("exploded-view animation (issue #9)", () => {
   });
 });
 
+// Issue #167: the twist lock needs a round core.
+test.describe("bayonet is for round cores only (issue #167)", () => {
+  test("on a square core the bayonet option is greyed out, with the reason in the hint", async ({ page }) => {
+    await gotoDesign(page, `${TWO_LAYER}&shape=sq`);
+    await expect(page.getByTestId("select-joint").locator('option[value="bayonet"]')).toBeDisabled();
+    await expect(page.getByTestId("select-joint").locator('option[value="bayonet"]')).toContainText("round core only");
+    await expect(page.getByTestId("select-joint").locator('option[value="press"]')).toBeEnabled();
+    await expect(page.getByTestId("warnings").filter({ hasText: "Twist lock" })).toHaveCount(0);
+  });
+
+  test("switching a bayonet design to a square core keeps joint=bayonet, builds press fit and says so", async ({ page }) => {
+    await gotoDesign(page, `${TWO_LAYER}&joint=bayonet`);
+    await expect(page.getByTestId("select-joint").locator('option[value="bayonet"]')).toBeEnabled();
+    await page.getByTestId("shape-option-sq").check();
+    await expect(page.getByTestId("warnings")).toContainText("Twist lock needs a round core");
+    await expect(page.getByTestId("select-joint")).toHaveValue("bayonet");
+    await expect(async () => expect(decodeHashDoc(page.url())).toMatchObject({ shape: "sq", joint: "bayonet" })).toPass();
+    await page.getByTestId("shape-option-round").check();
+    await expect(page.getByTestId("warnings").filter({ hasText: "Twist lock" })).toHaveCount(0);
+  });
+
+  test("a link with joint=bayonet on a square core still loads, unchanged, with the warning", async ({ page }) => {
+    await gotoDesign(page, `${TWO_LAYER}&shape=sq&joint=bayonet`);
+    await expect(page.getByTestId("select-joint")).toHaveValue("bayonet");
+    await expect(page.getByTestId("warnings")).toContainText("Twist lock needs a round core");
+    expect(decodeHashDoc(page.url())).toMatchObject({ shape: "sq", joint: "bayonet" });
+  });
+});
+
 // "press" (the default joint) is covered above: "the exploded-view toggle
 // changes the render..." already exercises the identical design/joint and
 // now asserts both its assembled and exploded baselines, so it isn't

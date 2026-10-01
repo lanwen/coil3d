@@ -92,7 +92,17 @@ export async function reimportStep(bytes: Uint8Array, tag: string): Promise<Reim
   return { valid, solidVolumes };
 }
 
-/** For each point, whether it lies inside the STEP file's shape: OCCT's distance from a vertex there to the shape is zero, as an inner solution. */
+/**
+ * Issue #167: each re-imported solid's volume against its own part's mesh,
+ * as a relative error -- per part, so one part's missing feature can't hide
+ * inside the whole design's total (the mesh's bayonet lugs once went missing
+ * under a 2% total check). Solids come back in part order.
+ */
+export function perPartVolumeErrors(solidVolumes: number[], parts: Array<{ mesh: { positions: Float32Array; indices: Uint32Array } }>): number[] {
+  return parts.map((p, i) => Math.abs(solidVolumes[i] - meshVolume(p.mesh)) / meshVolume(p.mesh));
+}
+
+/** For each point, whether it lies inside one of the STEP file's solids: OCCT's distance from a vertex there to that solid is zero, as an inner solution. (Asked per solid: for a file of several parts, the whole compound never reports an inner solution.) */
 export async function stepContains(bytes: Uint8Array, tag: string, points: Array<[number, number, number]>): Promise<boolean[]> {
   const oc = await getOC();
   const path = `/${tag}.step`;
@@ -102,9 +112,14 @@ export async function stepContains(bytes: Uint8Array, tag: string, points: Array
   reader.TransferRoots();
   const shape = reader.OneShape();
   oc.FS.unlink(path);
+  const solids: (typeof shape)[] = [];
+  const explorer = new oc.TopExp_Explorer(shape, oc.TopAbs_ShapeEnum.TopAbs_SOLID, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+  for (; explorer.More(); explorer.Next()) solids.push(explorer.Current());
   return points.map(([x, y, z]) => {
     const vertex = new oc.BRepBuilderAPI_MakeVertex(new oc.gp_Pnt(x, y, z)).Shape();
-    const dist = new oc.BRepExtrema_DistShapeShape(shape, vertex);
-    return dist.IsDone() && dist.InnerSolution() && dist.Value() < 1e-6;
+    return solids.some((solid) => {
+      const dist = new oc.BRepExtrema_DistShapeShape(solid, vertex);
+      return dist.IsDone() && dist.InnerSolution() && dist.Value() < 1e-6;
+    });
   });
 }

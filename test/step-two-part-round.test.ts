@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
 import type { CoilSpec, JointKind, PlateJoint } from "../src/core";
-import { STEP_TIMEOUT_MS, meshVolume, reimportStep } from "./support/step";
+import { BAYONET_LUG_COUNT } from "../src/core/constants";
+import { jointGeometry } from "../src/core/joints";
+import { STEP_TIMEOUT_MS, meshVolume, perPartVolumeErrors, reimportStep, stepContains } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the round-core
 // two-part designs (core + top-cap, or core + mount-plate), kept in their
@@ -27,7 +29,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
     };
 
     it.each(JOINTS)(
-      "STEP export produces one file with one solid per part, each volume matching its own mesh (joint=%s)",
+      "STEP export produces one file with one solid per part, each volume within 0.5% of its own mesh (joint=%s)",
       async (joint) => {
         const d = await design({ ...twoPartSpec, joint });
         const stepBytes = await exportDesign(d, "step");
@@ -37,9 +39,37 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
         expect(valid).toBe(true);
         expect(solidVolumes.length).toBe(2); // core + top-cap, per the ticket "one solid per part"
 
-        const totalVolume = solidVolumes.reduce((sum, v) => sum + v, 0);
-        const expectedVolume = d.parts.reduce((sum, p) => sum + meshVolume(p.mesh), 0);
-        expect(Math.abs(totalVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
+        // Issue #167: per part, within 0.5% -- not the whole design's total.
+        for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
+      },
+      STEP_TIMEOUT_MS,
+    );
+
+    // Issue #167: volumes alone can't tell a lug from a lump, so probe the
+    // STEP solids where the mesh has its lugs and L-slots.
+    it(
+      "the STEP bayonet has its lugs and L-slots where the mesh has them (issue #167)",
+      async () => {
+        const d = await design({ ...twoPartSpec, joint: "bayonet" });
+        const h = d.solution.height;
+        const rIn = d.wallSpec.boreOutline.apothem;
+        const rc = jointGeometry(d.wallSpec.boreOutline, "bayonet", d.spec.tolerance).collarRadius;
+        const at = (r: number, deg: number, z: number): [number, number, number] => [r * Math.cos((deg * Math.PI) / 180), r * Math.sin((deg * Math.PI) / 180), z];
+        const twist = 180 / BAYONET_LUG_COUNT;
+        const probes: Array<{ p: [number, number, number]; inside: boolean; what: string }> = [];
+        for (let k = 0; k < BAYONET_LUG_COUNT; k++) {
+          const lug = (360 * k) / BAYONET_LUG_COUNT;
+          probes.push(
+            { p: at(rIn - 1, lug, h - 2), inside: true, what: `lug ${k}` },
+            { p: at(rIn - 1, lug + twist, h - 2), inside: false, what: `bore between lugs ${k}` },
+            { p: at(rc - 0.5, lug - twist, h - 6), inside: false, what: `entry slot ${k}` },
+            { p: at(rc - 0.5, lug, h - 6), inside: true, what: `collar under the lug ${k}` },
+            { p: at(rc - 0.5, lug - twist / 2, h - 1.5), inside: false, what: `groove ${k}` },
+            { p: at(rc - 0.5, lug + 30, h - 1.5), inside: true, what: `collar past the stop ${k}` },
+          );
+        }
+        const inside = await stepContains(await exportDesign(d, "step"), "bayonet-probes", probes.map((q) => q.p));
+        expect(Object.fromEntries(probes.map((q, i) => [q.what, inside[i]]))).toEqual(Object.fromEntries(probes.map((q) => [q.what, q.inside])));
       },
       STEP_TIMEOUT_MS,
     );

@@ -16,12 +16,6 @@ import type { OpenCascadeInstance } from "replicad-opencascadejs";
 import { fitPeriodicUClampedV, type Vec3 } from "./bspfit";
 import { createWallProfile } from "../wall";
 import {
-  BAYONET_GAP,
-  BAYONET_GROOVE_HEIGHT,
-  BAYONET_LEAD,
-  BAYONET_LUG_COUNT,
-  BAYONET_LUG_HEIGHT,
-  BAYONET_LUG_WIDTH,
   CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
   JOINT_MIN_BORE_RADIUS,
@@ -47,7 +41,8 @@ import {
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
 } from "../constants";
-import { jointGeometry } from "../joints";
+import { jointGeometry, resolveCapJoint } from "../joints";
+import type { RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
@@ -382,12 +377,16 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   // top rim; press engages the bore's existing surface directly (no
   // core-side cut at all -- see manifold.ts's `applyCoreJointCut`, which
   // this mirrors so the mesh and STEP backends never drift on fit).
-  if (design.solution.topCapEnabled && (design.spec.joint === "bayonet" || design.spec.joint === "snap")) {
+  // Issue #167: the same `resolveCapJoint` design.ts calls, so a bayonet
+  // that falls back to press fit does so here too.
+  const capJoint = resolveCapJoint(design.spec, design.wallSpec);
+  if (design.solution.topCapEnabled && (capJoint.joint === "bayonet" || capJoint.joint === "snap")) {
     coreSolid = applyCoreJointCutSolid(coreSolid, {
       boreOutline,
       height: design.solution.height,
-      joint: design.spec.joint,
+      joint: capJoint.joint,
       tolerance: design.spec.tolerance,
+      bayonet: capJoint.bayonet,
     });
   }
 
@@ -584,6 +583,13 @@ function radialBoxSolid(rLo: number, rHi: number, width: number, zLo: number, zH
   return box.rotate(angleDeg, [0, 0, 0], [0, 0, 1]);
 }
 
+/** Issue #167: a bayonet lug, slot or groove (joints.ts's `RevolvedFeature`), raised by `dz` -- mirrors manifold.ts's `revolvedFeature`. */
+function revolvedFeatureSolid(f: RevolvedFeature, dz: number): R.Shape3D {
+  const face = R.makePolygon(f.profile.map(([r, z]): [number, number, number] => [r, 0, z + dz]));
+  const sketch = new R.Sketch(face.outerWire(), { defaultOrigin: [0, 0, 0], defaultDirection: [0, -1, 0] });
+  return sketch.revolve([0, 0, 1], { origin: [0, 0, 0], angle: f.sweepDeg }).rotate(f.startDeg, [0, 0, 0], [0, 0, 1]);
+}
+
 /** `count` copies of `build(angleDeg)`, evenly spaced around Z, fused into one shape (mirrors manifold.ts's `unionAtAngles`). */
 function unionAtAngles(build: (angleDeg: number) => R.Shape3D, count: number): R.Shape3D {
   let result: R.Shape3D | undefined;
@@ -724,27 +730,21 @@ function relieveFlangeSolid(kernel: OpenCascadeInstance, flange: R.Shape3D, flan
 }
 
 /**
- * Cut the bayonet's or snap's mating feature into the core solid's top rim
+ * Add the bayonet's lugs (issue #167) or cut the snap's mating feature into the core solid's top rim
  * (mirrors manifold.ts's `applyCoreJointCut` primitive-for-primitive, so the
  * mesh and STEP backends can't drift on fit). Returns `core` unchanged when
  * the bore/height are too small for these features -- see JOINT_MIN_BORE_RADIUS.
  */
 function applyCoreJointCutSolid(core: R.Shape3D, cut: CoreJointCut): R.Shape3D {
+  // Issue #167: the bayonet's lugs in the bore, from the shared layout.
+  if (cut.joint === "bayonet") {
+    return cut.bayonet!.lugs.reduce((solid, f) => solid.fuse(revolvedFeatureSolid(f, cut.height)), core);
+  }
+
   const { jointRadius, boreRadius } = jointGeometry(cut.boreOutline, cut.joint, cut.tolerance);
-  const minHeight = cut.joint === "bayonet" ? BAYONET_LEAD + BAYONET_GROOVE_HEIGHT + 2 : JOINT_ENGAGE_DEPTH + 2;
-  if (boreRadius < JOINT_MIN_BORE_RADIUS || cut.height < minHeight) return core;
+  if (boreRadius < JOINT_MIN_BORE_RADIUS || cut.height < JOINT_ENGAGE_DEPTH + 2) return core;
 
   const { height } = cut;
-
-  if (cut.joint === "bayonet") {
-    const grooveR = jointRadius + BAYONET_LUG_HEIGHT + BAYONET_GAP + 0.1;
-    const groove = R.makeCylinder(grooveR, BAYONET_GROOVE_HEIGHT, [0, 0, height - BAYONET_LEAD - BAYONET_GROOVE_HEIGHT]);
-    const entrySlots = unionAtAngles(
-      (angle) => radialBoxSolid(jointRadius - 1, grooveR + 0.1, BAYONET_LUG_WIDTH + 2 * BAYONET_GAP, height - BAYONET_LEAD - 0.1, height + 1, angle),
-      BAYONET_LUG_COUNT,
-    );
-    return core.cut(groove).cut(entrySlots);
-  }
 
   // snap: a stepped counterbore, mirroring manifold.ts's own reasoning
   // (`wideR`/ridge radius forced past `boreRadius`/`circumscribedRadius` so
@@ -815,18 +815,18 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   // Issue #127: the plate's middle is opened by the through-hole below (mirrors manifold.ts).
   const plate = outlineSolid(outerOutline, CAP_THICKNESS, 0);
 
-  const { boreRadius, collarRadius, collarOutline, weldOutline, holeOutline } = jointGeometry(flangeSpec.boreOutline, spec.joint, spec.tolerance);
+  // Issue #167: the joint design.ts built (a bayonet may fall back to press fit).
+  const capJoint = resolveCapJoint(spec, design.wallSpec);
+  const { boreRadius, collarRadius, collarOutline, weldOutline, holeOutline } = jointGeometry(flangeSpec.boreOutline, capJoint.joint, spec.tolerance);
   const canCutJoint = boreRadius >= JOINT_MIN_BORE_RADIUS && solution.height >= JOINT_ENGAGE_DEPTH + 2;
 
   let collar: R.Shape3D;
-  if (spec.joint === "press" || !canCutJoint) {
+  if (capJoint.joint === "bayonet") {
+    // A straight round tube into the plate, no flare, with the L-slots cut in (mirrors manifold.ts).
+    const base = outlineSolid(collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH);
+    collar = capJoint.bayonet!.cuts.reduce((solid, f) => solid.cut(revolvedFeatureSolid(f, 0)), base);
+  } else if (capJoint.joint === "press" || !canCutJoint) {
     collar = collarBaseSolid(collarOutline, weldOutline);
-  } else if (spec.joint === "bayonet") {
-    const base = collarBaseSolid(collarOutline, weldOutline);
-    const grooveZLo = -BAYONET_LEAD - BAYONET_GROOVE_HEIGHT;
-    const grooveZHi = -BAYONET_LEAD;
-    const lugs = unionAtAngles((a) => radialBoxSolid(collarRadius - 1, collarRadius + BAYONET_LUG_HEIGHT, BAYONET_LUG_WIDTH, grooveZLo, grooveZHi, a), BAYONET_LUG_COUNT);
-    collar = base.fuse(lugs);
   } else {
     const base = collarBaseSolid(collarOutline, weldOutline);
     const barbR = collarRadius + SNAP_BARB;

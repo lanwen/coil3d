@@ -146,6 +146,13 @@ export function ControlsForm({
   // the hint still says what the field normally does too.
   const cornerRadiusHint = cornerRadiusDisabled ? `${HINTS.shapeCornerRadius} The core is too small for a larger radius; grow the core to unlock.` : HINTS.shapeCornerRadius;
 
+  // Issue #167: the twist lock needs a round core. On a square or triangle
+  // core its option is greyed out and the (i) hint says why; a spec that
+  // already has it (a shared link, or a shape switched after picking it)
+  // keeps it, and design() warns that it builds the press-fit collar instead.
+  const bayonetUnavailable = spec.shape.kind !== "round";
+  const jointHint = bayonetUnavailable ? `${HINTS.joint} Twist lock needs a round core.` : HINTS.joint;
+
   // Issue #105 AC #5: "enabled" tracks whether the user switched the label
   // ON, not whether it currently has text -- an empty label while the
   // switch is on must stay revealed, not snap shut. `spec.label` is only
@@ -550,11 +557,11 @@ export function ControlsForm({
         {topCapOn && (
           <>
             <div className="field">
-              <FieldTop label="Joint" hint={HINTS.joint} htmlFor={jointId} />
+              <FieldTop label="Joint" hint={jointHint} htmlFor={jointId} />
               <select id={jointId} className="field-select" data-testid="select-joint" value={spec.joint} onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}>
                 {JOINT_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
+                  <option key={opt.id} value={opt.id} disabled={opt.id === "bayonet" && bayonetUnavailable}>
+                    {opt.id === "bayonet" && bayonetUnavailable ? `${opt.label} (round core only)` : opt.label}
                   </option>
                 ))}
               </select>

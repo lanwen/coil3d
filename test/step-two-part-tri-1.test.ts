@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
 import type { CoilSpec, JointKind } from "../src/core";
-import { STEP_TIMEOUT_MS, meshVolume, reimportStep } from "./support/step";
+import { STEP_TIMEOUT_MS, perPartVolumeErrors, reimportStep } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the tri-shape,
 // two-part (issue #55) STEP re-import cases are the file's own slowest
@@ -54,9 +54,8 @@ describe.sequential("STEP/OCCT export: tri two-part designs, press/bayonet (issu
       expect(valid).toBe(true);
       expect(solidVolumes.length).toBe(2); // core + top-cap; a disconnected collar would re-import as a 3rd solid
 
-      const totalVolume = solidVolumes.reduce((sum, v) => sum + v, 0);
-      const expectedVolume = d.parts.reduce((sum, p) => sum + meshVolume(p.mesh), 0);
-      expect(Math.abs(totalVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
+      // Issue #167: per part, within 0.5% -- not the whole design's total.
+      for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
     },
     STEP_TIMEOUT_MS,
   );
