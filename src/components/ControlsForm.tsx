@@ -15,7 +15,7 @@ import {
   TOLERANCE_MIN,
   WIRE_TYPE_PRESETS,
 } from "../core";
-import { FieldTop, LockRangeField, LockStepperField, RangeField, Section, Switch, TextField, cmToMm, mmToCm, roundMm } from "./fields";
+import { FieldTop, LockRangeField, RangeField, Section, Switch, TextField, cmToMm, mmToCm, roundMm } from "./fields";
 import { HINTS } from "./hints";
 import { ShapePicker } from "./ShapePicker";
 
@@ -183,8 +183,8 @@ export function ControlsForm({
   // at once -- something has to stay free so the solver can fit the cable
   // length. `lockedCount >= 2` disables locking any dimension that ISN'T
   // already locked (an already-locked one must always stay toggleable back
-  // to free); `LockRangeField`/`LockStepperField` render the explanatory
-  // note themselves (see fields.tsx's `LOCK_LIMIT_NOTE`) once disabled.
+  // to free); `LockRangeField` renders the explanatory
+  // note itself (see fields.tsx's `LOCK_LIMIT_NOTE`) once disabled.
   const lockedCount = [spec.coreSize.locked, spec.height.locked, spec.layers.locked].filter(Boolean).length;
   const coreSizeLockDisabled = !spec.coreSize.locked && lockedCount >= 2;
   const heightLockDisabled = !spec.height.locked && lockedCount >= 2;
@@ -395,12 +395,15 @@ export function ControlsForm({
           lockDisabled={heightLockDisabled}
           onChange={(lock) => onChange({ ...spec, height: lock })}
         />
-        <LockStepperField
+        <LockRangeField
           testId="layers"
           label="Layers"
+          unit=""
           lock={spec.layers}
           min={1}
           max={40}
+          step={1}
+          normalize={Math.round}
           freeValue={solution?.layers ?? 1}
           hint={HINTS.layers}
           lockDisabled={layersLockDisabled}

@@ -161,3 +161,108 @@ test.describe("the locked-dimension dropdown only shows while core size is locke
     await expect(fields.nth(coreSizeIndex + 1).getByTestId("select-coreSizeDimension")).toBeVisible();
   });
 });
+
+// Issue #164: layers is a slider row like core size and height, and the
+// padlock shows before the value only while a dimension is locked.
+test.describe("padlock before the value, layers slider (issue #164)", () => {
+  const ids = ["outer", "height", "layers"] as const;
+
+  test("a padlock is visible only on locked dimensions, for all three", async ({ page }) => {
+    await page.goto("/"); // core size + layers locked, height free
+    await expect(page.getByTestId("lock-icon-outer")).toBeVisible();
+    await expect(page.getByTestId("lock-icon-layers")).toBeVisible();
+    await expect(page.getByTestId("lock-icon-height")).toHaveCount(0);
+
+    await page.getByTestId("lock-layers").uncheck();
+    await expect(page.getByTestId("lock-icon-layers")).toHaveCount(0);
+    await page.getByTestId("lock-height").check();
+    await expect(page.getByTestId("lock-icon-height")).toBeVisible();
+    await expect(page.getByTestId("lock-icon-outer")).toBeVisible();
+
+    await page.getByTestId("lock-outer").uncheck();
+    await page.getByTestId("lock-height").uncheck();
+    for (const id of ids) await expect(page.getByTestId(`lock-icon-${id}`)).toHaveCount(0);
+  });
+
+  test("the padlock is decorative and the toggles keep their names and state", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("lock-icon-layers")).toHaveAttribute("aria-hidden", "true");
+    await expect(page.getByRole("switch", { name: "Lock layers" })).toBeChecked();
+    await expect(page.getByRole("switch", { name: "Lock height" })).not.toBeChecked();
+    await expect(page.getByRole("switch", { name: "Lock height" })).toBeDisabled();
+  });
+
+  test("layers has no bordered number box and sits on the right like core size", async ({ page }) => {
+    await page.goto("/");
+    const border = await page.getByTestId("input-layers").evaluate((el) => getComputedStyle(el).borderTopWidth);
+    expect(border).toBe("0px");
+    await expect(page.locator(".stepper")).toHaveCount(0);
+    const layers = (await page.getByTestId("input-layers").boundingBox())!;
+    const outer = (await page.getByTestId("input-outer").boundingBox())!;
+    expect(Math.abs(layers.x + layers.width - (outer.x + outer.width))).toBeLessThan(40);
+  });
+
+  test("the layers slider changes the value and the hash; a free layers has no slider", async ({ page }) => {
+    await page.goto("/");
+    const slider = page.getByRole("slider", { name: "Layers" });
+    await slider.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByTestId("input-layers")).toHaveValue("2");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).ly).toBe(2);
+    }).toPass();
+
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByTestId("input-layers")).toHaveValue("3");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).ly).toBe(3);
+    }).toPass();
+
+    await page.getByTestId("lock-layers").uncheck();
+    await expect(page.getByRole("slider", { name: "Layers" })).toHaveCount(0);
+    await expect(page.getByTestId("input-layers")).toBeDisabled();
+  });
+
+  test("typing a layer count rounds to a whole number", async ({ page }) => {
+    await page.goto("/");
+    const input = page.getByTestId("input-layers");
+    await input.fill("4");
+    await input.blur();
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).ly).toBe(4);
+    }).toPass();
+  });
+
+  // Core size and height do not clamp a typed value (or a hash value) to
+  // their slider's max; they only floor it. Layers behave the same way, so a
+  // value past the slider's 40 is kept as typed and a link's value is never
+  // rewritten.
+  test("a typed layer count above the slider max is kept, like height; a link's value is left alone", async ({ page }) => {
+    await page.goto("/");
+    const layers = page.getByTestId("input-layers");
+    await layers.fill("60");
+    await layers.blur();
+    await expect(layers).toHaveValue("60");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).ly).toBe(60);
+    }).toPass();
+
+    // Reference behaviour: height (slider max 400) keeps a typed 450.
+    await page.getByTestId("lock-layers").uncheck();
+    await page.getByTestId("lock-height").check();
+    const height = page.getByTestId("input-height");
+    await height.fill("450");
+    await height.blur();
+    await expect(height).toHaveValue("450");
+    await expect(async () => {
+      expect(decodeHashDoc(page.url()).h).toBe(450);
+    }).toPass();
+
+    // A link carrying layers past the slider max shows it and keeps it.
+    const doc = { v: 2, L: 6000, lock: ["outer", "ly"], size: 60, ly: 60 };
+    await page.goto(`/#s=${Buffer.from(JSON.stringify(doc)).toString("base64url")}`);
+    await page.reload();
+    await expect(page.getByTestId("input-layers")).toHaveValue("60");
+    expect(decodeHashDoc(page.url()).ly).toBe(60);
+  });
+});
