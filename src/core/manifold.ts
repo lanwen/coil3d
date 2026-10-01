@@ -145,43 +145,25 @@ function unionAtAngles(track: <T extends { delete(): void }>(m: T) => T, build: 
 }
 
 /**
- * The collar's welded base, shared by all three joints: a straight prism at
- * `collarOutline`'s own footprint for most of `JOINT_ENGAGE_DEPTH`, flaring
- * out to `weldOutline`'s footprint over the top `JOINT_TRANSITION_HEIGHT` --
- * flush with the plate's own inner (bore) edge (`weldOutline` IS the bore
- * outline offset out by `WELD_OVERLAP`, joints.ts), so the boolean union has
- * a genuinely overlapping face to weld onto at every angle, not just near
- * each flat side's own midpoint (exactly how the wall/flange fuse already
- * relies on a shared edge, see `fuseFlange` above).
- *
- * Issue #55: a plain circular transition (flaring to a circle at
- * `boreRadius + WELD_OVERLAP`) only reached the plate's non-round bore edge
- * near each flat side's midpoint -- the bore's corners sit farther out, so
- * the "transition" never actually touched them, leaving the collar a
- * second, disconnected solid there (`decompose().length === 2`, the
- * repro's floating disc). Both `collarOutline` and `weldOutline` are the
- * SAME bore outline, offset by a constant amount at every angle (shapes.ts's
- * Steiner offset), so the flare now overlaps the plate's hole edge all the
- * way around, for any shape -- round reduces to the old plain-circle collar
- * for free (see joints.ts).
- *
- * The transition is a convex hull between the two footprints (not a swept
- * `CrossSection`, which manifold-3d has no direct loft for): both outlines
- * are convex and share the same corner arrangement, so their hull is exactly
- * the ruled frustum between them, with no shortcut through the middle.
+ * The snap collar's base (issue #172): a straight prism at `collarOutline`'s
+ * footprint, flaring over its top `JOINT_TRANSITION_HEIGHT` out to
+ * `rootOutline` (joints.ts's `snapLayout`), which stays inside the core's
+ * relief. The flare is a convex hull between the two footprints: both are
+ * Steiner offsets of the bore's outline, so their hull is exactly the ruled
+ * frustum between them.
  */
 function collarBase(
   wasm: ManifoldToplevel,
   track: <T extends { delete(): void }>(m: T) => T,
   collarOutline: ShapeOutline,
-  weldOutline: ShapeOutline,
+  rootOutline: ShapeOutline,
   segments: number,
   minCornerSegments: number,
 ): Manifold {
   const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT;
   const straight = track(outlinePrismSolid(wasm, collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH, segments, minCornerSegments));
   const bottomPts: [number, number, number][] = outlinePolygon(collarOutline, segments, minCornerSegments).map(([x, y]) => [x, y, -JOINT_TRANSITION_HEIGHT]);
-  const topPts: [number, number, number][] = outlinePolygon(weldOutline, segments, minCornerSegments).map(([x, y]) => [x, y, 0]);
+  const topPts: [number, number, number][] = outlinePolygon(rootOutline, segments, minCornerSegments).map(([x, y]) => [x, y, 0]);
   const transition = track(wasm.Manifold.hull([...bottomPts, ...topPts]));
   return track(straight.add(transition));
 }
@@ -586,35 +568,33 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
     }
 
-    const { collarOutline, weldOutline, holeOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
+    const { collarOutline, holeOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
     const segments = 48;
 
+    // Issue #172: the collar is a straight tube run WELD_OVERLAP up into the
+    // plate, which is solid under it since #127. It never flares out to the
+    // bore, so the seated cap doesn't run into the core's rim.
+    const straight = () => track(outlinePrismSolid(wasm, collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH, segments, flange.minCornerSegments));
+    const snap = joint === "snap" ? snapLayout(flange.boreOutline, tolerance, spec.coreHeight) : undefined;
     let collar: Manifold;
-    if (joint === "press") {
-      collar = collarBase(wasm, track, collarOutline, weldOutline, segments, flange.minCornerSegments);
-    } else if (joint === "bayonet") {
-      // Issue #167: a straight round tube, run WELD_OVERLAP up into the
-      // (solid, since #127) plate -- no flare out to the bore, which would
-      // rub the core's rim through the twist -- with the L-slots cut in.
-      const base = track(outlinePrismSolid(wasm, collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH, segments, flange.minCornerSegments));
+    if (joint === "bayonet") {
+      // Issue #167: the L-slots cut into the straight tube.
       const slots = track(Manifold.union(bayonet!.cuts.map((f) => track(revolvedFeature(wasm, f, 0)))));
-      collar = track(base.subtract(slots));
-    } else {
+      collar = track(straight().subtract(slots));
+    } else if (snap) {
       // snap: a collar with a barb ring at its tip (deepest point) and 3
       // axial relief slots cutting it into cantilever fingers. Issue #168:
       // the barb's face toward the plate (facing down in print) is a
-      // 45-degree chamfer -- see joints.ts's `snapLayout`. A core too small
-      // for its relief gets the plain press collar.
-      const base = collarBase(wasm, track, collarOutline, weldOutline, segments, flange.minCornerSegments);
-      const snap = snapLayout(flange.boreOutline, tolerance, spec.coreHeight);
-      if (!snap) {
-        collar = base;
-      } else {
-        const withBarb = track(base.add(stackSolid(wasm, track, snap.barb, SNAP_COLUMNS, 1)));
-        // Already tracked (unionAtAngles tracks its own final reduce step).
-        const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, angle), SNAP_HOOK_COUNT);
-        collar = track(withBarb.subtract(slots));
-      }
+      // 45-degree chamfer -- see joints.ts's `snapLayout`. The fingers' root
+      // flare stays inside the core's relief.
+      const base = collarBase(wasm, track, collarOutline, snap.rootOutline, segments, flange.minCornerSegments);
+      const withBarb = track(base.add(stackSolid(wasm, track, snap.barb, SNAP_COLUMNS, 1)));
+      // Already tracked (unionAtAngles tracks its own final reduce step).
+      const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, angle), SNAP_HOOK_COUNT);
+      collar = track(withBarb.subtract(slots));
+    } else {
+      // Press, or a snap on a core too small for its relief.
+      collar = straight();
     }
 
     let assembled = track(plate.add(collar));
