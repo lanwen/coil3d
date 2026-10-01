@@ -27,8 +27,9 @@ npm test                     # vitest: the core's public interface
 E2E_PORT=<port> npx playwright test --workers=2   # e2e; builds and previews on E2E_PORT (default 5182)
 ```
 
-If several agents or checkouts run at once, give each its own `E2E_PORT` and
-dev port.
+Use a free `E2E_PORT` when another dev server or test run is already using
+the default. If Playwright's own Chromium isn't available, point
+`PLAYWRIGHT_CHROMIUM_PATH` at another Chromium executable.
 
 ## Tests
 
@@ -53,11 +54,13 @@ dev port.
   `src/viewer`). New visible geometry must render cleanly: check screenshots
   for missing silhouettes, blobs and dashed lines.
 
-## CI and merging
+## CI, merging and deploy
 
-- GitHub CI is off by default: it doesn't run on PRs or on pushes to `main`.
-  It only runs on manual dispatch or on PRs labelled `run-ci`. Don't add
-  that label or dispatch CI unless the maintainer asks.
+- GitHub CI is manual-only: it doesn't run on pushes to `main`, and runs on
+  a PR only when it is labelled `run-ci` (or on manual dispatch).
+- Every push to `main` deploys to Cloudflare Pages
+  (https://coil3d.lanwen.dev), which runs `npm run build` and serves `dist/`.
+  A merge ships to production, so the merge gate matters.
 - The merge gate is the full local suite on the final head, rebased onto
   `origin/main`: `npx tsc -b`, `npm test`, `E2E_PORT=<port> npx playwright test --workers=2`.
   Put the counts in the PR body.
@@ -65,8 +68,6 @@ dev port.
   verify with `git merge-base --is-ancestor origin/main HEAD`.
 - Squash-merge. Delete a PR's branch only after GitHub reports the PR as
   `MERGED`, because deleting the head branch of an open PR closes it.
-- GitHub Pages deploy (`.github/workflows/pages.yml`) is manual only and
-  gated behind the `PAGES_ENABLED` repository variable.
 
 ## Pull requests
 
@@ -75,14 +76,12 @@ dev port.
   explained); test evidence (counts); screenshots; manual checks still
   needed; known issues.
 - Anything visible needs before/after screenshots, and you must look at them
-  yourself before publishing. Attach them with gh's `--attach` flag (needs
-  gh ≥ 2.99): reference `![desc](./shots/x.png)` in the body file and pass
-  `--attach ./shots/x.png` for each file. Old PRs embed images from
-  `assets/issue-*` branches; keep those branches, but don't create new ones.
+  yourself before publishing. Attach them to the PR (drag them into the body,
+  or use `gh pr create --attach` with `![desc](./shots/x.png)` references).
+  Keep screenshot files out of the commit.
 
 ## Process hygiene
 
 - Never kill processes you didn't start, and use no `pkill` patterns. Kill
   by PID only.
-- Don't commit `spikes/`, `sbxenv.yaml`, `node_modules`, build output or test
-  artifacts.
+- Don't commit `node_modules`, build output or test artifacts.

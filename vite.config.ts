@@ -1,16 +1,10 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-// No COOP/COEP headers here on purpose: GitHub Pages can't set them, so the
-// app must run on single-threaded WASM only (see docs/research.md §4).
+// No COOP/COEP headers on purpose: the app runs on single-threaded WASM only
+// (see docs/research.md §4), so it works on any static host, `vite preview`
+// included.
 export default defineConfig({
-  // GitHub Pages serves this app from https://lanwen.github.io/coil3d/,
-  // not the domain root, so every built asset URL needs that sub-path
-  // prefix. Only the Pages deploy workflow sets VITE_BASE (see
-  // .github/workflows/pages.yml and README's "GitHub Pages" section);
-  // everywhere else (dev server, preview, other CI jobs) keeps serving from
-  // "/", unchanged.
-  base: process.env.VITE_BASE ?? "/",
   plugins: [react()],
   // The dev server pre-bundles deps into node_modules/.vite/deps, but
   // manifold-3d loads manifold.wasm relative to its own script, and the

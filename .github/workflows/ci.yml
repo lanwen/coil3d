@@ -54,8 +54,8 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    # The official image ships the exact Playwright/Chromium build pinned in
-    # package.json (see docs note below and playwright.config.ts), so the
+    # The Playwright image ships the exact Playwright/Chromium build pinned in
+    # package.json (see playwright.config.ts), so the
     # container's browser reproduces this repo's committed screenshot
     # baselines instead of whatever Chromium `--with-deps` would resolve on
     # a bare runner. --ipc=host follows Playwright's own Docker guidance to
@@ -66,8 +66,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No actions/setup-node here: the container's own Node/npm (newer than
-      # this repo's baseline dev environment) is intentional, and npm ci
+      # No actions/setup-node here: the container's own Node/npm is intentional, and npm ci
       # against the committed lockfile is verified to work with it.
       - run: npm ci
 
