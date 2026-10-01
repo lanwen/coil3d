@@ -1,4 +1,4 @@
-// Better triangulation of a mesh's horizontal flat faces (issue #180).
+// Better triangulation of a mesh's flat faces (issues #180 and #193).
 //
 // After the booleans, a flat face with cut-outs in it (the top cap's
 // underside around the collar and the cable clips, its top face under the
@@ -11,11 +11,17 @@
 // Two steps. First `refineToLength`, at the call site, cuts the edges longer
 // than FLAT_FACE_MAX_EDGE: the flips below can only choose among the vertices a
 // face has, and a fan's spokes are one long edge each, with no vertex to flip
-// to. Then this flips an edge between two triangles of the same horizontal plane
-// whenever that raises the smaller of the two triangles' minimum angles (a
-// Delaunay-style flip). Only such edges are touched, so the shape, the
-// vertices and the triangle count never change in this step. Horizontal planes
-// are what the print layouts' faces are: every part prints on one.
+// to. Then this flips an edge between two triangles that lie in one plane
+// (within PLANE_TOLERANCE) whenever that raises the smaller of the two
+// triangles' minimum angles (a Delaunay-style flip, done in that plane). Only
+// such edges are touched, so the vertices and the triangle count never change
+// in this step, and no vertex moves by more than the tolerance.
+//
+// The planes are any, not just horizontal ones (issue #193): where a curved wall of the
+// collar is cut by another curved surface, the intersection runs a few
+// micrometres off the wall's facets and leaves a strip of micro-triangles
+// along the seam. Their normals point 45 degrees away from the wall's, and
+// where one lands on a pixel the line-art renderer draws a dot.
 
 import type { CoilMesh } from "./types";
 
@@ -28,7 +34,29 @@ import type { CoilMesh } from "./types";
  */
 export const FLAT_FACE_MAX_EDGE = 10;
 
-/** Twice the signed area of (a, b, c) seen from +z. */
+/**
+ * Two triangles count as one plane when the corner of one that is off the
+ * shared edge lies this close (mm) to the plane of the larger. The seams above
+ * sit 0.005 mm off; neighbouring facets of the collar's wall (0.3 mm wide,
+ * 0.77 degrees apart) sit 0.004 mm off, which a flip across them may also use.
+ * A flip never moves a vertex, but it swaps which diagonal the surface follows,
+ * so the surface changes by at most this much.
+ */
+export const PLANE_TOLERANCE = 0.01;
+
+/** A quad whose corner is a hair reflex (twice the area, mm2) still flips; the strips above are 0.1 micrometre out of convex. */
+const CONVEX_SLACK = 5e-4;
+
+/** A flip must beat the current worst angle by this much (radians), so cocircular quads never flip back and forth. */
+const MIN_GAIN = 1e-9;
+
+/**
+ * Only a pair with a triangle that has an angle under this is worth a flip. The collar's wall is a skin of
+ * columns 0.06 mm wide: 3 degrees at best, and thousands of flips for nothing if every one counted.
+ */
+const WORST_ANGLE_TO_FLIP = (2 * Math.PI) / 180;
+
+/** Twice the signed area of (a, b, c) in the (u, v) frame. */
 function area2(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number {
   return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
 }
@@ -46,55 +74,81 @@ function minAngle(ax: number, ay: number, bx: number, by: number, cx: number, cy
   return Math.asin(Math.min(1, sine));
 }
 
-/** A flip must beat the current worst angle by this much (radians), so cocircular quads never flip back and forth. */
-const MIN_GAIN = 1e-9;
-
 /**
- * `mesh` with the edges between horizontal, coplanar triangles flipped to
- * the triangulation that maximises the smallest angle. The input is not
+ * `mesh` with the edges between coplanar triangles flipped to the
+ * triangulation that maximises the smallest angle; with `horizontalOnly`, only
+ * those in a horizontal plane. The input is not
  * modified. (Typed arrays throughout: this runs on every design, and the
  * garbage of a plain-array version showed in the memory test.)
  */
-export function improveFlatFaces(mesh: CoilMesh): CoilMesh {
+export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}): CoilMesh {
   const pos = mesh.positions;
   const tr = new Uint32Array(mesh.indices);
   const triCount = tr.length / 3;
-  const x = (v: number) => pos[3 * v];
-  const y = (v: number) => pos[3 * v + 1];
-  const z = (v: number) => pos[3 * v + 2];
 
-  // The horizontal triangles, and for each edge of one (edge e runs from
-  // corner e to corner e+1) the triangle across it, or -1 when that is not a
-  // horizontal triangle sharing just that edge.
-  const flat: number[] = [];
-  for (let t = 0; t < triCount; t++) {
-    if (z(tr[3 * t]) === z(tr[3 * t + 1]) && z(tr[3 * t]) === z(tr[3 * t + 2])) flat.push(t);
-  }
+  // The triangle across each edge (edge e of triangle t runs from corner e to
+  // corner e+1), or -1 for a border: an open-addressing table of edges.
   const nbr = new Int32Array(tr.length).fill(-1);
-  const vertexCount = pos.length / 3;
-  const edgeKey = new Float64Array(flat.length * 3);
-  const order = new Uint32Array(flat.length * 3);
-  for (let i = 0; i < flat.length; i++) {
-    const t = flat[i];
-    for (let e = 0; e < 3; e++) {
-      const a = tr[3 * t + e];
-      const b = tr[3 * t + ((e + 1) % 3)];
-      edgeKey[3 * i + e] = a < b ? a * vertexCount + b : b * vertexCount + a;
-      order[3 * i + e] = 3 * i + e;
+  let size = 1024;
+  while (size < 4 * tr.length) size *= 2;
+  const table = new Int32Array(size).fill(-1);
+  const mask = size - 1;
+  for (let slot = 0; slot < tr.length; slot++) {
+    const t = (slot / 3) | 0;
+    const a = tr[slot];
+    const b = tr[3 * t + ((slot % 3) + 1) % 3];
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    let h = (Math.imul(lo, 73856093) ^ Math.imul(hi, 19349663)) & mask;
+    for (; ; h = (h + 1) & mask) {
+      const other = table[h];
+      if (other < 0) {
+        table[h] = slot;
+        break;
+      }
+      const ot = (other / 3) | 0;
+      const oa = tr[other];
+      const ob = tr[3 * ot + ((other % 3) + 1) % 3];
+      if ((oa === lo && ob === hi) || (oa === hi && ob === lo)) {
+        if (nbr[other] < 0 && ot !== t) {
+          nbr[other] = t;
+          nbr[slot] = ot;
+        }
+        break;
+      }
     }
   }
-  order.sort((u, v) => edgeKey[u] - edgeKey[v]);
-  for (let k = 0; k < order.length; ) {
-    let end = k + 1;
-    while (end < order.length && edgeKey[order[end]] === edgeKey[order[k]]) end++;
-    if (end - k === 2) {
-      const [u, v] = [order[k], order[k + 1]];
-      const [tu, tv] = [flat[(u / 3) | 0], flat[(v / 3) | 0]];
-      nbr[3 * tu + (u % 3)] = tv;
-      nbr[3 * tv + (v % 3)] = tu;
-    }
-    k = end;
-  }
+
+  // The (non-unit) normal of a triangle: its twice-area is its length.
+  const normal = new Float64Array(3 * triCount);
+  const setNormal = (t: number) => {
+    const a = 3 * tr[3 * t];
+    const b = 3 * tr[3 * t + 1];
+    const c = 3 * tr[3 * t + 2];
+    const ux = pos[b] - pos[a];
+    const uy = pos[b + 1] - pos[a + 1];
+    const uz = pos[b + 2] - pos[a + 2];
+    const vx = pos[c] - pos[a];
+    const vy = pos[c + 1] - pos[a + 1];
+    const vz = pos[c + 2] - pos[a + 2];
+    normal[3 * t] = uy * vz - uz * vy;
+    normal[3 * t + 1] = uz * vx - ux * vz;
+    normal[3 * t + 2] = ux * vy - uy * vx;
+  };
+  for (let t = 0; t < triCount; t++) setNormal(t);
+
+  // The smallest angle of each triangle, from its 3D sides: an edge whose two triangles are both fine is skipped without any geometry.
+  const worst = new Float64Array(triCount);
+  const setWorst = (t: number) => {
+    const [a, b, c] = [3 * tr[3 * t], 3 * tr[3 * t + 1], 3 * tr[3 * t + 2]];
+    const ab = Math.hypot(pos[b] - pos[a], pos[b + 1] - pos[a + 1], pos[b + 2] - pos[a + 2]);
+    const bc = Math.hypot(pos[c] - pos[b], pos[c + 1] - pos[b + 1], pos[c + 2] - pos[b + 2]);
+    const ca = Math.hypot(pos[a] - pos[c], pos[a + 1] - pos[c + 1], pos[a + 2] - pos[c + 2]);
+    const twiceArea = Math.hypot(normal[3 * t], normal[3 * t + 1], normal[3 * t + 2]);
+    // The smallest angle is opposite the shortest side, between the two longer ones.
+    const shortest = Math.min(ab, bc, ca);
+    worst[t] = Math.asin(Math.min(1, twiceArea / ((ab * bc * ca) / Math.max(shortest, 1e-300))));
+  };
+  for (let t = 0; t < triCount; t++) setWorst(t);
 
   /** The corner of triangle t that is not a or b. */
   const apex = (t: number, a: number, b: number) => {
@@ -116,25 +170,75 @@ export function improveFlatFaces(mesh: CoilMesh): CoilMesh {
   // Each entry is triangle * 3 + edge. Each flip strictly raises the worst
   // angle of its quad, so this ends; the budget guards a pathological mesh.
   const stack: number[] = [];
-  for (const t of flat) for (let e = 0; e < 3; e++) if (nbr[3 * t + e] >= 0) stack.push(3 * t + e);
+  for (let t = 0; t < triCount; t++) for (let e = 0; e < 3; e++) if (nbr[3 * t + e] > t) stack.push(3 * t + e);
   let budget = 20 * stack.length + 1000;
   while (stack.length > 0 && budget-- > 0) {
     const code = stack.pop()!;
     const t1 = (code / 3) | 0;
     const e = code % 3;
     const t2 = nbr[code];
-    if (t2 < 0) continue;
+    if (t2 < 0 || Math.min(worst[t1], worst[t2]) >= WORST_ANGLE_TO_FLIP) continue;
     // t1 = (p, q, c) and t2 = (q, p, d) share p-q; the flip gives (p, d, c) and (d, q, c).
     const p = tr[3 * t1 + e];
     const q = tr[3 * t1 + ((e + 1) % 3)];
     const c = tr[3 * t1 + ((e + 2) % 3)];
     const d = apex(t2, p, q);
-    const o1 = area2(x(p), y(p), x(q), y(q), x(c), y(c));
-    const o2 = area2(x(q), y(q), x(p), y(p), x(d), y(d));
-    const facing = Math.sign(Math.abs(o1) >= Math.abs(o2) ? o1 : o2);
-    if (facing === 0 || area2(x(p), y(p), x(d), y(d), x(c), y(c)) * facing <= 0 || area2(x(d), y(d), x(q), y(q), x(c), y(c)) * facing <= 0) continue; // not a strictly convex quad
-    const before = Math.min(minAngle(x(p), y(p), x(q), y(q), x(c), y(c)), minAngle(x(q), y(q), x(p), y(p), x(d), y(d)));
-    const after = Math.min(minAngle(x(p), y(p), x(d), y(d), x(c), y(c)), minAngle(x(d), y(d), x(q), y(q), x(c), y(c)));
+
+    if (horizontalOnly && (normal[3 * t1] !== 0 || normal[3 * t1 + 1] !== 0 || normal[3 * t2] !== 0 || normal[3 * t2 + 1] !== 0)) continue;
+
+    // The plane is the larger triangle's; the other one's far corner has to be near it.
+    const nx1 = normal[3 * t1];
+    const ny1 = normal[3 * t1 + 1];
+    const nz1 = normal[3 * t1 + 2];
+    const nx2 = normal[3 * t2];
+    const ny2 = normal[3 * t2 + 1];
+    const nz2 = normal[3 * t2 + 2];
+    const len1 = Math.hypot(nx1, ny1, nz1);
+    const len2 = Math.hypot(nx2, ny2, nz2);
+    const nx = len1 >= len2 ? nx1 : nx2;
+    const ny = len1 >= len2 ? ny1 : ny2;
+    const nz = len1 >= len2 ? nz1 : nz2;
+    const len = Math.max(len1, len2);
+    if (len === 0) continue;
+    const off = len1 >= len2 ? d : c;
+    const offPlane = ((pos[3 * off] - pos[3 * p]) * nx + (pos[3 * off + 1] - pos[3 * p + 1]) * ny + (pos[3 * off + 2] - pos[3 * p + 2]) * nz) / len;
+    if (Math.abs(offPlane) > PLANE_TOLERANCE) continue;
+
+    // The 2D frame of that plane: u and v span it, u x v is the larger triangle's normal.
+    const mx = nx / len;
+    const my = ny / len;
+    const mz = nz / len;
+    // u: the normal crossed with the axis it is least aligned with.
+    let ux: number;
+    let uy: number;
+    let uz: number;
+    if (Math.abs(mx) <= Math.abs(my) && Math.abs(mx) <= Math.abs(mz)) [ux, uy, uz] = [0, mz, -my];
+    else if (Math.abs(my) <= Math.abs(mz)) [ux, uy, uz] = [-mz, 0, mx];
+    else [ux, uy, uz] = [my, -mx, 0];
+    const ulen = Math.hypot(ux, uy, uz);
+    ux /= ulen;
+    uy /= ulen;
+    uz /= ulen;
+    const vx = my * uz - mz * uy;
+    const vy = mz * ux - mx * uz;
+    const vz = mx * uy - my * ux;
+    const xp = ux * pos[3 * p] + uy * pos[3 * p + 1] + uz * pos[3 * p + 2];
+    const yp = vx * pos[3 * p] + vy * pos[3 * p + 1] + vz * pos[3 * p + 2];
+    const xq = ux * pos[3 * q] + uy * pos[3 * q + 1] + uz * pos[3 * q + 2];
+    const yq = vx * pos[3 * q] + vy * pos[3 * q + 1] + vz * pos[3 * q + 2];
+    const xc = ux * pos[3 * c] + uy * pos[3 * c + 1] + uz * pos[3 * c + 2];
+    const yc = vx * pos[3 * c] + vy * pos[3 * c + 1] + vz * pos[3 * c + 2];
+    const xd = ux * pos[3 * d] + uy * pos[3 * d + 1] + uz * pos[3 * d + 2];
+    const yd = vx * pos[3 * d] + vy * pos[3 * d + 1] + vz * pos[3 * d + 2];
+
+    // Both triangles face the larger one's way, and the new pair does too (a hair of reflex excepted).
+    const o1 = area2(xp, yp, xq, yq, xc, yc);
+    const o2 = area2(xq, yq, xp, yp, xd, yd);
+    if (o1 < -CONVEX_SLACK || o2 < -CONVEX_SLACK) continue;
+    if (area2(xp, yp, xd, yd, xc, yc) < -CONVEX_SLACK || area2(xd, yd, xq, yq, xc, yc) < -CONVEX_SLACK) continue; // not a convex quad
+    const before = Math.min(minAngle(xp, yp, xq, yq, xc, yc), minAngle(xq, yq, xp, yp, xd, yd));
+    if (before >= WORST_ANGLE_TO_FLIP) continue;
+    const after = Math.min(minAngle(xp, yp, xd, yd, xc, yc), minAngle(xd, yd, xq, yq, xc, yc));
     if (after <= before + MIN_GAIN) continue;
 
     // The four outer neighbours: t1 has B across c-p and A across q-c; t2 has C across p-d and D across d-q.
@@ -153,6 +257,10 @@ export function improveFlatFaces(mesh: CoilMesh): CoilMesh {
     nbr.set([D, A, t1], 3 * t2); // d->q, q->c, c->d
     retarget(C, p, d, t2, t1);
     retarget(A, q, c, t1, t2);
+    setNormal(t1);
+    setNormal(t2);
+    setWorst(t1);
+    setWorst(t2);
     stack.push(3 * t1, 3 * t1 + 2, 3 * t2, 3 * t2 + 1);
   }
 
