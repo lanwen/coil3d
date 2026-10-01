@@ -24,6 +24,7 @@
 // where one lands on a pixel the line-art renderer draws a dot.
 
 import type { CoilMesh } from "./types";
+import { WELD_EPSILON } from "./weld";
 
 /**
  * The longest edge the call sites keep, mm. Measured on the round cap in the
@@ -52,6 +53,9 @@ const MIN_GAIN = 1e-9;
  * columns 0.06 mm wide: 3 degrees at best, and thousands of flips for nothing if every one counted.
  */
 const WORST_ANGLE_TO_FLIP = (2 * Math.PI) / 180;
+
+/** Two triangles on an edge fold back onto each other when their normals are this close to opposite (cosine; 8 degrees). */
+const FOLD_COS = 0.99;
 
 /** Twice the signed area of (a, b, c) in the (u, v) frame. */
 function area2(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number {
@@ -84,11 +88,14 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
   const triCount = tr.length / 3;
 
   // The triangle across each edge (edge e of triangle t runs from corner e to
-  // corner e+1), or -1 for a border: an open-addressing table of edges.
+  // corner e+1), or -1: an open-addressing table of edges. Only an edge with
+  // exactly two triangles, running it in opposite directions, gets a
+  // neighbour; a border or non-manifold edge stays -1 and is never flipped.
   const nbr = new Int32Array(tr.length).fill(-1);
   let size = 1024;
   while (size < 4 * tr.length) size *= 2;
   const table = new Int32Array(size).fill(-1);
+  const uses = new Uint8Array(size);
   const mask = size - 1;
   for (let slot = 0; slot < tr.length; slot++) {
     const t = (slot / 3) | 0;
@@ -100,17 +107,60 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
       const other = table[h];
       if (other < 0) {
         table[h] = slot;
+        uses[h] = 1;
         break;
       }
       const ot = (other / 3) | 0;
       const oa = tr[other];
       const ob = tr[3 * ot + ((other % 3) + 1) % 3];
       if ((oa === lo && ob === hi) || (oa === hi && ob === lo)) {
-        if (nbr[other] < 0 && ot !== t) {
+        // The second triangle on the edge, running it the other way (the same way, they would face apart).
+        if (uses[h] === 1 && oa === b && ob === a && ot !== t) {
           nbr[other] = t;
           nbr[slot] = ot;
+        } else if (nbr[other] >= 0) {
+          // A third: the edge is non-manifold, so undo the pair.
+          const partner = nbr[other];
+          for (let k = 0; k < 3; k++) {
+            const [pa, pb] = [tr[3 * partner + k], tr[3 * partner + ((k + 1) % 3)]];
+            if (nbr[3 * partner + k] === ot && pa + pb === lo + hi && (pa === lo || pa === hi)) nbr[3 * partner + k] = -1;
+          }
+          nbr[other] = -1;
         }
+        uses[h] = 2;
         break;
+      }
+    }
+  }
+
+  // Where the booleans left the surface touching itself: vertices that share their position with another one (a
+  // zero-width slit), and below, the ends of an edge where the surface folds back onto itself (two sheets of one
+  // plane, facing apart). Flips there can close off a sheet of no volume, which manifold-3d then cuts off the part
+  // when it reads the mesh back (issue #208), so the triangles around them stay as they are.
+  const contact = new Uint8Array(pos.length / 3);
+  {
+    // Only the vertices in use: weld.ts leaves the ones it collapsed in the list.
+    const used = new Uint8Array(contact.length);
+    for (let i = 0; i < tr.length; i++) used[tr[i]] = 1;
+    const bits = new Uint32Array(pos.buffer, pos.byteOffset, pos.length);
+    const word = (i: number) => (bits[i] === 0x80000000 ? 0 : bits[i]); // -0 is 0
+    let tsize = 1024;
+    while (tsize < 2 * contact.length) tsize *= 2;
+    const slots = new Int32Array(tsize).fill(-1);
+    for (let v = 0; v < contact.length; v++) {
+      if (!used[v]) continue;
+      const [x, y, z] = [word(3 * v), word(3 * v + 1), word(3 * v + 2)];
+      let h = (Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) & (tsize - 1);
+      for (; ; h = (h + 1) & (tsize - 1)) {
+        const o = slots[h];
+        if (o < 0) {
+          slots[h] = v;
+          break;
+        }
+        if (word(3 * o) === x && word(3 * o + 1) === y && word(3 * o + 2) === z) {
+          contact[o] = contact[v] = 1;
+          break;
+        }
       }
     }
   }
@@ -132,6 +182,14 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
     normal[3 * t + 2] = ux * vy - uy * vx;
   };
   for (let t = 0; t < triCount; t++) setNormal(t);
+  for (let slot = 0; slot < tr.length; slot++) {
+    const [t, o] = [(slot / 3) | 0, nbr[slot]];
+    if (o < t) continue;
+    const dot = normal[3 * t] * normal[3 * o] + normal[3 * t + 1] * normal[3 * o + 1] + normal[3 * t + 2] * normal[3 * o + 2];
+    if (dot >= 0) continue;
+    const lens2 = (normal[3 * t] ** 2 + normal[3 * t + 1] ** 2 + normal[3 * t + 2] ** 2) * (normal[3 * o] ** 2 + normal[3 * o + 1] ** 2 + normal[3 * o + 2] ** 2);
+    if (dot * dot > FOLD_COS * FOLD_COS * lens2) contact[tr[slot]] = contact[tr[3 * t + ((slot % 3) + 1) % 3]] = 1;
+  }
 
   // The smallest angle of each triangle, from its 3D sides: an edge whose two triangles are both fine is skipped without any geometry.
   const worst = new Float64Array(triCount);
@@ -154,6 +212,22 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
       if (v !== a && v !== b) return v;
     }
     return a;
+  };
+  /**
+   * Whether `a` and `b` share an edge, walking the triangles around `a` from `t` (one of them). A walk that runs into a
+   * border or a non-manifold edge, where the fan is not a closed ring, answers yes: then the flip is not made.
+   */
+  const joined = (t: number, a: number, b: number) => {
+    let cur = t;
+    for (let steps = 0; steps < 10_000; steps++) {
+      let k = 0;
+      while (tr[3 * cur + k] !== a) k++;
+      if (tr[3 * cur + ((k + 1) % 3)] === b || tr[3 * cur + ((k + 2) % 3)] === b) return true;
+      cur = nbr[3 * cur + k];
+      if (cur < 0) return true;
+      if (cur === t) return false;
+    }
+    return true;
   };
   /** Point triangle `t`'s neighbour entry that is across the edge between `a` and `b`, and now points at `from`, at `to` instead. */
   const retarget = (t: number, a: number, b: number, from: number, to: number) => {
@@ -180,6 +254,7 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
     const q = tr[3 * t1 + ((e + 1) % 3)];
     const c = tr[3 * t1 + ((e + 2) % 3)];
     const d = apex(t2, p, q);
+    if (contact[p] || contact[q] || contact[c] || contact[d]) continue;
 
     if (horizontalOnly && (normal[3 * t1] !== 0 || normal[3 * t1 + 1] !== 0 || normal[3 * t2] !== 0 || normal[3 * t2 + 1] !== 0)) continue;
 
@@ -231,14 +306,18 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
     // Both triangles face the larger one's way, and the new pair strictly does too: the quad must be convex. A flip
     // across a corner that is even a hair reflex leaves an inverted triangle, and that can cut the part into pieces
     // (issue #201: the bayonet cap at a few core sizes).
-    const o1 = area2(xp, yp, xq, yq, xc, yc);
-    const o2 = area2(xq, yq, xp, yp, xd, yd);
-    if (o1 < 0 || o2 < 0) continue;
+    // Issue #208: the old pair strictly as well. A flip across a triangle with no area (three points on a line)
+    // reorders a zero-width slit, which manifold-3d can then cut off the part.
+    if (area2(xp, yp, xq, yq, xc, yc) <= 0 || area2(xq, yq, xp, yp, xd, yd) <= 0) continue;
     if (area2(xp, yp, xd, yd, xc, yc) <= 0 || area2(xd, yd, xq, yq, xc, yc) <= 0) continue;
     const before = Math.min(minAngle(xp, yp, xq, yq, xc, yc), minAngle(xq, yq, xp, yp, xd, yd));
     if (before >= WORST_ANGLE_TO_FLIP) continue;
     const after = Math.min(minAngle(xp, yp, xd, yd, xc, yc), minAngle(xd, yd, xq, yq, xc, yc));
     if (after <= before + MIN_GAIN) continue;
+    // The new edge must be at least as long as the weld's limit (or it puts back the near-coincident vertices weld.ts
+    // removed), and must not be there already (it would have four triangles, and pinch the surface).
+    if ((pos[3 * c] - pos[3 * d]) ** 2 + (pos[3 * c + 1] - pos[3 * d + 1]) ** 2 + (pos[3 * c + 2] - pos[3 * d + 2]) ** 2 < WELD_EPSILON ** 2) continue;
+    if (joined(t1, c, d)) continue;
 
     // The four outer neighbours: t1 has B across c-p and A across q-c; t2 has C across p-d and D across d-q.
     const A = nbr[3 * t1 + ((e + 1) % 3)];

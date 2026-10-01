@@ -31,6 +31,24 @@ pick a free port if the dev server is already running. If an e2e or STEP test
 times out on a busy machine, re-run it alone with `--workers=1` before
 treating it as a regression.
 
+## Mesh fuzz test
+
+`test/meshFuzz.test.ts` builds random designs from a fixed seed (shapes,
+joints, mounts, fractional sizes, heights and cables, and other collar facet
+counts) and checks that every part is one connected solid with no edge left
+under the weld's limit. `npm test` runs a small sample. After changing the
+geometry or the mesh clean-up (`src/core/weld.ts`, `src/core/flatFaces.ts`),
+run the long mode as well:
+
+```sh
+COIL3D_FUZZ=5000 npx vitest run test/meshFuzz.test.ts
+```
+
+`COIL3D_FUZZ` is the number of cases. `COIL3D_FUZZ_FROM` is the first case's
+index (default 0), so you can split a long run over several processes or rerun
+one failing case: `COIL3D_FUZZ=1 COIL3D_FUZZ_FROM=<index>`. 5000 cases take
+about 10 minutes on one core.
+
 ## Branches and pull requests
 
 - Branch from the latest `origin/main`. Name the branch `issue-<N>-<slug>`.

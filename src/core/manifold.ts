@@ -173,7 +173,10 @@ function collarBase(
   segments: number,
   minCornerSegments: number,
 ): Manifold {
-  const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT;
+  // The prism runs halfway up into the flare, inside it, so the two share no face: where they met flush at the
+  // flare's foot, the union left zero-width slits along the outline's straight sides that came off the cap as
+  // separate pieces at some column counts (issue #208). The solid is the same.
+  const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT / 2;
   const straight = track(outlinePrismSolid(wasm, collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH, segments, minCornerSegments));
   const bottomPts: [number, number, number][] = outlinePolygon(collarOutline, segments, minCornerSegments).map(([x, y]) => [x, y, -JOINT_TRANSITION_HEIGHT]);
   const topPts: [number, number, number][] = outlinePolygon(rootOutline, segments, minCornerSegments).map(([x, y]) => [x, y, 0]);
@@ -184,8 +187,12 @@ function collarBase(
 /** Columns for the snap joint's outlines: fine enough that a faceted 45-degree chamfer leans well under a degree past 45 even on a big bore. */
 const SNAP_COLUMNS = 96;
 
-/** Columns for a round cap collar (issue #200): 2.5 degree facets, so a facet seam seen edge-on lies within the wall's own outline. */
-const ROUND_COLLAR_SEGMENTS = 144;
+/**
+ * Columns for a cap collar's walls: a round one gets 2.5 degree facets, so a facet seam seen edge-on lies within the
+ * wall's own outline (issue #200); other shapes keep 48 (see `buildTopCap`). Mutable only so a test can try other
+ * counts: the mesh clean-up passes (weld.ts, flatFaces.ts) must hold for any of them (issue #208).
+ */
+export const collarSegments = { round: 144, other: 48 };
 
 /** joints.ts's `OutlineStack` as one solid: the hull of each neighbouring pair of stations (a prism or a convex frustum), unioned. */
 function stackSolid(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, stack: OutlineStack, columns: number, cornerSegments: number): Manifold {
@@ -623,7 +630,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     // collar, and facets under about 3 degrees put every seam in the outline.
     // Other shapes keep 48: their corner arcs get their own columns
     // (`minCornerSegments`), and a finer budget only adds triangles on the flats.
-    const segments = collarOutline.cornerRadius >= collarOutline.apothem - 1e-6 ? ROUND_COLLAR_SEGMENTS : 48;
+    const segments = collarOutline.cornerRadius >= collarOutline.apothem - 1e-6 ? collarSegments.round : collarSegments.other;
 
     // Issue #172: the collar is a straight tube run WELD_OVERLAP up into the
     // plate, which is solid under it since #127. It never flares out to the
