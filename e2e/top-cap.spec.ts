@@ -197,9 +197,9 @@ test.describe("exploded-view animation (issue #9)", () => {
     await page.waitForTimeout(1000);
     const exploded = await canvas.screenshot();
     // An exact byte comparison, not `toHaveScreenshot`'s tolerant perceptual
-    // diff (maxDiffPixelRatio 0.02, see playwright.config.ts): the cap lifts
+    // diff (maxDiffPixelRatio 0.005, see playwright.config.ts): the cap lifts
     // along the coil's own axis, which under this oblique camera can shift
-    // only a modest, well-under-2%, slice of the canvas -- a real change,
+    // only a modest slice of the canvas -- a real change,
     // but not one the tolerant comparison is guaranteed to flag as "different".
     expect(exploded.equals(assembled), "exploding must change the render").toBe(false);
     // The joint=press (default) exploded baseline, once also re-asserted by
