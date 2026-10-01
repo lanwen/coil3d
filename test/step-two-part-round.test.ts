@@ -50,7 +50,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
 
         // Issue #167: per part, within 0.5% -- not the whole design's total.
         for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
-        if (joint === "snap") expect(probes.points.length).toBeGreaterThanOrEqual(8);
+        if (joint === "snap") expect(probes.points.length).toBeGreaterThanOrEqual(14);
         expect(inside).toEqual(probes.expected);
       },
       STEP_TIMEOUT_MS,

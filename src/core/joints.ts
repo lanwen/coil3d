@@ -33,13 +33,16 @@ import {
   BAYONET_MIN_LAND,
   BAYONET_MIN_WALL,
   CAP_COLLAR_WALL,
+  CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
   JOINT_FIT_GAP,
   JOINT_MIN_BORE_RADIUS,
   SNAP_BARB,
-  SNAP_BARB_HEIGHT,
-  SNAP_GAP,
+  SNAP_BARB_CLEARANCE,
+  SNAP_COLLAR_WALL,
+  SNAP_RIDGE_DEPTH,
   SNAP_RIDGE_THICKNESS,
+  SNAP_TIP_BEVEL,
   SHAPE_ROUNDING_EPS,
   WELD_OVERLAP,
 } from "./constants";
@@ -85,7 +88,8 @@ export function jointGeometry(boreOutline: ShapeOutline, kind: JointKind, tolera
       ? Math.max(1, jointRadius - tolerance)
       : kind === "bayonet"
         ? Math.max(1, jointRadius - BAYONET_GAP - tolerance)
-        : Math.max(1, jointRadius - SNAP_GAP - tolerance);
+        : // Issue #186: the snap fingers sit in far enough that their barbs clear the bore, so no relief is cut into the core's wall.
+          Math.max(1, boreRadius - SNAP_BARB_CLEARANCE - tolerance - SNAP_BARB);
   const collarOutline: ShapeOutline = {
     n: boreOutline.n,
     apothem: collarRadius,
@@ -93,7 +97,10 @@ export function jointGeometry(boreOutline: ShapeOutline, kind: JointKind, tolera
   };
   // Issue #167: the bayonet's L-slots are cut into the collar, so its wall
   // grows to keep BAYONET_MIN_WALL behind them (see `bayonetLayout`).
-  const collarWall = kind === "bayonet" ? BAYONET_LUG_HEIGHT + BAYONET_GAP + tolerance + BAYONET_MIN_WALL : CAP_COLLAR_WALL;
+  // Issue #186: the snap fingers are thinner, so they bend more easily and
+  // leave a smaller step inside the seated cap.
+  const collarWall =
+    kind === "bayonet" ? BAYONET_LUG_HEIGHT + BAYONET_GAP + tolerance + BAYONET_MIN_WALL : kind === "snap" ? SNAP_COLLAR_WALL : CAP_COLLAR_WALL;
   const holeApothem = collarRadius - collarWall;
   const holeOutline: ShapeOutline | undefined =
     holeApothem >= 1
@@ -231,11 +238,19 @@ export function bayonetLayout(shape: ShapeKind, wallSpec: WallSpec, tolerance: n
 
 /**
  * The cap joint actually built (issue #167): the spec's own, except that a
- * bayonet the core can't take (`bayonetLayout`'s warning) becomes the plain
- * press-fit collar. design.ts and the STEP backend both call this, so they
- * always build the same joint; the spec itself keeps "bayonet".
+ * bayonet or snap the core can't take (`bayonetLayout`'s warning, no
+ * `snapLayout`) becomes the plain press-fit collar. design.ts and the STEP
+ * backend both call this, so they always build the same joint; the spec
+ * itself keeps its joint.
  */
-export function resolveCapJoint(spec: { joint: JointKind; tolerance: number; shape: { kind: ShapeKind } }, wallSpec: WallSpec): { joint: JointKind; bayonet?: BayonetLayout; warning?: string } {
+export function resolveCapJoint(
+  spec: { joint: JointKind; tolerance: number; shape: { kind: ShapeKind } },
+  wallSpec: WallSpec,
+): { joint: JointKind; bayonet?: BayonetLayout; snap?: SnapLayout; warning?: string } {
+  if (spec.joint === "snap") {
+    const snap = snapLayout(wallSpec.boreOutline, spec.tolerance, wallSpec.height);
+    return snap ? { joint: "snap", snap } : { joint: "press", warning: "This core is too small for the snap clips, so the top cap uses a press-fit collar." };
+  }
   if (spec.joint !== "bayonet") return { joint: spec.joint };
   const plan = bayonetLayout(spec.shape.kind, wallSpec, spec.tolerance);
   return plan.layout ? { joint: "bayonet", bayonet: plan.layout } : { joint: "press", warning: plan.warning };
@@ -258,35 +273,43 @@ export interface OutlineStation {
 export type OutlineStack = OutlineStation[];
 
 /**
- * The snap joint's shared layout (issue #168), built by both the mesh and
- * the STEP backend. All heights are relative to the core's top rim, which is
- * also the cap's local frame (plate z = [0, CAP_THICKNESS], collar reaching
- * down to z = -JOINT_ENGAGE_DEPTH).
+ * The snap joint's shared layout (issues #168, #186), built by both the mesh
+ * and the STEP backend. All heights are relative to the core's top rim,
+ * which is also the cap's local frame (plate z = [0, CAP_THICKNESS], collar
+ * reaching down to z = -JOINT_ENGAGE_DEPTH).
  *
- * Each printed part prints without supports: the cap prints plate down, so
- * the barb's face toward the plate faces down; the core prints upright, so
- * the ridge's underside faces down. Both are 45-degree chamfers, not flat
- * ledges. The latch is then a pair of parallel 45-degree cones: the barb
- * overlaps the ridge as far as it did before the chamfers, and the core's
- * lead-in above the ridge cams the fingers inward on the way in.
+ * Each printed part prints without supports. The cap prints plate down: each
+ * barb is a diamond point (issue #186), a 45-degree lead-in face toward the
+ * finger's tip, then a 45-degree back face toward the plate, with no flat
+ * face. The core prints upright: the ridge has a 45-degree chamfer under it
+ * and a 45-degree lead-in above it. The latch is a pair of parallel
+ * 45-degree cones (the barb's back face under the ridge's underside), and on
+ * the way in the barb's lead-in slides down the ridge's lead-in, camming the
+ * fingers inward.
+ *
+ * Issue #186: the barbs stay inside the bore (SNAP_BARB_CLEARANCE +
+ * tolerance from its wall), so the ridge is the only core-side feature: a
+ * ring added inside the bore, welded into the wall. Nothing is cut into the
+ * wall, which keeps its full thickness behind the cable groove.
  */
 export interface SnapLayout {
-  /** The barb ring around the finger tips (cap frame): a flat band at `barbRadius`, then a 45-degree chamfer back into the finger. */
+  /** The barb ring around the finger tips (cap frame): from just inside the finger at its tip, a 45-degree lead-in out to the barb's point at `collarRadius + SNAP_BARB`, then a 45-degree back face into the finger again. */
   barb: OutlineStack;
   /**
    * Issue #172: the top of the fingers' root flare, which widens the collar
-   * over its top JOINT_TRANSITION_HEIGHT where it meets the plate. It is the
-   * bore offset out by WELD_OVERLAP / 2, so it stays that far inside the
-   * core's `relief` (the bore offset out by at least WELD_OVERLAP) and never
-   * touches the core.
+   * over its top JOINT_TRANSITION_HEIGHT where it meets the plate. Issue
+   * #186: it reaches out as far as the barbs, so it clears the bore by the
+   * same gap.
    */
   rootOutline: ShapeOutline;
   /** How far the relief slots between the fingers reach out, past the barb and the root flare at every angle. */
   slotOuterRadius: number;
-  /** Material fused into the core's bore before `relief` is cut: holds the ridge, welded into the wall around it. */
+  /** The ridge ring's blank: a band welded into the core's wall around the bore. `relief` is cut from it (never from the wall itself), and what is left is added to the core. */
   lip: OutlineStack;
-  /** The void cut into the core's top: wide below the ridge (room for the barb), a 45-degree chamfer up to the ridge, the ridge itself, a 45-degree lead-in, then wide again up through the rim. */
+  /** Cut from `lip`: the bore offset out (wider than `lip`) below and above, a 45-degree chamfer to the ridge, the ridge itself, then a 45-degree lead-in back out. */
   relief: OutlineStack;
+  /** Issue #186: the cap's through-hole, with a 45-degree SNAP_TIP_BEVEL on the fingers' inner tip edge. Undefined when the collar has no hole (`jointGeometry`'s `holeOutline`). */
+  hole?: OutlineStack;
 }
 
 /** `o` inset by `amount`, with the corner radius floored just above 0 (an inset past the corner radius would invert the outline). */
@@ -298,52 +321,57 @@ function circle(r: number): ShapeOutline {
   return { n: 4, apothem: r, cornerRadius: r };
 }
 
-/** Undefined when the bore or the core is too small for the core-side relief (see JOINT_MIN_BORE_RADIUS): both parts then fall back to the plain press collar. */
+/** Undefined when the bore or the core is too small for the snap clips (see JOINT_MIN_BORE_RADIUS): both parts then fall back to the plain press collar (`resolveCapJoint`). */
 export function snapLayout(boreOutline: ShapeOutline, tolerance: number, coreHeight: number): SnapLayout | undefined {
-  const { boreRadius, jointRadius, collarRadius } = jointGeometry(boreOutline, "snap", tolerance);
+  const { boreRadius, collarRadius, holeOutline } = jointGeometry(boreOutline, "snap", tolerance);
   if (boreRadius < JOINT_MIN_BORE_RADIUS || coreHeight < JOINT_ENGAGE_DEPTH + 2) return undefined;
 
-  // Cap side: the barb's flat band at the tip, then a 45-degree chamfer that
-  // ends a little inside the finger, so it welds in rather than meeting the
-  // finger's surface at a tangent.
+  // Cap side: the diamond barb. Both faces start a little inside the finger
+  // (by `embed`), so they weld in rather than meet its surface at a tangent.
   const barbRadius = collarRadius + SNAP_BARB;
   const tip = -JOINT_ENGAGE_DEPTH;
-  const barbTop = tip + SNAP_BARB_HEIGHT;
   const embed = 0.2;
+  const barbPoint = tip + embed + SNAP_BARB;
+  // Where the back face meets the finger: the ridge sits just above it.
+  const barbTop = barbPoint + SNAP_BARB;
   const barb: OutlineStack = [
-    { outline: circle(barbRadius), z: tip },
-    { outline: circle(barbRadius), z: barbTop - SNAP_BARB },
+    { outline: circle(collarRadius - embed), z: tip },
+    { outline: circle(barbRadius), z: barbPoint },
     { outline: circle(collarRadius - embed), z: barbTop + embed },
   ];
-  const rootOutline = offsetOutline(boreOutline, WELD_OVERLAP / 2);
+  const rootOutline = inset(boreOutline, SNAP_BARB_CLEARANCE + tolerance);
   const slotOuterRadius = Math.max(barbRadius + 0.5, circumscribedRadius(rootOutline, 0) + 0.5);
+  const hole: OutlineStack | undefined = holeOutline && [
+    { outline: offsetOutline(holeOutline, SNAP_TIP_BEVEL + 1), z: tip - 1 },
+    { outline: holeOutline, z: tip + SNAP_TIP_BEVEL },
+    { outline: holeOutline, z: CAP_THICKNESS + 1 },
+  ];
 
-  // Core side. The ridge matches the finger's own nominal shaft (0.1 inside
-  // `jointRadius`), following the bore's shape so the collar clears it
-  // evenly at every angle, corners included. The relief is cut well past
-  // the bore (by WELD_OVERLAP): a cut only fractions of a mm past a
-  // non-round bore's flat side is nearly tangent to it, which boolean CSG
-  // handles poorly.
-  const ridgeOutline = inset(boreOutline, boreRadius - (jointRadius - 0.1));
-  const wideOutline = offsetOutline(boreOutline, Math.max(WELD_OVERLAP, barbRadius + 0.3 - boreRadius));
+  // Core side. The ridge follows the bore's shape, so the collar clears it
+  // evenly at every angle, corners included. Its chamfers run out past the
+  // bore (by WELD_OVERLAP) and the blank they are cut from is welded
+  // WELD_OVERLAP / 2 into the wall, so the ring meets the bore at 45 degrees
+  // instead of being nearly tangent to it, which boolean CSG handles poorly.
+  const ridgeOutline = inset(boreOutline, SNAP_RIDGE_DEPTH);
+  const wideOutline = offsetOutline(boreOutline, WELD_OVERLAP);
   // Rise = the widest horizontal step (at the corners when the ridge's corner
   // radius is floored), so no part of either chamfer is steeper than 45 degrees.
   const run = circumscribedRadius(wideOutline, 0) - circumscribedRadius(ridgeOutline, 0);
   const [ridgeLo, ridgeHi] = [barbTop, barbTop + SNAP_RIDGE_THICKNESS];
   const relief: OutlineStack = [
-    { outline: wideOutline, z: tip - 1 },
+    { outline: wideOutline, z: ridgeLo - run - 1 },
     { outline: wideOutline, z: ridgeLo - run },
     { outline: ridgeOutline, z: ridgeLo },
     { outline: ridgeOutline, z: ridgeHi },
     { outline: wideOutline, z: ridgeHi + run },
-    { outline: wideOutline, z: 1 },
+    { outline: wideOutline, z: ridgeHi + run + 1 },
   ];
-  // Reaches past the bore into the wall, and over the chamfers' height, with
-  // its own edges inside the wall rather than on the relief's surface.
+  // Ends just inside the chamfers' outer ends, where the relief is already
+  // wider than it, so the ring comes to an edge inside the wall at both ends.
   const lipOutline = offsetOutline(boreOutline, WELD_OVERLAP / 2);
   const lip: OutlineStack = [
-    { outline: lipOutline, z: ridgeLo - run / 2 },
-    { outline: lipOutline, z: ridgeHi + run / 2 },
+    { outline: lipOutline, z: ridgeLo - run + 0.1 },
+    { outline: lipOutline, z: ridgeHi + run - 0.1 },
   ];
-  return { barb, rootOutline, slotOuterRadius, lip, relief };
+  return { barb, rootOutline, slotOuterRadius, lip, relief, hole };
 }

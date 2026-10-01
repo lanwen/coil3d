@@ -103,14 +103,15 @@ describe.each(SHAPES)("issue #168: the snap joint still engages, shape=$kind", (
     const h = d.solution.height;
     const [core, cap] = await solids(d.parts.map((p) => p.mesh));
     try {
-      // The barb: the cap's outermost reach just above the finger tip. The
+      // The barb: the cap's outermost reach over the finger's lowest 2.5 mm
+      // (issue #186: a diamond point, so its reach changes with height). The
       // ridge: the narrowest point of the core's bore over the joint's depth.
-      const barb = cap.slice(h - JOINT_ENGAGE_DEPTH + 0.2).toPolygons() as Array<Array<[number, number]>>;
+      const barbSlices = Array.from({ length: 25 }, (_, i) => cap.slice(h - JOINT_ENGAGE_DEPTH + 0.05 + 0.1 * i).toPolygons() as Array<Array<[number, number]>>);
       const coreSlices = Array.from({ length: 61 }, (_, i) => core.slice(h - JOINT_ENGAGE_DEPTH + 0.1 * i).toPolygons() as Array<Array<[number, number]>>);
       for (const centre of FINGERS) {
         let best = -Infinity;
         for (let deg = centre - 55; deg <= centre + 55; deg += 1) {
-          const reach = Math.max(...rayCrossings(barb, deg));
+          const reach = Math.max(...barbSlices.map((s) => Math.max(...rayCrossings(s, deg))));
           const ridge = Math.min(...coreSlices.map((s) => rayCrossings(s, deg)[0] ?? Infinity));
           best = Math.max(best, reach - ridge);
         }

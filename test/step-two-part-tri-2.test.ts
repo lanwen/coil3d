@@ -41,7 +41,7 @@ describe.sequential("STEP/OCCT export: tri two-part design, snap joint (issue #3
 
       // Issue #167: per part, within 0.5% -- not the whole design's total.
       for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
-      expect(probes.points.length).toBeGreaterThanOrEqual(8); // the barb (in, out) and the ridge (in, out), each crossed both ways
+      expect(probes.points.length).toBeGreaterThanOrEqual(14); // the ridge twice, the barb, and the fingers' tip bevel, each crossing probed both sides
       expect(inside).toEqual(probes.expected);
     },
     STEP_TIMEOUT_MS,

@@ -36,7 +36,7 @@ import {
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
 } from "../constants";
-import { jointGeometry, resolveCapJoint, snapLayout } from "../joints";
+import { jointGeometry, resolveCapJoint } from "../joints";
 import type { OutlineStack, RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
@@ -374,12 +374,12 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const relieved = relieveFlangeSolid(kernel, flange, flangeSpec, innerEndCutter.layout, anchors, design.spec.tolerance);
   let coreSolid = tube.fuse(checkedCut(kernel, relieved, innerEndCutter.cutter));
 
-  // Issue #9: bayonet/snap cut a mating groove/relief into the core's own
-  // top rim; press engages the bore's existing surface directly (no
-  // core-side cut at all -- see manifold.ts's `applyCoreJointCut`, which
+  // Issue #9: bayonet/snap add their mating feature inside the core's bore
+  // under the rim; press engages the bore's existing surface directly (no
+  // core-side feature at all -- see manifold.ts's `applyCoreJointCut`, which
   // this mirrors so the mesh and STEP backends never drift on fit).
-  // Issue #167: the same `resolveCapJoint` design.ts calls, so a bayonet
-  // that falls back to press fit does so here too.
+  // Issue #167: the same `resolveCapJoint` design.ts calls, so a bayonet or
+  // snap that falls back to press fit does so here too.
   const capJoint = resolveCapJoint(design.spec, design.wallSpec);
   if (design.solution.topCapEnabled && (capJoint.joint === "bayonet" || capJoint.joint === "snap")) {
     coreSolid = applyCoreJointCutSolid(coreSolid, {
@@ -388,6 +388,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
       joint: capJoint.joint,
       tolerance: design.spec.tolerance,
       bayonet: capJoint.bayonet,
+      snap: capJoint.snap,
     });
   }
 
@@ -558,7 +559,7 @@ function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Desi
   }
 }
 
-/** The snap collar's base (mirrors manifold.ts's `collarBase`, issue #172): a straight prism flaring over its top `JOINT_TRANSITION_HEIGHT` out to `rootOutline`, which stays inside the core's relief. */
+/** The snap collar's base (mirrors manifold.ts's `collarBase`, issue #172): a straight prism flaring over its top `JOINT_TRANSITION_HEIGHT` out to `rootOutline`, which stays inside the core's bore. */
 function collarBaseSolid(collarOutline: ShapeOutline, rootOutline: ShapeOutline): R.Shape3D {
   const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT;
   const straight = outlineSolid(collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH);
@@ -719,10 +720,10 @@ function relieveFlangeSolid(kernel: OpenCascadeInstance, flange: R.Shape3D, flan
 }
 
 /**
- * Add the bayonet's lugs (issue #167) or cut the snap's mating feature into the core solid's top rim
+ * Add the bayonet's lugs (issue #167) or the snap's ridge ring (issue #186) to the core solid's top rim
  * (mirrors manifold.ts's `applyCoreJointCut` primitive-for-primitive, so the
- * mesh and STEP backends can't drift on fit). Returns `core` unchanged when
- * the bore/height are too small for these features -- see JOINT_MIN_BORE_RADIUS.
+ * mesh and STEP backends can't drift on fit), from the layout
+ * joints.ts's `resolveCapJoint` made.
  */
 function applyCoreJointCutSolid(core: R.Shape3D, cut: CoreJointCut): R.Shape3D {
   // Issue #167: the bayonet's lugs in the bore, from the shared layout.
@@ -730,11 +731,11 @@ function applyCoreJointCutSolid(core: R.Shape3D, cut: CoreJointCut): R.Shape3D {
     return cut.bayonet!.lugs.reduce((solid, f) => solid.fuse(revolvedFeatureSolid(f, cut.height)), core);
   }
 
-  // snap (issue #168): the lip fused in, then the relief cut around it,
-  // from the same `snapLayout` as manifold.ts's `applyCoreJointCut`.
-  const snap = snapLayout(cut.boreOutline, cut.tolerance, cut.height);
-  if (!snap) return core;
-  return core.fuse(stackSolidStep(snap.lip, cut.height)).cut(stackSolidStep(snap.relief, cut.height));
+  // snap (issues #168, #186): the ridge ring, the relief cut from the lip on
+  // its own, then added -- the same `snapLayout` as manifold.ts's
+  // `applyCoreJointCut`. The wall is never cut.
+  const snap = cut.snap!;
+  return core.fuse(stackSolidStep(snap.lip, cut.height).cut(stackSolidStep(snap.relief, cut.height)));
 }
 
 /**
@@ -792,26 +793,28 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { collarOutline, holeOutline } = jointGeometry(flangeSpec.boreOutline, capJoint.joint, spec.tolerance);
   // Issue #172: a straight tube into the plate, no flare (mirrors manifold.ts).
   const straight = () => outlineSolid(collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH);
-  const snap = capJoint.joint === "snap" ? snapLayout(flangeSpec.boreOutline, spec.tolerance, solution.height) : undefined;
+  const snap = capJoint.snap;
 
   let collar: R.Shape3D;
   if (capJoint.joint === "bayonet") {
     // The L-slots cut into the straight tube (mirrors manifold.ts).
     collar = capJoint.bayonet!.cuts.reduce((solid, f) => solid.cut(revolvedFeatureSolid(f, 0)), straight());
   } else if (snap) {
-    // Issue #168: the root flare, the barb's 45-degree chamfer and the slots
-    // from the same `snapLayout` as manifold.ts's `buildTopCap`.
+    // Issues #168, #186: the root flare, the diamond barb and the slots from
+    // the same `snapLayout` as manifold.ts's `buildTopCap`.
     const withBarb = collarBaseSolid(collarOutline, snap.rootOutline).fuse(stackSolidStep(snap.barb));
     const slots = unionAtAngles((a) => radialBoxSolid(0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, a), SNAP_HOOK_COUNT);
     collar = withBarb.cut(slots);
   } else {
-    // Press, or a snap on a core too small for its relief.
+    // Press, or a bayonet or snap the core can't take (joints.ts's `resolveCapJoint`).
     collar = straight();
   }
 
   let assembled = plate.fuse(collar);
   // Issue #127: the straight through-hole down the middle (the collar is a tube).
-  if (holeOutline) assembled = assembled.cut(outlineSolid(holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2, -JOINT_ENGAGE_DEPTH - 1));
+  // Issue #186: the snap fingers' tips are bevelled on the inside.
+  if (snap?.hole) assembled = assembled.cut(stackSolidStep(snap.hole));
+  else if (holeOutline) assembled = assembled.cut(outlineSolid(holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2, -JOINT_ENGAGE_DEPTH - 1));
 
   // Mirrors design.ts's own call: the SAME `resolveLabel` the mesh backend
   // uses, against the SAME outline/boreOutline/margin, so the two backends
