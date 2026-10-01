@@ -253,10 +253,14 @@ export const PLATE_GAP = 5; // mm
 // Top cap label (issue #12, docs/design.md, Decisions: label text on the
 // top cap face, only when it fits). Engraved, not raised -- see
 // label.ts's file header for why the print orientation forces that choice.
-/** Minimum legible ink height for the label text (ticket: "e.g. >= 5mm"); below this the label is hidden and a warning is emitted instead. */
+/** Minimum legible ink height for the label text (ticket: "e.g. >= 5mm"); below this the label is hidden and a warning is emitted instead. Text whose ink is short for its font size (lowercase without ascenders, a lone "-") can't reach it under `LABEL_MAX_FONT_SIZE`; it is fitted at that font size instead (label.ts's `fitLabel`). */
 export const LABEL_MIN_HEIGHT = 5; // mm
-/** Cosmetic ceiling so a big cap doesn't get an oversized label; the fit search (label.ts's `fitLabel`) still shrinks below this when the annulus is tight. */
-export const LABEL_MAX_HEIGHT = 14; // mm
+/** Widest letter stroke the engraving may have (issue #176). The cap prints room face down, so each letter's floor prints as a bridge as wide as its stroke; 1.8 mm keeps a margin under the 2 mm bridge rule. */
+export const LABEL_MAX_STROKE = 1.8; // mm
+/** Vertical stem width of the bundled Archivo Black, per unit of font size: the ink width of its "I" glyph, 221 of 1000 units per em (opentype.js `font.getPath("I", 0, 0, 1).getBoundingBox()`, x2 - x1). */
+export const LABEL_STEM_PER_EM = 0.221;
+/** Largest label font size (mm): the one whose stems are `LABEL_MAX_STROKE` wide, about 5.6 mm tall capitals. The fit search (label.ts's `fitLabel`) still shrinks below this when the annulus is tight. */
+export const LABEL_MAX_FONT_SIZE = LABEL_MAX_STROKE / LABEL_STEM_PER_EM; // mm
 /** Clearance kept between the label's text band and both the bore hole and the plate's outer rim. */
 export const LABEL_MARGIN = 2; // mm
 /** Engraved recess depth, comfortably less than CAP_THICKNESS so the pocket never breaks through to the collar side. */

@@ -1,7 +1,7 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SPEC, design } from "../src/core";
-import type { CoilSpec, ShapeSpec } from "../src/core";
+import { CAP_THICKNESS, DEFAULT_SPEC, design } from "../src/core";
+import type { CoilMesh, CoilSpec, ShapeSpec } from "../src/core";
 
 // Issue #12 acceptance criteria: "Label text in the UI and hash; embossed
 // [engraved, see label.ts's file header for the FDM justification] on the
@@ -150,5 +150,125 @@ describe("top cap label (issue #12)", () => {
         for (let i = 1; i < series.length; i++) expect(series[i], series.join(",")).toBeGreaterThanOrEqual(series[i - 1]);
       }
     });
+  });
+});
+
+// Issue #176: the cap prints room face down, so each engraved letter is a
+// pocket open to the bed and its floor prints as a bridge over it. The
+// bridge rule (AGENTS.md: no large bridges) allows about 2 mm, measured
+// like issue #128's bridges as 2 * area / perimeter of each floor patch.
+describe("label letter floors bridge at most 2 mm (issue #176)", () => {
+  const BRIDGE_MAX_SPAN = 2; // mm
+
+  /** Width (2 * area / perimeter) of each letter floor: the cap's flat, up-facing faces strictly inside the plate, as connected patches. */
+  function letterFloorWidths(d: Awaited<ReturnType<typeof design>>): number[] {
+    const { positions: p, indices: tris }: CoilMesh = capMesh(d);
+    const zLo = d.solution.height + 0.01;
+    const zHi = d.solution.height + CAP_THICKNESS - 0.01;
+    const ids = new Map<string, number>();
+    const weld = (v: number) => {
+      const key = `${Math.round(p[v * 3] * 1e4)},${Math.round(p[v * 3 + 1] * 1e4)},${Math.round(p[v * 3 + 2] * 1e4)}`;
+      let id = ids.get(key);
+      if (id === undefined) ids.set(key, (id = ids.size));
+      return id;
+    };
+    const floor: number[] = [];
+    for (let t = 0; t < tris.length; t += 3) {
+      const [a, b, c] = [tris[t] * 3, tris[t + 1] * 3, tris[t + 2] * 3];
+      if (![a, b, c].every((v) => p[v + 2] > zLo && p[v + 2] < zHi)) continue;
+      const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
+      const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
+      const nz = ux * vy - uy * vx;
+      const len = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, nz);
+      if (len > 1e-6 && nz / len > 0.999) floor.push(t);
+    }
+    // Connected patches (sharing an edge), and each edge's use count within the floor.
+    const edgeKey = (u: number, v: number) => (u < v ? `${u}:${v}` : `${v}:${u}`);
+    const edgeTris = new Map<string, number[]>();
+    for (const t of floor) {
+      for (let k = 0; k < 3; k++) {
+        const key = edgeKey(weld(tris[t + k]), weld(tris[t + ((k + 1) % 3)]));
+        edgeTris.set(key, [...(edgeTris.get(key) ?? []), t]);
+      }
+    }
+    const parent = new Map(floor.map((t) => [t, t]));
+    const find = (x: number): number => (parent.get(x) === x ? x : find(parent.get(x)!));
+    for (const list of edgeTris.values()) for (const t of list.slice(1)) parent.set(find(t), find(list[0]));
+    const area = new Map<number, number>();
+    const perimeter = new Map<number, number>();
+    for (const t of floor) {
+      const r = find(t);
+      const [a, b, c] = [tris[t] * 3, tris[t + 1] * 3, tris[t + 2] * 3];
+      area.set(r, (area.get(r) ?? 0) + Math.abs((p[b] - p[a]) * (p[c + 1] - p[a + 1]) - (p[b + 1] - p[a + 1]) * (p[c] - p[a])) / 2);
+      for (let k = 0; k < 3; k++) {
+        const [i0, i1] = [tris[t + k], tris[t + ((k + 1) % 3)]];
+        if (edgeTris.get(edgeKey(weld(i0), weld(i1)))!.length !== 1) continue;
+        perimeter.set(r, (perimeter.get(r) ?? 0) + Math.hypot(p[i0 * 3] - p[i1 * 3], p[i0 * 3 + 1] - p[i1 * 3 + 1]));
+      }
+    }
+    return [...area.keys()].map((r) => (2 * area.get(r)!) / perimeter.get(r)!);
+  }
+
+  const DEFAULT_CAP = { ...DEFAULT_SPEC, topCap: "on" as const };
+  const SMALL_CAP = baseSpec({ coreSize: { locked: true, dimension: "outer", value: 40 }, height: { locked: true, value: 40 }, layers: { locked: true, value: 2 }, wire: { length: 3000, diameter: 2.5, type: "usb" } });
+  const LARGE_CAP = baseSpec({ coreSize: { locked: true, dimension: "outer", value: 90 }, height: { locked: true, value: 60 }, layers: { locked: true, value: 2 }, wire: { length: 5000, diameter: 5, type: "usb" } });
+
+  it("an unlabelled cap has no faces in the floor band (the measure only sees letter floors)", async () => {
+    expect(letterFloorWidths(await design(LARGE_CAP))).toEqual([]);
+  });
+
+  const CASES: Array<{ cap: string; spec: CoilSpec; label: string }> = [
+    { cap: "90 mm", spec: LARGE_CAP, label: "HDMI 3m" },
+    { cap: "90 mm", spec: LARGE_CAP, label: "LAN" },
+    { cap: "90 mm", spec: LARGE_CAP, label: "Ethernet 5m" },
+    { cap: "90 mm", spec: LARGE_CAP, label: "aux" },
+    { cap: "90 mm", spec: LARGE_CAP, label: "-" },
+    { cap: "default", spec: DEFAULT_CAP, label: "TV" },
+    { cap: "default", spec: DEFAULT_CAP, label: "USB-C 2m" },
+    { cap: "small", spec: SMALL_CAP, label: "AB" },
+    { cap: "small", spec: SMALL_CAP, label: "HDMI 3m" },
+  ];
+  it.each(CASES)("$cap cap, label $label", async ({ spec, label }) => {
+    const d = await design({ ...spec, label });
+    expect(d.labelFit?.fits).toBe(true);
+    const widths = letterFloorWidths(d);
+    expect(widths.length).toBeGreaterThan(0);
+    expect(Math.max(...widths)).toBeLessThanOrEqual(BRIDGE_MAX_SPAN);
+  });
+
+  it("the stroke cap leaves how much text fits unchanged (labelFit.maxChars)", async () => {
+    const maxChars = async (spec: CoilSpec, label: string) => (await design({ ...spec, label })).labelFit?.maxChars;
+    expect(await maxChars(DEFAULT_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(8);
+    expect(await maxChars(DEFAULT_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(13);
+    expect(await maxChars(LARGE_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(14);
+    expect(await maxChars(LARGE_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(23);
+    expect(await maxChars(SMALL_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(6);
+  });
+});
+
+// Issue #176: the viewer draws the label's outline with a finer line, from the
+// pocket faces the top cap mesh marks. They must be exactly the pocket's walls
+// and floors: every face below the room face and within the engraving depth.
+describe("the top cap marks its label pocket faces (labelTriangles)", () => {
+  it("absent without a label", async () => {
+    expect(capMesh(await design(ROOMY_CAP)).labelTriangles).toBeUndefined();
+  });
+
+  it("exactly the faces inside the engraving", async () => {
+    const d = await design({ ...ROOMY_CAP, label: "USB-C 2m" });
+    const mesh = capMesh(d);
+    const top = d.solution.height + CAP_THICKNESS;
+    const zOf = (t: number) => [0, 1, 2].map((k) => mesh.positions[mesh.indices[t * 3 + k] * 3 + 2] - top);
+    // The engraving depth: the deepest marked vertex.
+    const marked = new Set(mesh.labelTriangles);
+    expect(marked.size).toBeGreaterThan(0);
+    const depth = -Math.min(...[...marked].flatMap(zOf));
+    expect(depth).toBeGreaterThan(0.1);
+    expect(depth).toBeLessThan(CAP_THICKNESS);
+    for (let t = 0; t < mesh.indices.length / 3; t++) {
+      const z = zOf(t);
+      const inPocket = z.every((v) => v > -depth - 1e-4 && v < 1e-4) && !z.every((v) => v > -1e-4);
+      expect(marked.has(t), `triangle ${t} at z ${z.map((v) => v.toFixed(3)).join(", ")}`).toBe(inPocket);
+    }
   });
 });

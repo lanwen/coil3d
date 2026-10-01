@@ -50,7 +50,7 @@ import { circumscribedRadius, makeOutline, minCornerSegments, offsetOutline } fr
 import { resolveLabel } from "./label";
 import { solve } from "./solve";
 import { bendMultiplierOf } from "./types";
-import type { CoilSpec, Design, Part, Resolution } from "./types";
+import type { CoilMesh, CoilSpec, Design, Part, Resolution } from "./types";
 import { buildWall } from "./wall";
 import { buildCable } from "./wire";
 
@@ -432,12 +432,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 }
 
 /** A copy of `mesh` with every vertex shifted by [dx, dy, dz]; `indices` is shared (never mutated). */
-function translateMesh(mesh: { positions: Float32Array; indices: Uint32Array }, [dx, dy, dz]: [number, number, number]) {
+function translateMesh(mesh: CoilMesh, [dx, dy, dz]: [number, number, number]): CoilMesh {
   const positions = new Float32Array(mesh.positions.length);
   for (let i = 0; i < positions.length; i += 3) {
     positions[i] = mesh.positions[i] + dx;
     positions[i + 1] = mesh.positions[i + 1] + dy;
     positions[i + 2] = mesh.positions[i + 2] + dz;
   }
-  return { positions, indices: mesh.indices };
+  return { ...mesh, positions };
 }

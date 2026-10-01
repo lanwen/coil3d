@@ -265,10 +265,7 @@ CASES.push({ name: "round, press, mount skadis, snap plate joint", spec: baseSpe
  * once its issue is fixed. Never widen the 45-degree rule to make a case
  * pass.
  */
-const KNOWN: Array<{ issue: string; applies: (spec: CoilSpec) => boolean; matches: (role: PartRole, patch: Patch, d: Design) => boolean }> = [
-  // See #176: the engraved label's letter floors, face down on the bed, bridge more than 2 mm on the bigger caps.
-  { issue: "#176", applies: (spec) => spec.label !== undefined, matches: (role, q) => role === "topCap" && q.printZ < 1 && q.freeLength === 0 },
-];
+const KNOWN: Array<{ issue: string; applies: (spec: CoilSpec) => boolean; matches: (role: PartRole, patch: Patch, d: Design) => boolean }> = [];
 
 /**
  * Accepted by design, unlike KNOWN: a matching patch passes only while it

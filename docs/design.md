@@ -59,7 +59,9 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   supports: overhangs of at most 45 degrees and no large bridges. This is why
   the clip mount is a separate plate (clips cannot point into the print bed),
   why the label is engraved (a raised label would sit below the bed plane in
-  the cap's print orientation), and why the plate and the flange are joined
+  the cap's print orientation), why the label's letters are at most about
+  5.6 mm tall (each letter's floor prints as a bridge as wide as its stroke,
+  so strokes stay under 1.8 mm), and why the plate and the flange are joined
   with blind holes and printed pegs.
 - One accepted exception (#175): the keyhole mount's undercut roof is a flat
   bridge as wide as the screw head (8 mm). Most printers bridge it, and a
@@ -296,6 +298,13 @@ It does not use lighting.
    its projected bounding box, so the line weight follows the on-screen size
    of the model and stays a thin pen line.
 4. FXAA runs last.
+
+The engraved label is drawn differently, because its letters are only a few
+millimetres tall: the usual lines on its pocket walls and floors would fill
+the letters in. The top cap mesh marks the label's pocket faces
+(`CoilMesh.labelTriangles`), the normal pass writes that mark into its alpha,
+and the edge shader draws only the outline of the marked area, with a finer
+pen than the other lines.
 
 The camera is refitted to the projected bounds when the geometry changes.
 The wound cable is drawn as one merged tube per layer, with smooth normals so
