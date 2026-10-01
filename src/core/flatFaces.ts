@@ -44,9 +44,6 @@ export const FLAT_FACE_MAX_EDGE = 10;
  */
 export const PLANE_TOLERANCE = 0.01;
 
-/** A quad whose corner is a hair reflex (twice the area, mm2) still flips; the strips above are 0.1 micrometre out of convex. */
-const CONVEX_SLACK = 5e-4;
-
 /** A flip must beat the current worst angle by this much (radians), so cocircular quads never flip back and forth. */
 const MIN_GAIN = 1e-9;
 
@@ -231,11 +228,13 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
     const xd = ux * pos[3 * d] + uy * pos[3 * d + 1] + uz * pos[3 * d + 2];
     const yd = vx * pos[3 * d] + vy * pos[3 * d + 1] + vz * pos[3 * d + 2];
 
-    // Both triangles face the larger one's way, and the new pair does too (a hair of reflex excepted).
+    // Both triangles face the larger one's way, and the new pair strictly does too: the quad must be convex. A flip
+    // across a corner that is even a hair reflex leaves an inverted triangle, and that can cut the part into pieces
+    // (issue #201: the bayonet cap at a few core sizes).
     const o1 = area2(xp, yp, xq, yq, xc, yc);
     const o2 = area2(xq, yq, xp, yp, xd, yd);
-    if (o1 < -CONVEX_SLACK || o2 < -CONVEX_SLACK) continue;
-    if (area2(xp, yp, xd, yd, xc, yc) < -CONVEX_SLACK || area2(xd, yd, xq, yq, xc, yc) < -CONVEX_SLACK) continue; // not a convex quad
+    if (o1 < 0 || o2 < 0) continue;
+    if (area2(xp, yp, xd, yd, xc, yc) <= 0 || area2(xd, yd, xq, yq, xc, yc) <= 0) continue;
     const before = Math.min(minAngle(xp, yp, xq, yq, xc, yc), minAngle(xq, yq, xp, yp, xd, yd));
     if (before >= WORST_ANGLE_TO_FLIP) continue;
     const after = Math.min(minAngle(xp, yp, xd, yd, xc, yc), minAngle(xd, yd, xq, yq, xc, yc));
