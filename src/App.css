@@ -259,7 +259,8 @@ header p {
 }
 
 .author-link,
-.licenses-link {
+.licenses-link,
+.build-label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -273,8 +274,17 @@ header p {
 .author-link:hover,
 .author-link:focus-visible,
 .licenses-link:hover,
-.licenses-link:focus-visible {
+.licenses-link:focus-visible,
+a.build-label:hover,
+a.build-label:focus-visible {
   color: var(--ink);
+}
+
+/* The deployed build's short SHA: the same muted credit, but quieter. */
+.build-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  font-weight: 400;
 }
 
 /* Present for screen readers, not drawn (e.g. the dimension values, whose
@@ -1778,7 +1788,8 @@ header p {
   }
 
   .author-link,
-  .licenses-link {
+  .licenses-link,
+  .build-label {
     padding: 6px 0 6px 14px;
   }
 

@@ -8,3 +8,7 @@
   Cache-Control: public, max-age=86400
 /apple-touch-icon.png
   Cache-Control: public, max-age=86400
+
+# Written at build time and used to check which build is live: never stale.
+/version.json
+  Cache-Control: no-cache

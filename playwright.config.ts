@@ -83,6 +83,12 @@ export default defineConfig({
     command: `npx vite build && npx vite preview --port ${PORT} --host 0.0.0.0 --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
+    // A fixed build id, so the version label in the screenshots doesn't change
+    // with every commit.
+    env: {
+      VITE_BUILD_SHA: "0123456789abcdef0123456789abcdef01234567",
+      VITE_BUILD_TIME: "2026-01-01T00:00:00.000Z",
+    },
     timeout: 120_000,
   },
   use: {
