@@ -119,9 +119,10 @@ export function resolveFlangeSizing(
   // Issue #117: the wound cable's outer surface (FLANGE_MARGIN inside
   // `flangeSizeEnvelope`), as an offset outside the core's outline.
   const envelopeOffset = flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0);
+  const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
   const mountMargin = mount === "skadis"
-    ? // Issue #207: the rim clips' lips must clear the wound cable.
-      Math.max(baseMargin, requiredSkadisMargin(outline, boreOutline, envelopeOffset, leadIn.heavyCable ?? false))
+    ? // Issue #207: the rim clips' lips must clear the wound cable (issue #222: and the collar's flare, which the lips on the plate sit beside).
+      Math.max(baseMargin, requiredSkadisMargin(outline, boreOutline, envelopeOffset, leadIn.heavyCable ?? false, channelOnlyThickness, Math.min(FLANGE_PLATE_THICKNESS, channelOnlyThickness), leadIn.tolerance))
     : wantsKeyhole
     ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline, keyholeRotation))
     : wantsThrough
@@ -145,7 +146,6 @@ export function resolveFlangeSizing(
   // constant-radius hole with no counterbore, so it fits in the ordinary
   // channel-driven thickness (or the plain plate, wherever the channel
   // doesn't reach) exactly like `mount === "none"`.
-  const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
   const thickness = wantsKeyhole
     ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT)
     : mountKindForPlate

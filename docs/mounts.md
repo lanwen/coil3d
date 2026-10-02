@@ -74,14 +74,25 @@ for both geometry backends.
   - an outer jaw between the flange and the board (the 3 mm standoff), a
     bight round the rim, and a lip on the winding side that reaches 5 mm in
     from the notch floor.
+- **Chamfers.** The clip's outer corners (the jaw and lip tips, the spine's
+  top and the stem's back) are cut at 45°, 0.5 mm, so they are not sharp to
+  handle. The hook faces, the latch, the jaw faces and the stem are as before.
 - **Print orientation.** Each clip prints lying on its flat face, so the
   weight, a pull and the tongue's bending all run along the layers. It has
   no overhangs or bridges. The old plate's clip legs were printed upright
   and flexed across the layers.
 - **The flange.** A flat-floored notch at each clip keys the coil's rotation.
-  The flange is full thickness under each clip's jaws (a pad), and the lips
-  keep 1 mm clear of the wound cable. The flange margin grows if they don't
-  fit.
+  The jaws grip the flange's plain 3 mm plate, the same base as the
+  through-hole mount: nothing thickens the rim under a clip (issue #222), so
+  the clip is the same part for every cable and core. The notch stays: it is
+  what stops the coil turning on its clips. The lips keep 1 mm clear of the
+  wound cable and beside the thick pads under the wall and the inner-end
+  channel (they lie on the plate, below the winding face), so the flange
+  margin grows if they don't fit (by 0.3 to 1.8 mm, on square and triangle
+  cores with a cable of 5 mm or more). A small triangle with a thick cable may
+  have no room for the clips left: it warns and leaves them out. The load
+  check for the plain plate is in
+  [research/skadis-mount.md](research/skadis-mount.md#rim-load-check-issue-222).
 - **The latch (on by default).** The top clip has a spring arm on the board
   face, cut free from a rigid mast by a slit. Its tooth reaches 2.5 mm into
   the slot, past the 1 mm edge fillet. While the clip is pushed in, the arm

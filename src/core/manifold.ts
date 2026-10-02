@@ -106,7 +106,7 @@ export interface FlangeSpec {
   throughHoleDiameter?: number;
   /** Issue #70 PR review: the wound cable's own outer radius (mirrors flange.ts's own `flangeSizeEnvelope / 2` reasoning) -- every through-hole is kept clear of it too, not just the wall's own surface, so it stays reachable with a screwdriver. 0/omitted when not relevant (no mount, or not yet known). */
   envelopeRadius?: number;
-  /** Issue #207: the SKÅDIS rim clips' layout (skadisClips.ts) -- its notches are cut through the rim and its pads keep the flange full thickness under the clips' jaws. Present only when `mount` is "skadis" and the clips fit. */
+  /** Issue #207: the SKÅDIS rim clips' layout (skadisClips.ts) -- its notches are cut through the rim (the jaws grip the flange's plain plate, no pad). Present only when `mount` is "skadis" and the clips fit. */
   skadis?: SkadisClipLayout;
   /** Issue #213: the SKÅDIS T-clips' layout (skadisTclips.ts) -- a lug on the rim per clip, with a slot through it and the handle's recess in its face. Present only when `mount` is "skadis-tclip" and the clips fit. */
   skadisTclip?: SkadisTclipLayout;
@@ -554,8 +554,8 @@ export async function fuseFlange(
     }
 
     // Issue #207: a notch through the rim at each SKÅDIS clip, its floor
-    // the flat seat the clip's bight wraps. Cut after the pads, which keep
-    // the flange full thickness under the jaws.
+    // the flat seat the clip's bight wraps. The rim stays the plain plate
+    // there (issue #222: no pad under the jaws).
     if (flange.skadis) {
       for (const notch of flange.skadis.notches) {
         const poly: [number, number][] = notch.map((p) => [p.x, p.y]);

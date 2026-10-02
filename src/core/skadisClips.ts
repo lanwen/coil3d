@@ -6,8 +6,10 @@
 // for the chosen axis a (degrees). Every clip is one closed polygon in the
 // (up, z) plane, extruded SKADIS_CLIP_WIDTH along side, centred on the clip's
 // `side`. z is the assembly frame's: the flange is z = [-T, 0] (T its full
-// thickness, on the pads), and the board's front face is at
-// z = -T - SKADIS_STANDOFF.
+// thickness, on the pads), its plain plate z = [-T, -T + p] (p the plate
+// thickness, flangePads.ts), and the board's front face is at
+// z = -T - SKADIS_STANDOFF. The jaws grip the plate itself (issue #222): no
+// pad thickens the rim under a clip, so the clip is the same for every core.
 //
 // The axis puts a flat at the bottom where the shape has one (a square sits on
 // a side, a triangle on a side with its apex up), so the bottom clips cradle
@@ -22,9 +24,11 @@
 
 import {
   CABLE_DENSITY,
+  FLANGE_PAD_COLLAR,
   SKADIS_BIGHT_THICKNESS,
   SKADIS_BOARD_THICKNESS,
   SKADIS_BOARD_THICKNESS_MAX,
+  SKADIS_CLIP_CHAMFER,
   SKADIS_CLIP_WIDTH,
   SKADIS_ENVELOPE_CLEARANCE,
   SKADIS_HEAVY_CABLE_KG,
@@ -82,8 +86,6 @@ export interface SkadisClipLayout {
   clips: RimClip[];
   /** Cut through the flange at each clip (closed polygons in the flange plane). */
   notches: XY[][];
-  /** Stadium pads (flangePads.ts) that bring the flange to full thickness under each clip's jaws. */
-  pads: Array<{ a: XY; b: XY; radius: number }>;
   /** The board's front face (z). */
   boardFrontZ: number;
   /** Set when no clip arrangement fits (no clips then). */
@@ -94,17 +96,34 @@ export interface SkadisClipInput {
   /** The flange's true outer outline (the core's outline offset by the margin). */
   flangeOutline: ShapeOutline;
   boreOutline: ShapeOutline;
-  /** The wound cable's outer surface, as an outline (the lips keep clear of it). */
+  /** The outline the lips keep clear of: the wound cable's outer surface, or the collar pad's flare if that is wider (`lipKeepOffset`). */
   envelopeOutline: ShapeOutline;
   /** The flange's full thickness T. */
   thickness: number;
+  /** The flange's plate thickness p (flangePads.ts), away from the pads: the rim the jaws grip. */
+  plateThickness: number;
   tolerance: number;
   latch: boolean;
   heavy: boolean;
   /** The inner-end channel's footprint: no clip goes near it. */
   avoid?: XY[];
+  /** The channel pads' footprints at the plate (flangePads.ts's `channelPadFootprints`): no lip lies on them or on their flare. */
+  padFootprints?: XY[][];
   /** Only the default columns (flange.ts sizes the margin for those; the others are a fallback for a channel in the way). */
   primaryOnly?: boolean;
+}
+
+/**
+ * How far outside the core's outline the lips must keep clear (issue #222): the wound cable's surface, or the collar
+ * pad's flare if that is wider. The lips lie on the plate, below the winding face, where the pad under the wall has
+ * flared out at 45 degrees (flangePads.ts) to FLANGE_PAD_COLLAR plus the plate's depth below the face; at the lip's
+ * underside, a tolerance above the plate, that is a tolerance less. The lip keeps 0.5 mm from the flare (the layout
+ * adds SKADIS_ENVELOPE_CLEARANCE to this offset, as for the cable). With a plain flange there is no pad and no flare.
+ */
+export function lipKeepOffset(envelopeOffset: number, thickness: number, plateThickness: number, tolerance: number): number {
+  const depth = thickness - plateThickness;
+  if (depth < 1e-6) return envelopeOffset;
+  return Math.max(envelopeOffset, FLANGE_PAD_COLLAR + depth - tolerance + 0.5 - SKADIS_ENVELOPE_CLEARANCE);
 }
 
 /** The estimated cable weight (kg): its cross-section at CABLE_DENSITY. */
@@ -189,18 +208,47 @@ interface Levels {
   zt: number; // tongue's retaining face
   zT: number; // tongue's back
   zj: number; // outer jaw's flange-facing face
-  zl0: number; // lip's underside
+  zl0: number; // lip's underside: the plate's top face plus the tolerance
   zl1: number; // lip's top
 }
 
-function levels(thickness: number, tolerance: number): Levels {
+function levels(thickness: number, plateThickness: number, tolerance: number): Levels {
   const zb = -thickness - SKADIS_STANDOFF;
   const zt = zb - SKADIS_BOARD_THICKNESS_MAX - SKADIS_TONGUE_GAP;
-  return { zb, zt, zT: zt - SKADIS_TONGUE_THICKNESS, zj: -thickness - tolerance, zl0: tolerance, zl1: tolerance + SKADIS_LIP_THICKNESS };
+  const zl0 = -thickness + Math.min(plateThickness, thickness) + tolerance;
+  return { zb, zt, zT: zt - SKADIS_TONGUE_THICKNESS, zj: -thickness - tolerance, zl0, zl1: zl0 + SKADIS_LIP_THICKNESS };
+}
+
+type Pt = [number, number];
+
+/**
+ * Cut the convex corners listed in `soft` 45 degrees (a leg of `d` along both edges), so a clip's outer corners
+ * aren't sharp to handle (issue #222). A corner is left alone when an edge beside it is too short to give up `d`
+ * (twice that, if the corner at its other end is cut too). Expects `points` counter-clockwise (see `tidy`).
+ */
+export function chamferCorners(points: Pt[], soft: Pt[], d: number): Pt[] {
+  const isSoft = (p: Pt) => soft.some((q) => Math.hypot(p[0] - q[0], p[1] - q[1]) < 1e-6);
+  const n = points.length;
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const p = points[i];
+    const a = points[(i + n - 1) % n];
+    const b = points[(i + 1) % n];
+    const ea = Math.hypot(a[0] - p[0], a[1] - p[1]);
+    const eb = Math.hypot(b[0] - p[0], b[1] - p[1]);
+    const convex = (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]) > 1e-9;
+    const room = (e: number, q: Pt) => e >= (isSoft(q) ? 2 * d : d) + WELD_EPSILON;
+    if (isSoft(p) && convex && room(ea, a) && room(eb, b)) {
+      out.push([p[0] + ((a[0] - p[0]) * d) / ea, p[1] + ((a[1] - p[1]) * d) / ea], [p[0] + ((b[0] - p[0]) * d) / eb, p[1] + ((b[1] - p[1]) * d) / eb]);
+    } else {
+      out.push(p);
+    }
+  }
+  return out;
 }
 
 /** The top clip's profile: jaws round the rim at `floor`, the stem right above the bight, and (latched) the arm, mast and tooth above the stem. */
-function topProfile(floor: number, z: Levels, c: number, latch: boolean): { profile: Array<[number, number]>; stemUp: number; latch?: RimClip["latch"] } {
+function topProfile(floor: number, z: Levels, c: number, latch: boolean): { profile: Pt[]; stemUp: number; latch?: RimClip["latch"] } {
   const uL = floor - SKADIS_JAW_OVERLAP;
   const uB0 = floor + c;
   const us = uB0 + SKADIS_BIGHT_THICKNESS;
@@ -222,7 +270,10 @@ function topProfile(floor: number, z: Levels, c: number, latch: boolean): { prof
     [us, z.zt],
     [us, z.zb],
   ];
-  if (!latch) return { profile: tidy([...base, ...stem]), stemUp: us };
+  // The outer corners that get the chamfer: the jaw's and lip's tips, the spine's top, and the stem's back.
+  const soft: Pt[] = [[uL, z.zb], [uL, z.zl1], [uH, z.zl1], [uH, z.zT], [uTl, z.zT]];
+  const finish = (points: Pt[]) => chamferCorners(tidy(points), soft, SKADIS_CLIP_CHAMFER);
+  if (!latch) return { profile: finish([...base, ...stem]), stemUp: us };
 
   // The tooth: its top a SKADIS_LATCH_LIFT below the top of the tightest
   // slot's full-width part once seated (the stem then sits that slot's seat
@@ -253,14 +304,14 @@ function topProfile(floor: number, z: Levels, c: number, latch: boolean): { prof
     [uH, zM0],
   ];
   return {
-    profile: tidy([...base, ...latchPts, ...stem]),
+    profile: finish([...base, ...latchPts, ...stem]),
     stemUp: us,
     latch: { toothTop: uT1, toothBottom: uT0, depth: dt, armReach: SKADIS_LATCH_ARM_REACH },
   };
 }
 
 /** A bottom clip's profile: the bight under the rim at `floor` (negative up), the lip and outer jaw rising from it, and the stem at `stemUp` -- behind the outer jaw, or below the bight on a short spine. */
-function bottomProfile(floor: number, stemUp: number, z: Levels, c: number): Array<[number, number]> {
+function bottomProfile(floor: number, stemUp: number, z: Levels, c: number): Pt[] {
   const uB0 = floor - c;
   const uB1 = uB0 - SKADIS_BIGHT_THICKNESS;
   const uJ = floor + SKADIS_JAW_OVERLAP;
@@ -274,13 +325,16 @@ function bottomProfile(floor: number, stemUp: number, z: Levels, c: number): Arr
     [stemUp, z.zt],
     [stemUp, z.zb],
   ];
+  // The outer corners that get the chamfer (as in `topProfile`; the bight's two lower corners and the spine's bottom too).
+  const soft: Pt[] = [[uB1, z.zl1], [uB1, z.zb], [stemUp, z.zl1], [uJ, z.zl1], [uJ, z.zb], [Math.max(uJ, sTop), z.zb], [sTop, z.zT], [uTl, z.zT]];
+  const finish = (points: Pt[]) => chamferCorners(tidy(points), soft, SKADIS_CLIP_CHAMFER);
   if (stemUp >= uB1 - 1e-9) {
     // Inside: the outer jaw runs up past the stem.
     const top = Math.max(uJ, sTop);
-    return tidy([[uB1, z.zl1], [uJ, z.zl1], [uJ, z.zl0], [uB0, z.zl0], [uB0, z.zj], [top, z.zj], [top, z.zb], ...stem, [uB1, z.zb]]);
+    return finish([[uB1, z.zl1], [uJ, z.zl1], [uJ, z.zl0], [uB0, z.zl0], [uB0, z.zj], [top, z.zj], [top, z.zb], ...stem, [uB1, z.zb]]);
   }
   // Below: a spine as deep as the bight joins it to the stem.
-  return tidy([[stemUp, z.zl1], [uJ, z.zl1], [uJ, z.zl0], [uB0, z.zl0], [uB0, z.zj], [uJ, z.zj], [uJ, z.zb], ...stem]);
+  return finish([[stemUp, z.zl1], [uJ, z.zl1], [uJ, z.zl0], [uB0, z.zl0], [uB0, z.zj], [uJ, z.zj], [uJ, z.zb], ...stem]);
 }
 
 /** The nearest stem position (along up) on a lattice row with the given parity, to a clip whose bight bottom is at `uB1`. */
@@ -319,8 +373,15 @@ export function distanceToPolygon(p: XY, poly: XY[]): number {
   return inside ? 0 : best;
 }
 
-/** How far a clip's flange footprint keeps from the inner-end channel (its pad wall plus a little). */
+/** How far a clip's flange footprint keeps from the inner-end channel at the least: its pad wall plus a little. */
 const CHANNEL_KEEP_OUT = 4;
+
+/**
+ * How far the lip, which lies on the plate, keeps from the inner-end channel pad's footprint (issue #222: it used to
+ * sit above the pad). The footprint is the pad at its widest, half a millimetre inside the plate, so the lip's
+ * underside (a tolerance above the plate) is already more than that from the pad's flare.
+ */
+const LIP_PAD_CLEARANCE = 0.05; // mm
 
 interface Placement {
   side: number;
@@ -348,8 +409,7 @@ export function layoutSkadisClips(input: SkadisClipInput): SkadisClipLayout {
     axisDeg: axes[0],
     clips: [],
     notches: [],
-    pads: [],
-    boardFrontZ: levels(input.thickness, input.tolerance).zb,
+    boardFrontZ: levels(input.thickness, input.plateThickness, input.tolerance).zb,
     warning: "The flange is too small or too crowded for the SKÅDIS rim clips, so they were left out (try a bigger core).",
   };
 }
@@ -359,7 +419,7 @@ function layoutOnAxis(input: SkadisClipInput, axisDeg: number): SkadisClipLayout
   const { toXY, project } = basisFor(axisDeg);
   const rim = projectOutline(flangeOutline, project);
   const env = projectOutline(envelopeOutline, project);
-  const z = levels(thickness, c);
+  const z = levels(thickness, input.plateThickness, c);
   const halfBand = SKADIS_CLIP_WIDTH / 2 + c;
 
   const place = (side: number, role: "top" | "bottom"): Placement => {
@@ -396,6 +456,17 @@ function layoutOnAxis(input: SkadisClipInput, axisDeg: number): SkadisClipLayout
       for (const v of avoid) {
         const q = project(v);
         if (q.up >= lo && q.up <= hi && Math.abs(q.side - side) <= w) ok = false;
+      }
+    }
+    // The lip's footprint, on the plate, keeps clear of the channel pad's flare (the pad is wider than the channel
+    // down at the plate, and runs the whole length of the lead-in).
+    if (ok && input.padFootprints && input.padFootprints.length > 0) {
+      const dir = role === "top" ? -1 : 1;
+      for (let i = 0; i <= 13 && ok; i++) {
+        for (let j = 0; j <= 24 && ok; j++) {
+          const p = toXY(floor + dir * ((SKADIS_JAW_OVERLAP * i) / 13), side - halfBand + (2 * halfBand * j) / 24);
+          if (input.padFootprints.some((pad) => distanceToPolygon(p, pad) < LIP_PAD_CLEARANCE)) ok = false;
+        }
       }
     }
     return { side, floor, ok };
@@ -447,14 +518,12 @@ function build(
     clips.push({ role: "bottom", side: b.side, floor: b.floor, stemUp, slotUp: stemUp + SEAT, profile: bottomProfile(b.floor, stemUp, z, c) });
   }
   const notches: XY[][] = [];
-  const pads: SkadisClipLayout["pads"] = [];
   for (const clip of clips) {
     const dir = clip.role === "top" ? 1 : -1;
     const far = clip.floor + dir * 50;
     notches.push([toXY(clip.floor, clip.side - halfBand), toXY(clip.floor, clip.side + halfBand), toXY(far, clip.side + halfBand), toXY(far, clip.side - halfBand)]);
-    pads.push({ a: toXY(clip.floor - dir * (SKADIS_JAW_OVERLAP + 0.5), clip.side), b: toXY(clip.floor + dir * 5, clip.side), radius: halfBand });
   }
-  return { axisDeg, clips, notches, pads, boardFrontZ: z.zb };
+  return { axisDeg, clips, notches, boardFrontZ: z.zb };
 }
 
 /**
@@ -463,10 +532,10 @@ function build(
  * real layout, like mountPlate.ts's `requiredMountPlateMargin`; the channel
  * isn't known yet at sizing time, so it's left out here.
  */
-export function requiredSkadisMargin(outline: ShapeOutline, boreOutline: ShapeOutline, envelopeOffset: number, heavy: boolean): number {
-  const envelopeOutline = offsetOutline(outline, envelopeOffset);
+export function requiredSkadisMargin(outline: ShapeOutline, boreOutline: ShapeOutline, envelopeOffset: number, heavy: boolean, thickness: number, plateThickness: number, tolerance: number): number {
+  const envelopeOutline = offsetOutline(outline, lipKeepOffset(envelopeOffset, thickness, plateThickness, tolerance));
   const fits = (margin: number) =>
-    layoutSkadisClips({ flangeOutline: offsetOutline(outline, margin), boreOutline, envelopeOutline, thickness: 5, tolerance: 0.2, latch: false, heavy, primaryOnly: true }).clips.length > 0;
+    layoutSkadisClips({ flangeOutline: offsetOutline(outline, margin), boreOutline, envelopeOutline, thickness, plateThickness, tolerance, latch: false, heavy, primaryOnly: true }).clips.length > 0;
   let lo = 0;
   let hi = 1;
   while (!fits(hi) && hi < 1e4) hi *= 2;

@@ -340,7 +340,8 @@ the old clip for comparison) are in the issue #207 discussion.
     notches, and keeping the inner-end channel exit and its pad away from
     the clip angles.
   - The thin 3 mm flange rim carries the clip loads locally. It may need a
-    pad at each notch.
+    pad at each notch. (Issue #222 checked this: it does not. See "Rim load
+    check" below.)
   - The latch is the one flexing part. Its strain must be kept low (a long
     finger), and it needs a print test.
   - On a 4 mm board it rattles by about 1.5 mm, unless a spring bump is
@@ -430,3 +431,73 @@ The board is built from the facts only, as today: slots of 4.8 x 14.8 and
    (4.8 wood / 5.2 painted)?
 6. openGrid: keep the plate code path for the hidden placeholder (#38), or
    remove it with the SKÅDIS plate?
+
+## Rim load check (issue #222)
+
+PR #214 shipped the clips with a full-thickness pad under each clip's jaws.
+Issue #222 asked if the plain 3 mm plate, the same base as the through-hole
+mount, is enough. It is. All numbers here are hand estimates (beam and
+contact formulas), not a test; a print test is still open.
+
+**Loads, for the heaviest realistic coil.**
+- 10 m of 8 mm cable: 50.3 mm² x 10 m x 1.8 g/cm³ = 0.905 kg. The core,
+  flange and cap add about 0.2 kg of PLA. W = 1.1 kg = 10.8 N.
+- A firm unwinding tug P = 10 N, at about 55 mm above the wall plane.
+- A dynamic factor of 3 on both, for a jerk: 32 N and 30 N.
+- The bottom clips carry the weight: 16 N each.
+- Tipping (the coil's weight acts about 55 mm off the board; the pull lifts
+  the top edge) is held by the top lip. Across a 100 to 167 mm flange it is
+  (32 x 55 + 30 x 55) / D = 20 to 34 N. Take 35 N on one lip.
+
+**Path 1, the weight, into the bight.**
+- The notch floor bears on the bight over 4.4 x 3 mm = 13 mm²: 16 / 13 =
+  1.2 MPa. A pad (9.5 mm) would only lower it to 0.4 MPa. Printed PLA takes
+  about 50 MPa in compression.
+- The load reaches the floor through the plate in its own plane. A 4.4 mm
+  wide, 3 mm thick strip, 27 mm long (the longest span, a round coil with a
+  41 mm margin), fixed at one end, buckles at 9.87 E I / (2 L)² =
+  84 N (E 2.5 GPa) against 16 N. A real plate spreads wider than that strip.
+
+**Path 2, tipping, into the plate.**
+- The lip presses down at its tip, the plate bends as a cantilever from the
+  collar's foot, a distance a away. The load spreads at 45°, so the width is
+  4.4 + a: σ = 6 F a / ((4.4 + a) t²), which for a long span tends to
+  6 F / t² = 6 x 35 / 9 = 23 MPa (bending along the layers, as the plate
+  prints flat; PLA about 50 MPa, PETG about 40 MPa). For spans of 1 to 6 mm it
+  is 4 to 14 MPa; at 27 mm, 20 MPa.
+- The pad does not change the long-span case: it is local (the stadium
+  around the jaws), the weakest section is where the plate leaves the
+  collar, and the pad is not there. Round coils have spans up to 27 mm, and
+  the pad never reached them. For a short span the pad would move the
+  section to the pad's own foot, 8 to 12 mm beyond the lip's tip and 14 to
+  23 mm wide: about 12 MPa for the same 35 N, against 15 MPa on the plain
+  plate over that span. So the pad buys almost nothing, and nothing is
+  needed on top of the plate.
+- Stiffness: a 27 mm span with a 7 N tipping force (static) bends about
+  0.3 mm at the lip (E 2.5 GPa, width 31 mm), the same size as the 0.2 mm
+  fit clearance. It is play, not a failure; a stiffer rim would mean a
+  thicker plate (`FLANGE_PLATE_THICKNESS`, every mount), not a pad.
+
+**Path 3, the grip and the notch.**
+- The jaws are a hook, not a clamp: the gap is the plate plus the 0.2 mm
+  tolerance each side, 3.4 mm. The coil's weight keeps the rim in the bottom
+  bights and the tipping moment keeps the top lip against the plate, so it
+  stays seated. A plain, shorter gap is stiffer than the 5.7 to 9.9 mm of the
+  padded flange.
+- Without a notch, the bight would meet a round rim at one point and the
+  coil could turn on the clips. The notch keys that to 0.2 mm in 70 mm
+  (0.16°). Its wall is 1 mm deep x 3 mm thick = 3 mm². A 30 N tangential tug
+  on one clip: 30 / 3.3 = 9 MPa bearing, about 5x under the 50 MPa limit. With
+  a pad it would be 3 times lower. The notch stays.
+
+**The cost of the plain base.** The lips lie on the plate, below the winding
+face, beside the thick parts. The collar under the wall and the channel's
+pad flare out at 45° down to the plate, 1 mm + (T - 3 mm) from the wall at
+the plate (T the flange's full thickness: 9.5 mm for an 8 mm cable). The old
+lips sat above that flare. So with a cable of 5 mm or more, square and
+triangle cores need a flange margin 0.3 mm (5 mm cable) to 1.8 mm (10 mm
+cable) wider, and a small triangle can lose its clips (10 of 168 designs in
+a sweep of shape, size and cable: triangles of 40 to 85 mm with a cable from
+5 to 8 mm; round and square cores keep theirs). Cables of 4 mm or less are
+unchanged. The through-hole mount has the same limit for its screw
+heads.

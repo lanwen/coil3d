@@ -493,7 +493,7 @@ export const SKADIS_BOARD_THICKNESS_MAX = 5.2; // mm
  * clip hooks one board slot (a stem through it and a tongue behind the
  * board) and wraps the flange rim in a notch (a U: the outer jaw between the
  * flange and the board, the bight round the rim, the lip on the winding
- * side). The top clip(s) carry the anti-lift latch. skadisClips.ts lays them
+ * side), gripping the flange's plain plate (issue #222: no pad under it). The top clip(s) carry the anti-lift latch. skadisClips.ts lays them
  * out; test/skadisFit.test.ts checks them against a board built from the
  * facts above.
  */
@@ -513,6 +513,8 @@ export const SKADIS_JAW_OVERLAP = 5; // mm
 export const SKADIS_LIP_THICKNESS = 2.5; // mm
 /** The bight round the rim, along up. */
 export const SKADIS_BIGHT_THICKNESS = 3; // mm
+/** Issue #222: the clip's outer corners are cut 45 degrees at this leg, so they aren't sharp to handle (the hook faces, latch, jaw faces and slot-fit sizes are left as they are). */
+export const SKADIS_CLIP_CHAMFER = 0.5; // mm
 /** The notch in the rim at each clip: at least this deep, with a flat floor the bight seats on. */
 export const SKADIS_NOTCH_DEPTH = 1; // mm
 /** Issue #219: the rim crosses each notch's side walls at least this steeply (degrees), so no sliver of rim is left beside a notch. */
