@@ -21,8 +21,8 @@ a design by sharing the link.
   cannot hold the cable.
 - Parts that print flat without supports: the core with its bottom flange, a
   top cap with a press, bayonet or snap joint, and an optional engraved label.
-- Wall mounts: screw keyhole, through holes, or rim clips for IKEA SKÅDIS
-  (not affiliated with IKEA). See [docs/mounts.md](docs/mounts.md).
+- Wall mounts: screw keyhole, through holes, or IKEA SKÅDIS rim clips or
+  twist-lock T-clips (not affiliated with IKEA). See [docs/mounts.md](docs/mounts.md).
 - A step-by-step assembly guide and a print-layout view.
 - Export as **STL**, **3MF** (all parts laid out on the plate) or **STEP**.
   The STEP engine is large, so it loads only when you ask for a STEP file.

@@ -138,6 +138,19 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.getByTestId("guide-step-4")).toHaveScreenshot("guide-skadis-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
   });
 
+  // Issue #213: the T-clips print as one figure, x3, and the mount step shows them turned across the board's
+  // slots, with a close-up of one T bar (not a whole-coil inset, which reads as a blob at that size, #215).
+  test("the SKÅDIS T-clips are printed parts, and the mount step shows a close-up of one locked behind the board", async ({ page }) => {
+    await gotoGuide(page, withHashDoc(ONE_LAYER, { size: 85, mount: "skadis-tclip" }));
+    await expect(page.getByTestId("guide-step-1")).toContainText(/T-clip ×3/);
+    await expect(page.getByTestId("guide-step-1")).toContainText("4 parts");
+    await expect(page.getByTestId("guide-step-4")).toContainText(/quarter turn clockwise/i);
+    await expect(page.getByTestId("guide-step-4").locator(".guide-overlay-slot").first()).toBeVisible();
+    await expect(page.getByTestId("guide-mount-inset")).toHaveCount(0);
+    await expect(page.getByTestId("guide-step-1")).toHaveScreenshot("guide-skadis-tclip-print.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+    await expect(page.getByTestId("guide-step-4")).toHaveScreenshot("guide-skadis-tclip-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+  });
+
   // Issue #70 landed the through-hole mount after this guide shipped, the
   // same way issue #14's SKÅDIS case did above. "through" is a new mount
   // kind added after this guide shipped, so this navigates with the

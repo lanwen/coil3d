@@ -224,7 +224,7 @@ function baseSpec(overrides: Partial<CoilSpec>): CoilSpec {
 
 const SHAPES: ShapeSpec[] = [{ kind: "round" }, { kind: "sq", cornerRadius: 12 }, { kind: "tri", cornerRadius: 12 }];
 const JOINTS: JointKind[] = ["press", "bayonet", "snap"];
-const MOUNTS: MountKind[] = ["keyhole", "through", "skadis", "opengrid"];
+const MOUNTS: MountKind[] = ["keyhole", "through", "skadis", "skadis-tclip", "opengrid"];
 
 // Three sizes and cable diameters, the bigger two with a label on the cap.
 const SIZES: Array<{ label: string; overrides: Partial<CoilSpec> }> = [

@@ -8,7 +8,8 @@ Multiboard is not supported.
 |---|---|---|
 | Screw keyhole | A pocket recessed into the flange's outer face | Tested in geometry only |
 | Through holes | Plain screw holes through the flange | Tested in geometry only |
-| IKEA SKÅDIS | Separate rim clips that hook the board and grip the flange | Not test-fitted on a physical board |
+| IKEA SKÅDIS rim clips | Separate clips that hook the board and grip the flange's rim | Not test-fitted on a physical board |
+| IKEA SKÅDIS T-clips | Twist-lock clips through lugs on the flange's rim (after the CC BY 4.0 Skadis T-Clip System) | Not test-fitted on a physical board |
 | openGrid | A separate plate glued to the flange, with a placeholder connector | Not usable: hidden in the UI and rejected in links |
 
 coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
@@ -117,6 +118,74 @@ checks that:
 
 **This has not been test-fitted on a physical board.** The latch's release
 force and the board play (about 1.5 mm on a 4 mm board) need a real print.
+
+### T-clips
+
+A second SKÅDIS mount type (`mount: "skadis-tclip"`, issue #213): twist-lock
+clips that clamp the flange flat to the board. `src/core/skadisTclips.ts`
+lays them out for both geometry backends.
+
+**Credit.** Adapted from the
+[Skadis T-Clip System](https://www.printables.com/model/256896) by Line Arc
+Line, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
+(checked through the Printables API: CC BY 4.0 International, remixing and
+commercial use allowed). We took the mechanism: a T that goes through the
+slot upright and turns a quarter turn to lock behind the board, at least two
+per part. Modified: the clip is re-implemented parametrically with our own
+dimensions (none of the original's files or geometry are used). The receiver
+is our own lug on the flange, not the original's round clip seat. The same
+credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
+
+- **The clip.** One flat "I" profile, 4 mm thick, printed lying on its face,
+  so the clamp, the weight and the bars' bending run along the layers.
+  - A handle, 18 x 5 mm.
+  - A 2 x 4 mm stem: its diagonal (4.5 mm) turns inside even a 4.8 mm slot.
+  - A T bar, 12.2 x 3 mm. It passes the tightest slot's 12.65 mm of full
+    width, and overlaps the board by 3.7 mm a side once turned.
+  - The gap between the handle's and the T bar's bearing faces is the lug's
+    floor plus 5.2 mm. That is tight on a painted 5.23 mm board, and leaves
+    about 0.4 mm of play on an unpainted 4.82 mm one.
+- **The lug.** A round-ended pad on the flange's rim at each clip, full
+  thickness.
+  - A slot through it, centred on the clip, lets the T bar pass and the
+    stem turn.
+  - A 2 mm recess in its face holds the handle. Its walls stop the handle
+    upright and at a quarter turn clockwise (seen from the room). Turned,
+    the handle sits in the recess's across arm, whose upper edge rests on
+    it: that carries the coil.
+  - The lugs reach out past the wound cable, so the flange's own margin
+    doesn't grow; the flange is at least 5 mm thick, for the recess's floor.
+- **How many, and where.** As for the rim clips: 1 top and 2 bottom, 2 + 2
+  above 0.5 kg of cable, every slot on one of the board's two 40 mm grids,
+  and fallbacks when the inner-end channel is in the way. The top clip is
+  lifted by half the bottom clips' slack on the 40 mm grid, so the lugs at
+  both ends stay short.
+- **Fitting.**
+  1. Hold the coil flat on the board, each lug's slot over a board slot.
+  2. Push each clip in with its handle upright: the T bar passes at the
+     slot's centre.
+  3. Turn the clip a quarter turn clockwise until it stops.
+  4. Let go. The coil and its clips drop together about 5.3 mm, until the
+     stems rest on the bottoms of the slots.
+
+  To take the coil down, lift it back to the slots' centres and turn the
+  clips back. Turned back while dropped, a clip can't come out: its T bar
+  is below the slot.
+
+`test/skadisFit.test.ts` checks the T-clips against the same fact-built
+boards as the rim clips. It checks that:
+
+- the clips are on the lattice;
+- each clip passes upright through its lug and the board's slot;
+- each clip turns a quarter turn without touching either, and the recess
+  stops it beyond that;
+- turned and dropped, it clears both, and turned back while dropped it is
+  stuck;
+- the stem bears on the slot's bottom and the handle carries the lug;
+- the T bar catches the back of the board;
+- every clip prints flat with only vertical faces.
+
+**This has not been test-fitted on a physical board.**
 
 ## openGrid
 

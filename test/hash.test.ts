@@ -383,6 +383,16 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
   });
 
+  it("round-trips the SKÅDIS T-clips (issue #213)", () => {
+    const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "skadis-tclip" };
+    const hash = toHash(spec);
+    expect(decodeDoc(hash)).toEqual({ v: 2, mount: "skadis-tclip" });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
+    // The rim clips' latch isn't part of the T-clips.
+    const { notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, mount: "skadis-tclip", latch: false })).toString("base64url")}`);
+    expect(notice).toBeDefined();
+  });
+
   it("omits latch unless the mount is SKÅDIS, and rejects a link that sets it without mount=skadis", () => {
     expect(decodeDoc(toHash({ ...DEFAULT_SPEC, mount: "keyhole", skadisLatch: false })).latch).toBeUndefined();
     const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, latch: false })).toString("base64url")}`);

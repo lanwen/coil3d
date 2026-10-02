@@ -36,7 +36,7 @@ import {
   SCREW_MOUNT_HEAD_RADIUS,
   WALL_THICKNESS,
 } from "./constants";
-import { buildMountPlate, buildPeg, buildSkadisClip, buildTopCap, fuseFlange } from "./manifold";
+import { buildMountPlate, buildPeg, buildSkadisClip, buildSkadisTclip, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { resolveCapJoint } from "./joints";
 import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
@@ -47,6 +47,8 @@ import type { MountLayout } from "./mount";
 import { mountPlateLayoutFor } from "./mountPlate";
 import { clipPrintRotateZ, isHeavyCable, layoutSkadisClips, skadisBoardSection } from "./skadisClips";
 import type { SkadisClipLayout } from "./skadisClips";
+import { layoutSkadisTclips, skadisTclipBoardSection, tclipPrintRotateZ } from "./skadisTclips";
+import type { SkadisTclipLayout } from "./skadisTclips";
 import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing, stackedKeyholeThickness } from "./flange";
 import { circumscribedRadius, makeOutline, minCornerSegments, offsetOutline } from "./shapes";
 import { resolveLabel } from "./label";
@@ -147,7 +149,20 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
           avoid: innerEndLayout.channelRibbon,
         })
       : undefined;
-  return { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness };
+  // Issue #213: the SKÅDIS T-clips' lugs, kept clear of the inner-end channel.
+  const tclipLayout: SkadisTclipLayout | undefined =
+    spec.mount === "skadis-tclip"
+      ? layoutSkadisTclips({
+          flangeOutline: offsetOutline(outline, sizing.margin),
+          boreOutline,
+          envelopeOutline: offsetOutline(outline, sizing.envelopeOffset),
+          thickness,
+          tolerance: spec.tolerance,
+          heavy: heavyCable,
+          avoid: innerEndLayout.channelRibbon,
+        })
+      : undefined;
+  return { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, tclipLayout, thickness };
 }
 
 /** An alternate candidate with its real flange width and overall height filled in (issue #192), from the same `planFlange` design() builds the parts from. */
@@ -211,7 +226,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   };
   const wantsKeyhole = spec.mount === "keyhole";
   const wantsThrough = spec.mount === "through";
-  const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness } = planFlange(spec, solution, outline, boreOutline);
+  const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, tclipLayout, thickness } = planFlange(spec, solution, outline, boreOutline);
   const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness } = sizing;
   if (innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= capClipMargin) {
     note(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
@@ -236,6 +251,10 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     note(`Flange margin increased to ${margin.toFixed(1)} mm so the SKÅDIS clips grip the rim clear of the wound cable.`);
   }
   if (skadisLayout?.warning) problem(skadisLayout.warning);
+  if (tclipLayout?.warning) problem(tclipLayout.warning);
+  if (spec.mount === "skadis-tclip" && sizedThickness > channelOnlyThickness + 1e-9) {
+    note(`Flange thickness increased to ${sizedThickness.toFixed(1)} mm so the T-clip lugs keep a floor under the handles.`);
+  }
   if (mountKindForPlate && sizedThickness > channelOnlyThickness + 1e-9) {
     note(`Flange thickness increased to ${sizedThickness.toFixed(1)} mm to fit the mount plate's alignment features.`);
   }
@@ -275,6 +294,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     throughHoleDiameter: spec.throughHoleDiameter,
     envelopeRadius,
     skadis: skadisLayout && skadisLayout.clips.length > 0 ? skadisLayout : undefined,
+    skadisTclip: tclipLayout && tclipLayout.clips.length > 0 ? tclipLayout : undefined,
   };
   // Issue #139: laid out from the finished flange spec, as both backends do,
   // so it keeps clear of the same pads they build.
@@ -438,6 +458,16 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     }
   }
 
+  // Issue #213: the SKÅDIS T-clips, built seated and turned. Each prints
+  // lying on its flat face (a turn about Z, then a quarter turn about X).
+  if (flangeSpec.skadisTclip) {
+    const layout = flangeSpec.skadisTclip;
+    for (const [i, clip] of layout.clips.entries()) {
+      const clipMesh = await buildSkadisTclip(layout, clip);
+      parts.push({ name: `skadis-tclip-${i + 1}`, role: "mountClip", mesh: clipMesh, printTransform: { rotateZ: tclipPrintRotateZ(layout.axisDeg), rotateX: Math.PI / 2, translate: [0, 0, 0] } });
+    }
+  }
+
   const mesh = parts[0].mesh;
   // Per-part bed-fit warnings (issue #10 AC): each part in ITS OWN print
   // orientation (printBBox reads printTransform, same as the STL/3MF
@@ -486,8 +516,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     wirePaths: cable.wirePaths,
     wallSpec,
     flangeSpec,
-    mountAxisDeg: mountLayout?.axisDeg ?? flangeSpec.skadis?.axisDeg ?? mountPlateLayout?.axisDeg,
-    pegboard: flangeSpec.skadis ? skadisBoardSection(flangeSpec.skadis, circumscribedRadius(outline, margin) + 45) : undefined,
+    mountAxisDeg: mountLayout?.axisDeg ?? flangeSpec.skadis?.axisDeg ?? flangeSpec.skadisTclip?.axisDeg ?? mountPlateLayout?.axisDeg,
+    pegboard: flangeSpec.skadis
+      ? skadisBoardSection(flangeSpec.skadis, circumscribedRadius(outline, margin) + 45)
+      : flangeSpec.skadisTclip
+        ? skadisTclipBoardSection(flangeSpec.skadisTclip, circumscribedRadius(outline, margin) + 45)
+        : undefined,
     innerEndLeadIn: cable.innerEndLeadIn,
     innerEndClip: innerEndLayout.clip,
     layerTransitions: cable.layerTransitions,

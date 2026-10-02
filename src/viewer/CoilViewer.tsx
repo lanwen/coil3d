@@ -363,7 +363,7 @@ export function CoilViewer({
   useEffect(() => {
     const prev = prevMountKind.current;
     prevMountKind.current = mountKind;
-    if (prev !== mountKind && mountKind === "skadis" && pegboard) setViewMode("mountSide");
+    if (prev !== mountKind && (mountKind === "skadis" || mountKind === "skadis-tclip") && pegboard) setViewMode("mountSide");
   }, [mountKind, pegboard]);
   useEffect(() => {
     if (!pegboard) setViewMode((mode) => (mode === "mountSide" ? "standing" : mode));

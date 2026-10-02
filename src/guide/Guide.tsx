@@ -36,6 +36,7 @@ const PART_LABELS: Record<string, string> = {
   "peg-1": "Alignment peg",
   "skadis-top-clip-1": "Top clip",
   "skadis-bottom-clip-1": "Bottom clip",
+  "skadis-tclip-1": "T-clip",
 };
 
 function partLabel(part: Part): string {
@@ -279,6 +280,8 @@ function mountLine(mount: MountKind): string {
       return "Hang the keyhole slot on a screw, then slide down to seat.";
     case "through":
       return "Drive a screw straight through each hole, into the wall -- reachable through the open bore or around the winding, no sliding needed.";
+    case "skadis-tclip":
+      return "Hold the coil flat on the board with each lug's slot over a board slot. Push each T-clip through with its handle upright and turn it a quarter turn clockwise until it stops. Let go: the coil drops about 5 mm onto the clips. To take it down, lift the coil back up and turn the clips back.";
     case "skadis":
       return "Push each bottom clip into its slot and let it drop. Lower the coil's rim into them, then push the top clip into its slot just above the rim and let it drop until it clicks. To take the coil down, lift the top clip firmly.";
     // "none" (and "opengrid", not reachable -- see this function's own doc comment).
@@ -471,10 +474,12 @@ function StepFitPlate({ design, n }: { design: Design; n: number }) {
  * the board's slot grid (`Design.pegboard`, drawn on its back plane, nearer
  * this camera than anything but the clips' tongues) outlined over it --
  * every clip sits in a slot. The inset shows the coil hung on the wall,
- * room side.
+ * room side. Issue #213: for the T-clips, the inset is a close-up of the
+ * same view instead, on the top clip's T bar turned across its slot.
  */
 function StepMountSkadis({ design, n }: { design: Design; n: number }) {
   const board = design.pegboard!;
+  const tclip = design.spec.mount === "skadis-tclip";
   const mountRotation = wallMountRotation(design.mountAxisDeg);
   const mountParts = rotateParts(design.parts, mountRotation);
   const roomParts = rotateParts(design.parts, wallRoomRotation(design.mountAxisDeg));
@@ -493,6 +498,7 @@ function StepMountSkadis({ design, n }: { design: Design; n: number }) {
         <Figure
           parts={mountParts}
           testId="guide-mount"
+          zoomInsetAt={tclip ? tclipBarAnchor(design, mountRotation) : undefined}
           renderOverlay={(fit) => (
             <SlotOutlines
               slots={board.slots.map((c) =>
@@ -501,18 +507,29 @@ function StepMountSkadis({ design, n }: { design: Design; n: number }) {
             />
           )}
         />
-        <CornerInset>
-          <GuideFigure parts={roomParts} preset="iso" fill={0.7} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
-        </CornerInset>
+        {!tclip && (
+          <CornerInset>
+            <GuideFigure parts={roomParts} preset="iso" fill={0.7} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
+          </CornerInset>
+        )}
       </div>
-      <Callout icons={<WallMountIcon label="Mount on the SKÅDIS board" />}>{mountLine("skadis")}</Callout>
+      <Callout icons={tclip ? <TwistIcon label="Push in upright, turn a quarter turn" /> : <WallMountIcon label="Mount on the SKÅDIS board" />}>{mountLine(design.spec.mount)}</Callout>
     </StepCard>
   );
 }
 
+/** The top T-clip's T bar (behind the board), in the mount-side figure's frame: where the close-up looks. */
+function tclipBarAnchor(design: Design, rotation: THREE.Matrix4): THREE.Vector3 | undefined {
+  const clip = design.parts.find((p) => p.role === "mountClip");
+  if (!clip) return undefined;
+  const box = meshBounds(clip.mesh);
+  const c = box.getCenter(new THREE.Vector3());
+  return rotatePoint(new THREE.Vector3(c.x, c.y, box.min.z + 1.5), rotation);
+}
+
 function StepMount({ design, n }: { design: Design; n: number }) {
   if (design.spec.mount === "keyhole") return <StepMountKeyhole design={design} n={n} />;
-  if (design.spec.mount === "skadis" && design.pegboard) return <StepMountSkadis design={design} n={n} />;
+  if ((design.spec.mount === "skadis" || design.spec.mount === "skadis-tclip") && design.pegboard) return <StepMountSkadis design={design} n={n} />;
   return <StepMountGeneric design={design} n={n} />;
 }
 

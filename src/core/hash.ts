@@ -187,7 +187,7 @@ const DocSchema = z
     // silently produce it -- any value other than "keyhole"/"through"/
     // "skadis" fails this schema, the same as any other garbage input
     // (defaults + notice).
-    mount: z.enum(["keyhole", "through", "skadis"]).optional(),
+    mount: z.enum(["keyhole", "through", "skadis", "skadis-tclip"]).optional(),
     // Issue #207: the SKÅDIS rim clips' anti-lift latch, written only when off.
     latch: z.literal(false).optional(),
     // Issue #71: only ever one of KEYHOLE_ROTATION_OPTIONS (90 is not
@@ -467,7 +467,7 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, vi
   // rejected on parse (see DocSchema's `mount` comment); if it ever got
   // here anyway, omitting it (falls back to "none" on reload) is safer
   // than writing a value this same codec can't read back.
-  if (spec.mount === "keyhole" || spec.mount === "through" || spec.mount === "skadis") doc.mount = spec.mount;
+  if (spec.mount === "keyhole" || spec.mount === "through" || spec.mount === "skadis" || spec.mount === "skadis-tclip") doc.mount = spec.mount;
   if (spec.mount === "skadis" && spec.skadisLatch === false) doc.latch = false;
   if (spec.mount === "keyhole" && spec.keyholeRotation !== DEFAULT_SPEC.keyholeRotation) doc.kr = spec.keyholeRotation;
   if (spec.mount === "through" && spec.throughHoleDiameter !== DEFAULT_SPEC.throughHoleDiameter) doc.thd = spec.throughHoleDiameter;

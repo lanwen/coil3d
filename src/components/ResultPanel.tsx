@@ -10,6 +10,7 @@ const MOUNT_LABELS: Record<MountKind, string> = {
   keyhole: "Screw keyhole",
   through: "Through-holes",
   skadis: "SKÅDIS rim clips",
+  "skadis-tclip": "SKÅDIS T-clips",
   opengrid: "openGrid clip plate",
 };
 

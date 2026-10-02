@@ -539,6 +539,39 @@ export const SKADIS_HEAVY_CABLE_KG = 0.5; // kg
 export const CABLE_DENSITY = 1.8e-3; // g/mm³
 
 /**
+ * SKÅDIS T-clips (issue #213, docs/mounts.md): a twist lock adapted from the
+ * Skadis T-Clip System by Line Arc Line (Printables 256896, CC BY 4.0),
+ * re-implemented with our own dimensions. Each clip is one flat "I" profile
+ * (a handle, a stem, a T bar) extruded SKADIS_TCLIP_WIDTH and printed lying
+ * on that face. It goes through a slot in a lug on the flange's rim and the
+ * board's slot with its bars upright, then turns a quarter turn: the T bar
+ * spans the slot behind the board and the handle bears on the lug, so the
+ * flange is clamped flat to the board. skadisTclips.ts lays them out.
+ */
+/** The extrusion: 4 mm, so the 2 x 4 mm stem can turn inside even the tightest 4.8 mm slot (its diagonal is 4.5 mm). */
+export const SKADIS_TCLIP_WIDTH = 4; // mm
+/** The stem, across its width (along the bars). */
+export const SKADIS_TCLIP_STEM = 2; // mm
+/** The T bar behind the board: 12.2 mm passes the tightest slot's 12.65 mm of full width for a 4 mm bar, and overlaps the board 3.7 mm a side once turned. */
+export const SKADIS_TCLIP_BAR_LENGTH = 12.2; // mm
+export const SKADIS_TCLIP_BAR_THICKNESS = 3; // mm
+/** The handle: long enough to grip and to bear on the lug either side of its slot. */
+export const SKADIS_TCLIP_HANDLE_LENGTH = 18; // mm
+export const SKADIS_TCLIP_HANDLE_THICKNESS = 5; // mm
+/** The handle turns in a recess this deep in the lug's face, which stops it at upright and at a quarter turn. */
+export const SKADIS_TCLIP_RECESS_DEPTH = 2; // mm
+/** The lug's wall round the recess. */
+export const SKADIS_TCLIP_LUG_WALL = 2.5; // mm
+/** The clamp: the gap between the handle's and the T bar's bearing faces is the lug's floor plus this (the thickest, painted board: tight on it, about 0.4 mm of play on an unpainted 4.82 mm board). */
+export const SKADIS_TCLIP_BOARD = 5.2; // mm
+/** The lug's slot: the board's nominal slot plus this all round, so the T bar passes and the stem turns. */
+export const SKADIS_TCLIP_SLOT_CLEARANCE = 0.1; // mm
+/** The recess and the handle keep this far from the wound cable. */
+export const SKADIS_TCLIP_ENVELOPE_CLEARANCE = 1; // mm
+/** The lug's floor under the recess: the flange is at least this thick with T-clips. */
+export const MIN_FLANGE_THICKNESS_FOR_TCLIP = SKADIS_TCLIP_RECESS_DEPTH + 3; // mm
+
+/**
  * openGrid connector placeholder (issue #14): a simple push-fit peg sized
  * to loosely engage a 28mm grid square opening, standing in for openGrid's
  * own (unverified -- see OPENGRID_PITCH's comment) snap geometry. Clearly a

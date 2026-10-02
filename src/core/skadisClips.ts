@@ -115,7 +115,7 @@ export function isHeavyCable(diameter: number, length: number): boolean {
   return cableWeightKg(diameter, length) > SKADIS_HEAVY_CABLE_KG;
 }
 
-function basisFor(axisDeg: number) {
+export function basisFor(axisDeg: number) {
   const a = (axisDeg * Math.PI) / 180;
   const up = { x: Math.sin(a), y: Math.cos(a) };
   const side = { x: Math.cos(a), y: -Math.sin(a) };
@@ -128,7 +128,7 @@ function basisFor(axisDeg: number) {
 }
 
 /** The rim's top and bottom (along up) where it crosses side = s. */
-function rimAt(boundary: Array<{ up: number; side: number }>, s: number): { top: number; bottom: number } {
+export function rimAt(boundary: Array<{ up: number; side: number }>, s: number): { top: number; bottom: number } {
   let top = -Infinity;
   let bottom = Infinity;
   for (let i = 0; i < boundary.length; i++) {
@@ -142,7 +142,7 @@ function rimAt(boundary: Array<{ up: number; side: number }>, s: number): { top:
   return { top, bottom };
 }
 
-function projectOutline(o: ShapeOutline, project: (p: XY) => { up: number; side: number }, samples = 720) {
+export function projectOutline(o: ShapeOutline, project: (p: XY) => { up: number; side: number }, samples = 720) {
   const pts: Array<{ up: number; side: number }> = [];
   for (let i = 0; i < samples; i++) pts.push(project(pointAt(o, i / samples, 0)));
   return pts;
@@ -162,7 +162,7 @@ function fullWidthHalf(slotWidth: number, slotLength: number): number {
 const SEAT = stemSeat(SKADIS_SLOT_WIDTH, SKADIS_SLOT_LENGTH);
 
 /** Counter-clockwise, consecutive duplicates removed. */
-function tidy(points: Array<[number, number]>): Array<[number, number]> {
+export function tidy(points: Array<[number, number]>): Array<[number, number]> {
   const out: Array<[number, number]> = [];
   for (const p of points) {
     const q = out[out.length - 1];
@@ -297,7 +297,7 @@ function bottomStem(uB1: number, uJ: number, originSlot: number, parityOdd: bool
 }
 
 /** Distance from `p` to a closed polygon (0 inside). */
-function distanceToPolygon(p: XY, poly: XY[]): number {
+export function distanceToPolygon(p: XY, poly: XY[]): number {
   let best = Infinity;
   let inside = false;
   for (let i = 0; i < poly.length; i++) {
@@ -487,18 +487,23 @@ export function clipPrintRotateZ(axisDeg: number): number {
 export function skadisBoardSection(layout: SkadisClipLayout, radius: number): PegboardSection | undefined {
   const first = layout.clips[0];
   if (!first) return undefined;
-  const { toXY } = basisFor(layout.axisDeg);
+  return boardSection(layout.axisDeg, first.side, first.slotUp, layout.boardFrontZ, radius);
+}
+
+/** A SKÅDIS board section: the lattice through the slot at (`originSide`, `originUp`), every slot within `radius` of the coil's centre. Shared by both SKÅDIS mounts. */
+export function boardSection(axisDeg: number, originSide: number, originUp: number, frontZ: number, radius: number): PegboardSection {
+  const { toXY } = basisFor(axisDeg);
   const step = SKADIS_LATTICE_STEP;
-  const n = Math.ceil((radius + Math.hypot(first.side, first.slotUp)) / step) + 1;
+  const n = Math.ceil((radius + Math.hypot(originSide, originUp)) / step) + 1;
   const slots: XY[] = [];
   for (let a = -n; a <= n; a++) {
     for (let b = -n; b <= n; b++) {
       if (Math.abs(a + b) % 2 !== 0) continue;
-      const s = first.side + a * step;
-      const u = first.slotUp + b * step;
+      const s = originSide + a * step;
+      const u = originUp + b * step;
       if (Math.hypot(s, u) > radius) continue;
       slots.push(toXY(u, s));
     }
   }
-  return { slots, slotWidth: SKADIS_SLOT_WIDTH, slotLength: SKADIS_SLOT_LENGTH, thickness: SKADIS_BOARD_THICKNESS, frontZ: layout.boardFrontZ, axisDeg: layout.axisDeg };
+  return { slots, slotWidth: SKADIS_SLOT_WIDTH, slotLength: SKADIS_SLOT_LENGTH, thickness: SKADIS_BOARD_THICKNESS, frontZ, axisDeg };
 }

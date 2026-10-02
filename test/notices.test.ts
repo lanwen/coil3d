@@ -51,6 +51,16 @@ describe("third-party notices", () => {
     expect(missing, "font files with no section in public/THIRD_PARTY_NOTICES.txt").toEqual([]);
   }, 120_000);
 
+  // Issue #213: the T-clip mount is adapted from a CC BY 4.0 design, so its attribution ships too.
+  it("credit the CC BY designs the mounts are adapted from: author, title, link, licence, and what changed", () => {
+    const designs = notices.slice(notices.indexOf("7. DESIGNS"));
+    expect(designs).toContain("Skadis T-Clip System (CC BY 4.0)");
+    expect(designs).toContain("by Line Arc Line");
+    expect(designs).toContain("https://www.printables.com/model/256896");
+    expect(designs).toContain("https://creativecommons.org/licenses/by/4.0/");
+    expect(designs).toMatch(/Modified\./);
+  });
+
   it("keep the static entries that are not npm packages", () => {
     for (const s of ["Clipper2 (BSL-1.0)", "Archivo Black (OFL-1.1)", "Kanit (OFL-1.1)", "Boost Software License", "GNU LESSER GENERAL PUBLIC LICENSE", "b8f597c677811d1f9f4d8a97f5ae2825c0353a42"]) {
       expect(notices).toContain(s);

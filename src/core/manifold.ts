@@ -42,6 +42,8 @@ import {
   SCREW_MOUNT_SLOT_RADIUS,
   SCREW_MOUNT_UNDERCUT_DEPTH,
   SKADIS_CLIP_WIDTH,
+  SKADIS_TCLIP_RECESS_DEPTH,
+  SKADIS_TCLIP_WIDTH,
   SNAP_HOOK_COUNT,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
@@ -63,6 +65,8 @@ import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
 import { clipFrame } from "./skadisClips";
 import type { RimClip, SkadisClipLayout } from "./skadisClips";
+import { tclipFrame } from "./skadisTclips";
+import type { SkadisTclipLayout, Tclip } from "./skadisTclips";
 import { minCornerSegments, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh, JointKind, MountKind } from "./types";
@@ -104,6 +108,8 @@ export interface FlangeSpec {
   envelopeRadius?: number;
   /** Issue #207: the SKÅDIS rim clips' layout (skadisClips.ts) -- its notches are cut through the rim and its pads keep the flange full thickness under the clips' jaws. Present only when `mount` is "skadis" and the clips fit. */
   skadis?: SkadisClipLayout;
+  /** Issue #213: the SKÅDIS T-clips' layout (skadisTclips.ts) -- a lug on the rim per clip, with a slot through it and the handle's recess in its face. Present only when `mount` is "skadis-tclip" and the clips fit. */
+  skadisTclip?: SkadisTclipLayout;
 }
 
 /** What `fuseFlange` needs to cut a bayonet/snap joint's mating feature into the core's own top rim. Press needs no core-side cut, so it's omitted entirely by the caller. */
@@ -449,7 +455,11 @@ export async function fuseFlange(
     // Laid out up front: the flange's pads (issue #122) follow the channel
     // too, not just its cutter below.
     const innerEndLayout = innerEnd ? layoutInnerEnd(flange.outline, flange.margin, innerEnd.wireDiameter, innerEnd.tolerance, innerEnd.bendRadius, innerEnd.channelDepth) : undefined;
-    const flangeManifold = relieveFlange(wasm, track, ringManifold, flange, innerEndLayout, mountPlateCut);
+    // Issue #213: the T-clips' lugs reach out past the rim, full thickness.
+    const prism = (poly: Array<{ x: number; y: number }>, z0: number, z1: number) =>
+      track(new wasm.CrossSection([poly.map((p): [number, number] => [p.x, p.y])], "NonZero").extrude(z1 - z0).translate([0, 0, z0]));
+    const withLugs = flange.skadisTclip ? track(Manifold.union([ringManifold, ...flange.skadisTclip.lugs.map((lug) => prism(lug, -flange.thickness, 0))])) : ringManifold;
+    const flangeManifold = relieveFlange(wasm, track, withLugs, flange, innerEndLayout, mountPlateCut);
 
     let fused = track(wallManifold.add(flangeManifold));
     // `applyCoreJointCut` already tracks its own returned manifold (like every other value it constructs) -- don't track it again here.
@@ -513,6 +523,17 @@ export async function fuseFlange(
         if (status !== "NoError") {
           throw new Error(`SKÅDIS notch cut is not a valid manifold: ${status}`);
         }
+      }
+    }
+
+    // Issue #213: each T-clip lug's slot, and the recess its handle turns in.
+    if (flange.skadisTclip) {
+      const cuts = flange.skadisTclip.slots.map((slot) => prism(slot, -flange.thickness - WELD_OVERLAP, WELD_OVERLAP));
+      for (const recess of flange.skadisTclip.recesses) cuts.push(...recess.map((poly) => prism(poly, -SKADIS_TCLIP_RECESS_DEPTH, WELD_OVERLAP)));
+      fused = track(fused.subtract(track(Manifold.union(cuts))));
+      status = fused.status();
+      if (status !== "NoError") {
+        throw new Error(`SKÅDIS T-clip lug cut is not a valid manifold: ${status}`);
       }
     }
 
@@ -876,6 +897,31 @@ export async function buildSkadisClip(layout: SkadisClipLayout, clip: RimClip): 
   const placed = prism.transform([up.x, up.y, 0, 0, 0, 0, 1, 0, side.x, side.y, 0, 0, s0 * side.x, s0 * side.y, 0, 1]);
   try {
     if (placed.status() !== "NoError") throw new Error(`SKÅDIS clip is not a valid manifold: ${placed.status()}`);
+    const outMesh = placed.getMesh();
+    return { positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) };
+  } finally {
+    prism.delete();
+    placed.delete();
+  }
+}
+
+/**
+ * One SKÅDIS T-clip part (issue #213, skadisTclips.ts): its (u, z) profile
+ * extruded SKADIS_TCLIP_WIDTH across the clip (along up, centred on its
+ * axis), seated and turned, in the shared ASSEMBLY frame. The extrusion runs
+ * along local Z, mapped onto -up so the affine map stays a proper rotation;
+ * the STEP backend builds the same prism from the same profile.
+ */
+export async function buildSkadisTclip(layout: SkadisTclipLayout, clip: Tclip): Promise<CoilMesh> {
+  const wasm = await getWasm();
+  const { up, side } = tclipFrame(layout.axisDeg, clip);
+  const w = SKADIS_TCLIP_WIDTH;
+  const o = { x: clip.side * side.x + (clip.axisUp + w / 2) * up.x, y: clip.side * side.y + (clip.axisUp + w / 2) * up.y };
+  const prism = new wasm.CrossSection([clip.profile], "NonZero").extrude(w);
+  // Column-major: local x (u) -> side, local y (z) -> Z, local z (the extrusion) -> -up, then the offset.
+  const placed = prism.transform([side.x, side.y, 0, 0, 0, 0, 1, 0, -up.x, -up.y, 0, 0, o.x, o.y, 0, 1]);
+  try {
+    if (placed.status() !== "NoError") throw new Error(`SKÅDIS T-clip is not a valid manifold: ${placed.status()}`);
     const outMesh = placed.getMesh();
     return { positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) };
   } finally {
