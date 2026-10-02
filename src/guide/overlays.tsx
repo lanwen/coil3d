@@ -108,7 +108,7 @@ export function SlashMark({ at, r }: { at: Pt; r: number }) {
  * figure to. Kept as one constant both sides read, exactly like
  * `FIGURE_ASPECT`.
  */
-const HOST_FIGURE_WIDTH = 480; // CSS px
+export const HOST_FIGURE_WIDTH = 480; // CSS px
 
 /**
  * A magnified, circular crop of the SAME figure, panned so `at` (a fraction
@@ -149,6 +149,8 @@ export function ZoomInset({
   fill,
   at,
   corner = "bottom-right",
+  zoom = INSET_ZOOM,
+  size = INSET_SIZE,
 }: {
   parts: Part[];
   wirePaths?: WireLayerPath[];
@@ -157,9 +159,11 @@ export function ZoomInset({
   preset?: PresetId;
   fill: number;
   at: Pt;
-  corner?: "bottom-right" | "bottom-left";
+  corner?: "bottom-right" | "bottom-left" | "top-right";
+  zoom?: number;
+  size?: number;
 }) {
-  const { wrapStyle, innerStyle } = zoomInsetStyle(INSET_SIZE, INSET_ZOOM, at);
+  const { wrapStyle, innerStyle } = zoomInsetStyle(size, zoom, at);
   return (
     <div className={`guide-zoom-inset guide-zoom-inset-${corner}`} style={wrapStyle}>
       <div className="guide-zoom-inset-inner" style={innerStyle}>
@@ -302,8 +306,8 @@ export function InsetMark({ at }: { at: Pt }) {
 }
 
 /** A thin leader line from the source point (on the host figure) to the zoom inset's fixed corner, plus a small dashed circle marking exactly what's being zoomed -- the two visual halves of one call-out. */
-export function ZoomLeader({ at, corner = "bottom-right" }: { at: Pt; corner?: "bottom-right" | "bottom-left" }) {
-  const cornerPt: Pt = corner === "bottom-right" ? { x: 0.92, y: 0.88 } : { x: 0.08, y: 0.88 };
+export function ZoomLeader({ at, corner = "bottom-right" }: { at: Pt; corner?: "bottom-right" | "bottom-left" | "top-right" }) {
+  const cornerPt: Pt = corner === "bottom-right" ? { x: 0.92, y: 0.88 } : corner === "top-right" ? { x: 0.92, y: 0.12 } : { x: 0.08, y: 0.88 };
   return (
     <>
       <CircleMark at={at} r={0.05} />
