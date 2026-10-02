@@ -42,10 +42,10 @@ import { resolveCapJoint } from "./joints";
 import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
 import { printBBox } from "./plate";
 import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
-import { layoutFlangeThroughHoles } from "./flangePads";
+import { channelPadFootprints, layoutFlangeThroughHoles } from "./flangePads";
 import type { MountLayout } from "./mount";
 import { mountPlateLayoutFor } from "./mountPlate";
-import { clipPrintRotateZ, isHeavyCable, layoutSkadisClips, skadisBoardSection } from "./skadisClips";
+import { clipPrintRotateZ, isHeavyCable, layoutSkadisClips, lipKeepOffset, skadisBoardSection } from "./skadisClips";
 import type { SkadisClipLayout } from "./skadisClips";
 import { layoutSkadisTclips, skadisTclipBoardSection, tclipPrintRotateZ } from "./skadisTclips";
 import type { SkadisTclipLayout } from "./skadisTclips";
@@ -141,12 +141,14 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
       ? layoutSkadisClips({
           flangeOutline: offsetOutline(outline, sizing.margin),
           boreOutline,
-          envelopeOutline: offsetOutline(outline, sizing.envelopeOffset),
+          envelopeOutline: offsetOutline(outline, lipKeepOffset(sizing.envelopeOffset, thickness, sizing.plateThickness, spec.tolerance)),
           thickness,
+          plateThickness: sizing.plateThickness,
           tolerance: spec.tolerance,
           latch: spec.skadisLatch ?? true,
           heavy: heavyCable,
           avoid: innerEndLayout.channelRibbon,
+          padFootprints: channelPadFootprints(outline, innerEndLayout, thickness, sizing.plateThickness),
         })
       : undefined;
   // Issue #213: the SKÅDIS T-clips' lugs, kept clear of the inner-end channel.

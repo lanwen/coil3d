@@ -36,7 +36,6 @@ import type { ThroughMountLayout } from "./mount";
 import { circumscribedRadius, offsetPerimeter, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { MountKind } from "./types";
-import type { SkadisClipLayout } from "./skadisClips";
 import type { SkadisTclipLayout } from "./skadisTclips";
 
 /** The parts of manifold.ts's `FlangeSpec` the pads read. */
@@ -52,7 +51,6 @@ export interface PaddedFlange {
   keyholeRotation?: number;
   throughHoleDiameter?: number;
   envelopeRadius?: number;
-  skadis?: SkadisClipLayout;
   skadisTclip?: SkadisTclipLayout;
 }
 
@@ -373,12 +371,21 @@ export function layoutFlangePads(flange: PaddedFlange, innerEnd: InnerEndLayout 
   // plain, constant-radius hole with the flange staying its ordinary plate
   // thickness right up to the hole's own edge, flat on the wall face.
   for (const anchor of anchors) pads.push(stadiumPad(anchor, anchor, pegHoleRadius(tolerance), FLANGE_PAD_WALL, zPlate));
-  // Issue #207: full thickness under each SKÅDIS clip's jaws, so the rim the
-  // clip grips is as thick as the flange, not just its plate.
-  for (const pad of flange.skadis?.pads ?? []) pads.push(stadiumPad(pad.a, pad.b, pad.radius, FLANGE_PAD_WALL, zPlate));
+  // Issue #222: the SKÅDIS rim clips get no pad -- their jaws grip the plain
+  // plate, exactly as thick as the through-hole mount's base (the notches
+  // are cut through it).
   // Issue #213: full thickness where a T-clip's lug overlaps the flange.
   for (const pad of flange.skadisTclip?.pads ?? []) pads.push(stadiumPad(pad.a, pad.b, pad.radius, FLANGE_PAD_WALL, zPlate));
   return pads;
+}
+
+/**
+ * Issue #222: the inner-end channel pads' footprints at their widest (inside the plate), as closed polygons in plan:
+ * the SKÅDIS rim clips' lips lie on the plate beside them and must keep clear. Empty with a plain flange (no pads).
+ */
+export function channelPadFootprints(outline: ShapeOutline, innerEnd: InnerEndLayout, thickness: number, plateThickness: number): XY[][] {
+  const zPlate = plateTopZ({ thickness, plateThickness });
+  return zPlate === undefined ? [] : channelPads(outline, innerEnd, zPlate).map((pad) => pad.footprint);
 }
 
 /**

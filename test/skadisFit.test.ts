@@ -2,6 +2,7 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, Part } from "../src/core";
+import { meshVolume } from "../src/core/meshVolume";
 
 // Issue #207: do the printed rim clips really hang on a SKÅDIS board and hold
 // the coil? The board here is built ONLY from the researched facts
@@ -32,6 +33,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 
 const LATTICE = 20; // mm between neighbouring columns, and their vertical shift
 const FILLET = 1; // mm, the slot edges' round-over on both faces
+const CHAMFER = 0.5; // mm, the clips' outer corners (SKADIS_CLIP_CHAMFER)
 const BOARDS = [
   { label: "tight 4.8 x 14.8 slot, 5.2 mm board", slotWidth: 4.8, slotLength: 14.8, thickness: 5.2 },
   { label: "nominal 5 x 15 slot, 5 mm board", slotWidth: 5, slotLength: 15, thickness: 5 },
@@ -294,6 +296,84 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
       core.delete();
     }
   }, 180_000);
+
+  // Issue #222: the jaws grip the flange's plain plate -- the same base as the through-hole mount -- so a clip doesn't
+  // depend on how thick the flange is under the wall and the channel, and no clip meets the thickened parts around them.
+  it("the clip is the same part on every core, and clears the thick parts of the flange (no pad under it)", async () => {
+    const wasm = await getWasm();
+    const volumes: number[] = [];
+    for (const [label, wire, layers] of [
+      ["thin cable, plain 3 mm flange", { length: 1000, diameter: 1.2, type: "usb" as const }, 1],
+      ["3.8 mm cable", { length: 2000, diameter: 3.8, type: "usb" as const }, 1],
+      ["8 mm cable, 9.5 mm flange", { length: 10000, diameter: 8, type: "flex" as const }, 4],
+    ] as const) {
+      const d = await design(baseSpec({ wire, layers: { locked: true, value: layers } }));
+      const top = clipsOf(d).find((p) => p.name.includes("-top-"))!;
+      volumes.push(meshVolume(top.mesh));
+      const core = manifoldOf(wasm, d.parts.find((p) => p.role === "core")!.mesh);
+      for (const part of clipsOf(d)) {
+        const m = manifoldOf(wasm, part.mesh);
+        expect(overlap(core, m), `${label}, ${part.name}: clip intersects the core`).toBeLessThan(1e-3);
+        m.delete();
+      }
+      core.delete();
+    }
+    expect(volumes[1], "the top clip is the same part for a 3.8 mm and a thin cable").toBeCloseTo(volumes[0], 3);
+    expect(volumes[2], "the top clip is the same part for an 8 mm cable").toBeCloseTo(volumes[0], 3);
+  }, 120_000);
+
+  it("clips keep clear of the inner-end channel's pad across cables, shapes and sizes (they lie on the plate, below the pad's flare)", async () => {
+    const wasm = await getWasm();
+    for (const kind of ["round", "sq", "tri"] as const) {
+      // (A triangle with a thick cable has little rim clear of the channel's wide pad: it warns and leaves the clips out, so those sizes start higher.)
+      const cases: Array<[number, number, number]> = kind === "tri" ? [[100, 5, 1500], [100, 6.5, 3000], [120, 10, 4000], [85, 3.8, 2000]] : [[60, 5, 1500], [85, 8, 4000], [100, 6.5, 3000], [120, 10, 4000], [85, 3.8, 2000]];
+      for (const [size, diameter, length] of cases) {
+        const d = await design(baseSpec({ shape: kind === "round" ? { kind } : { kind, cornerRadius: 10 }, coreSize: { locked: true, dimension: "outer", value: size }, wire: { length, diameter, type: "flex" } }), "draft");
+        const label = `${kind} ${size}, ${diameter} mm cable`;
+        const core = manifoldOf(wasm, d.parts.find((p) => p.role === "core")!.mesh);
+        expect(clipsOf(d).length, `${label}: clips`).toBeGreaterThanOrEqual(2);
+        for (const part of clipsOf(d)) {
+          const m = manifoldOf(wasm, part.mesh);
+          expect(overlap(core, m), `${label}, ${part.name}: clip intersects the core`).toBeLessThan(1e-3);
+          m.delete();
+        }
+        core.delete();
+      }
+    }
+  }, 180_000);
+
+  it("the clips' outer corners are chamfered 45 degrees", async () => {
+    const wasm = await getWasm();
+    for (const c of CASES) {
+      const d = await design(baseSpec(c.overrides), "draft");
+      for (const part of clipsOf(d)) {
+        // The clip's profile at mid-thickness, in its print pose (the extrusion axis is Z).
+        const posed = printPosed(part);
+        const m = manifoldOf(wasm, posed);
+        const box = m.boundingBox();
+        const polys = m.slice((box.min[2] + box.max[2]) / 2).toPolygons();
+        expect(polys.length, `${c.label}, ${part.name}: one outline`).toBe(1);
+        // The mesh splits long flat edges into short ones: merge the collinear points back into the outline's corners.
+        const ring = polys[0];
+        const poly = ring.filter((q, i) => {
+          const p = ring[(i + ring.length - 1) % ring.length];
+          const n = ring[(i + 1) % ring.length];
+          return Math.abs((q[0] - p[0]) * (n[1] - q[1]) - (q[1] - p[1]) * (n[0] - q[0])) > 1e-3;
+        });
+        let chamfers = 0;
+        for (let i = 0; i < poly.length; i++) {
+          const [x0, y0] = poly[i];
+          const [x1, y1] = poly[(i + 1) % poly.length];
+          const len = Math.hypot(x1 - x0, y1 - y0);
+          const deg = Math.abs((Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI) % 90;
+          if (Math.abs(len - CHAMFER * Math.SQRT2) < 0.02 && Math.abs(deg - 45) < 0.5) chamfers++;
+        }
+        // The jaw's tip and the lip's tip, the spine's top and the stem's back, at least.
+        expect(chamfers, `${c.label}, ${part.name}: chamfered corners`).toBeGreaterThanOrEqual(4);
+        m.delete();
+      }
+    }
+  }, 120_000);
 
   it("prints without supports: every clip is one solid, lying on its flat face with every other face vertical", async () => {
     const wasm = await getWasm();

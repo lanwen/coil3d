@@ -49,7 +49,7 @@ function flangeSpans(d: Design, x: number, y: number): Array<[number, number]> {
 /** Points halfway across the flange margin, all the way round. */
 function midMarginPoints(d: Design, count = 72) {
   const { outline, margin } = d.flangeSpec;
-  return Array.from({ length: count }, (_, i) => pointAt(outline, i / count, margin / 2));
+  return Array.from({ length: count }, (_, i) => pointAt(outline, (i + 0.5) / count, margin / 2));
 }
 
 function spec(overrides: Partial<CoilSpec>): CoilSpec {
@@ -73,9 +73,9 @@ describe("thin bottom flange (issue #122)", () => {
       const T = d.flangeSpec.thickness;
       const spans = midMarginPoints(d).map((p) => flangeSpans(d, p.x, p.y));
       const thin = spans.filter((s) => s.length === 1 && Math.abs(s[0][1] - s[0][0] - FLANGE_PLATE_THICKNESS) < 1e-3);
-      // Most of the flange is the thin plate (on main it was all full thickness). Issue #207: the SKÅDIS rim
-      // clips add a full-thickness pad under each clip, which on this small core is a third of the rim.
-      expect(thin.length).toBeGreaterThan(spans.length * (spec.mount === "skadis" ? 0.4 : 0.5));
+      // Most of the flange is the thin plate (on main it was all full thickness). Issue #222: this includes the
+      // rim under the SKÅDIS clips' jaws, which no longer have a pad.
+      expect(thin.length).toBeGreaterThan(spans.length * 0.5);
       // The thin plate lies on the wall face: z = -thickness, the same plane as every pad.
       for (const s of thin) expect(s[0][0]).toBeCloseTo(-T, 3);
       // Nothing sticks out past either face: the wall face at -thickness, the winding face at 0.
@@ -230,30 +230,36 @@ describe("thin bottom flange (issue #122)", () => {
 });
 
 describe("SKÅDIS rim clips on the thin flange (issue #207)", () => {
-  it("the rim each clip grips is the flange's full thickness, flat on the wall face, and notched where the clip sits", async () => {
+  it("the rim each clip grips is the flange's plain plate (no pad), flat on the wall face, and notched where the clip sits", async () => {
     for (const d of [await design(DESIGNS[4].spec, "draft"), await design(spec({ shape: { kind: "sq", cornerRadius: 10 }, coreSize: { locked: true, dimension: "outer", value: 85 }, mount: "skadis" }), "draft")]) {
       const T = d.flangeSpec.thickness;
+      const plate = d.flangeSpec.plateThickness!;
+      expect(T, "a thick flange, so a pad under the jaws would have shown").toBeGreaterThan(plate + 0.5);
       const a = (d.mountAxisDeg! * Math.PI) / 180;
       const up = { x: Math.sin(a), y: Math.cos(a) };
       const sideV = { x: Math.cos(a), y: -Math.sin(a) };
       const clips = d.parts.filter((p) => p.role === "mountClip");
       expect(clips.length).toBeGreaterThanOrEqual(2);
       for (const clip of clips) {
-        // The clip's lip: its points on the winding side (z > 0), in (up, side).
+        // The clip's lip: its points above the plate's top face, in (up, side).
         const pts: Array<{ u: number; s: number }> = [];
         const P = clip.mesh.positions;
-        for (let i = 0; i < P.length; i += 3) if (P[i + 2] > 0.05) pts.push({ u: P[i] * up.x + P[i + 1] * up.y, s: P[i] * sideV.x + P[i + 1] * sideV.y });
+        for (let i = 0; i < P.length; i += 3) if (P[i + 2] > -T + plate + 0.05) pts.push({ u: P[i] * up.x + P[i + 1] * up.y, s: P[i] * sideV.x + P[i + 1] * sideV.y });
         const s = (Math.max(...pts.map((p) => p.s)) + Math.min(...pts.map((p) => p.s))) / 2;
         const top = clip.name.includes("-top-");
         // The bight's inner face is the lip's end nearest the rim; the jaws reach in from there.
         const us = pts.map((p) => p.u);
         const inner = top ? Math.min(...us) : Math.max(...us);
         const at = (u: number) => flangeSpans(d, u * up.x + s * sideV.x + 0.01, u * up.y + s * sideV.y + 0.01);
-        // Under the lip, halfway along it: solid from the wall face to the winding face.
+        // Under the lip, halfway along it: solid from the wall face up to the plate's top face, as anywhere else on the rim (issue #222).
         const under = at(top ? inner + 2.5 : inner - 2.5);
         expect(under, `${clip.name}: under the jaws`).toHaveLength(1);
         expect(under[0][0]).toBeCloseTo(-T, 3);
-        expect(under[0][1]).toBeCloseTo(0, 3);
+        expect(under[0][1]).toBeCloseTo(-T + plate, 3);
+        // The lip lies on the plate's top face, a tolerance above it (not at the winding face, which is higher).
+        const above: number[] = [];
+        for (let i = 2; i < P.length; i += 3) if (P[i] > -T + plate + 1e-3) above.push(P[i]);
+        expect(Math.min(...above), `${clip.name}: the lip's underside`).toBeCloseTo(-T + plate + d.spec.tolerance, 3);
         // Just past the notch floor (towards the rim): no flange, the clip's bight is there.
         expect(at(top ? inner + 5.3 : inner - 5.3), `${clip.name}: notch`).toHaveLength(0);
       }
