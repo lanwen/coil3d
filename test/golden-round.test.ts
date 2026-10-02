@@ -94,6 +94,12 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // Issue #133 bumped it UP from 33646.19380608499: the channel pad now
     // blends into that collar -- a fillet on the wall side, a tapering tail
     // on the other -- instead of meeting it in a sharp corner.
-    expect(meshVolume(d.mesh)).toBeCloseTo(33772.23933421279, 3);
+    //
+    // Issue #219 bumped it DOWN from 33772.23933421279 (by 0.43 mm^3): every
+    // ring of the channel's bore now puts its vertices at the same angles, so
+    // along the clip's lips the round bore is sampled at about 11 degrees
+    // instead of 16. The finer polygon lies closer to the circle, so the
+    // channel cuts a hair more -- the same channel, sampled more finely.
+    expect(meshVolume(d.mesh)).toBeCloseTo(33771.81426147255, 3);
   });
 });

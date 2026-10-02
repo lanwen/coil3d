@@ -42,6 +42,7 @@ import {
   SKADIS_LATTICE_STEP,
   SKADIS_LIP_THICKNESS,
   SKADIS_NOTCH_DEPTH,
+  SKADIS_NOTCH_MIN_CROSSING_DEG,
   SKADIS_SLOT_LENGTH,
   SKADIS_SLOT_LENGTH_MIN,
   SKADIS_SLOT_WIDTH,
@@ -54,6 +55,7 @@ import {
 } from "./constants";
 import type { XY } from "./innerEnd";
 import { bestAxisDeg } from "./mount";
+import { WELD_EPSILON } from "./weld";
 import { offsetOutline, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { PegboardSection } from "./types";
@@ -161,14 +163,18 @@ function fullWidthHalf(slotWidth: number, slotLength: number): number {
 
 const SEAT = stemSeat(SKADIS_SLOT_WIDTH, SKADIS_SLOT_LENGTH);
 
-/** Counter-clockwise, consecutive duplicates removed. */
+/**
+ * Counter-clockwise, with each point closer than the weld's limit to the one before it dropped (issue #219: where a
+ * jaw's end and the stem's top fell a hundredth of a millimetre apart, both backends built an edge that short).
+ */
 export function tidy(points: Array<[number, number]>): Array<[number, number]> {
+  const near = (p: [number, number], q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) < WELD_EPSILON;
   const out: Array<[number, number]> = [];
   for (const p of points) {
     const q = out[out.length - 1];
-    if (!q || Math.abs(q[0] - p[0]) > 1e-9 || Math.abs(q[1] - p[1]) > 1e-9) out.push(p);
+    if (!q || !near(p, q)) out.push(p);
   }
-  if (out.length > 1 && Math.abs(out[0][0] - out[out.length - 1][0]) < 1e-9 && Math.abs(out[0][1] - out[out.length - 1][1]) < 1e-9) out.pop();
+  if (out.length > 1 && near(out[0], out[out.length - 1])) out.pop();
   let area = 0;
   for (let i = 0; i < out.length; i++) {
     const [x0, y0] = out[i];
@@ -362,6 +368,11 @@ function layoutOnAxis(input: SkadisClipInput, axisDeg: number): SkadisClipLayout
     const a = rimAt(rim, s0);
     const b = rimAt(rim, s1);
     if (![a.top, a.bottom, b.top, b.bottom].every(Number.isFinite)) return { side, floor: 0, ok: false };
+    // Issue #219: the notch's side walls must cross the rim at a clear angle. At the very end of the rim, where it
+    // runs almost along a wall, the cut left a sliver of rim a hair thick beside the notch.
+    const rimUp = (s: number) => (role === "top" ? rimAt(rim, s).top : rimAt(rim, s).bottom);
+    const clear = (s: number, out: number) => Math.abs(rimUp(s + 0.5 * out) - rimUp(s)) <= 0.5 * Math.tan(((90 - SKADIS_NOTCH_MIN_CROSSING_DEG) * Math.PI) / 180);
+    if (!clear(s0, -1) || !clear(s1, 1)) return { side, floor: 0, ok: false };
     const floor = role === "top" ? Math.min(a.top, b.top) - SKADIS_NOTCH_DEPTH : Math.max(a.bottom, b.bottom) + SKADIS_NOTCH_DEPTH;
     // The jaws reach in SKADIS_JAW_OVERLAP from the floor; the lip keeps clear of the wound cable there.
     let ok = true;

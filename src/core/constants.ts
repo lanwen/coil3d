@@ -515,6 +515,8 @@ export const SKADIS_LIP_THICKNESS = 2.5; // mm
 export const SKADIS_BIGHT_THICKNESS = 3; // mm
 /** The notch in the rim at each clip: at least this deep, with a flat floor the bight seats on. */
 export const SKADIS_NOTCH_DEPTH = 1; // mm
+/** Issue #219: the rim crosses each notch's side walls at least this steeply (degrees), so no sliver of rim is left beside a notch. */
+export const SKADIS_NOTCH_MIN_CROSSING_DEG = 15;
 /** The lip keeps this far from the wound cable's outer surface. */
 export const SKADIS_ENVELOPE_CLEARANCE = 1; // mm
 /** The latch (top clips): an arm on the board face, a slit, and a rigid mast behind it. The arm flexes in the clip's own plane, so along the layers. */

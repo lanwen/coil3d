@@ -33,7 +33,7 @@ import { pegHoleRadius } from "./mountPlate";
 import type { InnerEndLayout, SweepSolid, XY, XYZ } from "./innerEnd";
 import { layoutKeyholeMount, layoutThroughHoleMount } from "./mount";
 import type { ThroughMountLayout } from "./mount";
-import { offsetPerimeter, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
+import { circumscribedRadius, offsetPerimeter, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { MountKind } from "./types";
 import type { SkadisClipLayout } from "./skadisClips";
@@ -118,7 +118,12 @@ function stadiumPad(a: XY, b: XY, r: number, wall: number, zPlate: number): Flan
 
 /** The collar: the wall's own outline, `FLANGE_PAD_COLLAR` beyond it at the face. Covers the bore too (the ring has none there to cut). */
 function collarPad(flange: PaddedFlange, zPlate: number): FlangePad {
-  const ts = outlineColumnParams(flange.outline, FLANGE_PAD_COLLAR_COLUMNS, flange.minCornerSegments);
+  // Issue #219: on a big core, more columns, so the facets' chords stay well inside the depth the channel pad's
+  // fillet dips into the collar. Where the two came within a hair of each other (a chord's sag about as deep as the
+  // dip), the booleans left a sliver folded back over itself.
+  const r = circumscribedRadius(flange.outline, FLANGE_PAD_COLLAR);
+  const columns = Math.max(FLANGE_PAD_COLLAR_COLUMNS, Math.ceil(Math.PI / Math.acos(1 - FLANGE_PAD_BLEND_BURY / 3 / r)));
+  const ts = outlineColumnParams(flange.outline, columns, flange.minCornerSegments);
   const levels = padLevels(zPlate);
   const rings = levels.map((z) =>
     ts.map((t) => {
