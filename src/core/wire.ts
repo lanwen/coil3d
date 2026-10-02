@@ -99,18 +99,23 @@ interface LayerRun {
 
 /**
  * Layer 1's offset at `local` turns in. The wall's groove fades out over its
- * last `taperTurns` (wall.ts), so the cable cannot stay sunk in it there: it
- * rises out onto the bare wall and rests CABLE_TAIL_CLEARANCE of its radius
- * clear of it, instead of cutting through the wall's outer surface and its
- * top face. Only a single-layer cable with the top cap off does this: with
- * more layers, layer 2 nests into the valley beside layer 1's last turn, and
- * with the cap on the cap's clips are laid out just outside the wound cable's
- * envelope, so in both cases that turn stays put.
- * The smoothstep keeps the offset flat at both ends, so the adjoining pieces
- * still join G1.
+ * last `taperTurns` (wall.ts), so the cable cannot stay sunk in it there: if
+ * its tube would then reach the wall's top face it rises out onto the bare
+ * wall and rests CABLE_TAIL_CLEARANCE of its radius clear of both, instead of
+ * cutting through the wall's outer surface and its top face. The smoothstep
+ * keeps the offset flat at both ends, so the adjoining pieces still join G1.
+ *
+ * It stays put when the tube stops short of the top face (the line-art has
+ * nothing to break up there, and the layers above nest right beside it), and
+ * so does a single-layer cable under the top cap: the cap's clips are laid out
+ * just outside the wound cable's envelope, and a lifted turn would leave only
+ * two of their four places free.
  */
-function layer1OffsetAt(offset: number, turns: number, wallSpec: WallSpec): (local: number) => number {
-  const rise = Math.max(0, wallSpec.wireDiameter / 2 + CABLE_TAIL_CLEARANCE * wallSpec.wireDiameter / 2 - offset);
+function layer1OffsetAt(offset: number, turns: number, zEnd: number, wallSpec: WallSpec): (local: number) => number {
+  const r = wallSpec.wireDiameter / 2;
+  const reach = (1 + CABLE_TAIL_CLEARANCE) * r;
+  if (Math.hypot(Math.max(offset, 0), wallSpec.height - zEnd) >= reach) return () => offset;
+  const rise = Math.max(0, reach - offset);
   const tau = Math.max(wallSpec.taperTurns, 1e-6);
   return (local) => offset + rise * (1 - smoothstep((turns - local) / tau));
 }
@@ -248,9 +253,9 @@ function withNeighbours(before: [number, number, number], blend: Float32Array, a
  * whose curvature passes the bend check, or the gentlest one tried if none
  * does (then `ok` is false and the caller warns).
  */
-function searchBlend(build: (turns: number) => { points: Float32Array; check: number[] }, limit: number, maxTurns: number): { turns: number; points: Float32Array; ok: boolean } {
+function searchBlend(build: (turns: number) => { points: Float32Array; check: number[] }, limit: number, maxTurns: number, minTurns = BRIDGE_TURNS_MIN): { turns: number; points: Float32Array; ok: boolean } {
   let best: { turns: number; points: Float32Array; k: number } | undefined;
-  for (let turns = BRIDGE_TURNS_MIN; turns <= maxTurns + 1e-9; turns += BRIDGE_TURNS_STEP) {
+  for (let turns = minTurns; turns <= maxTurns + 1e-9; turns += BRIDGE_TURNS_STEP) {
     const { points, check } = build(turns);
     const k = maxCurvature(check);
     if (k <= limit) return { turns, points, ok: true };
@@ -324,6 +329,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
   const layerTransitions: Float32Array[] = [];
 
   const lastWound = layerResults.filter((r) => r.turns > 0).at(-1);
+  let prevResult: LayerResult | undefined;
   for (const result of layerResults) {
     if (result.turns <= 0) continue;
     const prev = runs.at(-1);
@@ -334,24 +340,34 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
       const next = layerRun(result, 0, pitch, zStart, windingQuality, () => result.offset);
       const z0 = prev.z(prev.turns);
       const z1 = next.z(0);
-      const o0 = prev.offsetAt(prev.turns);
       const o1 = result.offset;
-      const offsetAt = (s: number) => o0 + (o1 - o0) * unitRamp(s);
-      const found = searchBlend(
-        (turns) => {
-          const points = outlineBlend(outline, u0, turns, offsetAt, z0, prev.slope, z1, next.slope);
-          const after = samplePoint(outline, { ...next, start: u0 + turns }, 1 / result.perimeter);
-          return { points, check: withNeighbours(nthFromEnd(prevPoints, 1), points, after) };
-        },
-        limit,
-        TRANSITION_TURNS_MAX,
-      );
+      const hop = (o0: number, before: [number, number, number], minTurns?: number) =>
+        searchBlend(
+          (turns) => {
+            const points = outlineBlend(outline, u0, turns, (sigma) => o0 + (o1 - o0) * unitRamp(sigma), z0, prev.slope, z1, next.slope);
+            const after = samplePoint(outline, { ...next, start: u0 + turns }, 1 / result.perimeter);
+            return { points, check: withNeighbours(before, points, after) };
+          },
+          limit,
+          TRANSITION_TURNS_MAX,
+          minTurns,
+        );
+      // A lifted last turn (layer1OffsetAt) starts the hop further out. The hop
+      // keeps the length it has from the groove, so every layer after it, the
+      // cap's clip and the cap itself stay exactly where they were.
+      const o0 = prev.offsetAt(prev.turns);
+      const lifted = o0 !== prevResult!.offset;
+      const plainBefore = samplePoint(outline, { ...prev, offsetAt: () => prevResult!.offset }, prev.turns * (1 - 1 / (prevPoints.length / 3 - 1)));
+      const plain = lifted ? hop(prevResult!.offset, plainBefore) : undefined;
+      const found = plain ? hop(o0, nthFromEnd(prevPoints, 1), plain.turns) : hop(o0, nthFromEnd(prevPoints, 1));
       if (!found.ok) warnings.push(`Between layers ${prev.layer} and ${result.layer} the cable bends tighter than it should (its bend radius is ${(ends.bendRadius / 10).toFixed(1)} cm).`);
       layerTransitions.push(found.points);
       start = u0 + found.turns;
     }
-    const run = layerRun(result, start, pitch, zStart, windingQuality, !ends.topCapEnabled && result === lastWound && result.layer === 1 ? layer1OffsetAt(result.offset, result.turns, wallSpec) : () => result.offset);
+    const liftable = result.layer === 1 && !(ends.topCapEnabled && result === lastWound);
+    const run = layerRun(result, start, pitch, zStart, windingQuality, liftable ? layer1OffsetAt(result.offset, result.turns, zStart + pitch * result.turns, wallSpec) : () => result.offset);
     runs.push(run);
+    prevResult = result;
     wirePaths.push({ layer: run.layer, turns: run.turns, points: sampleLayer(outline, run, result.perimeter, pitch, resolution) });
   }
 

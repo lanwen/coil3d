@@ -169,9 +169,13 @@ candidates; it can't buy proportions with extra capacity.
 - The whole drawn cable (lead-in, layer transitions, outer end) stays within
   the bend radius. Tests check this for every "ok" design, piece by piece
   (`test/cableBend.test.ts`).
-- A single-layer cable's (top cap off) last half turn rises out of the fading groove and
-  rests clear of the bare wall (0.3 x its radius), so the drawn cable never
-  cuts through the wall's surface or its top face.
+- Layer 1's last half turn rises out of the fading groove and rests clear of
+  the bare wall (0.3 x its radius) when its tube would otherwise reach the
+  wall's top face, so the drawn cable never cuts through the wall's surface or
+  its top face. In a multi-layer core the hop to layer 2 starts from the lifted
+  turn but keeps its length, so layer 2 onwards and the cap stay put. A
+  single-layer cable under a top cap is left as is: the cap's clips sit just
+  outside the wound cable.
 - The flange is at least the outermost layer plus a margin.
 - The label only renders when its bounding box fits the cap annulus.
 - Each part is checked against the bed size.
