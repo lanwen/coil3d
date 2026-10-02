@@ -176,6 +176,13 @@ function lipHalf(s: number, from: number, to: number, R: number, open = R): numb
   return open + (closed - open) * k;
 }
 
+/** A bore slot: its half-width here, how far it runs, and the narrowest and widest half-widths it takes anywhere along its sweep. */
+interface BoreSlot {
+  half: number;
+  to: number;
+  range: [number, number];
+}
+
 /**
  * One cross-section of a round bore: a circle of radius `R` about `c`
  * (stretched vertically by `stretch`, so a sloped cable's bore is still
@@ -183,19 +190,36 @@ function lipHalf(s: number, from: number, to: number, R: number, open = R): numb
  * straight up to z = `up.to`, and optionally one of `down.half` straight
  * down to z = `down.to`. `u` is the unit horizontal vector across the cable.
  * Star-shaped about `c`, so a fan from it caps it.
+ *
+ * Issue #219: every ring of a sweep puts its vertices at the same angles
+ * around the circle, whatever its slots' widths: from where the narrowest
+ * up slot meets the circle to where the narrowest down slot does (or the
+ * bottom), with a break at each slot's widest foot too. A vertex inside a
+ * slot sits on the slot's wall, level with its angle. So where a lip starts
+ * (its two rings CABLE_CLIP_ENTRY apart), each vertex only moves straight
+ * across, and the strips between the rings tile the lip's end face. (With
+ * the angles spread over each ring's own arc, the vertices slid round the
+ * circle there, and the strips folded back over themselves.)
  */
-function boreRing(c: XYZ, u: XY, R: number, stretch: number, up: { half: number; to: number }, down?: { half: number; to: number }): XYZ[] {
+function boreRing(c: XYZ, u: XY, R: number, stretch: number, up: BoreSlot, down?: BoreSlot): XYZ[] {
   const at = (p: number, z: number): XYZ => ({ x: c.x + u.x * p, y: c.y + u.y * p, z });
-  const circle = (phi: number) => at(R * Math.sin(phi), c.z + R * Math.cos(phi) * stretch);
-  const arc = (a: number, b: number) => Array.from({ length: CABLE_SWEEP_ARC_SEGMENTS + 1 }, (_, i) => circle(a + ((b - a) * i) / CABLE_SWEEP_ARC_SEGMENTS));
-  const phiUp = Math.asin(Math.min(1, up.half / R));
-  const ring: XYZ[] = [at(up.half, up.to)];
-  if (down) {
-    const phiDown = Math.PI - Math.asin(Math.min(1, down.half / R));
-    ring.push(...arc(phiUp, phiDown), at(down.half, down.to), at(-down.half, down.to), ...arc(2 * Math.PI - phiDown, 2 * Math.PI - phiUp));
-  } else {
-    ring.push(...arc(phiUp, 2 * Math.PI - phiUp));
-  }
+  const foot = (half: number) => Math.asin(Math.min(1, half / R));
+  /** The angles after `a` up to `b`, `n` equal steps (none if they meet), or ~11 degree steps if `n` is omitted. */
+  const steps = (a: number, b: number, n = Math.ceil((b - a) / (Math.PI / CABLE_SWEEP_ARC_SEGMENTS) - 1e-9)) =>
+    b - a > 1e-9 ? Array.from({ length: n }, (_, i) => a + ((b - a) * (i + 1)) / n) : [];
+  const upTop = foot(up.range[0]);
+  const upOpen = foot(up.range[1]);
+  const downOpen = down ? Math.PI - foot(down.range[1]) : Math.PI;
+  // One side, from the top down: the same counts as before #219 between the widest feet.
+  const side = [upTop, ...steps(upTop, upOpen), ...steps(upOpen, downOpen, down ? CABLE_SWEEP_ARC_SEGMENTS : CABLE_SWEEP_ARC_SEGMENTS / 2), ...(down ? steps(downOpen, Math.PI - foot(down.range[0])) : [])];
+  const point = (phi: number, sign: 1 | -1): XYZ => {
+    const slot = Math.cos(phi) >= 0 ? up.half : (down?.half ?? 0);
+    return at(sign * Math.max(R * Math.sin(phi), slot), c.z + R * Math.cos(phi) * stretch);
+  };
+  const ring: XYZ[] = [at(up.half, up.to), ...side.map((phi) => point(phi, 1))];
+  if (down) ring.push(at(down.half, down.to), at(-down.half, down.to));
+  // The other side, back up (without the bottom twice when there's no down slot).
+  ring.push(...(down ? side : side.slice(0, -1)).reverse().map((phi) => point(phi, -1)));
   ring.push(at(-up.half, up.to));
   return ring;
 }
@@ -565,7 +589,7 @@ export function layoutInnerEnd(
   const stations = stationsOver(sStart, sEnd, CABLE_SWEEP_STEP, [clipFrom, clipFrom + CABLE_CLIP_ENTRY, clipEnd - CABLE_CLIP_ENTRY, clipEnd]);
   const rings = stations.map((s) => {
     const { c, u, stretch } = frame(s);
-    return boreRing(c, u, R, stretch, { half: lipHalf(s, clipFrom, clipEnd, R), to: Math.max(c.z + R * stretch, 0) + 1 });
+    return boreRing(c, u, R, stretch, { half: lipHalf(s, clipFrom, clipEnd, R), to: Math.max(c.z + R * stretch, 0) + 1, range: [CABLE_CLIP_OPENING_FRACTION * R, R] });
   });
   const channel: SweepSolid = { rings, start: path(sStart), end: path(sEnd) };
 
@@ -716,12 +740,17 @@ export function layoutCapClip(
     // 45 degree chamfer C wide at the plate on both sides AND past both
     // ends (the end chamfer ramps from C deep at the block's end face to
     // nothing C further on), so its root is a pyramid-like frustum.
-    const depthAt = (s: number) => (s >= 0 && s <= len ? -zLo : C - Math.max(-s, s - len));
+    // Each end face is the step from a ring exactly C deep at s = 0 (and
+    // len) to a full one STEP inside it. (A step ring a hair under C deep
+    // reached a hair past the side faces, and the strip between the two rings
+    // folded back on itself: a sheet of no thickness, issue #219.)
+    const STEP = 0.01;
+    const depthAt = (s: number) => (s > 0 && s < len ? -zLo : C - Math.max(0, -s, s - len));
     const END = 0.05; // the end chamfer stops this short of the plate, never a face lying on it
     // Close stations along the end chamfers, so their slopes follow a
     // curving outline closely.
     const ramp = Array.from({ length: 6 }, (_, i) => (C * (i + 1)) / 7);
-    const blockStations = stationsOver(-C + END, len + C - END, CABLE_SWEEP_STEP, [...ramp.map((e) => -e), ...ramp.map((e) => len + e), -0.01, 0, CABLE_CLIP_ENTRY, len - CABLE_CLIP_ENTRY, len, len + 0.01]);
+    const blockStations = stationsOver(-C + END, len + C - END, CABLE_SWEEP_STEP, [...ramp.map((e) => -e), ...ramp.map((e) => len + e), 0, STEP, CABLE_CLIP_ENTRY, len - CABLE_CLIP_ENTRY, len - STEP, len]);
     const block: SweepSolid = {
       rings: blockStations.map((s) => {
         const { c, u } = along(s);
@@ -738,7 +767,7 @@ export function layoutCapClip(
     const bore: SweepSolid = {
       rings: boreStations.map((s) => {
         const { c, u } = along(s);
-        return boreRing({ ...c, z: zc }, u, R, 1, { half: R, to: CAP_CLIP_RELIEF }, { half: lipHalf(s, 0, len, R, 0.9 * R), to: zLo - 1 });
+        return boreRing({ ...c, z: zc }, u, R, 1, { half: R, to: CAP_CLIP_RELIEF, range: [R, R] }, { half: lipHalf(s, 0, len, R, 0.9 * R), to: zLo - 1, range: [closed, 0.9 * R] });
       }),
       start: { ...along(-C - 1).c, z: zc },
       end: { ...along(len + C + 1).c, z: zc },
@@ -792,16 +821,18 @@ export function layoutCapClip(
  * chamfer to W + C at the plate. The chamfer runs on 0.1 mm into the plate
  * (never an edge lying exactly on its underside), then straight up to 1 mm
  * into it, where the two weld -- so nothing reaches past W + C + 0.1, inside
- * the rim. Where `depth` is under C (the end chamfer) the whole section lies
- * on the chamfer's slope. Always eight vertices, so every ring of the sweep
- * matches: on the slope-only sections the one between the weld and the
- * bottom is a collinear midpoint.
+ * the rim. Where `depth` is at most C (the end chamfer) the whole section
+ * lies on the chamfer's slope. Always eight vertices, so every ring of the
+ * sweep matches: a full section's chamfer foot and bottom corner pair with a
+ * slope-only section's chamfer foot and a point halfway along its bottom, so
+ * the strip between the two at the block's end face is a flat step that
+ * never folds back on itself (issue #219).
  */
 function chamferedBlockRing(c: XY, u: XY, W: number, C: number, depth: number): XYZ[] {
   const at = (p: number, z: number): XYZ => ({ x: c.x + u.x * p, y: c.y + u.y * p, z });
   const E = 0.1;
   const weld = W + C + E;
-  const lo = depth > C ? W : W + C - depth;
-  const [bp, bz] = depth > C ? [W, -C] : [(weld + lo) / 2, (E - depth) / 2];
-  return [at(weld, 1), at(weld, E), at(bp, bz), at(lo, -depth), at(-lo, -depth), at(-bp, bz), at(-weld, E), at(-weld, 1)];
+  if (depth > C) return [at(weld, 1), at(weld, E), at(W, -C), at(W, -depth), at(-W, -depth), at(-W, -C), at(-weld, E), at(-weld, 1)];
+  const lo = W + C - depth;
+  return [at(weld, 1), at(weld, E), at(lo, -depth), at(lo / 2, -depth), at(-lo / 2, -depth), at(-lo, -depth), at(-weld, E), at(-weld, 1)];
 }

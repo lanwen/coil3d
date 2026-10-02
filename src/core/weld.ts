@@ -32,6 +32,15 @@ export const WELD_EPSILON = 0.02;
 /** A triangle may turn by at most this angle (cosine) when its corner moves. */
 const MIN_NORMAL_COS = 0.2;
 
+/** A triangle lower than this (mm) has no facing to trust (a float32 rounding can turn it): it can't fold. */
+export const NEEDLE_HEIGHT = 1e-3;
+
+/** Two triangles on an edge whose normals are this close to opposite (8 degrees) fold the surface back on itself there. */
+const FOLD_COS = Math.cos((8 * Math.PI) / 180);
+
+/** A triangle (not a needle) that turns by less than this (cosine; a degree) when its corner moves can't newly fold. */
+const TURN_COS = Math.cos(Math.PI / 180);
+
 /**
  * `mesh` with its short edges collapsed, and for each triangle of the result
  * the index it had in `mesh` (so a caller can carry per-triangle marks over).
@@ -104,6 +113,7 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
     const shared = new Set<number>(ofU.flatMap((t) => [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]]).filter((x) => x !== u && x !== v && neighboursOfV.has(x)));
     if (across[0] === across[1] || shared.size !== 2) return false;
     // No triangle of u folds over when u moves onto v.
+    const turned: number[] = [];
     for (const t of ofU) {
       if (onEdge.includes(t)) continue;
       const [a, b, c] = [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]];
@@ -114,6 +124,29 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
       // A triangle thinner than the epsilon is itself a needle: its facing means nothing, and it may turn freely.
       const longest = Math.sqrt(Math.max(squared(a, b), squared(b, c), squared(c, a)));
       if (lenBefore > 2 * epsilon * longest && (lenAfter === 0 || along < MIN_NORMAL_COS * lenBefore * lenAfter)) return false;
+      if (lenBefore <= NEEDLE_HEIGHT * longest || !(along > TURN_COS * lenBefore * lenAfter)) turned.push(t);
+    }
+    // Nor may one that turned, or a needle that grows, end up lying back over a triangle beside it, a fold of no
+    // thickness (issue #219): a needle a few thousandths of a millimetre high that turned face down in a flat face did.
+    const after = (t: number) => [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]].map((x) => (x === u ? v : x));
+    const realNormal = (t: number): [number, number, number] | undefined => {
+      const [a, b, c] = after(t);
+      const n = normalOf(a, b, c);
+      const longest = Math.sqrt(Math.max(squared(a, b), squared(b, c), squared(c, a)));
+      return Math.hypot(...n) > NEEDLE_HEIGHT * longest ? n : undefined;
+    };
+    for (const t of turned) {
+      const n = realNormal(t);
+      if (!n) continue;
+      const corners = after(t);
+      for (let e = 0; e < 3; e++) {
+        const [p, q] = [corners[e], corners[(e + 1) % 3]];
+        for (const s of p === v ? [...ofU, ...ofV] : trianglesOf(p)) {
+          if (s === t || onEdge.includes(s) || !after(s).includes(q)) continue;
+          const m = realNormal(s);
+          if (m && n[0] * m[0] + n[1] * m[1] + n[2] * m[2] < -FOLD_COS * Math.hypot(...n) * Math.hypot(...m)) return false;
+        }
+      }
     }
     for (const t of onEdge) alive[t] = 0;
     for (const t of ofU) {

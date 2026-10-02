@@ -24,7 +24,7 @@
 // where one lands on a pixel the line-art renderer draws a dot.
 
 import type { CoilMesh } from "./types";
-import { WELD_EPSILON } from "./weld";
+import { NEEDLE_HEIGHT, WELD_EPSILON } from "./weld";
 
 /**
  * The longest edge the call sites keep, mm. Measured on the round cap in the
@@ -56,6 +56,9 @@ const WORST_ANGLE_TO_FLIP = (2 * Math.PI) / 180;
 
 /** Two triangles on an edge fold back onto each other when their normals are this close to opposite (cosine; 8 degrees). */
 const FOLD_COS = 0.99;
+
+/** A quad whose fourth corner is this close (mm) to the other three's plane is flat: a flip in it turns no triangle. */
+const COPLANAR = 1e-4;
 
 /** Twice the signed area of (a, b, c) in the (u, v) frame. */
 function area2(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number {
@@ -238,6 +241,23 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
     }
   };
 
+  /** The normal of the triangle on corners a, b, c, or undefined for a needle under NEEDLE_HEIGHT high, whose facing means nothing. */
+  const realNormal = ([a, b, c]: number[]): [number, number, number] | undefined => {
+    const [ux, uy, uz] = [pos[3 * b] - pos[3 * a], pos[3 * b + 1] - pos[3 * a + 1], pos[3 * b + 2] - pos[3 * a + 2]];
+    const [vx, vy, vz] = [pos[3 * c] - pos[3 * a], pos[3 * c + 1] - pos[3 * a + 1], pos[3 * c + 2] - pos[3 * a + 2]];
+    const n: [number, number, number] = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+    const longest = Math.max(Math.hypot(ux, uy, uz), Math.hypot(vx, vy, vz), Math.hypot(pos[3 * c] - pos[3 * b], pos[3 * c + 1] - pos[3 * b + 1], pos[3 * c + 2] - pos[3 * b + 2]));
+    return Math.hypot(...n) > NEEDLE_HEIGHT * longest ? n : undefined;
+  };
+  const opposite = (n: [number, number, number] | undefined, m: [number, number, number] | undefined) =>
+    n !== undefined && m !== undefined && n[0] * m[0] + n[1] * m[1] + n[2] * m[2] < -FOLD_COS * Math.hypot(...n) * Math.hypot(...m);
+  const foldsBetween = (a: number[], b: number[]) => opposite(realNormal(a), realNormal(b));
+  /** Whether the triangle on `corners` would fold back over any of the triangles in `others` (-1 for a border: none). */
+  const foldsBack = (corners: number[], others: number[]) => {
+    const n = realNormal(corners);
+    return others.some((o) => o >= 0 && opposite(n, realNormal([tr[3 * o], tr[3 * o + 1], tr[3 * o + 2]])));
+  };
+
   // Each entry is triangle * 3 + edge. Each flip strictly raises the worst
   // angle of its quad, so this ends; the budget guards a pathological mesh.
   const stack: number[] = [];
@@ -329,6 +349,9 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
       if (u === p && v === d) C = nbr[3 * t2 + k];
       if (u === d && v === q) D = nbr[3 * t2 + k];
     }
+    // Issue #219: and in 3D, where a corner sits off the plane (up to PLANE_TOLERANCE), neither new triangle may lie
+    // back over the other or a neighbour: a fold of no thickness. (Four corners in one plane can't make a new one.)
+    if (Math.abs(offPlane) > COPLANAR && (foldsBack([p, d, c], [C, B]) || foldsBack([d, q, c], [D, A]) || foldsBetween([p, d, c], [d, q, c]))) continue;
     tr.set([p, d, c], 3 * t1);
     tr.set([d, q, c], 3 * t2);
     nbr.set([C, t2, B], 3 * t1); // p->d, d->c, c->p

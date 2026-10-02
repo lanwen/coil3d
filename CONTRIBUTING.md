@@ -35,10 +35,12 @@ treating it as a regression.
 
 `test/meshFuzz.test.ts` builds random designs from a fixed seed (shapes,
 joints, mounts, fractional sizes, heights and cables, and other collar facet
-counts) and checks that every part is one connected solid with no edge left
-under the weld's limit. `npm test` runs a small sample. After changing the
-geometry or the mesh clean-up (`src/core/weld.ts`, `src/core/flatFaces.ts`),
-run the long mode as well:
+counts) and checks every part: it must be one connected solid, with no edge
+under the weld's limit and no zero-thickness fold (two triangles on an edge
+whose normals are within 8 degrees of opposite, so the surface doubles back
+on itself). `npm test` runs a small sample. After changing the geometry or
+the mesh clean-up (`src/core/weld.ts`, `src/core/flatFaces.ts`), run the long
+mode as well:
 
 ```sh
 COIL3D_FUZZ=5000 npx vitest run test/meshFuzz.test.ts

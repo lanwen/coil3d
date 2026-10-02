@@ -9,7 +9,7 @@
 // outer wall, the bore, and the flat annuli at z=0 and z=height are all
 // connected. Fusing the bottom flange (see manifold.ts) only extends it.
 
-import { arcLengthFractionAt, evalOutline, outlineColumnParams, paramAt, pointAt } from "./shapes";
+import { arcLengthFractionAt, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
@@ -266,7 +266,10 @@ export function buildOutlineRing(outerOutline: ShapeOutline, outerOffset: number
   const innerBottom: number[] = [];
   const innerTop: number[] = [];
   for (const t of ts) {
-    const o = evalOutline(outerOutline, paramAt(outerOutline, 0, t), outerOffset);
+    // pointAt, like the inner outline: a round outline's own corner parameter starts 45 degrees round from its
+    // `t`, which paired each outer column with an inner one 45 degrees away, and on a narrow annulus the twisted
+    // strips folded back over each other (issue #219).
+    const o = pointAt(outerOutline, t, outerOffset);
     const inner = pointAt(innerOutline, t, 0);
     outerBottom.push(push(o.x, o.y, zLo));
     outerTop.push(push(o.x, o.y, zHi));

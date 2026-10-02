@@ -2,7 +2,7 @@ import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
 import { design } from "../src/core";
-import type { CoilMesh, CoilSpec, JointKind, MountKind, Resolution, ShapeSpec } from "../src/core";
+import type { CoilMesh, CoilSpec, JointKind, MountKind, Part, Resolution, ShapeSpec } from "../src/core";
 import { collarSegments } from "../src/core/manifold";
 import { WELD_EPSILON, weldShortEdges } from "../src/core/weld";
 
@@ -11,6 +11,8 @@ import { WELD_EPSILON, weldShortEdges } from "../src/core/weld";
 // sizes (issue #201: a bayonet cap at 28.31, 28.37 and 28.88 mm), which grid
 // sweeps step over, so this samples seeded random specs instead: shapes,
 // corner radii, joints, mounts, sizes, heights, cables and collar facet counts.
+// Issue #219: every part must also have no edge under the weld's limit and no
+// zero-thickness fold.
 //
 // The default run is a fixed sample. For a long run, set the case count (and,
 // to continue elsewhere, the first case index):
@@ -94,6 +96,51 @@ function edgesShorterThan(mesh: CoilMesh, limit: number): number {
   return count;
 }
 
+/** Normals this close to opposite (8 degrees, the flip pass's own fold guard) mean the surface folds back on itself. */
+const FOLD_COS = Math.cos((8 * Math.PI) / 180);
+/** The smallest triangle height (mm) whose normal the fold check trusts. */
+const MIN_HEIGHT = 1e-3;
+
+/**
+ * How many edges of `mesh` are zero-thickness folds (issue #219): two triangles of real height on the edge that
+ * face apart, within 8 degrees of opposite. That is a sheet of no volume doubling back over itself, or two
+ * coincident triangles of opposite winding. A real part has no wedge that sharp.
+ */
+function foldEdges(mesh: CoilMesh): number {
+  const { positions: P, indices: I } = mesh;
+  const normals = new Float64Array(I.length);
+  const real = new Uint8Array(I.length / 3);
+  for (let t = 0; t < I.length / 3; t++) {
+    const [a, b, c] = [3 * I[3 * t], 3 * I[3 * t + 1], 3 * I[3 * t + 2]];
+    const u = [P[b] - P[a], P[b + 1] - P[a + 1], P[b + 2] - P[a + 2]];
+    const v = [P[c] - P[a], P[c + 1] - P[a + 1], P[c + 2] - P[a + 2]];
+    const w = [P[c] - P[b], P[c + 1] - P[b + 1], P[c + 2] - P[b + 2]];
+    const n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    const len = Math.hypot(n[0], n[1], n[2]);
+    // A needle under a micrometre high, a few float32 roundings from flat, has no normal to trust.
+    real[t] = len > MIN_HEIGHT * Math.max(Math.hypot(...u), Math.hypot(...v), Math.hypot(...w)) ? 1 : 0;
+    if (real[t]) normals.set([n[0] / len, n[1] / len, n[2] / len], 3 * t);
+  }
+  const onEdge = new Map<string, number[]>();
+  for (let t = 0; t < I.length / 3; t++) {
+    for (let k = 0; k < 3; k++) {
+      const [a, b] = [I[3 * t + k], I[3 * t + ((k + 1) % 3)]];
+      const key = a < b ? `${a},${b}` : `${b},${a}`;
+      const ts = onEdge.get(key);
+      if (ts) ts.push(t);
+      else onEdge.set(key, [t]);
+    }
+  }
+  let count = 0;
+  for (const ts of onEdge.values()) {
+    const folded = ts.some((t1, i) =>
+      ts.slice(i + 1).some((t2) => real[t1] && real[t2] && normals[3 * t1] * normals[3 * t2] + normals[3 * t1 + 1] * normals[3 * t2 + 1] + normals[3 * t1 + 2] * normals[3 * t2 + 2] < -FOLD_COS),
+    );
+    if (folded) count++;
+  }
+  return count;
+}
+
 let wasm: ManifoldToplevel;
 beforeAll(async () => {
   wasm = await Module();
@@ -108,6 +155,18 @@ function solids(mesh: CoilMesh): number {
   pieces.forEach((p) => p.delete());
   m.delete();
   return n;
+}
+
+/** What is wrong with a part (issues #208, #219): not one solid, edges under the weld's limit, or zero-thickness folds. */
+function problems(part: Part): string[] {
+  const out: string[] = [];
+  const n = solids(part.mesh);
+  if (n !== 1) out.push(`${part.name} is ${n < 0 ? "not a valid solid" : `${n} solids`}`);
+  const short = edgesShorterThan(part.mesh, SHORT_EDGE);
+  if (short > 0) out.push(`${part.name} has ${short} edges under ${SHORT_EDGE} mm`);
+  const folds = foldEdges(part.mesh);
+  if (folds > 0) out.push(`${part.name} has ${folds} zero-thickness fold edges`);
+  return out;
 }
 
 function spec(overrides: Partial<CoilSpec>): CoilSpec {
@@ -209,7 +268,90 @@ describe("mesh clean-up reproductions (issue #208)", () => {
   });
 });
 
-describe("seeded fuzz: every part is one solid after the mesh clean-up (issue #208)", () => {
+interface Reproduction {
+  name: string;
+  spec: Partial<CoilSpec>;
+  resolution?: Resolution;
+  segments?: { round: number; other: number };
+}
+
+// Issue #219: a design for each source of the folds and short edges the fuzz below found once it checked every part
+// for both. Each one fails on the code before its fix (and only there; the fuzz would cover them all, but slowly).
+const REPRODUCTIONS_219: Reproduction[] = [
+  // The cap clip block's end faces: the strip from a ring a hair under the end chamfer's depth (so a hair wider than
+  // the block) to the full ring folded back over itself, on both sides of every clip.
+  { name: "a round snap cap's cable clips", spec: { joint: "snap" } },
+  // Where the channel's lips start, the bore rings spread their vertices round each ring's own arc, so they slid
+  // round the circle between two rings 0.05 mm apart.
+  {
+    name: "the core's inner-end channel at its lips",
+    spec: { wire: { length: 4505, diameter: 6.1, type: "flex" }, windingQuality: 0.78, coreSize: { locked: true, dimension: "outer", value: 37.14 }, height: { locked: true, value: 69.21 }, tolerance: 0.31, mount: "keyhole", plateJoint: "snap", keyholeRotation: 45 },
+  },
+  // A round flange's outer columns came from the outline's corner parameter, 45 degrees round from the inner ones,
+  // and on a narrow annulus the twisted strips of its faces folded over each other.
+  {
+    name: "a big round core's flange on a narrow margin",
+    spec: { wire: { length: 8374, diameter: 2.57, type: "flex" }, windingQuality: 0.62, coreSize: { locked: true, dimension: "outer", value: 102.78 }, height: { locked: true, value: 39.38 }, layers: { locked: true, value: 1 }, objective: "aspectRatio", joint: "snap", tolerance: 0.24 },
+  },
+  // The weld turned a needle a few thousandths of a millimetre high face down in a flat face.
+  {
+    name: "a weld collapse beside a needle",
+    spec: { wire: { length: 3182, diameter: 4.52, type: "usb" }, windingQuality: 0.59, coreSize: { locked: true, dimension: "inner", value: 60.31 }, height: { locked: false }, layers: { locked: false }, objective: "aspectRatio", joint: "snap", tolerance: 0.23, mount: "through", throughHoleDiameter: 7.11 },
+  },
+  // The flip pass made a new triangle that, with a corner a little off the plane, lay back over its neighbour.
+  {
+    name: "a flip in a face that is flat only to within the flip pass's tolerance",
+    spec: { wire: { length: 1190, diameter: 1.95, type: "flex" }, shape: { kind: "sq", cornerRadius: 14.77 }, windingQuality: 0.72, coreSize: { locked: true, dimension: "outer", value: 92.23 }, height: { locked: true, value: 31.04 }, layers: { locked: true, value: 1 }, objective: "aspectRatio", joint: "snap", tolerance: 0.37, mount: "opengrid", plateJoint: "snap" },
+  },
+  // The hull of the snap cap's through-hole, many points along each straight side in one plane, had sheets of no
+  // thickness folded into its side faces.
+  {
+    name: "a square snap cap's through-hole",
+    spec: { wire: { length: 5346, diameter: 4.9, type: "flex" }, shape: { kind: "sq", cornerRadius: 12.8 }, windingQuality: 0.85, coreSize: { locked: false }, height: { locked: false }, layers: { locked: false }, joint: "snap", tolerance: 0.29 },
+    segments: { round: 144, other: 96 },
+  },
+  // The snap barb's widest ring had a corner a hundredth of a millimetre off a triangular collar's flat side.
+  {
+    name: "a triangular snap cap's barb against the collar's flat sides",
+    spec: { wire: { length: 950, diameter: 2.16, type: "flex" }, shape: { kind: "tri", cornerRadius: 10.23 }, windingQuality: 0.68, coreSize: { locked: true, dimension: "outer", value: 58.88 }, height: { locked: true, value: 58.47 }, layers: { locked: true, value: 3 }, objective: "aspectRatio", joint: "snap", tolerance: 0.21 },
+  },
+  // A SKÅDIS clip at the very end of the rim: the notch's side wall cut a sliver of rim a hair thick.
+  {
+    name: "a SKÅDIS notch at the end of the rim",
+    spec: { wire: { length: 2221, diameter: 1.78, type: "usb" }, windingQuality: 0.77, coreSize: { locked: false }, height: { locked: true, value: 33.08 }, layers: { locked: false }, objective: "aspectRatio", tolerance: 0.17, mount: "skadis" },
+    resolution: "draft",
+  },
+  // On a 500 mm core the collar pad's facets sagged about as deep as the channel pad's fillet dips into the collar.
+  {
+    name: "the flange pads of a very big core",
+    spec: { wire: { length: 9273, diameter: 5.44, type: "stiff" }, windingQuality: 0.83, coreSize: { locked: false }, height: { locked: true, value: 38.57 }, layers: { locked: true, value: 1 }, objective: "aspectRatio", joint: "bayonet", tolerance: 0.24 },
+  },
+  // The openGrid plate's back face, triangulated a hair from a connector's corner.
+  {
+    name: "the openGrid mount plate",
+    spec: { wire: { length: 2185, diameter: 1.99, type: "stiff" }, windingQuality: 0.89, coreSize: { locked: false }, height: { locked: false }, objective: "aspectRatio", joint: "bayonet", mount: "opengrid" },
+  },
+  // A bottom SKÅDIS clip whose outer jaw ended 0.012 mm above its stem.
+  {
+    name: "a SKÅDIS bottom clip's jaw and stem",
+    spec: { wire: { length: 3807, diameter: 3.42, type: "stiff" }, windingQuality: 0.79, coreSize: { locked: true, dimension: "outer", value: 100.91 }, height: { locked: true, value: 76.16 }, layers: { locked: true, value: 4 }, joint: "bayonet", tolerance: 0.26, mount: "skadis" },
+  },
+];
+
+describe("mesh clean-up reproductions (issue #219): every part is one solid, with no short edges or folds", () => {
+  it.each(REPRODUCTIONS_219)("$name", async ({ spec: overrides, resolution, segments }) => {
+    const shipped = { ...collarSegments };
+    Object.assign(collarSegments, segments ?? shipped);
+    try {
+      const d = await design(spec(overrides), resolution);
+      expect(d.parts.flatMap(problems)).toEqual([]);
+    } finally {
+      Object.assign(collarSegments, shipped);
+    }
+  });
+});
+
+describe("seeded fuzz: every part is one solid, with no short edges or folds, after the mesh clean-up (issues #208, #219)", () => {
   it(`cases ${FROM} to ${FROM + COUNT - 1}`, async () => {
     const shipped = { ...collarSegments };
     const bad: string[] = [];
@@ -226,16 +368,8 @@ describe("seeded fuzz: every part is one solid after the mesh clean-up (issue #2
           bad.push(`${what}: threw ${(e as Error).message}`);
           continue;
         }
-        for (const part of d.parts) {
-          const n = solids(part.mesh);
-          if (n !== 1) bad.push(`${what}: ${part.role} is ${n < 0 ? "not a valid solid" : `${n} solids`}`);
-          // Only the core and the cap go through the weld. (The mount plate and the SKÅDIS clips can keep a few
-          // short edges from their booleans; they only have to be one solid.)
-          if (part.role === "core" || part.role === "topCap") {
-            const short = edgesShorterThan(part.mesh, SHORT_EDGE);
-            if (short > 0) bad.push(`${what}: ${part.role} has ${short} edges under ${SHORT_EDGE} mm`);
-          }
-        }
+        // Issue #219: every part, the mount plate and the SKÅDIS clips too.
+        for (const part of d.parts) bad.push(...problems(part).map((p) => `${what}: ${p}`));
         if (COUNT > DEFAULT_CASES && (i - FROM + 1) % 250 === 0) console.log(`fuzz: ${i - FROM + 1} of ${COUNT} cases, ${bad.length} bad, ${Math.round((Date.now() - started) / 1000)} s`);
       }
     } finally {

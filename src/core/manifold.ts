@@ -67,7 +67,7 @@ import { clipFrame } from "./skadisClips";
 import type { RimClip, SkadisClipLayout } from "./skadisClips";
 import { tclipFrame } from "./skadisTclips";
 import type { SkadisTclipLayout, Tclip } from "./skadisTclips";
-import { minCornerSegments, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
+import { minCornerSegments, offsetOutline, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh, JointKind, MountKind } from "./types";
 
@@ -188,6 +188,29 @@ function collarBase(
 const SNAP_COLUMNS = 96;
 
 /**
+ * Issue #219: the turn (degrees) of the snap barb's facets that keeps the corners of its widest ring, which reaches
+ * out past a non-round collar's flat sides and back into them, as far from the collar's outline as it can. A corner
+ * a hair off a flat face left needles and edges far under the weld's limit where the two met. A round collar, the
+ * same distance away all round, keeps 0.
+ */
+function barbTurnDeg(collarOutline: ShapeOutline, barb: OutlineStack): number {
+  const radius = Math.max(...barb.map((station) => station.outline.apothem));
+  const step = 360 / SNAP_COLUMNS;
+  let best = 0;
+  let bestGap = -1;
+  for (let k = 0; k < 16; k++) {
+    const turn = (k * step) / 16;
+    let gap = Infinity;
+    for (let i = 0; i < SNAP_COLUMNS; i++) {
+      const a = ((i * step + turn) * Math.PI) / 180;
+      gap = Math.min(gap, Math.abs(outlineOffsetAt(collarOutline, radius * Math.cos(a), radius * Math.sin(a)).offset));
+    }
+    if (gap > bestGap + 1e-9) [best, bestGap] = [turn, gap];
+  }
+  return best;
+}
+
+/**
  * Columns for a cap collar's walls: a round one gets 2.5 degree facets, so a facet seam seen edge-on lies within the
  * wall's own outline (issue #200); other shapes keep 48 (see `buildTopCap`). Mutable only so a test can try other
  * counts: the mesh clean-up passes (weld.ts, flatFaces.ts) must hold for any of them (issue #208).
@@ -198,10 +221,22 @@ export const collarSegments = { round: 144, other: 48 };
 function stackSolid(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, stack: OutlineStack, columns: number, cornerSegments: number): Manifold {
   const pieces: Manifold[] = [];
   for (let i = 0; i + 1 < stack.length; i++) {
-    const pts = [stack[i], stack[i + 1]].flatMap(({ outline, z }) => outlinePolygon(outline, columns, cornerSegments).map(([x, y]): [number, number, number] => [x, y, z]));
+    const pts = [stack[i], stack[i + 1]].flatMap(({ outline, z }) => corners(outlinePolygon(outline, columns, cornerSegments)).map(([x, y]): [number, number, number] => [x, y, z]));
     pieces.push(track(wasm.Manifold.hull(pts)));
   }
   return track(wasm.Manifold.union(pieces));
+}
+
+/**
+ * Issue #219: `poly` without the points in the middle of its straight sides. They add nothing to a hull, and with
+ * many of them in one side face's plane the hull came out with sheets of no thickness folded into that face.
+ */
+function corners(poly: [number, number][]): [number, number][] {
+  return poly.filter((p, i) => {
+    const [a, b] = [poly[(i + poly.length - 1) % poly.length], poly[(i + 1) % poly.length]];
+    const cross = (p[0] - a[0]) * (b[1] - a[1]) - (p[1] - a[1]) * (b[0] - a[0]);
+    return Math.abs(cross) > 1e-9 * Math.hypot(b[0] - a[0], b[1] - a[1]);
+  });
 }
 
 /** A box spanning radius [rLo, rHi] and tangential width `width`, at axial [zLo, zHi], rotated to `angleDeg` about Z -- the shared primitive for lugs, entry slots and relief slots (all "a chunk of material/void between two radii, centered on an angle"). */
@@ -647,7 +682,8 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       // diamond point with 45-degree faces (issues #168, #186) -- see
       // joints.ts's `snapLayout`. The fingers' root flare stays inside the bore.
       const base = collarBase(wasm, track, collarOutline, snap.rootOutline, segments, flange.minCornerSegments);
-      const withBarb = track(base.add(stackSolid(wasm, track, snap.barb, SNAP_COLUMNS, 1)));
+      const barb = track(stackSolid(wasm, track, snap.barb, SNAP_COLUMNS, 1).rotate([0, 0, barbTurnDeg(collarOutline, snap.barb)]));
+      const withBarb = track(base.add(barb));
       // Already tracked (unionAtAngles tracks its own final reduce step).
       const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, angle), SNAP_HOOK_COUNT);
       collar = track(withBarb.subtract(slots));
@@ -864,8 +900,10 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
       throw new Error(`Mount plate mesh is not a valid manifold: ${plate.status()}`);
     }
 
+    // Issue #219: where a clip's walls meet the panel's back face, its triangulation can pass a hair from a
+    // clip's corner and leave edges far shorter than anything printable. Only a mesh with such edges changes.
     const outMesh = plate.getMesh();
-    return { positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) };
+    return weldShortEdges({ positions: new Float32Array(outMesh.vertProperties), indices: new Uint32Array(outMesh.triVerts) }).mesh;
   } finally {
     for (const m of trash) m.delete();
   }
