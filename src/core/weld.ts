@@ -8,10 +8,11 @@
 // and no edge flip can fix that, because the short edge is on the border. The
 // line-art renderer draws needles as isolated pixels.
 //
-// This collapses every edge shorter than WELD_EPSILON onto one of its ends, as
-// long as that keeps the mesh a closed manifold and folds no triangle over.
-// Each collapse moves a vertex by less than the epsilon and drops two
-// triangles. What the collapses leave behind is for flatFaces.ts to flip.
+// This collapses every edge shorter than WELD_EPSILON onto one of its ends (or,
+// when neither end is safe, onto its middle), as long as that keeps the mesh a
+// closed manifold and folds no triangle over. Each collapse moves a vertex by
+// less than the epsilon and drops two triangles. What the collapses leave
+// behind is for flatFaces.ts to flip.
 //
 // A collapse is safe when the link condition holds: the ends' only shared
 // neighbours are the two vertices across the edge, or it would make a
@@ -50,7 +51,7 @@ const TURN_COS = Math.cos(Math.PI / 180);
  * The input is not modified; when nothing collapses it is returned as is.
  */
 export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): { mesh: CoilMesh; origin: Uint32Array; stuck: number } {
-  const pos = mesh.positions;
+  let pos = mesh.positions;
   const tr = new Uint32Array(mesh.indices);
   const triCount = tr.length / 3;
   const vertexCount = pos.length / 3;
@@ -101,8 +102,12 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
   };
 
   const gone = new Uint8Array(vertexCount);
-  /** Collapse u onto v if that is safe; whether it was. */
-  const collapse = (u: number, v: number): boolean => {
+  /**
+   * Collapse u onto v if that is safe; whether it was. With `middle`, the merged vertex goes halfway between them
+   * instead (issue #227): a sliver beside the edge can turn over when the vertex lands on either end, and not when
+   * it lands in between. Then v's triangles move too, and are checked as u's are.
+   */
+  const collapse = (u: number, v: number, middle = false): boolean => {
     const ofU = trianglesOf(u);
     const ofV = trianglesOf(v);
     const onEdge = ofU.filter((t) => ofV.includes(t)); // the two triangles on the edge
@@ -112,18 +117,34 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
     const neighboursOfV = new Set<number>(ofV.flatMap((t) => [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]]));
     const shared = new Set<number>(ofU.flatMap((t) => [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]]).filter((x) => x !== u && x !== v && neighboursOfV.has(x)));
     if (across[0] === across[1] || shared.size !== 2) return false;
-    // No triangle of u folds over when u moves onto v.
-    const turned: number[] = [];
-    for (const t of ofU) {
-      if (onEdge.includes(t)) continue;
+    // With `middle`, v moves halfway to u: note its triangles as they were first. If the collapse is refused, v goes back.
+    const movers = middle ? [...ofU, ...ofV].filter((t) => !onEdge.includes(t)) : ofU.filter((t) => !onEdge.includes(t));
+    const was = middle ? Array.from(pos.subarray(3 * v, 3 * v + 3)) : [];
+    const longestOf = (a: number, b: number, c: number) => Math.sqrt(Math.max(squared(a, b), squared(b, c), squared(c, a)));
+    const measure = (t: number) => {
       const [a, b, c] = [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]];
-      const before = normalOf(a, b, c);
-      const after = normalOf(a === u ? v : a, b === u ? v : b, c === u ? v : c);
-      const [lenBefore, lenAfter] = [Math.hypot(...before), Math.hypot(...after)];
-      const along = before[0] * after[0] + before[1] * after[1] + before[2] * after[2];
+      return { n: normalOf(a, b, c), longest: longestOf(a, b, c) };
+    };
+    const before = new Map<number, ReturnType<typeof measure>>();
+    if (middle) for (const t of movers) before.set(t, measure(t));
+    if (middle) {
+      if (pos === mesh.positions) pos = mesh.positions.slice(); // the input is not modified
+      for (let k = 0; k < 3; k++) pos[3 * v + k] = (pos[3 * u + k] + was[k]) / 2;
+    }
+    const refuse = (): false => {
+      if (middle) for (let k = 0; k < 3; k++) pos[3 * v + k] = was[k];
+      return false;
+    };
+    // No triangle of u (and of v, when it moves) folds over when u moves onto v.
+    const turned: number[] = [];
+    for (const t of movers) {
+      const [a, b, c] = [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]];
+      const { n: nBefore, longest } = before.get(t) ?? measure(t);
+      const nAfter = normalOf(a === u ? v : a, b === u ? v : b, c === u ? v : c);
+      const [lenBefore, lenAfter] = [Math.hypot(...nBefore), Math.hypot(...nAfter)];
+      const along = nBefore[0] * nAfter[0] + nBefore[1] * nAfter[1] + nBefore[2] * nAfter[2];
       // A triangle thinner than the epsilon is itself a needle: its facing means nothing, and it may turn freely.
-      const longest = Math.sqrt(Math.max(squared(a, b), squared(b, c), squared(c, a)));
-      if (lenBefore > 2 * epsilon * longest && (lenAfter === 0 || along < MIN_NORMAL_COS * lenBefore * lenAfter)) return false;
+      if (lenBefore > 2 * epsilon * longest && (lenAfter === 0 || along < MIN_NORMAL_COS * lenBefore * lenAfter)) return refuse();
       if (lenBefore <= NEEDLE_HEIGHT * longest || !(along > TURN_COS * lenBefore * lenAfter)) turned.push(t);
     }
     // Nor may one that turned, or a needle that grows, end up lying back over a triangle beside it, a fold of no
@@ -144,7 +165,7 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
         for (const s of p === v ? [...ofU, ...ofV] : trianglesOf(p)) {
           if (s === t || onEdge.includes(s) || !after(s).includes(q)) continue;
           const m = realNormal(s);
-          if (m && n[0] * m[0] + n[1] * m[1] + n[2] * m[2] < -FOLD_COS * Math.hypot(...n) * Math.hypot(...m)) return false;
+          if (m && n[0] * m[0] + n[1] * m[1] + n[2] * m[2] < -FOLD_COS * Math.hypot(...n) * Math.hypot(...m)) return refuse();
         }
       }
     }
@@ -160,6 +181,18 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
         if (w !== v && squared(v, w) < limit) {
           queueU.push(v);
           queueV.push(w);
+        }
+      }
+    }
+    if (middle) {
+      // v moved, so its own edges may be short too.
+      for (const t of ofV) {
+        if (!alive[t]) continue;
+        for (const w of [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]]) {
+          if (w !== v && squared(v, w) < limit) {
+            queueU.push(v);
+            queueV.push(w);
+          }
         }
       }
     }
@@ -213,6 +246,10 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
         round++;
         if (collapse(u, v) || collapse(v, u)) continue;
       }
+      if (collapse(u, v, true)) {
+        round++;
+        continue;
+      }
       leftU.push(u);
       leftV.push(v);
     }
@@ -242,5 +279,5 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
     indices.set(tr.subarray(3 * t, 3 * t + 3), 3 * n);
     n++;
   }
-  return { mesh: { positions: mesh.positions, indices }, origin: kept, stuck };
+  return { mesh: { positions: pos, indices }, origin: kept, stuck };
 }

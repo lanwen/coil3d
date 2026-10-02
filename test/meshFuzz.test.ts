@@ -369,6 +369,31 @@ describe("the SKÅDIS T-clips' bore floor and fins (issue #221): every part is o
   });
 });
 
+// Issue #227: the fuzz's case 5011. A bayonet cap on a small SKÅDIS core kept an edge of 0.016 mm along the foot of a
+// short wall, in a flat face split into slivers a few micrometres high. The weld could move that edge's end onto
+// neither of its neighbours without turning a sliver face down over the next one (a zero-thickness fold), so it left
+// the edge. Moving both ends to the middle turns none.
+const REPRODUCTIONS_227: Reproduction[] = [
+  {
+    name: "a bayonet cap's wall foot between two slivers (fuzz case 5011)",
+    spec: { wire: { length: 1690, diameter: 1.98, type: "flex" }, windingQuality: 0.62, coreSize: { locked: true, dimension: "inner", value: 20.05 }, height: { locked: true, value: 43.19 }, tolerance: 0.18, joint: "bayonet", mount: "skadis" },
+    segments: { round: 120, other: 96 },
+  },
+];
+
+describe("mesh clean-up reproductions (issue #227): every part is one solid, with no short edges or folds", () => {
+  it.each(REPRODUCTIONS_227)("$name", async ({ spec: overrides, resolution, segments }) => {
+    const shipped = { ...collarSegments };
+    Object.assign(collarSegments, segments ?? shipped);
+    try {
+      const d = await design(spec(overrides), resolution);
+      expect(d.parts.flatMap(problems)).toEqual([]);
+    } finally {
+      Object.assign(collarSegments, shipped);
+    }
+  });
+});
+
 describe("seeded fuzz: every part is one solid, with no short edges or folds, after the mesh clean-up (issues #208, #219)", () => {
   it(`cases ${FROM} to ${FROM + COUNT - 1}`, async () => {
     const shipped = { ...collarSegments };
