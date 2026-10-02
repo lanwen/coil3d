@@ -9,7 +9,7 @@ import type { CoilMesh, MountKind, Part, PegboardSection, PrintSpec, Resolution,
 import { DimensionAxes, type DimensionLabels } from "./DimensionAxes";
 import { dimensionAxesGeometry, dimensionFramePoints, measureDimensionFrame } from "./dimensionGeometry";
 import { frontFacingDimensionSpin, frontFacingRotation } from "./frontFacing";
-import { LineArtRenderer, markLabelFaces, type Projection } from "./lineArt/LineArtRenderer";
+import { LineArtRenderer, markFaceKinds, type Projection } from "./lineArt/LineArtRenderer";
 import { getPreset, presetQuaternion, type PresetId } from "./lineArt/presets";
 import { mountClipsLabel } from "./partLabels";
 import { PegboardSlots } from "./PegboardSlots";
@@ -133,7 +133,7 @@ function buildCreasedGeometry(mesh: CoilMesh): THREE.BufferGeometry {
   indexed.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
   const creased = toCreasedNormals(indexed, CREASE_ANGLE);
   indexed.dispose();
-  markLabelFaces(creased, mesh);
+  markFaceKinds(creased, mesh);
   return creased;
 }
 

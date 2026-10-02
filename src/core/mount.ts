@@ -103,6 +103,7 @@ import {
   SCREW_MOUNT_TWO_SLOT_ANGLE,
   SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD,
   THROUGH_MOUNT_EDGE_MARGIN,
+  THROUGH_MOUNT_RIM_MARGIN,
   THROUGH_MOUNT_ENVELOPE_MARGIN,
   THROUGH_MOUNT_PAD_CLEARANCE,
   THROUGH_MOUNT_ROUND_HOLE_COUNTS,
@@ -456,7 +457,7 @@ export function requiredThroughMountMargin(
   // rounding can occasionally leave `layoutThroughHoleMount`'s later,
   // independent recomputation of this SAME "does it fit" check a few ULPs
   // short of the target it was solved against.
-  const target = innerBound0 + 2 * holeRadius + THROUGH_MOUNT_EDGE_MARGIN + 1e-6;
+  const target = innerBound0 + 2 * holeRadius + THROUGH_MOUNT_RIM_MARGIN + 1e-6;
   const required = target - outlineR0;
   return Math.max(0, required);
 }
@@ -534,7 +535,7 @@ export function layoutThroughHoleMount(
     const wallBound = radiusAtAngle(outline, phi) + THROUGH_MOUNT_EDGE_MARGIN;
     const envelopeBound = envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN;
     const innerLimit = Math.max(wallBound, envelopeBound) + holeRadius;
-    const outerLimit = radiusAtAngle(flangeOutline, phi) - THROUGH_MOUNT_EDGE_MARGIN - holeRadius;
+    const outerLimit = radiusAtAngle(flangeOutline, phi) - THROUGH_MOUNT_RIM_MARGIN - holeRadius;
     if (outerLimit < innerLimit) return null;
     const R = (innerLimit + outerLimit) / 2;
     return { x: R * Math.cos(phi), y: R * Math.sin(phi) };

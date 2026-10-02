@@ -323,6 +323,12 @@ export interface CoilMesh {
   indices: Uint32Array;
   /** The triangles (numbered as in `indices`, 3 entries each) that form the engraved label's pockets, walls and floors (top cap only, issue #176). The viewer draws their outline with a finer line, because the letters are small. */
   labelTriangles?: Uint32Array;
+  /**
+   * Issue #229: the triangles of the flange's and the cap's outer rim (edgeChamfer.ts). `chamfer` are the 45 degree
+   * bands, `land` the vertical wall between them. The viewer leaves out the crease between the two, so a rim draws as
+   * it would without the chamfer: its top edge line and its silhouette. The exports keep the chamfer.
+   */
+  rimTriangles?: { chamfer: Uint32Array; land: Uint32Array };
 }
 
 /**

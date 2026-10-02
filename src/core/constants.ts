@@ -14,6 +14,8 @@ export const TAPER_TURNS = 0.5;
 /** Flange outer radius = solved envelope radius + this margin. */
 export const FLANGE_MARGIN = 4; // mm
 export const FLANGE_THICKNESS = 3; // mm
+/** Issue #229: the 45 degree chamfer on the outer perimeter edges of the flange and the cap, on both faces (edgeChamfer.ts). Leaves a 1 mm vertical land on the thinnest, 3 mm plate. */
+export const EDGE_CHAMFER = 1; // mm
 export const MIN_BORE_RADIUS = 1; // mm, guards against a wall thicker than the core
 /** Bore corner radius floor for non-round shapes : offsetting a corner inward by the wall thickness can drive it to <=0, which folds the outline. */
 export const MIN_BORE_CORNER_RADIUS = 0.5; // mm
@@ -228,8 +230,8 @@ export const FLANGE_PAD_BLEND_RADIUS = 5; // mm
 export const FLANGE_PAD_BLEND_STEP = 2; // mm
 /** Where a blend meets the collar, the pad's edge runs this far inside the collar's, mm: never on it (no coincident faces), and close enough that the two meet at a hair of an angle, not a crease. */
 export const FLANGE_PAD_BLEND_BURY = 0.15; // mm
-/** Pads reach this far into the plate below its top face, mm (so no pad face lies on the plate's own). */
-export const FLANGE_PAD_EMBED = 0.5; // mm
+/** Pads reach this far into the plate below its top face, mm (so no pad face lies on the plate's own). Issue #229: the plate top's rim chamfer is EDGE_CHAMFER deep, and a pad at the rim must reach below it, or its underside would hang over the chamfer's cut. */
+export const FLANGE_PAD_EMBED = EDGE_CHAMFER; // mm
 /** Pads reach this far above the inner face, mm (so the relief cut never has a face on it). */
 export const FLANGE_PAD_RISE = 0.5; // mm
 
@@ -428,6 +430,8 @@ export const THROUGH_HOLE_DIAMETER_MAX = 8; // mm
 export const DEFAULT_THROUGH_HOLE_DIAMETER = 4.5; // mm: shank clearance for a common wood screw (e.g. a #8)
 /** Minimum flange material left around each hole, to the wall's own outer (winding) surface and to the flange's own outer edge (mirrors SCREW_MOUNT_EDGE_MARGIN) -- a hard 2mm floor, verified by vitest against the ACTUAL resolved geometry. */
 export const THROUGH_MOUNT_EDGE_MARGIN = 2; // mm
+/** Issue #229: the screw head's bearing ring keeps to the flat top of the plate, so the hole sits this far in from the flange's outer edge: the edge margin, past the rim's chamfer. */
+export const THROUGH_MOUNT_RIM_MARGIN = THROUGH_MOUNT_EDGE_MARGIN + EDGE_CHAMFER; // mm
 /** Minimum clearance kept between a through-hole and the wound cable's outer envelope, so the hole is genuinely reachable with a screwdriver from outside the winding (issue #70 AC). */
 export const THROUGH_MOUNT_ENVELOPE_MARGIN = 2; // mm
 /** Issue #139: the screw head (the hole plus its THROUGH_MOUNT_EDGE_MARGIN bearing ring) keeps at least this much plain plate between it and any flange pad's footprint, mm. */

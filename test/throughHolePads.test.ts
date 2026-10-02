@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, exportDesign, parseHash } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
+import { EDGE_CHAMFER } from "../src/core/constants";
 import { STEP_TIMEOUT_MS, reimportStep, stepContains } from "./support/step";
 
 // Issue #139: a through-hole's screw head bears on the plate's winding-side
@@ -124,8 +125,10 @@ describe("through-hole screw heads sit on the plain plate, clear of every pad (i
             const y = hole.y + rr * Math.sin(phi);
             const hits = rayHits(d.mesh, tris, x, y);
             const plain = hits.length === 2 && Math.abs(hits[0] + T) < 1e-3 && Math.abs(hits[1] - plateTop) < 1e-3;
-            // Under the head itself the plate must be there; in the margin past it, the rim may end the plate.
-            const ok = plain || (rr > headRadius(hole.r) + 1e-9 && hits.length === 0);
+            // Under the head itself the plate must be plain; in the margin past it, the rim may end the plate, or
+            // (issue #229) have begun its chamfer, which lifts the plate's bottom face.
+            const chamfered = hits.length === 2 && hits[0] > -T + 1e-3 && hits[0] < -T + EDGE_CHAMFER + 1e-3;
+            const ok = plain || (rr > headRadius(hole.r) + 1e-9 && (hits.length === 0 || chamfered));
             if (!ok) bad.push(`r=${rr.toFixed(2)} phi=${((phi * 180) / Math.PI).toFixed(0)}: [${hits.map((z) => z.toFixed(2)).join(", ")}]`);
           }
         }

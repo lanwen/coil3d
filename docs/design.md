@@ -67,6 +67,13 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   bridge as wide as the screw head (8 mm). Most printers bridge it, and a
   45 degree roof would need a 3.5 mm thicker pad. The tests cap it at 8.5 mm.
 - The flange is the final outer envelope of the wound cable plus a margin.
+- The flange and the top cap have a 1 mm x 45 degree chamfer on their outer
+  edge (#229, `EDGE_CHAMFER`, `src/core/edgeChamfer.ts`): on both faces of the
+  flange, and on the top face of the cap. The cap's underside stays square,
+  because the cable clips' roots stand within a millimetre of the rim. A 3 mm
+  plate keeps a 1 mm vertical land. The through-hole mount keeps its holes
+  1 mm further from the rim, so the screw head sits on the flat top. The
+  exports keep the chamfer; the drawings leave it out (see Rendering).
 - Print orientation hints appear in the guide and in the 3MF placement.
 
 ### Tolerances
@@ -330,6 +337,12 @@ the letters in. The top cap mesh marks the label's pocket faces
 (`CoilMesh.labelTriangles`), the normal pass writes that mark into its alpha,
 and the edge shader draws only the outline of the marked area, with a finer
 pen than the other lines.
+
+The rim chamfer (#229) is too small for an IKEA drawing, so the same alpha
+channel carries a second mark (`CoilMesh.rimTriangles`: the chamfer bands and
+the land between them), and the edge shader leaves out the crease between a
+chamfer and the plate's flat face. The rim then draws as a plate with a square
+edge: the line where the chamfer meets the land, and the silhouette.
 
 The edge shader reads a needle-thin triangle (a thousandth of a millimetre
 wide) as isolated pixels, which show as a dotted line on a flat face. The

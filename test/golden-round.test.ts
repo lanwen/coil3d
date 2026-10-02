@@ -100,6 +100,10 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // along the clip's lips the round bore is sampled at about 11 degrees
     // instead of 16. The finer polygon lies closer to the circle, so the
     // channel cuts a hair more -- the same channel, sampled more finely.
-    expect(meshVolume(d.mesh)).toBeCloseTo(33771.81426147255, 3);
+    //
+    // Issue #229 bumped it DOWN from 33771.81426147255 (by 253.58 mm^3): the flange's outer edge is chamfered 1 mm on
+    // both faces, which takes 2 x 0.5 mm^2 of section along the 41.8 mm radius rim (about 260 mm^3), less the rim
+    // where the channel leaves and its pad keeps the square edge (the pads reach 1 mm into the plate now, FLANGE_PAD_EMBED).
+    expect(meshVolume(d.mesh)).toBeCloseTo(33518.23794984431, 3);
   });
 });

@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CoilMesh, Part, WireLayerPath } from "../core";
-import { LineArtRenderer, markLabelFaces, type Projection } from "./lineArt/LineArtRenderer";
+import { LineArtRenderer, markFaceKinds, type Projection } from "./lineArt/LineArtRenderer";
 import type { PresetId } from "./lineArt/presets";
 import { buildWireGeometries } from "./wireGeometry";
 
@@ -78,7 +78,7 @@ function buildCreasedGeometry(mesh: CoilMesh): THREE.BufferGeometry {
   indexed.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
   const creased = toCreasedNormals(indexed, CREASE_ANGLE);
   indexed.dispose();
-  markLabelFaces(creased, mesh);
+  markFaceKinds(creased, mesh);
   return creased;
 }
 
