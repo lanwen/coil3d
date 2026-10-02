@@ -151,7 +151,7 @@ export function resolveFlangeSizing(
     : mountKindForPlate
       ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_PLATE)
       : mount === "skadis-tclip"
-        ? // Issue #213: the lug's floor under the T-clip handle's recess.
+        ? // Issues #213, #221: the bore floor under the T-clip fin's recess.
           Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_TCLIP)
         : channelOnlyThickness;
 

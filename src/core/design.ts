@@ -38,7 +38,7 @@ import {
 } from "./constants";
 import { buildMountPlate, buildPeg, buildSkadisClip, buildSkadisTclip, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
-import { resolveCapJoint } from "./joints";
+import { jointGeometry, resolveCapJoint } from "./joints";
 import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
 import { printBBox } from "./plate";
 import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
@@ -151,20 +151,7 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
           padFootprints: channelPadFootprints(outline, innerEndLayout, thickness, sizing.plateThickness),
         })
       : undefined;
-  // Issue #213: the SKÅDIS T-clips' lugs, kept clear of the inner-end channel.
-  const tclipLayout: SkadisTclipLayout | undefined =
-    spec.mount === "skadis-tclip"
-      ? layoutSkadisTclips({
-          flangeOutline: offsetOutline(outline, sizing.margin),
-          boreOutline,
-          envelopeOutline: offsetOutline(outline, sizing.envelopeOffset),
-          thickness,
-          tolerance: spec.tolerance,
-          heavy: heavyCable,
-          avoid: innerEndLayout.channelRibbon,
-        })
-      : undefined;
-  return { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, tclipLayout, thickness };
+  return { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness };
 }
 
 /** An alternate candidate with its real flange width and overall height filled in (issue #192), from the same `planFlange` design() builds the parts from. */
@@ -228,7 +215,20 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   };
   const wantsKeyhole = spec.mount === "keyhole";
   const wantsThrough = spec.mount === "through";
-  const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, tclipLayout, thickness } = planFlange(spec, solution, outline, boreOutline);
+  const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness } = planFlange(spec, solution, outline, boreOutline);
+  // Issues #213, #221: the SKÅDIS T-clips, in a floor across the bottom of the bore. With a cap, each
+  // fin's top must be reachable through its hole, and the fins stop below its collar.
+  const capJointForTclips = resolveCapJoint(spec, wallSpec);
+  const tclipLayout: SkadisTclipLayout | undefined =
+    spec.mount === "skadis-tclip"
+      ? layoutSkadisTclips({
+          boreOutline,
+          capHole: solution.topCapEnabled ? jointGeometry(boreOutline, capJointForTclips.joint, spec.tolerance).holeOutline : undefined,
+          wallTop: solution.height,
+          thickness,
+          tolerance: spec.tolerance,
+        })
+      : undefined;
   const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness } = sizing;
   if (innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= capClipMargin) {
     note(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
@@ -254,8 +254,9 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   }
   if (skadisLayout?.warning) problem(skadisLayout.warning);
   if (tclipLayout?.warning) problem(tclipLayout.warning);
-  if (spec.mount === "skadis-tclip" && sizedThickness > channelOnlyThickness + 1e-9) {
-    note(`Flange thickness increased to ${sizedThickness.toFixed(1)} mm so the T-clip lugs keep a floor under the handles.`);
+  if (tclipLayout?.note) note(tclipLayout.note);
+  if (tclipLayout && tclipLayout.clips.length > 0 && sizedThickness > channelOnlyThickness + 1e-9) {
+    note(`Flange thickness increased to ${sizedThickness.toFixed(1)} mm so the bore's floor is thick enough under the T-clips' recesses.`);
   }
   if (mountKindForPlate && sizedThickness > channelOnlyThickness + 1e-9) {
     note(`Flange thickness increased to ${sizedThickness.toFixed(1)} mm to fit the mount plate's alignment features.`);

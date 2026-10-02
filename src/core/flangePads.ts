@@ -36,7 +36,6 @@ import type { ThroughMountLayout } from "./mount";
 import { circumscribedRadius, offsetPerimeter, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { MountKind } from "./types";
-import type { SkadisTclipLayout } from "./skadisTclips";
 
 /** The parts of manifold.ts's `FlangeSpec` the pads read. */
 export interface PaddedFlange {
@@ -51,7 +50,6 @@ export interface PaddedFlange {
   keyholeRotation?: number;
   throughHoleDiameter?: number;
   envelopeRadius?: number;
-  skadisTclip?: SkadisTclipLayout;
 }
 
 /** The plate's top face (z): the pads rise from here to z = 0. Undefined when the plate is (nearly) full thickness, so there's nothing to relieve. */
@@ -374,8 +372,6 @@ export function layoutFlangePads(flange: PaddedFlange, innerEnd: InnerEndLayout 
   // Issue #222: the SKÅDIS rim clips get no pad -- their jaws grip the plain
   // plate, exactly as thick as the through-hole mount's base (the notches
   // are cut through it).
-  // Issue #213: full thickness where a T-clip's lug overlaps the flange.
-  for (const pad of flange.skadisTclip?.pads ?? []) pads.push(stadiumPad(pad.a, pad.b, pad.radius, FLANGE_PAD_WALL, zPlate));
   return pads;
 }
 

@@ -22,26 +22,13 @@ import * as THREE from "three";
 import type { CoilMesh, Design, JointKind, MountKind, Part } from "../core";
 import { GuideFigure, renderAllGuideFigures } from "../viewer/GuideFigure";
 import { EXPLODE_GAP } from "../viewer/CoilScene";
+import { partLabel } from "../viewer/partLabels";
 import { partInPrintPose } from "./printOrientation";
 import { approxRimPoint, computeGuideFit, explodedParts, meshBounds, partsBounds, projectToFigure } from "./projection";
 import { CircleMark, ClickMark, CornerInset, Figure, InsetMark, PolylineArrow, SlotOutlines, StraightArrow, TwistMark, WallPlane, WallQuad, ZoomInset, ZoomLeader, HOST_FIGURE_WIDTH, type Pt } from "./overlays";
 import { rotateParts, rotatePoint, wallMountRotation, wallRoomRotation, wallSideRotation } from "./wallView";
 import { ClickIcon, GlueDropIcon, KeyholeIcon, NoPullIcon, NoSupportsIcon, PressIcon, RotateIcon, ScrewdriverIcon, TwistIcon, WallMountIcon, WindIcon } from "./pictograms";
 import "./guide.css";
-
-const PART_LABELS: Record<string, string> = {
-  core: "Core",
-  "top-cap": "Top cap",
-  "mount-plate": "Mount plate",
-  "peg-1": "Alignment peg",
-  "skadis-top-clip-1": "Top clip",
-  "skadis-bottom-clip-1": "Bottom clip",
-  "skadis-tclip-1": "T-clip",
-};
-
-function partLabel(part: Part): string {
-  return PART_LABELS[part.name] ?? part.name;
-}
 
 function corePart(design: Design): Part {
   return design.parts.find((p) => p.role === "core")!;
@@ -281,7 +268,7 @@ function mountLine(mount: MountKind): string {
     case "through":
       return "Drive a screw straight through each hole, into the wall -- reachable through the open bore or around the winding, no sliding needed.";
     case "skadis-tclip":
-      return "Hold the coil flat on the board with each lug's slot over a board slot. Push each T-clip through with its handle upright and turn it a quarter turn clockwise until it stops. Let go: the coil drops about 5 mm onto the clips. To take it down, lift the coil back up and turn the clips back.";
+      return "Hold the coil flat on the board, each slot in the core's floor over a board slot. Reach through the core and push each T-clip through with its fin upright, then pinch the fin and turn it a quarter turn clockwise until it stops. Let go: the coil drops about 5 mm onto the clips. To take it down, lift the coil back up and turn the clips back.";
     case "skadis":
       return "Push each bottom clip into its slot and let it drop. Lower the coil's rim into them, then push the top clip into its slot just above the rim and let it drop until it clicks. To take the coil down, lift the top clip firmly.";
     // "none" (and "opengrid", not reachable -- see this function's own doc comment).
@@ -500,6 +487,7 @@ function StepMountSkadis({ design, n }: { design: Design; n: number }) {
           parts={mountParts}
           testId="guide-mount"
           zoomInsetAt={tclip ? tclipBarAnchor(design, mountRotation) : undefined}
+          zoomInsetWindowMm={TCLIP_INSET_WINDOW_MM}
           renderOverlay={(fit) => (
             <>
               <SlotOutlines
@@ -586,6 +574,9 @@ function RimClipInset({ design, focus }: { design: Design; focus: RimClipFocus }
   const zoom = (RIM_INSET_SIZE * 2 * fit.halfHeight * fit.aspect) / (HOST_FIGURE_WIDTH * RIM_INSET_WINDOW_MM);
   return <ZoomInset parts={parts} preset="iso" fill={RIM_INSET_FILL} at={at} zoom={zoom} size={RIM_INSET_SIZE} corner="top-right" />;
 }
+
+/** How much of the model the T-clip close-up shows, across: one slot and its turned T bar, at every coil size (issue #221). */
+const TCLIP_INSET_WINDOW_MM = 22;
 
 /** The top T-clip's T bar (behind the board), in the mount-side figure's frame: where the close-up looks. */
 function tclipBarAnchor(design: Design, rotation: THREE.Matrix4): THREE.Vector3 | undefined {

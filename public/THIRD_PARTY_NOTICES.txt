@@ -1718,15 +1718,19 @@ turned a quarter turn to lock behind the board, at least two per part.
 Modified. coil3d re-implements it parametrically from its own dimensions and
 from the published SKADIS slot facts; no geometry or files of the original are
 used. The changes:
-  - The clip is one flat "I" profile (handle, stem, T bar), 4 mm thick,
-    printed lying on its face, sized for 4.8 x 14.8 to 5 x 15 mm slots and
-    clamping a 5.2 mm board.
-  - The receiver is a lug on the coil's bottom flange with a slot and a
-    recess that stops the handle at upright and at a quarter turn, instead
-    of the original's round clip seat. The coil drops onto the clips' stems
-    after they are turned.
-  - Clip placement: one top clip and two bottom clips (or two and two for a
-    heavy cable) on the board's lattice.
+  - The clip is one flat "I" profile (a tall fin handle, stem, T bar), 4 mm
+    thick, printed lying on its face, sized for 4.8 x 14.8 to 5 x 15 mm
+    slots and clamping a 5.2 mm board.
+  - The receiver is a floor inside the coil's bore with a slot and a recess
+    that stops the fin at upright and at a quarter turn, instead of the
+    original's round clip seat. The coil drops onto the clips' stems after
+    they are turned. The fin is pinched through the core to turn it.
+  - The smooth-turning features are adapted, not copied: ramps at the ends
+    of the T bar's bearing face (after the hook ramps), 0.6 mm chamfers on
+    every clip edge, a stem with chamfered corners, and a 0.5 mm lead-in at
+    the recess's mouth (instead of the 45-degree seat).
+  - Clip placement: one top clip and two bottom clips on the board's
+    lattice, or two or one in a small bore.
 
 License: Creative Commons Attribution 4.0 International (CC BY 4.0)
 https://creativecommons.org/licenses/by/4.0/

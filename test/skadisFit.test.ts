@@ -427,18 +427,47 @@ function printPosed(part: Part): CoilMesh {
   return { positions: out, indices: part.mesh.indices };
 }
 
-// Issue #213: the T-clips (after the CC BY 4.0 Skadis T-Clip System), against
-// the same fact-built boards. Each clip's stem is found by slicing its mesh
-// through the board; the twist is checked by turning the real clip mesh
-// about its own axis.
+// Issues #213, #221: the T-clips (after the CC BY 4.0 Skadis T-Clip System),
+// in slots through a floor in the core's bore, against the same fact-built
+// boards. Each clip's stem is found by slicing its mesh through the board;
+// the twist is checked by turning the real clip mesh about its own axis.
+const tclip = (o: Partial<CoilSpec>): Partial<CoilSpec> => ({ mount: "skadis-tclip", ...o });
+const size = (value: number) => ({ coreSize: { locked: true as const, dimension: "outer" as const, value } });
 const TCLIP_CASES: Array<{ label: string; overrides: Partial<CoilSpec>; clips: number }> = [
-  { label: "round 60", overrides: { mount: "skadis-tclip", coreSize: { locked: true, dimension: "outer", value: 60 } }, clips: 3 },
-  { label: "round 85", overrides: { mount: "skadis-tclip" }, clips: 3 },
-  { label: "round 120", overrides: { mount: "skadis-tclip", coreSize: { locked: true, dimension: "outer", value: 120 } }, clips: 3 },
-  { label: "square 85", overrides: { mount: "skadis-tclip", shape: { kind: "sq", cornerRadius: 10 } }, clips: 3 },
-  { label: "triangle 85", overrides: { mount: "skadis-tclip", shape: { kind: "tri", cornerRadius: 10 } }, clips: 3 },
-  { label: "round 85, heavy cable", overrides: { mount: "skadis-tclip", wire: { length: 10000, diameter: 8, type: "flex" }, layers: { locked: true, value: 4 } }, clips: 4 },
+  { label: "round 40", overrides: tclip(size(40)), clips: 1 },
+  { label: "round 60", overrides: tclip(size(60)), clips: 2 },
+  { label: "round 85", overrides: tclip({}), clips: 3 },
+  { label: "round 120", overrides: tclip(size(120)), clips: 3 },
+  { label: "round 85, with a cap", overrides: tclip({ topCap: "on" }), clips: 3 },
+  { label: "square 60", overrides: tclip({ shape: { kind: "sq", cornerRadius: 10 }, ...size(60) }), clips: 2 },
+  { label: "square 85", overrides: tclip({ shape: { kind: "sq", cornerRadius: 10 } }), clips: 3 },
+  { label: "triangle 50", overrides: tclip({ shape: { kind: "tri", cornerRadius: 10 }, ...size(50) }), clips: 1 },
+  { label: "triangle 85", overrides: tclip({ shape: { kind: "tri", cornerRadius: 10 } }), clips: 3 },
+  { label: "round 85, heavy cable (still 3)", overrides: tclip({ wire: { length: 10000, diameter: 8, type: "flex" }, layers: { locked: true, value: 4 } }), clips: 3 },
 ];
+
+/** A T-clip's stem, sliced through the board: its axis (the middle of its extent) and its outline round that axis, in (side, up). */
+function tclipStemOf(clip: M, z: number, f: Frame) {
+  const pts = clip.slice(z).toPolygons().flat();
+  const ups = pts.map((p) => p[0] * f.up.x + p[1] * f.up.y);
+  const sides = pts.map((p) => p[0] * f.side.x + p[1] * f.side.y);
+  const axisUp = (Math.max(...ups) + Math.min(...ups)) / 2;
+  const side = (Math.max(...sides) + Math.min(...sides)) / 2;
+  return { axisUp, side, outline: pts.map((_, i) => [sides[i] - side, ups[i] - axisUp] as const) };
+}
+
+const maxZOf = (mesh: CoilMesh) => {
+  let z = -Infinity;
+  for (let i = 2; i < mesh.positions.length; i += 3) z = Math.max(z, mesh.positions[i]);
+  return z;
+};
+
+/** How far below its slot's centre a stem with this outline rests: its lowest points on the slot's rounded bottom end. */
+function tclipSeat(outline: ReadonlyArray<readonly [number, number]>, slotWidth: number, slotLength: number): number {
+  const r = slotWidth / 2;
+  const h = slotLength / 2 - r;
+  return Math.min(...outline.map(([s, u]) => u + h + Math.sqrt(r * r - s * s)));
+}
 
 /** `m` turned by `deg` (counter-clockwise seen from the room, +z) about the vertical line through `axis`, then moved. */
 function turned(m: M, axis: { x: number; y: number }, deg: number, f: Frame, dUp: number, dz: number): M {
@@ -448,35 +477,46 @@ function turned(m: M, axis: { x: number; y: number }, deg: number, f: Frame, dUp
     .translate([axis.x + dUp * f.up.x, axis.y + dUp * f.up.y, dz]);
 }
 
-describe("the SKÅDIS T-clips lock onto a real SKÅDIS board (issue #213)", () => {
-  it.each(TCLIP_CASES)("$label: on the lattice, seated clear of the board and the lugs, stems on the slot bottoms, the coil on the handles, clamped", async ({ overrides, clips: count }) => {
+describe("the SKÅDIS T-clips lock onto a real SKÅDIS board from inside the bore (issues #213, #221)", () => {
+  it.each(TCLIP_CASES)("$label: $clips clip(s) on the lattice, seated clear of the board and the floor, stems on the slot bottoms, the coil on the fins, clamped", async ({ overrides, clips: count }) => {
     const wasm = await getWasm();
     const d = await design(baseSpec(overrides));
     const parts = clipsOf(d);
     expect(parts.length).toBe(count);
     const f = frameOf(d.mountAxisDeg!);
     const frontZ = d.pegboard!.frontZ;
-    expect(frontZ, "the flange lies flat on the board").toBeCloseTo(-d.flangeSpec.thickness, 6);
+    expect(frontZ, "the flange and the floor lie flat on the board").toBeCloseTo(-d.flangeSpec.thickness, 6);
     const core = manifoldOf(wasm, d.parts.find((p) => p.role === "core")!.mesh);
-    expect(core.decompose().length, "the core with its lugs is one solid").toBe(1);
+    expect(core.decompose().length, "the core with its floor is one solid").toBe(1);
     const clips = parts.map((p) => ({ part: p, m: manifoldOf(wasm, p.mesh) }));
-    const stems = clips.map(({ m }) => stemOf(m, frontZ - 2.5, f));
+    const stems = clips.map(({ m }) => tclipStemOf(m, frontZ - 2.5, f));
+    const slotUp = (s: (typeof stems)[number], slotWidth = 5, slotLength = 15) => s.axisUp + tclipSeat(s.outline, slotWidth, slotLength);
     const origin = stems[0];
-    const nominal = (s: (typeof stems)[number]) => s.bottom + seatOf(5, 15, s.halfWidth);
     for (const s of stems) {
       const a = (s.side - origin.side) / LATTICE;
-      const b = (nominal(s) - nominal(origin)) / LATTICE;
+      const b = (slotUp(s) - slotUp(origin)) / LATTICE;
       expect(Math.abs(a - Math.round(a)), "side offset on the 20 mm lattice").toBeLessThan(1e-3);
       expect(Math.abs(b - Math.round(b)), "up offset on the 20 mm lattice").toBeLessThan(1e-3);
       expect(Math.abs(Math.round(a) + Math.round(b)) % 2, "same one of the two interleaved grids").toBe(0);
-      const u = nominal(s);
+      const u = slotUp(s);
       expect(d.pegboard!.slots.some((p) => Math.hypot(p.x - (u * f.up.x + s.side * f.side.x), p.y - (u * f.up.y + s.side * f.side.y)) < 1e-3), "a drawn slot round every clip").toBe(true);
     }
-    const radius = Math.max(...stems.map((s) => Math.hypot(s.bottom, s.side))) + 30;
+    // Where they go: 1 straight above the centre; 3 as 1 above the centre and 2 below it, side by side.
+    if (count === 1) {
+      expect(Math.abs(origin.side), "the one clip is straight above the centre").toBeLessThan(1e-3);
+      expect(origin.axisUp, "the one clip is above the centre").toBeGreaterThan(0);
+    }
+    if (count === 3) {
+      const [top, ...bottom] = [...stems].sort((p, q) => q.axisUp - p.axisUp);
+      expect(Math.abs(top.side), "the top clip is straight above the centre").toBeLessThan(1e-3);
+      for (const b of bottom) expect(b.axisUp, "the bottom clips are below the top one").toBeLessThan(top.axisUp - 1);
+      expect(bottom[0].axisUp, "the bottom clips are level").toBeCloseTo(bottom[1].axisUp, 3);
+      expect(bottom[0].side + bottom[1].side, "the bottom clips are either side of the centre").toBeCloseTo(0, 3);
+    }
+    const radius = Math.max(...stems.map((s) => Math.hypot(s.axisUp, s.side))) + 30;
     for (const { part, m } of clips) expect(overlap(m, core), `${part.name}: intersects the core`).toBeLessThan(1e-3);
     for (const board of BOARDS) {
-      const seat = seatOf(board.slotWidth, board.slotLength, origin.halfWidth);
-      const slab = buildBoard(wasm, f, frontZ, { up: origin.bottom + seat, side: origin.side }, board, radius);
+      const slab = buildBoard(wasm, f, frontZ, { up: slotUp(origin, board.slotWidth, board.slotLength), side: origin.side }, board, radius);
       for (const { part, m } of clips) {
         const seated = shifted(m, f, 0.01, 0, 0);
         expect(overlap(seated, slab), `${board.label}, ${part.name}: seated clip intersects the board`).toBeLessThan(1e-3);
@@ -488,35 +528,42 @@ describe("the SKÅDIS T-clips lock onto a real SKÅDIS board (issue #213)", () =
       slab.delete();
     }
     for (const { part, m } of clips) {
-      // The coil 0.3 mm lower rests on the handle (the recess's lower edge); pulled 0.2 mm off the board, the lug meets the handle (the clamp).
-      expect(overlap(shifted(core, f, -0.3, 0, 0), m), `${part.name}: the lug doesn't rest on the handle`).toBeGreaterThan(1e-3);
-      expect(overlap(shifted(core, f, 0, 0, 0.2), m), `${part.name}: the handle doesn't clamp the lug`).toBeGreaterThan(1e-3);
+      // The coil 0.3 mm lower rests on the fin (the recess's edge); pulled 0.2 mm off the board, the floor meets the fin (the clamp).
+      expect(overlap(shifted(core, f, -0.3, 0, 0), m), `${part.name}: the floor doesn't rest on the fin`).toBeGreaterThan(1e-3);
+      expect(overlap(shifted(core, f, 0, 0, 0.2), m), `${part.name}: the fin doesn't clamp the floor`).toBeGreaterThan(1e-3);
       m.delete();
     }
     core.delete();
   }, 120_000);
 
-  it.each(TCLIP_CASES.slice(0, 3))("$label: twist lock -- in upright through the tightest slot, a quarter turn clockwise with nothing in the way, stopped beyond it, then the drop", async ({ overrides }) => {
+  it.each(TCLIP_CASES.slice(0, 5))("$label: twist lock -- in upright through the tightest slot, a quarter turn clockwise past the floor, the board and the other clips, stopped beyond it, then the drop", async ({ overrides }) => {
     const wasm = await getWasm();
     const d = await design(baseSpec(overrides));
     const f = frameOf(d.mountAxisDeg!);
     const frontZ = d.pegboard!.frontZ;
     const core = manifoldOf(wasm, d.parts.find((p) => p.role === "core")!.mesh);
+    const capPart = d.parts.find((p) => p.role === "topCap");
+    const cap = capPart && manifoldOf(wasm, capPart.mesh);
     const board = BOARDS[0];
-    for (const part of clipsOf(d)) {
+    const clips = clipsOf(d).map((part) => {
       const m = manifoldOf(wasm, part.mesh);
-      const stem = stemOf(m, frontZ - 2.5, f);
-      const axisUp = (stem.bottom + stem.top) / 2;
-      const axis = { x: axisUp * f.up.x + stem.side * f.side.x, y: axisUp * f.up.y + stem.side * f.side.y };
-      const seat = seatOf(board.slotWidth, board.slotLength, stem.halfWidth);
-      const slotUp = stem.bottom + seat;
+      const stem = tclipStemOf(m, frontZ - 2.5, f);
+      const axis = { x: stem.axisUp * f.up.x + stem.side * f.side.x, y: stem.axisUp * f.up.y + stem.side * f.side.y };
+      return { part, m, stem, axis, rise: tclipSeat(stem.outline, board.slotWidth, board.slotLength) };
+    });
+    for (const [i, { part, m, stem, axis, rise }] of clips.entries()) {
+      const slotUp = stem.axisUp + rise;
       const slab = buildBoard(wasm, f, frontZ, { up: slotUp, side: stem.side }, board, Math.hypot(slotUp, stem.side) + 10);
-      // The clip goes in and turns at the slot's centre, the coil held up with it (they drop together once turned).
-      const rise = slotUp - axisUp;
+      // The clip goes in and turns at the slot's centre, the coil (and its cap) held up with it (they drop together once turned).
       const raisedCore = shifted(core, f, rise, 0, 0);
+      const raisedCap = cap && shifted(cap, f, rise, 0, 0);
+      // The other clips, already in: upright or turned, at their slots' centres.
+      const others = clips.filter((_, j) => j !== i).flatMap((o) => [turned(o.m, o.axis, 0, f, o.rise, 0), turned(o.m, o.axis, 90, f, o.rise, 0)]);
       const clear = (pose: M, what: string) => {
         expect(overlap(pose, slab), `${part.name}: ${what} hits the board`).toBeLessThan(1e-3);
-        expect(overlap(pose, raisedCore), `${part.name}: ${what} hits the lug`).toBeLessThan(1e-3);
+        expect(overlap(pose, raisedCore), `${part.name}: ${what} hits the core`).toBeLessThan(1e-3);
+        if (raisedCap) expect(overlap(pose, raisedCap), `${part.name}: ${what} hits the cap`).toBeLessThan(1e-3);
+        for (const o of others) expect(overlap(pose, o), `${part.name}: ${what} hits another clip`).toBeLessThan(1e-3);
         pose.delete();
       };
       // Upright (a quarter turn back, counter-clockwise from the room), pushed in from the room side.
@@ -525,25 +572,66 @@ describe("the SKÅDIS T-clips lock onto a real SKÅDIS board (issue #213)", () =
       for (const deg of [75, 60, 45, 30, 15, 0]) clear(turned(m, axis, deg, f, rise, 0), `turning (${deg} deg to go)`);
       // Let go: clip and coil drop together onto the slot's bottom, the T bar sliding down behind the board.
       for (const k of [0.75, 0.5, 0.25]) expect(overlap(turned(m, axis, 0, f, rise * k, 0), slab), `${part.name}: dropping hits the board`).toBeLessThan(1e-3);
-      // The recess stops the handle past a quarter turn, and past upright.
+      // The recess stops the fin past a quarter turn, and past upright.
       const over = turned(m, axis, -15, f, rise, 0);
       expect(overlap(over, raisedCore), `${part.name}: turns past a quarter turn`).toBeGreaterThan(1e-3);
       over.delete();
       const back = turned(m, axis, 105, f, rise, 0);
       expect(overlap(back, raisedCore), `${part.name}: turns back past upright`).toBeGreaterThan(1e-3);
       back.delete();
+      for (const o of others) o.delete();
       raisedCore.delete();
+      raisedCap?.delete();
       // Turned back upright while dropped, it can't be pulled out: the T bar is below the slot's full width.
       const stuck = turned(m, axis, 90, f, 0, 3);
       expect(overlap(stuck, slab), `${part.name}: comes out without being lifted`).toBeGreaterThan(1e-3);
       stuck.delete();
       slab.delete();
+    }
+    for (const { m } of clips) m.delete();
+    cap?.delete();
+    core.delete();
+  }, 240_000);
+
+  it.each(TCLIP_CASES)("$label: a fingertip reaches each fin's top -- straight down through the core (and the cap's hole), not too deep", async ({ overrides }) => {
+    const wasm = await getWasm();
+    const d = await design(baseSpec(overrides));
+    const f = frameOf(d.mountAxisDeg!);
+    const frontZ = d.pegboard!.frontZ;
+    const top = Math.max(...d.parts.filter((p) => p.role === "core" || p.role === "topCap").map((p) => maxZOf(p.mesh)));
+    const solids = d.parts.filter((p) => p.role === "core" || p.role === "topCap").map((p) => manifoldOf(wasm, p.mesh));
+    for (const part of clipsOf(d)) {
+      const m = manifoldOf(wasm, part.mesh);
+      const stem = tclipStemOf(m, frontZ - 2.5, f);
+      const finTop = maxZOf(part.mesh);
+      // A fingertip, 15 mm across, comes straight down onto the fin's top round its axis.
+      const column = wasm.Manifold.cylinder(top + 10 - finTop, 7.5, 7.5, 64).translate([stem.axisUp * f.up.x + stem.side * f.side.x, stem.axisUp * f.up.y + stem.side * f.side.y, finTop + 0.5]);
+      for (const solid of solids) expect(overlap(column, solid), `${part.name}: the core or the cap is in the way of the fin's top`).toBeLessThan(1e-3);
+      const depth = top - finTop;
+      const noted = d.notices.some((n) => /T-clips' fins sit/.test(n.message));
+      expect(depth <= 65 || noted, `${part.name}: the fin's top is ${depth.toFixed(1)} mm deep, unnoted`).toBe(true);
+      // Without a cap (and none of these cores is taller than a fin), the fin reaches the wall's top.
+      if (!d.solution.topCapEnabled) expect(depth, `${part.name}: the fin's top stops short of the core's top`).toBeLessThan(2);
+      column.delete();
       m.delete();
     }
-    core.delete();
+    for (const s of solids) s.delete();
   }, 120_000);
 
-  it("the T-clips print without supports: one solid each, lying on the flat face with every other face vertical", async () => {
+  it("a bore with room for fewer than 3 clips says how the coil hangs; one with none leaves them out and suggests the rim clips", async () => {
+    const two = await design(baseSpec(tclip(size(60))));
+    expect(two.notices.some((n) => n.severity === "note" && /room for 2 SKÅDIS T-clips/.test(n.message))).toBe(true);
+    const one = await design(baseSpec(tclip(size(40))));
+    expect(one.notices.some((n) => n.severity === "note" && /room for 1 SKÅDIS T-clip.*lift the coil/.test(n.message))).toBe(true);
+    const three = await design(baseSpec(tclip({})));
+    expect(three.notices.some((n) => /room for [12] SKÅDIS/.test(n.message))).toBe(false);
+    const none = await design(baseSpec(tclip({ wire: { length: 1000, diameter: 2, type: "usb" }, ...size(20) })));
+    expect(clipsOf(none)).toHaveLength(0);
+    expect(none.notices.some((n) => n.severity === "problem" && /too small for SKÅDIS T-clips.*rim clips/.test(n.message))).toBe(true);
+    expect(none.notices.some((n) => /floor is thick enough/.test(n.message)), "no floor note without clips").toBe(false);
+  }, 120_000);
+
+  it("the T-clips print without supports: one solid each, lying on the flat face, no overhang steeper than 45 degrees", async () => {
     const wasm = await getWasm();
     for (const c of TCLIP_CASES) {
       const d = await design(baseSpec(c.overrides));
@@ -559,6 +647,7 @@ describe("the SKÅDIS T-clips lock onto a real SKÅDIS board (issue #213)", () =
           maxZ = Math.max(maxZ, positions[i]);
         }
         expect(maxZ - minZ, `${c.label}, ${part.name}: lies on its face`).toBeCloseTo(4, 3);
+        let bed = 0;
         for (let t = 0; t < indices.length; t += 3) {
           const p = [0, 1, 2].map((k) => [positions[3 * indices[t + k]], positions[3 * indices[t + k] + 1], positions[3 * indices[t + k] + 2]]);
           const u = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
@@ -567,10 +656,11 @@ describe("the SKÅDIS T-clips lock onto a real SKÅDIS board (issue #213)", () =
           const len = Math.hypot(n[0], n[1], n[2]);
           if (len < 1e-9) continue;
           const nz = n[2] / len;
-          const zs = p.map((q) => q[2]);
-          const flat = Math.abs(Math.abs(nz) - 1) < 1e-4 && (Math.max(...zs) < minZ + 1e-4 || Math.min(...zs) > maxZ - 1e-4);
-          expect(flat || Math.abs(nz) < 1e-4, `${c.label}, ${part.name}: a face that's neither vertical nor the bed/top (nz=${nz.toFixed(4)})`).toBe(true);
+          const onBed = nz < -1 + 1e-4 && Math.max(...p.map((q) => q[2])) < minZ + 1e-4;
+          if (onBed) bed += len / 2;
+          expect(onBed || nz >= -Math.SQRT1_2 - 1e-4, `${c.label}, ${part.name}: an overhang steeper than 45 degrees (nz=${nz.toFixed(4)})`).toBe(true);
         }
+        expect(bed, `${c.label}, ${part.name}: a real face on the bed`).toBeGreaterThan(50);
       }
     }
   }, 120_000);

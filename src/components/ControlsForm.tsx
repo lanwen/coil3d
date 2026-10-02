@@ -433,10 +433,10 @@ export function ControlsForm({
             </select>
           </div>
         )}
-        {/* Issues #207, #213: what the SKÅDIS clips are, in one line (the T-clips with their CC BY credit), and the top rim clip's latch. */}
+        {/* Issues #207, #213, #221: what the SKÅDIS clips are, in one line (the T-clips with their CC BY credit), and the top rim clip's latch. */}
         {spec.mount === "skadis-tclip" && (
           <p className="field-note mount-credit-note" data-testid="mount-note">
-            Lugs on the flange's rim take twist-lock clips: push each one in upright, then turn it a quarter turn. After the{" "}
+            Twist-lock clips pass through slots in the core's floor: reach in, push each one through upright, then pinch its fin and turn it a quarter turn. After the{" "}
             <a href="https://www.printables.com/model/256896" target="_blank" rel="noreferrer">
               Skadis T-Clip System
             </a>{" "}

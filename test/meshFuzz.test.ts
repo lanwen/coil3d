@@ -351,6 +351,24 @@ describe("mesh clean-up reproductions (issue #219): every part is one solid, wit
   });
 });
 
+// Issue #221: the SKÅDIS T-clips' floor in the bore (its slots and recesses) and the clips' tall fins, at 3, 2 and 1
+// clips, with each cap joint, and the fins cut short under a cap's collar.
+const TCLIP_BORES: Array<{ name: string; clips: number; spec: Partial<CoilSpec> }> = [
+  { name: "round 40, 1 clip, bayonet cap", clips: 1, spec: { mount: "skadis-tclip", coreSize: { locked: true, dimension: "outer", value: 40 }, topCap: "on", joint: "bayonet" } },
+  { name: "square 60, 2 clips", clips: 2, spec: { mount: "skadis-tclip", shape: { kind: "sq", cornerRadius: 10 }, coreSize: { locked: true, dimension: "outer", value: 60 }, wire: { length: 2000, diameter: 3.8, type: "usb" }, layers: { locked: true, value: 1 } } },
+  { name: "round 85, 3 clips, snap cap", clips: 3, spec: { mount: "skadis-tclip", coreSize: { locked: true, dimension: "outer", value: 85 }, topCap: "on", joint: "snap", wire: { length: 2000, diameter: 3.8, type: "usb" } } },
+  { name: "triangle 120, 3 clips, press cap, loose tolerance", clips: 3, spec: { mount: "skadis-tclip", shape: { kind: "tri", cornerRadius: 12 }, coreSize: { locked: true, dimension: "outer", value: 120 }, topCap: "on", joint: "press", tolerance: 0.6 } },
+  { name: "round 150, tall, tight tolerance", clips: 3, spec: { mount: "skadis-tclip", coreSize: { locked: true, dimension: "outer", value: 150 }, height: { locked: true, value: 110 }, tolerance: 0.05 } },
+];
+
+describe("the SKÅDIS T-clips' bore floor and fins (issue #221): every part is one solid, with no short edges or folds", () => {
+  it.each(TCLIP_BORES)("$name", async ({ spec: overrides, clips }) => {
+    const d = await design(spec(overrides));
+    expect(d.parts.filter((p) => p.role === "mountClip")).toHaveLength(clips);
+    expect(d.parts.flatMap(problems)).toEqual([]);
+  });
+});
+
 describe("seeded fuzz: every part is one solid, with no short edges or folds, after the mesh clean-up (issues #208, #219)", () => {
   it(`cases ${FROM} to ${FROM + COUNT - 1}`, async () => {
     const shipped = { ...collarSegments };
