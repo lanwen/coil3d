@@ -24,8 +24,8 @@ import { GuideFigure, renderAllGuideFigures } from "../viewer/GuideFigure";
 import { EXPLODE_GAP } from "../viewer/CoilScene";
 import { partInPrintPose } from "./printOrientation";
 import { approxRimPoint, computeGuideFit, explodedParts, meshBounds, partsBounds, projectToFigure } from "./projection";
-import { CircleMark, ClickMark, CornerInset, Figure, InsetMark, PolylineArrow, SlotOutlines, StraightArrow, TwistMark, WallPlane, WallQuad, type Pt } from "./overlays";
-import { rotateParts, rotatePoint, wallMountRotation, wallRoomRotation } from "./wallView";
+import { CircleMark, ClickMark, CornerInset, Figure, InsetMark, PolylineArrow, SlotOutlines, StraightArrow, TwistMark, WallPlane, WallQuad, ZoomInset, ZoomLeader, HOST_FIGURE_WIDTH, type Pt } from "./overlays";
+import { rotateParts, rotatePoint, wallMountRotation, wallRoomRotation, wallSideRotation } from "./wallView";
 import { ClickIcon, GlueDropIcon, KeyholeIcon, NoPullIcon, NoSupportsIcon, PressIcon, RotateIcon, ScrewdriverIcon, TwistIcon, WallMountIcon, WindIcon } from "./pictograms";
 import "./guide.css";
 
@@ -473,16 +473,17 @@ function StepFitPlate({ design, n }: { design: Design; n: number }) {
  * face-on (the same `wallMountRotation` as the keyhole step's inset), with
  * the board's slot grid (`Design.pegboard`, drawn on its back plane, nearer
  * this camera than anything but the clips' tongues) outlined over it --
- * every clip sits in a slot. The inset shows the coil hung on the wall,
- * room side. Issue #213: for the T-clips, the inset is a close-up of the
- * same view instead, on the top clip's T bar turned across its slot.
+ * every clip sits in a slot. The inset is a side-view close-up of the top
+ * clip hooking its slot and holding the rim (`RimClipInset`, issue #215).
+ * Issue #213: for the T-clips, the inset is a close-up of the same view
+ * instead, on the top clip's T bar turned across its slot.
  */
 function StepMountSkadis({ design, n }: { design: Design; n: number }) {
   const board = design.pegboard!;
   const tclip = design.spec.mount === "skadis-tclip";
   const mountRotation = wallMountRotation(design.mountAxisDeg);
   const mountParts = rotateParts(design.parts, mountRotation);
-  const roomParts = rotateParts(design.parts, wallRoomRotation(design.mountAxisDeg));
+  const rimClip = tclip ? undefined : rimClipFocus(design);
   const a = (board.axisDeg * Math.PI) / 180;
   const up = { x: Math.sin(a), y: Math.cos(a) };
   const side = { x: Math.cos(a), y: -Math.sin(a) };
@@ -500,22 +501,90 @@ function StepMountSkadis({ design, n }: { design: Design; n: number }) {
           testId="guide-mount"
           zoomInsetAt={tclip ? tclipBarAnchor(design, mountRotation) : undefined}
           renderOverlay={(fit) => (
-            <SlotOutlines
-              slots={board.slots.map((c) =>
-                outline.map(([s, u]) => projectToFigure(fit, rotatePoint(new THREE.Vector3(c.x + s * side.x + u * up.x, c.y + s * side.y + u * up.y, z), mountRotation))),
-              )}
-            />
+            <>
+              <SlotOutlines
+                slots={board.slots.map((c) =>
+                  outline.map(([s, u]) => projectToFigure(fit, rotatePoint(new THREE.Vector3(c.x + s * side.x + u * up.x, c.y + s * side.y + u * up.y, z), mountRotation))),
+                )}
+              />
+              {rimClip && <ZoomLeader at={projectToFigure(fit, rotatePoint(rimClip.target, mountRotation))} corner="top-right" />}
+            </>
           )}
         />
-        {!tclip && (
-          <CornerInset>
-            <GuideFigure parts={roomParts} preset="iso" fill={0.7} className="guide-zoom-inset-figure" testId="guide-mount-inset" />
-          </CornerInset>
-        )}
+        {rimClip && <RimClipInset design={design} focus={rimClip} />}
       </div>
       <Callout icons={tclip ? <TwistIcon label="Push in upright, turn a quarter turn" /> : <WallMountIcon label="Mount on the SKÅDIS board" />}>{mountLine(design.spec.mount)}</Callout>
     </StepCard>
   );
+}
+
+const RIM_INSET_FILL = 0.85;
+const RIM_INSET_SIZE = 140; // CSS px
+const RIM_INSET_WINDOW_MM = 28; // how much of the model the window shows, across
+const RIM_INSET_BOARD_REACH = 14; // mm of board drawn past each end of the slot
+const RIM_INSET_BOARD_DEPTH = 12; // mm of board drawn along the camera's line of sight
+
+/** An axis-aligned box in a slot's own (side, up, z) frame, as a part in the design's frame. */
+function slotBox(name: string, slot: { x: number; y: number }, axisDeg: number, [s0, s1]: [number, number], [u0, u1]: [number, number], [z0, z1]: [number, number]): Part {
+  const a = (axisDeg * Math.PI) / 180;
+  const positions = new Float32Array(24);
+  for (let i = 0; i < 8; i++) {
+    const s = i & 1 ? s1 : s0;
+    const u = i & 2 ? u1 : u0;
+    const z = i & 4 ? z1 : z0;
+    positions.set([slot.x + s * Math.cos(a) + u * Math.sin(a), slot.y - s * Math.sin(a) + u * Math.cos(a), z], i * 3);
+  }
+  // Outward, counter-clockwise: -s, +s, -u, +u, -z, +z.
+  const indices = new Uint32Array([0, 4, 6, 0, 6, 2, 1, 3, 7, 1, 7, 5, 0, 1, 5, 0, 5, 4, 2, 6, 7, 2, 7, 3, 0, 2, 3, 0, 3, 1, 4, 5, 7, 4, 7, 6]);
+  return { name, role: "mountPlate", mesh: { positions, indices } as CoilMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } };
+}
+
+interface RimClipFocus {
+  /** The slot the top clip hangs in. */
+  slot: { x: number; y: number };
+  /** Where the clip meets the rim (just above it, on the clip's mid-plane): what the circle marks and the inset centres on. */
+  target: THREE.Vector3;
+}
+
+/** The top clip's slot, and the point where it holds the rim. */
+function rimClipFocus(design: Design): RimClipFocus | undefined {
+  const board = design.pegboard!;
+  const clip = design.parts.find((p) => p.name === "skadis-top-clip-1") ?? design.parts.find((p) => p.role === "mountClip");
+  if (!clip) return undefined;
+  const a = (board.axisDeg * Math.PI) / 180;
+  const alongUp = (x: number, y: number) => x * Math.sin(a) + y * Math.cos(a);
+  // The clip's slot: the one nearest the clip's middle. The rim: the core's top along up.
+  const middle = meshBounds(clip.mesh).getCenter(new THREE.Vector3());
+  const slot = board.slots.reduce((best, c) => (Math.hypot(c.x - middle.x, c.y - middle.y) < Math.hypot(best.x - middle.x, best.y - middle.y) ? c : best));
+  const corePos = corePart(design).mesh.positions;
+  let rimUp = -Infinity;
+  for (let i = 0; i < corePos.length; i += 3) rimUp = Math.max(rimUp, alongUp(corePos[i], corePos[i + 1]));
+  const sideAt = middle.x * Math.cos(a) - middle.y * Math.sin(a); // the clip's own place along the board (a triangle's top clips are off-centre)
+  const upAt = rimUp + 3;
+  return { slot, target: new THREE.Vector3(upAt * Math.sin(a) + sideAt * Math.cos(a), upAt * Math.cos(a) - sideAt * Math.sin(a), middle.z) };
+}
+
+/**
+ * Issue #215: the rim clip's engagement, close up from the side: the top clip's stem through its board slot and its
+ * jaws holding the flange's rim, with the board cut away at the clip's mid-plane so the slot shows. The whole coil at
+ * inset size drew as a dark blob, so this crops the side view tight instead (like the T-clips' close-up).
+ */
+function RimClipInset({ design, focus }: { design: Design; focus: RimClipFocus }) {
+  const board = design.pegboard!;
+  const half = board.slotLength / 2;
+  const z: [number, number] = [board.frontZ - board.thickness, board.frontZ];
+  const boardParts = [
+    slotBox("board-above", focus.slot, board.axisDeg, [0, RIM_INSET_BOARD_DEPTH], [half, half + RIM_INSET_BOARD_REACH], z),
+    slotBox("board-below", focus.slot, board.axisDeg, [0, RIM_INSET_BOARD_DEPTH], [-half - RIM_INSET_BOARD_REACH, -half], z),
+  ];
+  const rotation = wallSideRotation(design.mountAxisDeg);
+  const parts = rotateParts([...design.parts, ...boardParts], rotation);
+  const fit = computeGuideFit(parts, "iso", RIM_INSET_FILL);
+  if (!fit) return null;
+  const at = projectToFigure(fit, rotatePoint(focus.target, rotation));
+  // Show RIM_INSET_WINDOW_MM across: the host figure is HOST_FIGURE_WIDTH px for 2 * halfHeight * aspect mm.
+  const zoom = (RIM_INSET_SIZE * 2 * fit.halfHeight * fit.aspect) / (HOST_FIGURE_WIDTH * RIM_INSET_WINDOW_MM);
+  return <ZoomInset parts={parts} preset="iso" fill={RIM_INSET_FILL} at={at} zoom={zoom} size={RIM_INSET_SIZE} corner="top-right" />;
 }
 
 /** The top T-clip's T bar (behind the board), in the mount-side figure's frame: where the close-up looks. */

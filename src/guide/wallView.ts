@@ -17,6 +17,7 @@
 
 import * as THREE from "three";
 import type { CoilMesh, Part } from "../core";
+import { getPreset } from "../viewer/lineArt/presets";
 import { WALL_MOUNT_VIEW_ROTATION, WALL_VIEW_ROTATION, withMountAxisCorrection } from "../viewer/wallRotations";
 
 export function wallRoomRotation(mountAxisDeg: number | undefined): THREE.Matrix4 {
@@ -25,6 +26,24 @@ export function wallRoomRotation(mountAxisDeg: number | undefined): THREE.Matrix
 
 export function wallMountRotation(mountAxisDeg: number | undefined): THREE.Matrix4 {
   return withMountAxisCorrection(WALL_MOUNT_VIEW_ROTATION, mountAxisDeg);
+}
+
+/**
+ * The coil seen from the side, as it hangs: up stays up, the coil's axis runs
+ * left to right (the wall on the left, the room on the right) and the
+ * camera looks along the board's width. Built from the guide camera's own
+ * basis (the same one `wallMountRotation` is derived from), so it can't drift
+ * from what `GuideFigure` renders.
+ */
+export function wallSideRotation(mountAxisDeg: number | undefined): THREE.Matrix4 {
+  const { direction, upHint } = getPreset("iso");
+  const camera = new THREE.Matrix4().lookAt(direction, new THREE.Vector3(), upHint);
+  const right = new THREE.Vector3();
+  const up = new THREE.Vector3();
+  const back = new THREE.Vector3();
+  camera.extractBasis(right, up, back);
+  // local +X (along the board) -> into the screen, +Y (up) -> screen up, +Z (the axis) -> screen right.
+  return withMountAxisCorrection(new THREE.Matrix4().makeBasis(back.clone().negate(), up, right), mountAxisDeg);
 }
 
 /** `parts`, with every vertex transformed by `rotation` -- the guide's own version of CoilViewer.tsx's "rotate the geometry, not a wrapping group" (its own comment explains why: the camera fit reads local vertex positions directly). */
