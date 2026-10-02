@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilSpec } from "../src/core";
+import { outlineOffsetAt } from "../src/core/shapes";
 
 // Issue #4 acceptance criteria: `design()` returns the schematic wound-cable
 // path per layer (orthocyclic offset and half-pitch shift), consistent with
@@ -31,6 +32,13 @@ function radiusAt(points: Float32Array, i: number): number {
   return Math.hypot(points[i * 3], points[i * 3 + 1]);
 }
 
+/** The leading samples of a layer's path, before its last `taperTurns` (where the cable leaves the fading groove). */
+function untilTail(d: Awaited<ReturnType<typeof design>>, points: Float32Array, turns: number): number[] {
+  const count = points.length / 3;
+  const last = (turns - d.wallSpec.taperTurns) / turns;
+  return Array.from({ length: count }, (_, i) => i).filter((i) => i / (count - 1) <= last);
+}
+
 function zAt(points: Float32Array, i: number): number {
   return points[i * 3 + 2];
 }
@@ -48,13 +56,35 @@ describe("design().wirePaths (issue #4)", () => {
     }
   });
 
-  it("the layer-1 path sits at the solved radial offset for the whole run", async () => {
+  it("the layer-1 path sits at the solved radial offset until its groove fades out", async () => {
     const d = await design(baseSpec());
     const [layer1] = d.wirePaths;
     const expectedRadius = d.solution.outerSize / 2 + d.solution.layerResults[0].offset;
-    const sampleCount = layer1.points.length / 3;
-    for (let i = 0; i < sampleCount; i++) {
+    const kept = untilTail(d, layer1.points, layer1.turns);
+    expect(kept.length).toBeGreaterThan(layer1.points.length / 3 / 2);
+    for (const i of kept) {
       expect(radiusAt(layer1.points, i)).toBeCloseTo(expectedRadius, 3);
+    }
+  });
+
+  it("the layer-1 path's last turn rises out of the fading groove and stays clear of the core's top face (issue #224)", async () => {
+    // A tight height: the cable's last turn ends level with the wall top, so its tube reaches the top plane.
+    for (const shape of [{ kind: "round" }, { kind: "sq", cornerRadius: 20 }, { kind: "tri", cornerRadius: 20 }] as const) {
+      const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: 85 }, height: { locked: false } }));
+      const [layer1] = d.wirePaths;
+      const r = d.wallSpec.wireDiameter / 2;
+      const count = layer1.points.length / 3;
+      let reaching = 0;
+      for (let i = 0; i < count; i++) {
+        if (zAt(layer1.points, i) + r < d.wallSpec.height) continue;
+        reaching++;
+        // The tube is off the wall's outer surface and its top rim by at least 0.3 r (the cable's centre stays below the top plane).
+        const z = zAt(layer1.points, i);
+        expect(z, `${shape.kind} sample ${i}`).toBeLessThan(d.wallSpec.height);
+        const { offset } = outlineOffsetAt(d.wallSpec.outline, layer1.points[i * 3], layer1.points[i * 3 + 1]);
+        expect(Math.hypot(Math.max(offset, 0), d.wallSpec.height - z) - r, `${shape.kind} sample ${i}`).toBeGreaterThanOrEqual(0.3 * r - 1e-3);
+      }
+      expect(reaching, `${shape.kind}: the last turn reaches the top plane`).toBeGreaterThan(0);
     }
   });
 
@@ -72,8 +102,7 @@ describe("design().wirePaths (issue #4)", () => {
     );
     expect(d.warnings.some((w) => /clamped/i.test(w))).toBe(false);
     const [layer1] = d.wirePaths;
-    const sampleCount = layer1.points.length / 3;
-    const radii = Array.from({ length: sampleCount }, (_, i) => radiusAt(layer1.points, i));
+    const radii = untilTail(d, layer1.points, layer1.turns).map((i) => radiusAt(layer1.points, i));
 
     // A circle has a constant radius at every sample; a rounded square's
     // offset outline does not (flat sides sit closer to the axis than the

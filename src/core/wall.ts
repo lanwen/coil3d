@@ -36,7 +36,7 @@ export interface WallSpec {
   minCornerSegments: number;
 }
 
-const smoothstep = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+export const smoothstep = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 /** The analytic grooved-wall grid, shared by the mesh backend (this file)
  * and the STEP backend (step/build.ts): both must sample the exact same

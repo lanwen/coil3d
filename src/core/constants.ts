@@ -246,6 +246,8 @@ export const CABLE_BEND_BUDGET = 0.97;
 export const CABLE_BEND_CHECK = 1.03;
 /** Sample spacing along the lead-in, transitions and outer end, mm. */
 export const CABLE_BRIDGE_STEP = 0.5; // mm
+/** Layer 1's last turns rise out of the fading groove and rest this fraction of the cable's radius clear of the bare wall, so the drawn cable never cuts through the wall's surface or top face. */
+export const CABLE_TAIL_CLEARANCE = 0.3;
 /** Cap off: the free straight tail the cable leaves the last turn along, as a multiple of the wire diameter (at least CABLE_TAIL_MIN). */
 export const CABLE_TAIL_FACTOR = 6;
 export const CABLE_TAIL_MIN = 20; // mm
