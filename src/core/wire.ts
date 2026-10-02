@@ -34,6 +34,7 @@
 import {
   CABLE_BEND_CHECK,
   CABLE_BRIDGE_STEP,
+  CABLE_TAIL_CLEARANCE,
   CABLE_TAIL_FACTOR,
   CABLE_TAIL_MIN,
   DRAFT_WIRE_MAX_ARC_LENGTH,
@@ -46,7 +47,7 @@ import { bump, capCableZ, capClipOffset, layoutCapClip } from "./innerEnd";
 import type { CapClipLayout, InnerEndLayout } from "./innerEnd";
 import { offsetPerimeter, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
-import { createWallProfile, type WallSpec } from "./wall";
+import { createWallProfile, smoothstep, type WallSpec } from "./wall";
 import type { LayerResult, Resolution, WireLayerPath } from "./types";
 
 // A hard safety backstop on total samples per layer, so a pathological input
@@ -86,7 +87,8 @@ function phaseShiftTurns(layer: number, quality: number): number {
 interface LayerRun {
   layer: number;
   turns: number;
-  offset: number;
+  /** The radial offset (outside the outline) at `local` turns into the layer. */
+  offsetAt(local: number): number;
   /** The outline parameter (`pointAt`'s t, in turns) of the layer's first sample. */
   start: number;
   /** z at `local` turns into the layer. Odd layers climb, even layers descend. */
@@ -95,14 +97,32 @@ interface LayerRun {
   slope: number;
 }
 
-function layerRun(result: LayerResult, start: number, pitch: number, zStart: number, windingQuality: number): LayerRun {
-  const { layer, turns, offset } = result;
+/**
+ * Layer 1's offset at `local` turns in. The wall's groove fades out over its
+ * last `taperTurns` (wall.ts), so the cable cannot stay sunk in it there: it
+ * rises out onto the bare wall and rests CABLE_TAIL_CLEARANCE of its radius
+ * clear of it, instead of cutting through the wall's outer surface and its
+ * top face. Only a single-layer cable with the top cap off does this: with
+ * more layers, layer 2 nests into the valley beside layer 1's last turn, and
+ * with the cap on the cap's clips are laid out just outside the wound cable's
+ * envelope, so in both cases that turn stays put.
+ * The smoothstep keeps the offset flat at both ends, so the adjoining pieces
+ * still join G1.
+ */
+function layer1OffsetAt(offset: number, turns: number, wallSpec: WallSpec): (local: number) => number {
+  const rise = Math.max(0, wallSpec.wireDiameter / 2 + CABLE_TAIL_CLEARANCE * wallSpec.wireDiameter / 2 - offset);
+  const tau = Math.max(wallSpec.taperTurns, 1e-6);
+  return (local) => offset + rise * (1 - smoothstep((turns - local) / tau));
+}
+
+function layerRun(result: LayerResult, start: number, pitch: number, zStart: number, windingQuality: number, offsetAt: (local: number) => number): LayerRun {
+  const { layer, turns } = result;
   const shift = phaseShiftTurns(layer, windingQuality);
   const climbs = (layer - 1) % 2 === 0;
   return {
     layer,
     turns,
-    offset,
+    offsetAt,
     start,
     // Odd layers: `zStart + pitch*(shift + local)`. Even layers mirror that
     // about the layer's own midpoint, so the first sample lands at the top
@@ -114,7 +134,7 @@ function layerRun(result: LayerResult, start: number, pitch: number, zStart: num
 }
 
 function samplePoint(outline: ShapeOutline, run: LayerRun, local: number): [number, number, number] {
-  const p = pointAt(outline, run.start + local, run.offset);
+  const p = pointAt(outline, run.start + local, run.offsetAt(local));
   return [p.x, p.y, run.z(local)];
 }
 
@@ -303,6 +323,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
   const runs: LayerRun[] = [];
   const layerTransitions: Float32Array[] = [];
 
+  const lastWound = layerResults.filter((r) => r.turns > 0).at(-1);
   for (const result of layerResults) {
     if (result.turns <= 0) continue;
     const prev = runs.at(-1);
@@ -310,10 +331,10 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
     if (prev) {
       const prevPoints = wirePaths.at(-1)!.points;
       const u0 = prev.start + prev.turns;
-      const next = layerRun(result, 0, pitch, zStart, windingQuality);
+      const next = layerRun(result, 0, pitch, zStart, windingQuality, () => result.offset);
       const z0 = prev.z(prev.turns);
       const z1 = next.z(0);
-      const o0 = prev.offset;
+      const o0 = prev.offsetAt(prev.turns);
       const o1 = result.offset;
       const offsetAt = (s: number) => o0 + (o1 - o0) * unitRamp(s);
       const found = searchBlend(
@@ -329,7 +350,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
       layerTransitions.push(found.points);
       start = u0 + found.turns;
     }
-    const run = layerRun(result, start, pitch, zStart, windingQuality);
+    const run = layerRun(result, start, pitch, zStart, windingQuality, !ends.topCapEnabled && result === lastWound && result.layer === 1 ? layer1OffsetAt(result.offset, result.turns, wallSpec) : () => result.offset);
     runs.push(run);
     wirePaths.push({ layer: run.layer, turns: run.turns, points: sampleLayer(outline, run, result.perimeter, pitch, resolution) });
   }
@@ -344,14 +365,15 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
   const lastPoints = wirePaths.at(-1)!.points;
   const uEnd = last.start + last.turns;
   const zEnd = last.z(last.turns);
+  const lastOffset = last.offsetAt(last.turns);
   let outerEndLeadOut: Float32Array;
   let capClip: CapClipLayout | undefined;
 
   if (!ends.topCapEnabled) {
     // A free straight tail along the last turn's own tangent.
     const EPS = 1e-5;
-    const a = pointAt(outline, uEnd - EPS, last.offset);
-    const b = pointAt(outline, uEnd, last.offset);
+    const a = pointAt(outline, uEnd - EPS, lastOffset);
+    const b = pointAt(outline, uEnd, lastOffset);
     const tx = b.x - a.x;
     const ty = b.y - a.y;
     const tz = last.slope * EPS;
@@ -373,7 +395,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
     const d = wallSpec.wireDiameter;
     const oKey = capClipOffset(ends.envelopeOffset, d, ends.tolerance);
     const zKey = ends.height + capCableZ(d);
-    const o0 = last.offset;
+    const o0 = lastOffset;
     const climbsAll = last.slope < 0; // ends at the bottom: climb the whole height outside the last layer
     const oOut = o0 + d; // hug the outside of the last layer while climbing
     const offsetAt = climbsAll
