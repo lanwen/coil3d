@@ -24,9 +24,16 @@ import { Vector2 } from "three";
  * The engraved label (issue #176) is the exception: its letters are a few
  * millimetres tall, so the pocket walls and floors would fuse the usual lines
  * into solid blobs. The normal+depth pass marks the label's pocket faces with
- * alpha 0.5 (see LineArtRenderer's `LABEL_ATTRIBUTE`). Around them only the
+ * alpha 0.5 (see LineArtRenderer's `FACE_KIND_ATTRIBUTE`). Around them only the
  * pocket's outline is marked, in its own channel, and the thicken pass draws
  * it with a finer pen.
+ *
+ * The chamfers on the rim of the flange and the cap (issue #229) are small
+ * enough that an IKEA drawing leaves them out. The same pass marks a chamfer
+ * with alpha 0.9 and the vertical land between a rim's two chamfers with 0.8,
+ * and the crease between the two is not drawn. What remains is the line where
+ * the plate's face meets its rim, as on a plate with square edges, and the
+ * silhouette.
  *
  * Output: r = ink (1 on a line pixel), g = model coverage, b = fine ink (the
  * label's outline), a = 1. The thicken pass turns that into the final white
@@ -68,6 +75,13 @@ export const EdgeShader = {
     float depthAt(vec2 uv) { return texture2D(tDepth, uv).x; }
     vec3 normalAt(vec2 uv) { return normalize(texture2D(tNormal, uv).rgb * 2.0 - 1.0); }
     float labelAt(vec2 uv) { return step(texture2D(tNormal, uv).a, 0.75); }
+    // 1 on a rim's chamfer (alpha 0.9), 2 on the land between its chamfers (alpha 0.8), else 0.
+    float rimAt(vec2 uv) {
+      float a = texture2D(tNormal, uv).a;
+      return a > 0.85 && a < 0.95 ? 1.0 : (a > 0.75 && a <= 0.85 ? 2.0 : 0.0);
+    }
+    // The crease between a chamfer and the plate's flat face is not drawn.
+    bool chamferToFace(float a, float b) { return a + b == 1.0; }
 
     void main() {
       float d0 = depthAt(vUv);
@@ -103,7 +117,9 @@ export const EdgeShader = {
         if (max(lx, ly) > depthThreshold) ink = 1.0;
 
         vec3 n0 = normalAt(vUv);
-        if (dot(n0, normalAt(vUv + dx)) < normalThreshold || dot(n0, normalAt(vUv + dy)) < normalThreshold) {
+        float k0 = rimAt(vUv);
+        if ((dot(n0, normalAt(vUv + dx)) < normalThreshold && !chamferToFace(k0, rimAt(vUv + dx))) ||
+            (dot(n0, normalAt(vUv + dy)) < normalThreshold && !chamferToFace(k0, rimAt(vUv + dy)))) {
           ink = 1.0;
         }
       }

@@ -148,30 +148,38 @@ function linePixelRatio(dpr: number): number {
 }
 
 /**
- * Per-vertex attribute, 1 on the engraved label's pocket faces (issue #176).
- * The normal+depth pass writes it to the normal target's alpha (0.5 there,
- * 1 elsewhere), and the edge shader draws the label's outline with a fine
- * pen from it.
+ * Per-vertex attribute, the kind of face a triangle belongs to (issues #176, #229): 0 an ordinary face, 1 the
+ * engraved label's pockets, 2 a chamfer on a plate's rim, 3 the land between a rim's two chamfers. The normal+depth
+ * pass writes it to the normal target's alpha (1 for ordinary faces), and the edge shader treats the kinds
+ * specially: the label gets a fine outline pen, and the crease between a rim's chamfer and its land is left out.
  */
-const LABEL_ATTRIBUTE = "labelFace";
+const FACE_KIND_ATTRIBUTE = "faceKind";
+const FACE_KIND_LABEL = 1;
+const FACE_KIND_CHAMFER = 2;
+const FACE_KIND_LAND = 3;
 
-/** Marks `mesh.labelTriangles` on `geometry`, the non-indexed geometry `toCreasedNormals` made from `mesh` (it keeps the triangle order). */
-export function markLabelFaces(geometry: THREE.BufferGeometry, mesh: CoilMesh) {
-  if (!mesh.labelTriangles?.length) return;
-  const flags = new Float32Array(geometry.getAttribute("position").count);
-  for (const t of mesh.labelTriangles) flags.fill(1, t * 3, t * 3 + 3);
-  geometry.setAttribute(LABEL_ATTRIBUTE, new THREE.BufferAttribute(flags, 1));
+/** Marks the `mesh.labelTriangles` and `mesh.rimTriangles` on `geometry`, the non-indexed geometry `toCreasedNormals` made from `mesh` (it keeps the triangle order). */
+export function markFaceKinds(geometry: THREE.BufferGeometry, mesh: CoilMesh) {
+  const groups: Array<[Uint32Array | undefined, number]> = [
+    [mesh.labelTriangles, FACE_KIND_LABEL],
+    [mesh.rimTriangles?.chamfer, FACE_KIND_CHAMFER],
+    [mesh.rimTriangles?.land, FACE_KIND_LAND],
+  ];
+  if (groups.every(([triangles]) => !triangles?.length)) return;
+  const kinds = new Float32Array(geometry.getAttribute("position").count);
+  for (const [triangles, kind] of groups) for (const t of triangles ?? []) kinds.fill(kind, t * 3, t * 3 + 3);
+  geometry.setAttribute(FACE_KIND_ATTRIBUTE, new THREE.BufferAttribute(kinds, 1));
 }
 
-/** The normal+depth pass's material: view-space normals, plus the label flag in alpha (geometry without it reads 0). */
+/** The normal+depth pass's material: view-space normals, plus the face kind in alpha (geometry without it reads 0): 0.5 for the label, 0.9 for a chamfer, 0.8 for a rim's land, else 1. */
 function createNormalMaterial(): THREE.MeshNormalMaterial {
   const material = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
-  (material as unknown as { defaultAttributeValues: Record<string, number[]> }).defaultAttributeValues = { [LABEL_ATTRIBUTE]: [0] };
+  (material as unknown as { defaultAttributeValues: Record<string, number[]> }).defaultAttributeValues = { [FACE_KIND_ATTRIBUTE]: [0] };
   material.onBeforeCompile = (shader) => {
-    shader.vertexShader = shader.vertexShader.replace("void main() {", `attribute float ${LABEL_ATTRIBUTE};\nvarying float vLabelFace;\nvoid main() {\n\tvLabelFace = ${LABEL_ATTRIBUTE};`);
+    shader.vertexShader = shader.vertexShader.replace("void main() {", `attribute float ${FACE_KIND_ATTRIBUTE};\nvarying float vFaceKind;\nvoid main() {\n\tvFaceKind = ${FACE_KIND_ATTRIBUTE};`);
     shader.fragmentShader = shader.fragmentShader
-      .replace("void main() {", "varying float vLabelFace;\nvoid main() {")
-      .replace(/}\s*$/, "\tgl_FragColor.a = vLabelFace > 0.5 ? 0.5 : 1.0;\n}\n");
+      .replace("void main() {", "varying float vFaceKind;\nvoid main() {")
+      .replace(/}\s*$/, "\tgl_FragColor.a = vFaceKind > 2.5 ? 0.8 : vFaceKind > 1.5 ? 0.9 : vFaceKind > 0.5 ? 0.5 : 1.0;\n}\n");
   };
   material.customProgramCacheKey = () => "lineArtNormal";
   return material;

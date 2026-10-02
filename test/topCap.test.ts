@@ -6,6 +6,7 @@ import { bedRestingTransform } from "../src/core/plate";
 import { applyRigidTransform } from "../src/core/transform";
 import { offsetArea } from "../src/core/shapes";
 import { jointGeometry } from "../src/core/joints";
+import { EDGE_CHAMFER } from "../src/core/constants";
 
 // Issue #9 acceptance criteria: "Top cap auto-on when layers > 1; override
 // on/off in the UI and hash", "The cap is a second named, manifold part in
@@ -311,10 +312,11 @@ describe("exportDesign for a two-part design (issue #9)", () => {
 // open air wider than a small overhang (see "no bridges" below).
 describe("issue #67/#127: the top cap rests on one flat face, with nothing below it and no bridges", () => {
   // The cap's flat outer face: the flange's outer outline (offset out by
-  // margin) minus the through-hole (joints.ts's `holeOutline`).
+  // margin, less the rim's chamfer since issue #229) minus the through-hole
+  // (joints.ts's `holeOutline`).
   function faceArea(d: Awaited<ReturnType<typeof design>>): number {
     const { holeOutline } = jointGeometry(d.flangeSpec.boreOutline, d.spec.joint, d.spec.tolerance);
-    return offsetArea(d.flangeSpec.outline, d.flangeSpec.margin) - (holeOutline ? offsetArea(holeOutline, 0) : 0);
+    return offsetArea(d.flangeSpec.outline, d.flangeSpec.margin - EDGE_CHAMFER) - (holeOutline ? offsetArea(holeOutline, 0) : 0);
   }
 
   // The XY area that the part's lowest (bed-resting) layer

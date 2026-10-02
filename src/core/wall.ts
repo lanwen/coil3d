@@ -9,6 +9,7 @@
 // outer wall, the bore, and the flat annuli at z=0 and z=height are all
 // connected. Fusing the bottom flange (see manifold.ts) only extends it.
 
+import { chamferedRim } from "./edgeChamfer";
 import { arcLengthFractionAt, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
@@ -261,29 +262,36 @@ export function buildOutlineRing(outerOutline: ShapeOutline, outerOffset: number
 
   const ts = outlineColumnParams(outerOutline, columns, minCornerSegments);
 
-  const outerBottom: number[] = [];
-  const outerTop: number[] = [];
+  // Issue #229: the outer edge is chamfered on both faces -- four rows of vertices up the rim (edgeChamfer.ts)
+  // instead of two. The bottom and top annuli start at the first and last row.
+  const rim = chamferedRim(outerOffset, zLo, zHi);
+  const outer: number[][] = rim.map(() => []);
   const innerBottom: number[] = [];
   const innerTop: number[] = [];
   for (const t of ts) {
     // pointAt, like the inner outline: a round outline's own corner parameter starts 45 degrees round from its
     // `t`, which paired each outer column with an inner one 45 degrees away, and on a narrow annulus the twisted
     // strips folded back over each other (issue #219).
-    const o = pointAt(outerOutline, t, outerOffset);
+    rim.forEach((row, r) => {
+      const o = pointAt(outerOutline, t, row.offset);
+      outer[r].push(push(o.x, o.y, row.z));
+    });
     const inner = pointAt(innerOutline, t, 0);
-    outerBottom.push(push(o.x, o.y, zLo));
-    outerTop.push(push(o.x, o.y, zHi));
     innerBottom.push(push(inner.x, inner.y, zLo));
     innerTop.push(push(inner.x, inner.y, zHi));
   }
 
   const columnCount = ts.length;
+  const outerBottom = outer[0];
+  const outerTop = outer[rim.length - 1];
   const indices: number[] = [];
   for (let ci = 0; ci < columnCount; ci++) {
     const cj = (ci + 1) % columnCount;
-    // Outer side wall faces outward.
-    indices.push(outerBottom[ci], outerBottom[cj], outerTop[ci]);
-    indices.push(outerTop[ci], outerBottom[cj], outerTop[cj]);
+    // Outer side wall faces outward: the lower chamfer, the land, the upper chamfer.
+    for (let r = 0; r + 1 < rim.length; r++) {
+      indices.push(outer[r][ci], outer[r][cj], outer[r + 1][ci]);
+      indices.push(outer[r + 1][ci], outer[r][cj], outer[r + 1][cj]);
+    }
     // Inner side wall (bore) faces inward.
     indices.push(innerBottom[ci], innerTop[ci], innerBottom[cj]);
     indices.push(innerBottom[cj], innerTop[ci], innerTop[cj]);

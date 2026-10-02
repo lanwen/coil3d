@@ -35,6 +35,8 @@ import {
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
 } from "../constants";
+import { chamferedRim, chamferWedgeRows, SLAB_BELOW_FACE } from "../edgeChamfer";
+import type { RimRow } from "../edgeChamfer";
 import { jointGeometry, resolveCapJoint } from "../joints";
 import type { OutlineStack, RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
@@ -116,6 +118,12 @@ function outlineSolid(o: ShapeOutline, height: number, zBase: number): R.Shape3D
  */
 function outlineLoftSolid(bottomOutline: ShapeOutline, topOutline: ShapeOutline, zBottom: number, zTop: number): R.Shape3D {
   return outlineSketch(bottomOutline, zBottom).loftWith(outlineSketch(topOutline, zTop));
+}
+
+/** Issue #229: the solid whose outline is `outline` offset by each row's `offset`, at the row's `z`, lofted (ruled) through the rows -- the STEP twin of manifold.ts's `rimHull`. */
+function rimLoftSolid(outline: ShapeOutline, rows: RimRow[]): R.Shape3D {
+  const [first, ...rest] = rows.map(({ offset, z }) => outlineSketch(offsetOutline(outline, offset), z));
+  return first.loftWith(rest, { ruled: true });
 }
 
 /** `o`'s own boundary as a sketch at height z (a plain circle when round). */
@@ -346,8 +354,8 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const bore = outlineSolid(boreOutline, height + 2, -1);
   const tube = outer.cut(bore);
 
-  const flangeOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
-  const flangeOuter = outlineSolid(flangeOutline, flangeSpec.thickness, -flangeSpec.thickness);
+  // Issue #229: the outer edge is chamfered on both faces (edgeChamfer.ts).
+  const flangeOuter = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, -flangeSpec.thickness, 0));
   const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
   // Issue #221: with T-clips, a floor fills the bottom of the bore (manifold.ts's `fuseFlange`): the flange stays a full disc.
   const flange = flangeSpec.skadisTclip ? flangeOuter : flangeOuter.cut(flangeInner);
@@ -755,8 +763,10 @@ function relieveFlangeSolid(kernel: OpenCascadeInstance, flange: R.Shape3D, flan
   const levels = padLevels(zPlate);
   const pads = layoutFlangePads(flangeSpec, innerEnd, anchors, tolerance).map((pad) => padSolidStep(pad, levels, flangeSpec.outline));
   const padSolid = pads.slice(1).reduce((all, pad) => all.fuse(pad), pads[0]);
-  const slab = outlineSolid(offsetOutline(flangeSpec.outline, flangeSpec.margin + 1), 1 - zPlate, zPlate);
-  return checkedCut(kernel, flange, checkedCut(kernel, slab, padSolid));
+  // Issue #229: the slab's lower edge runs down the plate top's chamfer, around the frustum that stays.
+  const slab = outlineSolid(offsetOutline(flangeSpec.outline, flangeSpec.margin + 1), 1 - zPlate + SLAB_BELOW_FACE, zPlate - SLAB_BELOW_FACE);
+  const kept = rimLoftSolid(flangeSpec.outline, chamferWedgeRows(flangeSpec.margin, zPlate));
+  return checkedCut(kernel, flange, checkedCut(kernel, checkedCut(kernel, slab, kept), padSolid));
 }
 
 /**
@@ -824,9 +834,9 @@ async function buildLabelCutterSolid(label: ResolvedLabel): Promise<R.Shape3D | 
 /** Build the top cap solid (plate + engagement collar for the chosen joint + cable clip + engraved label), directly in the shared assembly frame -- see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin. */
 async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
-  const outerOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
   // Issue #127: the plate's middle is opened by the through-hole below (mirrors manifold.ts).
-  const plate = outlineSolid(outerOutline, CAP_THICKNESS, 0);
+  // Issue #229: the outer edge is chamfered on the top face; the underside stays square (edgeChamfer.ts's `chamferedRim`).
+  const plate = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, 0, CAP_THICKNESS, true));
 
   // Issue #167: the joint design.ts built (a bayonet may fall back to press fit).
   const capJoint = resolveCapJoint(spec, design.wallSpec);
