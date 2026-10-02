@@ -27,7 +27,7 @@ export const HINTS = {
   layers:
     "This is how many layers of cable the coil has. A layer is one full row of turns from the bottom of the core to the top; the next layer winds on top of it. Lock it to set an exact count, or leave it free.",
   mount:
-    "This adds a way to hang the coil on a wall: a screw keyhole (hang it, then slide down to seat), plain through-holes (screw straight through, no sliding), or clips for an IKEA SKÅDIS pegboard: rim clips that hook into the board's slots and grip the flange's rim, or T-clips that pass through lugs on the rim and twist a quarter turn to lock (no glue either way).",
+    "This adds a way to hang the coil on a wall: a screw keyhole (hang it, then slide down to seat), plain through-holes (screw straight through, no sliding), or clips for an IKEA SKÅDIS pegboard: rim clips that hook into the board's slots and grip the flange's rim, or T-clips that pass through slots in the core's floor and twist a quarter turn to lock (no glue either way).",
   skadisLatch:
     "The top clip gets a small spring tooth that clicks into its slot, so pulling the cable can't lift the coil off the board. To take the coil down, lift the top clip firmly. Turn it off for a plain hook.",
   keyholeRotation: "This rotates the keyhole slot's own position on the core, in fixed steps. The coil still hangs level at every setting -- only which side faces up changes.",

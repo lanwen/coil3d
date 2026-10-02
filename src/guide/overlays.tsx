@@ -189,6 +189,8 @@ export interface FigureProps {
   /** A world point (same posed frame as `renderOverlay`'s fit) to show a circled zoom inset of, e.g. a rim keyhole -- issue #17 review. */
   zoomInsetAt?: THREE.Vector3;
   zoomInsetCorner?: "bottom-right" | "bottom-left";
+  /** Issue #221: how much of the model (mm across) the zoom inset shows, whatever the figure's scale; the inset's fixed `INSET_ZOOM` when absent. */
+  zoomInsetWindowMm?: number;
 }
 
 /**
@@ -198,7 +200,7 @@ export interface FigureProps {
  * same parts/preset/fill (see projection.ts's file header for why this is a
  * parallel, not shared, computation).
  */
-export function Figure({ parts, wirePaths, wireDiameter, showWire, exploded, preset = "iso", fill = DEFAULT_FIGURE_FILL, testId, renderOverlay, zoomInsetAt, zoomInsetCorner }: FigureProps) {
+export function Figure({ parts, wirePaths, wireDiameter, showWire, exploded, preset = "iso", fill = DEFAULT_FIGURE_FILL, testId, renderOverlay, zoomInsetAt, zoomInsetCorner, zoomInsetWindowMm }: FigureProps) {
   const posedParts = useMemo(() => explodedParts(parts, exploded ?? false, EXPLODE_GAP), [parts, exploded]);
   const fit = useMemo(() => computeGuideFit(posedParts, preset, fill), [posedParts, preset, fill]);
   return (
@@ -210,7 +212,18 @@ export function Figure({ parts, wirePaths, wireDiameter, showWire, exploded, pre
           <FigureOverlay>
             <ZoomLeader at={projectToFigure(fit, zoomInsetAt)} corner={zoomInsetCorner} />
           </FigureOverlay>
-          <ZoomInset parts={posedParts} wirePaths={wirePaths} wireDiameter={wireDiameter} showWire={showWire} preset={preset} fill={fill} at={projectToFigure(fit, zoomInsetAt)} corner={zoomInsetCorner} />
+          <ZoomInset
+            parts={posedParts}
+            wirePaths={wirePaths}
+            wireDiameter={wireDiameter}
+            showWire={showWire}
+            preset={preset}
+            fill={fill}
+            at={projectToFigure(fit, zoomInsetAt)}
+            corner={zoomInsetCorner}
+            // The host figure is HOST_FIGURE_WIDTH px for 2 * halfHeight * aspect mm.
+            zoom={zoomInsetWindowMm ? (INSET_SIZE * 2 * fit.halfHeight * fit.aspect) / (HOST_FIGURE_WIDTH * zoomInsetWindowMm) : undefined}
+          />
         </>
       )}
     </div>

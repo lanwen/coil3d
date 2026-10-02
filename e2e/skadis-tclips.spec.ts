@@ -1,13 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 
-// End-to-end checks for the SKÅDIS T-clips (issue #213, after the CC BY 4.0
-// Skadis T-Clip System). The fit, the twist lock and printability are
+// End-to-end checks for the SKÅDIS T-clips (issues #213, #221, after the
+// CC BY 4.0 Skadis T-Clip System), in slots through a floor in the bore. The fit, the twist lock and printability are
 // covered by vitest against the public `design()` interface
 // (test/skadisFit.test.ts); these check the hash <-> UI <-> viewer seam, the
 // credit, the exports and the screenshots.
 
 const tclips = (doc: Record<string, unknown>) => encodeHashDoc({ L: 2000, d: 3.8, mount: "skadis-tclip", ...doc });
+const ROUND_40 = tclips({ size: 40 });
 const ROUND_60 = tclips({ size: 60 });
 const ROUND_85 = tclips({ size: 85 });
 const ROUND_120 = tclips({ size: 120 });
@@ -20,7 +21,7 @@ async function gotoDesign(page: Page, hash: string) {
   await page.waitForTimeout(800);
 }
 
-test.describe("SKÅDIS T-clip controls (issue #213)", () => {
+test.describe("SKÅDIS T-clip controls (issues #213, #221)", () => {
   test("the picker offers both SKÅDIS mounts with their plain-language hints", async ({ page }) => {
     await page.goto("/");
     await page.getByTestId("mount-enabled").check();
@@ -39,6 +40,8 @@ test.describe("SKÅDIS T-clip controls (issue #213)", () => {
     await expect(page.getByTestId("skadis-latch")).toHaveCount(0);
     const note = page.getByTestId("mount-note");
     await expect(note).toContainText(/quarter turn/i);
+    await expect(note).toContainText(/core's floor/i);
+    await expect(note).toContainText(/pinch its fin/i);
     await expect(note).toContainText(/Line Arc Line/);
     await expect(note).toContainText(/CC BY 4\.0/);
     await expect(note.getByRole("link", { name: "Skadis T-Clip System" })).toHaveAttribute("href", "https://www.printables.com/model/256896");
@@ -46,6 +49,17 @@ test.describe("SKÅDIS T-clip controls (issue #213)", () => {
     await page.reload();
     await expect(page.getByTestId("select-mount")).toHaveValue("skadis-tclip");
   });
+
+  for (const { label, hash, parts, message } of [
+    { label: "round-60", hash: ROUND_60, parts: "3 parts", message: /room for 2 SK.DIS T-clips/i },
+    { label: "round-40", hash: ROUND_40, parts: "2 parts", message: /room for 1 SK.DIS T-clip.*lift the coil/i },
+  ]) {
+    test(`${label}: a smaller bore gets fewer clips, and says how the coil hangs`, async ({ page }) => {
+      await gotoDesign(page, hash);
+      await expect(page.getByTestId("mesh-detail")).toContainText(parts);
+      await expect(page.getByTestId("warnings")).toContainText(message);
+    });
+  }
 
   test("the clips render, and STL/3MF/STEP all download", async ({ page }) => {
     const consoleErrors: string[] = [];
@@ -66,8 +80,9 @@ test.describe("SKÅDIS T-clip controls (issue #213)", () => {
   });
 });
 
-test.describe("SKÅDIS T-clip screenshots (issue #213)", () => {
+test.describe("SKÅDIS T-clip screenshots (issues #213, #221)", () => {
   for (const { label, hash } of [
+    { label: "round-40", hash: ROUND_40 },
     { label: "round-60", hash: ROUND_60 },
     { label: "round-85", hash: ROUND_85 },
     { label: "round-120", hash: ROUND_120 },
@@ -80,7 +95,7 @@ test.describe("SKÅDIS T-clip screenshots (issue #213)", () => {
     });
   }
 
-  test("round-85: the print layout lays the T-clips flat beside the core with its lugs", async ({ page }) => {
+  test("round-85: the print layout lays the T-clips flat beside the core, fins and all", async ({ page }) => {
     await gotoDesign(page, ROUND_85);
     await page.getByTestId("preset-printLayout").click();
     await expect(page.getByTestId("wall-view-caption")).toHaveText(/no supports needed/i);

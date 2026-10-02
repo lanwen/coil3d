@@ -94,8 +94,8 @@ export interface PrintSpec {
  * for a permanent, non-sliding screw mount. `"skadis"` (issue #207) adds
  * separate rim clips that hook an IKEA SKÅDIS board and wrap the flange's
  * rim in small notches (skadisClips.ts); `"skadis-tclip"` (issue #213)
- * adds twist-lock T-clips that clamp the flange to the board through lugs on
- * its rim (skadisTclips.ts). `"opengrid"` (issue #14, a hidden
+ * adds twist-lock T-clips that clamp a floor in the core's bore to the
+ * board, turned by tall fins (skadisTclips.ts, issue #221). `"opengrid"` (issue #14, a hidden
  * placeholder) adds a separate mount plate glued to the flange's outer face
  * on two printed pegs (mountPlate.ts). `"none"` is the default.
  */

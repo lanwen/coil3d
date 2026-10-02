@@ -9,7 +9,7 @@ Multiboard is not supported.
 | Screw keyhole | A pocket recessed into the flange's outer face | Tested in geometry only |
 | Through holes | Plain screw holes through the flange | Tested in geometry only |
 | IKEA SKÅDIS rim clips | Separate clips that hook the board and grip the flange's rim | Not test-fitted on a physical board |
-| IKEA SKÅDIS T-clips | Twist-lock clips through lugs on the flange's rim (after the CC BY 4.0 Skadis T-Clip System) | Not test-fitted on a physical board |
+| IKEA SKÅDIS T-clips | Twist-lock clips through slots in the core's floor, turned by tall fins (after the CC BY 4.0 Skadis T-Clip System) | Not test-fitted on a physical board |
 | openGrid | A separate plate glued to the flange, with a placeholder connector | Not usable: hidden in the UI and rejected in links |
 
 coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
@@ -132,9 +132,10 @@ force and the board play (about 1.5 mm on a 4 mm board) need a real print.
 
 ### T-clips
 
-A second SKÅDIS mount type (`mount: "skadis-tclip"`, issue #213): twist-lock
-clips that clamp the flange flat to the board. `src/core/skadisTclips.ts`
-lays them out for both geometry backends.
+A second SKÅDIS mount type (`mount: "skadis-tclip"`, issues #213, #221):
+twist-lock clips that clamp the core's floor flat to the board, from inside
+the bore. `src/core/skadisTclips.ts` lays them out for both geometry
+backends.
 
 **Credit.** Adapted from the
 [Skadis T-Clip System](https://www.printables.com/model/256896) by Line Arc
@@ -142,41 +143,73 @@ Line, licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)
 (checked through the Printables API: CC BY 4.0 International, remixing and
 commercial use allowed). We took the mechanism: a T that goes through the
 slot upright and turns a quarter turn to lock behind the board, at least two
-per part. Modified: the clip is re-implemented parametrically with our own
-dimensions (none of the original's files or geometry are used). The receiver
-is our own lug on the flange, not the original's round clip seat. The same
-credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
+per part. We also adapted its smooth-turning features: the hook ramps, the
+chamfered edges, the shaped stem and a seat lead-in. Modified: the clip is
+re-implemented parametrically with our own dimensions (none of the
+original's files or geometry are used). The receiver is our own floor in the
+bore, not the original's round clip seat, and the handle is a tall fin. The
+same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
 
 - **The clip.** One flat "I" profile, 4 mm thick, printed lying on its face,
   so the clamp, the weight and the bars' bending run along the layers.
-  - A handle, 18 x 5 mm.
-  - A 2 x 4 mm stem: its diagonal (4.5 mm) turns inside even a 4.8 mm slot.
+  - A fin handle, 18 mm wide (see "Reaching the fins").
+  - A 2 x 4 mm stem with 0.5 mm chamfered corners: its diagonal (about
+    4.1 mm) turns inside even a 4.8 mm slot.
   - A T bar, 12.2 x 3 mm. It passes the tightest slot's 12.65 mm of full
-    width, and overlaps the board by 3.7 mm a side once turned.
-  - The gap between the handle's and the T bar's bearing faces is the lug's
-    floor plus 5.2 mm. That is tight on a painted 5.23 mm board, and leaves
-    about 0.4 mm of play on an unpainted 4.82 mm one.
-- **The lug.** A round-ended pad on the flange's rim at each clip, full
-  thickness.
-  - A slot through it, centred on the clip, lets the T bar pass and the
-    stem turn.
-  - A 2 mm recess in its face holds the handle. Its walls stop the handle
+    width, and overlaps the board by 3.7 mm a side once turned. Its bearing
+    face ramps down 0.7 mm over its last 1.2 mm at both ends (the original's
+    hook ramps), so the bar rides onto the back of the board as it turns.
+  - Every edge is chamfered 0.6 mm, the faces' edges too (45°, so the
+    bed-side ones print).
+  - The gap between the fin's and the T bar's bearing faces is the floor
+    under the recess plus 5.2 mm. That is tight on a painted 5.23 mm board,
+    and leaves about 0.4 mm of play on an unpainted 4.82 mm one. There is
+    one clamp length.
+- **The floor.** The bore's bottom is filled from the flange's wall face up
+  to its winding face (at least 5 mm thick), one solid with the core and
+  printed on the bed.
+  - A slot through it at each clip lets the T bar pass and the stem turn.
+  - A 2 mm recess in its top holds the fin's foot. Its walls stop the fin
     upright and at a quarter turn clockwise (seen from the room). Turned,
-    the handle sits in the recess's across arm, whose upper edge rests on
-    it: that carries the coil.
-  - The lugs reach out past the wound cable, so the flange's own margin
-    doesn't grow; the flange is at least 5 mm thick, for the recess's floor.
-- **How many, and where.** As for the rim clips: 1 top and 2 bottom, 2 + 2
-  above 0.5 kg of cable, every slot on one of the board's two 40 mm grids,
-  and fallbacks when the inner-end channel is in the way. The top clip is
-  lifted by half the bottom clips' slack on the 40 mm grid, so the lugs at
-  both ends stay short.
+    the fin sits in the recess's across arm, whose upper edge rests on it:
+    that carries the coil.
+  - The slot is as wide as the recess's upright arm, so the two make one
+    straight channel with no ledge. The recess's mouth, where the T bar goes
+    in, has a 0.5 mm x 45° lead-in. Below it the walls stay vertical: they
+    are the stops and carry the weight.
+  - Nothing sticks out past the flange, and the inner-end channel and the
+    cable path are outside the wall, clear of the floor.
+- **How many, and where.** Every slot is on one of the board's two 40 mm
+  grids, with its axis at least the fin's turning radius plus 1.5 mm from
+  the bore's wall, and (with a cap) 8 mm inside the cap's hole.
+  - 3 whenever they fit: 1 top clip above the bore's centre and 2 bottom
+    clips 40 or 80 mm apart. There is no 4th clip for heavy cables.
+  - Otherwise 2 (one above the other, side by side, or diagonal): the coil
+    hangs straight from the pair, with a note.
+  - Otherwise 1, straight above the centre so the coil hangs plumb below it.
+    Its weight keeps the clip dropped in its slot, and a clip can't turn
+    back without being lifted, so nothing turns. A note says so.
+  - If no slot fits, the clips are left out with a warning that suggests the
+    rim clips.
+
+  For 2 m of 3.8 mm cable: round 40-50 mm gets 1 clip, 60 mm gets 2, and
+  70 mm and up gets 3; square 60 mm gets 2; triangle 50 mm gets 1.
+- **Reaching the fins.** You reach through the core (and the cap's hole) and
+  pinch the fin's top.
+  - A fin rises to 1 mm below the wall's top (with a cap, below the cap's
+    collar), up to 60 mm above its recess.
+  - In a bore under 50 mm across, where no hand fits, it always rises to the
+    top.
+  - A fin top more than 65 mm below the core's top gets a note.
+  - Fins turn in their own 9.5 mm circles, and slots are at least 28 mm
+    apart, so they never touch each other or the wall.
 - **Fitting.**
-  1. Hold the coil flat on the board, each lug's slot over a board slot.
-  2. Push each clip in with its handle upright: the T bar passes at the
-     slot's centre.
-  3. Turn the clip a quarter turn clockwise until it stops.
-  4. Let go. The coil and its clips drop together about 5.3 mm, until the
+  1. Hold the coil flat on the board, each slot in the core's floor over a
+     board slot.
+  2. Reach through the core and push each clip in with its fin upright: the
+     T bar passes at the slot's centre.
+  3. Pinch the fin and turn the clip a quarter turn clockwise until it stops.
+  4. Let go. The coil and its clips drop together about 5.4 mm, until the
      stems rest on the bottoms of the slots.
 
   To take the coil down, lift it back to the slots' centres and turn the
@@ -186,15 +219,17 @@ credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
 `test/skadisFit.test.ts` checks the T-clips against the same fact-built
 boards as the rim clips. It checks that:
 
-- the clips are on the lattice;
-- each clip passes upright through its lug and the board's slot;
+- the clips are on the lattice, inside the bore, 3, 2 or 1 by size;
+- each clip passes upright through the floor and the board's slot;
 - each clip turns a quarter turn without touching either, and the recess
   stops it beyond that;
 - turned and dropped, it clears both, and turned back while dropped it is
   stuck;
-- the stem bears on the slot's bottom and the handle carries the lug;
+- the stem bears on the slot's bottom and the fin carries the floor;
 - the T bar catches the back of the board;
-- every clip prints flat with only vertical faces.
+- the fins clear each other, the wall and the cap's collar, and their tops
+  can be reached through the cap's hole;
+- every clip prints flat with no face steeper than 45° overhang.
 
 **This has not been test-fitted on a physical board.**
 

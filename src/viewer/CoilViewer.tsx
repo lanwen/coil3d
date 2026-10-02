@@ -11,6 +11,7 @@ import { dimensionAxesGeometry, dimensionFramePoints, measureDimensionFrame } fr
 import { frontFacingDimensionSpin, frontFacingRotation } from "./frontFacing";
 import { LineArtRenderer, markLabelFaces, type Projection } from "./lineArt/LineArtRenderer";
 import { getPreset, presetQuaternion, type PresetId } from "./lineArt/presets";
+import { mountClipsLabel } from "./partLabels";
 import { PegboardSlots } from "./PegboardSlots";
 import { PrintLayoutLabels } from "./PrintLayoutLabels";
 import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
@@ -559,12 +560,12 @@ export function CoilViewer({
   // one label ("pegs x2") over their joint box instead of two overlapping ones.
   const printLayoutLabelParts = useMemo(() => {
     if (!printLayoutParts) return null;
-    // Issue #207: the SKÅDIS clips likewise share one label.
+    // Issue #207: the SKÅDIS clips likewise share one label, naming their kind as the guide does.
     const pegs = printLayoutParts.filter(({ part }) => part.role === "peg");
     const clips = printLayoutParts.filter(({ part }) => part.role === "mountClip");
     const labels = printLayoutParts.filter(({ part }) => part.role !== "peg" && part.role !== "mountClip").map(({ part, box }) => ({ name: part.name, box }));
     if (pegs.length > 0) labels.push({ name: `pegs \u00d7${pegs.length}`, box: pegs.reduce((box, p) => box.union(p.box), new THREE.Box3()) });
-    if (clips.length > 0) labels.push({ name: `SKÅDIS clips \u00d7${clips.length}`, box: clips.reduce((box, p) => box.union(p.box), new THREE.Box3()) });
+    if (clips.length > 0) labels.push({ name: mountClipsLabel(clips.map(({ part }) => part)), box: clips.reduce((box, p) => box.union(p.box), new THREE.Box3()) });
     return labels;
   }, [printLayoutParts]);
 

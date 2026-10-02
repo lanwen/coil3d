@@ -140,11 +140,14 @@ test.describe("printable assembly guide (issue #17)", () => {
 
   // Issue #213: the T-clips print as one figure, x3, and the mount step shows them turned across the board's
   // slots, with a close-up of one T bar (not a whole-coil inset, which reads as a blob at that size, #215).
+  // Issue #221: they are reached through the core, and turned by their fins.
   test("the SKÅDIS T-clips are printed parts, and the mount step shows a close-up of one locked behind the board", async ({ page }) => {
     await gotoGuide(page, withHashDoc(ONE_LAYER, { size: 85, mount: "skadis-tclip" }));
     await expect(page.getByTestId("guide-step-1")).toContainText(/T-clip ×3/);
     await expect(page.getByTestId("guide-step-1")).toContainText("4 parts");
     await expect(page.getByTestId("guide-step-4")).toContainText(/quarter turn clockwise/i);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/reach through the core/i);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/pinch the fin and turn/i);
     await expect(page.getByTestId("guide-step-4").locator(".guide-overlay-slot").first()).toBeVisible();
     await expect(page.getByTestId("guide-mount-inset")).toHaveCount(0);
     await expect(page.getByTestId("guide-step-1")).toHaveScreenshot("guide-skadis-tclip-print.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
