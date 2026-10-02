@@ -16,6 +16,33 @@ function readInitialState() {
   return parseHash(window.location.hash);
 }
 
+/** The deployed build: the short commit SHA (linked to the commit), muted, next to the credits. A "dev" build has no commit to link to. */
+function BuildLabel() {
+  const { commit, short, builtAt, branch } = __BUILD__;
+  const text = branch && branch !== "main" ? `${short} (${branch})` : short;
+  const title = `Built ${builtAt.slice(0, 16).replace("T", " ")} UTC`;
+  if (commit === "dev") {
+    return (
+      <span className="build-label" data-testid="build-label" title={title} aria-label="Build dev">
+        {text}
+      </span>
+    );
+  }
+  return (
+    <a
+      className="build-label"
+      data-testid="build-label"
+      href={`https://github.com/lanwen/coil3d/commit/${commit}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      aria-label={`Build ${short}`}
+    >
+      {text}
+    </a>
+  );
+}
+
 export default function App() {
   const [{ spec, notice, showWire: initialShowWire, view: initialView }] = useState(readInitialState);
   const [currentSpec, setCurrentSpec] = useState<CoilSpec>(spec);
@@ -231,6 +258,7 @@ export default function App() {
             <a className="licenses-link" data-testid="licenses-link" href={`${import.meta.env.BASE_URL}THIRD_PARTY_NOTICES.txt`} target="_blank" rel="noopener noreferrer">
               Licenses
             </a>
+            <BuildLabel />
           </div>
         </div>
       </div>
