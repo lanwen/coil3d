@@ -53,6 +53,7 @@ const MOUNT_KIND_OPTIONS: Array<{ id: Exclude<MountKind, "none">; label: string 
   { id: "keyhole", label: "Screw keyhole (wall mount)" },
   { id: "through", label: "Through-holes (screw straight on)" },
   { id: "skadis", label: "IKEA SKÅDIS rim clips: hook on, lift off" },
+  { id: "skadis-tclip", label: "IKEA SKÅDIS T-clips: twist to lock" },
 ];
 
 const KEYHOLE_ROTATION_LABELS: Record<KeyholeRotation, string> = {
@@ -432,7 +433,16 @@ export function ControlsForm({
             </select>
           </div>
         )}
-        {/* Issue #207: what the SKÅDIS clips are, in one line, and the top clip's latch. */}
+        {/* Issues #207, #213: what the SKÅDIS clips are, in one line (the T-clips with their CC BY credit), and the top rim clip's latch. */}
+        {spec.mount === "skadis-tclip" && (
+          <p className="field-note mount-credit-note" data-testid="mount-note">
+            Lugs on the flange's rim take twist-lock clips: push each one in upright, then turn it a quarter turn. After the{" "}
+            <a href="https://www.printables.com/model/256896" target="_blank" rel="noreferrer">
+              Skadis T-Clip System
+            </a>{" "}
+            by Line Arc Line (CC BY 4.0).
+          </p>
+        )}
         {spec.mount === "skadis" && (
           <>
             <p className="field-note mount-credit-note" data-testid="mount-note">

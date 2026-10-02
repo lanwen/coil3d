@@ -173,6 +173,20 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
     );
 
     it(
+      "STEP export of the SKÅDIS T-clips (issue #213): the core with its lugs and every clip as its own solid, each volume matching its own mesh",
+      async () => {
+        const d = await design({ ...plateSpec, mount: "skadis-tclip" });
+        expect(d.parts.filter((p) => p.role === "mountClip").length).toBe(3);
+        const stepBytes = await exportDesign(d, "step");
+        const { valid, solidVolumes } = await reimportStep(stepBytes, "reimport-skadis-tclips");
+        expect(valid).toBe(true);
+        expect(solidVolumes.length).toBe(4); // core + 3 T-clips
+        for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
+      },
+      STEP_TIMEOUT_MS,
+    );
+
+    it(
       "STEP export of the SKÅDIS rim clips: the notched core and every clip as its own solid, each volume matching its own mesh",
       async () => {
         const d = await design({ ...plateSpec, mount: "skadis" });

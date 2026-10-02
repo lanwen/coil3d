@@ -30,6 +30,8 @@ import {
   SCREW_MOUNT_SLOT_RADIUS,
   SCREW_MOUNT_UNDERCUT_DEPTH,
   SKADIS_CLIP_WIDTH,
+  SKADIS_TCLIP_RECESS_DEPTH,
+  SKADIS_TCLIP_WIDTH,
   SNAP_HOOK_COUNT,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
@@ -50,6 +52,8 @@ import { mountPlateLayoutFor as layoutFor, pegHoleOutline, pegSweep } from "../m
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
 import { clipFrame } from "../skadisClips";
 import type { RimClip, SkadisClipLayout } from "../skadisClips";
+import { tclipFrame } from "../skadisTclips";
+import type { SkadisTclipLayout, Tclip } from "../skadisTclips";
 import { offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
@@ -347,7 +351,10 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const flangeOutline = offsetOutline(flangeSpec.outline, flangeSpec.margin);
   const flangeOuter = outlineSolid(flangeOutline, flangeSpec.thickness, -flangeSpec.thickness);
   const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
-  const flange = flangeOuter.cut(flangeInner);
+  let flange = flangeOuter.cut(flangeInner);
+  // Issue #213: the T-clips' lugs reach out past the rim, full thickness (manifold.ts's `fuseFlange`).
+  const polygonPrism = (poly: Array<{ x: number; y: number }>, z0: number, z1: number) => loopSolid(poly.map((p): [number, number] => [p.x, p.y]), z1 - z0).translate([0, 0, z0]);
+  for (const lug of flangeSpec.skadisTclip?.lugs ?? []) flange = flange.fuse(polygonPrism(lug, -flangeSpec.thickness, 0));
 
   // Issues #8, #117: the bottom flange's own recessed channel + cable clip,
   // mirroring manifold.ts's `buildInnerEndCutter` (same `layoutInnerEnd`
@@ -380,6 +387,15 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   for (const notch of flangeSpec.skadis?.notches ?? []) {
     const loop: [number, number][] = notch.map((p) => [p.x, p.y]);
     flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
+  }
+  // Issue #213: each T-clip lug's slot and handle recess, from the same layout.
+  if (flangeSpec.skadisTclip) {
+    const t = flangeSpec.skadisTclip;
+    for (const slot of t.slots) flangeSolid = checkedCut(kernel, flangeSolid, polygonPrism(slot, -flangeSpec.thickness - WELD_OVERLAP, WELD_OVERLAP));
+    for (const recess of t.recesses) {
+      const [first, ...rest] = recess.map((poly) => polygonPrism(poly, -SKADIS_TCLIP_RECESS_DEPTH, WELD_OVERLAP));
+      flangeSolid = checkedCut(kernel, flangeSolid, rest.reduce((acc, r) => acc.fuse(r), first));
+    }
   }
   let coreSolid = tube.fuse(flangeSolid);
 
@@ -475,6 +491,17 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     const layout = flangeSpec.skadis;
     clipParts.forEach((part, i) => {
       const clipSolid = skadisClipSolid(layout, layout.clips[i]);
+      validateSolid(kernel, clipSolid, part.mesh, part.name);
+      shapes.push({ shape: clipSolid, name: part.name });
+    });
+  }
+
+  // Issue #213: the SKÅDIS T-clips, in layout order, each the same prism the mesh backend builds.
+  const tclipParts = design.parts.filter((p) => p.role === "mountClip");
+  if (tclipParts.length > 0 && flangeSpec.skadisTclip) {
+    const layout = flangeSpec.skadisTclip;
+    tclipParts.forEach((part, i) => {
+      const clipSolid = skadisTclipSolid(layout, layout.clips[i]);
       validateSolid(kernel, clipSolid, part.mesh, part.name);
       shapes.push({ shape: clipSolid, name: part.name });
     });
@@ -931,4 +958,18 @@ function buildMountPlateSolid(design: Design): R.Shape3D {
   for (const clip of layout.clips) plate = plate.fuse(mountPlateClipSolidStep(clip, backZ));
   for (const anchor of layout.anchors) plate = plate.cut(pinHoleCutterSolid(anchor, spec.tolerance, frontZ, -1));
   return plate;
+}
+
+/** One SKÅDIS T-clip (issue #213): the profile as a face in the clip's own plane, at the extrusion's lower edge, extruded along up -- mirrors manifold.ts's `buildSkadisTclip`. */
+function skadisTclipSolid(layout: SkadisTclipLayout, clip: Tclip): R.Shape3D {
+  const frame = tclipFrame(layout.axisDeg, clip);
+  const w = SKADIS_TCLIP_WIDTH / 2;
+  const face = R.makePolygon(
+    clip.profile.map(([u, z]): [number, number, number] => {
+      const p = frame.at(u, z, -w);
+      return [p.x, p.y, p.z];
+    }),
+  );
+  const sketch = new R.Sketch(face.outerWire(), { defaultOrigin: [0, 0, 0], defaultDirection: [frame.up.x, frame.up.y, 0] });
+  return sketch.extrude(2 * w);
 }

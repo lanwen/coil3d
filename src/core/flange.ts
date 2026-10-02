@@ -26,6 +26,7 @@ import {
   MIN_BORE_RADIUS,
   MIN_FLANGE_THICKNESS_FOR_PLATE,
   MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
+  MIN_FLANGE_THICKNESS_FOR_TCLIP,
   SCREW_MOUNT_RECESS_DEPTH,
   WALL_THICKNESS,
 } from "./constants";
@@ -149,7 +150,10 @@ export function resolveFlangeSizing(
     ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT)
     : mountKindForPlate
       ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_PLATE)
-      : channelOnlyThickness;
+      : mount === "skadis-tclip"
+        ? // Issue #213: the lug's floor under the T-clip handle's recess.
+          Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_TCLIP)
+        : channelOnlyThickness;
 
   // Issue #115: wide enough for the inner-end lead-in's straight chord to
   // hold the clip past the end of its drop into the channel.

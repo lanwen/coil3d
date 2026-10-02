@@ -37,6 +37,7 @@ import { offsetPerimeter, outlineColumnParams, outlineOffsetAt, pointAt } from "
 import type { ShapeOutline } from "./shapes";
 import type { MountKind } from "./types";
 import type { SkadisClipLayout } from "./skadisClips";
+import type { SkadisTclipLayout } from "./skadisTclips";
 
 /** The parts of manifold.ts's `FlangeSpec` the pads read. */
 export interface PaddedFlange {
@@ -52,6 +53,7 @@ export interface PaddedFlange {
   throughHoleDiameter?: number;
   envelopeRadius?: number;
   skadis?: SkadisClipLayout;
+  skadisTclip?: SkadisTclipLayout;
 }
 
 /** The plate's top face (z): the pads rise from here to z = 0. Undefined when the plate is (nearly) full thickness, so there's nothing to relieve. */
@@ -369,6 +371,8 @@ export function layoutFlangePads(flange: PaddedFlange, innerEnd: InnerEndLayout 
   // Issue #207: full thickness under each SKÅDIS clip's jaws, so the rim the
   // clip grips is as thick as the flange, not just its plate.
   for (const pad of flange.skadis?.pads ?? []) pads.push(stadiumPad(pad.a, pad.b, pad.radius, FLANGE_PAD_WALL, zPlate));
+  // Issue #213: full thickness where a T-clip's lug overlaps the flange.
+  for (const pad of flange.skadisTclip?.pads ?? []) pads.push(stadiumPad(pad.a, pad.b, pad.radius, FLANGE_PAD_WALL, zPlate));
   return pads;
 }
 

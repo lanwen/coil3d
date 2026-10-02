@@ -93,11 +93,13 @@ export interface PrintSpec {
  * corners for sq/tri, evenly spaced for round), with no counterbore or pad,
  * for a permanent, non-sliding screw mount. `"skadis"` (issue #207) adds
  * separate rim clips that hook an IKEA SKÅDIS board and wrap the flange's
- * rim in small notches (skadisClips.ts). `"opengrid"` (issue #14, a hidden
+ * rim in small notches (skadisClips.ts); `"skadis-tclip"` (issue #213)
+ * adds twist-lock T-clips that clamp the flange to the board through lugs on
+ * its rim (skadisTclips.ts). `"opengrid"` (issue #14, a hidden
  * placeholder) adds a separate mount plate glued to the flange's outer face
  * on two printed pegs (mountPlate.ts). `"none"` is the default.
  */
-export type MountKind = "none" | "keyhole" | "through" | "skadis" | "opengrid";
+export type MountKind = "none" | "keyhole" | "through" | "skadis" | "skadis-tclip" | "opengrid";
 
 /** Issue #71: the screw-keyhole mount's own placement axis, shifted away from literal vertical in fixed steps (mount.ts's `bestAxisDeg`/`KEYHOLE_ROTATION_OPTIONS`; 90 is deliberately not offered -- see that constant's own doc comment, a horizontal channel can't retain the coil). Ignored when `mount !== "keyhole"`. */
 export type KeyholeRotation = 0 | 45;
