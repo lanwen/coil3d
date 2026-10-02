@@ -1,13 +1,14 @@
-// Clip mount plate layout (issue #14, docs/mounts.md, SKÅDIS; issue #106
-// fit check): a SEPARATE named part
-// that glues (on two printed alignment pegs, issue #132) onto the bottom flange's outer
+// Clip mount plate layout (issue #14, docs/mounts.md): the hidden openGrid
+// placeholder's (issue #38) SEPARATE named part. (The SKÅDIS mount used this
+// plate too until issue #207 replaced it with rim clips, skadisClips.ts.) It
+// glues (on two printed alignment pegs, issue #132) onto the bottom flange's outer
 // (wall-facing) face -- the SAME face mount.ts's screw-keyhole slots cut
 // into (issue #13) -- so the core keeps printing flat with no clip features
 // of its own. Pure geometry math only, shared by both geometry backends
 // (manifold.ts's mesh cut/build and step/build.ts's solid ops), exactly
 // mirroring mount.ts's own "one shared layout, two backends" principle.
 //
-// Grid mounts (SKÅDIS, openGrid 28mm -- see constants.ts) repeat their
+// Grid mounts (openGrid 28mm -- see constants.ts) repeat their
 // hole/slot pattern indefinitely, so only the VECTOR between any two clips
 // has to be one of the board's own lattice vectors; the plate's absolute position on a
 // real board is never known at design time (the user simply slides the
@@ -43,22 +44,13 @@ import {
   MOUNT_PLATE_PEG_LENGTH,
   MOUNT_PLATE_PEG_RADIUS,
   MOUNT_PLATE_PEG_SIZE,
-  MOUNT_PLATE_THICKNESS,
   OPENGRID_PITCH,
   OPENGRID_PLACEHOLDER_PEG_SIZE,
-  SKADIS_BOARD_THICKNESS,
-  SKADIS_CLIP_HEIGHT,
-  SKADIS_CLIP_PROFILE,
-  SKADIS_LATTICE_STEP,
-  SKADIS_PITCH,
-  SKADIS_SLOT_LENGTH,
-  SKADIS_SLOT_WIDTH,
 } from "./constants";
 import { bestAxisDeg } from "./mount";
 import { offsetOutline, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { SweepSolid } from "./innerEnd";
-import type { PegboardSection } from "./types";
 
 /** One clip/connector instance, in TRUE (x, y) flange-plane coordinates, mm. */
 export interface ClipInstance {
@@ -261,21 +253,8 @@ function edgesAtUp(boundary: Array<{ up: number; side: number }>, up0: number): 
  * backends compute the identical layout from identical inputs.
  *
  * `clipHalfSide`/`clipHalfUp` are the clip footprint's own half-extents (mm)
- * along each local axis -- different per mount kind (SKÅDIS's mirrored hook
- * vs. openGrid's placeholder peg, see constants.ts) -- and `pitch` is that
- * kind's own grid spacing (SKADIS_PITCH/OPENGRID_PITCH).
- *
- * `columnOffset` (issue #106): columns sit at side = +-(columnOffset +
- * k*pitch), rows at up = n*pitch. A plain rectangular 40 mm grid is one of
- * SKÅDIS's two interleaved 40 mm grids (constants.ts's "SKÅDIS board
- * facts"), so every clip-to-clip vector lands on the board's lattice.
- * Offsetting the columns by half a pitch (20 mm) keeps the layout mirrored
- * about side=0 with the two middle columns exactly 40 mm apart, and fits a
- * flange about half as wide as columns at +-40 would. 0 puts the columns at
- * +-k*pitch (k >= 1), the plain grid openGrid uses. (The issue #14 layout
- * instead staggered every other 40 mm column by 20 mm vertically, which put
- * the +-40 and +-80 columns on different grids: a real board has no slots
- * there.)
+ * along each local axis, and `pitch` the grid spacing (OPENGRID_PITCH).
+ * Columns sit at side = +-k*pitch (k >= 1), rows at up = n*pitch.
  */
 export function layoutMountPlate(
   flangeOutline: ShapeOutline,
@@ -283,7 +262,6 @@ export function layoutMountPlate(
   pitch: number,
   clipHalfSide: number,
   clipHalfUp: number,
-  columnOffset = 0,
   /** The footprint of the flange's inner-end channel and clip (innerEnd.ts's `layoutInnerEnd`), which the pin holes must stay clear of. */
   avoid?: InnerEndKeepOut,
 ): MountPlateLayout {
@@ -308,7 +286,7 @@ export function layoutMountPlate(
   // `pitch` grid through up=0.
   const clips: ClipInstance[] = [];
   for (let k = 0; k < MOUNT_PLATE_MAX_PER_SIDE; k++) {
-    const side = columnOffset > 0 ? columnOffset + k * pitch : (k + 1) * pitch;
+    const side = (k + 1) * pitch;
     const rowsUp = [0];
     for (let n = 1; n <= MOUNT_PLATE_MAX_PER_SIDE; n++) rowsUp.push(n * pitch, -n * pitch);
     for (const up of rowsUp) {
@@ -357,73 +335,15 @@ export function layoutMountPlate(
   return { outline, clips, anchors, axisDeg };
 }
 
-/** The SKÅDIS clip pair's own half-extents (mm): `halfUp` from half its length along WALL_UP (constants.ts's `SKADIS_CLIP_HEIGHT`), `halfSide` from the profile's own farthest sideways point (the barb). Computed from the profile data itself, so it can't drift from the geometry manifold.ts/step/build.ts build. */
-export function skadisClipHalfExtents(): { halfUp: number; halfSide: number } {
-  return { halfUp: SKADIS_CLIP_HEIGHT / 2, halfSide: Math.max(...SKADIS_CLIP_PROFILE.map(([s]) => s)) };
-}
-
-/**
- * How far a clip's centre sits BELOW its slot's centre once seated (mm):
- * the plate hangs on its clips, and each leg's outer bottom corner rests on
- * the slot's rounded bottom end, r - sqrt(r^2 - w^2) above the slot's very
- * bottom (slot half-width r, leg half-width w -- the profile's second point).
- */
-export function skadisSeatDrop(slotWidth: number, slotLength: number): number {
-  const r = slotWidth / 2;
-  const w = SKADIS_CLIP_PROFILE[1][0];
-  const rest = r - Math.sqrt(r * r - w * w);
-  return slotLength / 2 - rest - SKADIS_CLIP_HEIGHT / 2;
-}
-
-/**
- * The nominal SKÅDIS board the plate hangs on, clips seated (issue #106):
- * every lattice slot (constants.ts's "SKÅDIS board facts": centres at
- * (20a, 20b) mm with a + b even, relative to the first clip's own slot)
- * whose centre lies within `radius` of the plate's centre. For the viewer
- * and guide to draw the slot grid against the clips; the fit itself is
- * checked in test/mountPlate.test.ts against a board built from the facts
- * alone.
- */
-export function skadisBoard(layout: MountPlateLayout, flangeThickness: number, radius: number): PegboardSection | undefined {
-  if (layout.axisDeg === undefined || layout.clips.length === 0) return undefined;
-  const { toXY, project } = basisFor(layout.axisDeg);
-  const drop = skadisSeatDrop(SKADIS_SLOT_WIDTH, SKADIS_SLOT_LENGTH);
-  const origin = project(layout.clips[0]);
-  const step = SKADIS_LATTICE_STEP;
-  const n = Math.ceil((radius + Math.hypot(origin.side, origin.up)) / step) + 1;
-  const slots: Array<{ x: number; y: number }> = [];
-  for (let a = -n; a <= n; a++) {
-    for (let b = -n; b <= n; b++) {
-      if (Math.abs(a + b) % 2 !== 0) continue;
-      const side = origin.side + a * step;
-      const up = origin.up + drop + b * step;
-      if (Math.hypot(side, up) > radius) continue;
-      slots.push(toXY(up, side));
-    }
-  }
-  return {
-    slots,
-    slotWidth: SKADIS_SLOT_WIDTH,
-    slotLength: SKADIS_SLOT_LENGTH,
-    thickness: SKADIS_BOARD_THICKNESS,
-    frontZ: -flangeThickness - MOUNT_PLATE_THICKNESS,
-    axisDeg: layout.axisDeg,
-  };
-}
-
 /** The openGrid placeholder connector's half-extents (mm) -- see constants.ts's `OPENGRID_PLACEHOLDER_PEG_SIZE` TODO. */
 export function openGridClipHalfExtents(): { halfUp: number; halfSide: number } {
   return { halfUp: OPENGRID_PLACEHOLDER_PEG_SIZE / 2, halfSide: OPENGRID_PLACEHOLDER_PEG_SIZE / 2 };
 }
 
-/** The one layout both geometry backends (design.ts's mesh, step/build.ts's solid) build from, per mount kind: SKÅDIS on its 40 mm grid with the columns half a pitch off-centre (see `layoutMountPlate`'s `columnOffset`), openGrid on its plain 28 mm grid. `flangeOutline` is the flange's true outer outline (already offset by its margin). */
-export function mountPlateLayoutFor(mountKind: "skadis" | "opengrid", flangeOutline: ShapeOutline, boreOutline: ShapeOutline, avoid?: InnerEndKeepOut): MountPlateLayout {
-  if (mountKind === "skadis") {
-    const { halfSide, halfUp } = skadisClipHalfExtents();
-    return layoutMountPlate(flangeOutline, boreOutline, SKADIS_PITCH, halfSide, halfUp, SKADIS_PITCH / 2, avoid);
-  }
+/** The one layout both geometry backends (design.ts's mesh, step/build.ts's solid) build from: openGrid on its plain 28 mm grid. `flangeOutline` is the flange's true outer outline (already offset by its margin). */
+export function mountPlateLayoutFor(flangeOutline: ShapeOutline, boreOutline: ShapeOutline, avoid?: InnerEndKeepOut): MountPlateLayout {
   const { halfSide, halfUp } = openGridClipHalfExtents();
-  return layoutMountPlate(flangeOutline, boreOutline, OPENGRID_PITCH, halfSide, halfUp, 0, avoid);
+  return layoutMountPlate(flangeOutline, boreOutline, OPENGRID_PITCH, halfSide, halfUp, avoid);
 }
 
 /**
@@ -455,8 +375,8 @@ export function mountPlateLayoutFor(mountKind: "skadis" | "opengrid", flangeOutl
  * `MOUNT_PLATE_MIN_CLIPS` of clips, so "at least one clip" and "at least
  * `MOUNT_PLATE_MIN_CLIPS`" are the same bisection target.
  */
-export function requiredMountPlateMargin(outline: ShapeOutline, boreOutline: ShapeOutline, mountKind: "skadis" | "opengrid"): number {
-  const fits = (margin: number): boolean => mountPlateLayoutFor(mountKind, offsetOutline(outline, margin), boreOutline).clips.length > 0;
+export function requiredMountPlateMargin(outline: ShapeOutline, boreOutline: ShapeOutline): number {
+  const fits = (margin: number): boolean => mountPlateLayoutFor(offsetOutline(outline, margin), boreOutline).clips.length > 0;
   let lo = 0;
   let hi = 1;
   while (!fits(hi)) hi *= 2;

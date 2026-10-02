@@ -115,30 +115,27 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.getByTestId("guide-step-4")).toContainText("keyhole slot on a screw");
   });
 
-  // Issue #14 landed the SKÅDIS clip mount after this guide shipped (issue
-  // #17 PR review round 2, on #14's own PR): mountLine() must give it real
-  // wording too, not the generic "coming soon" fallback meant only for
-  // "none" (and "opengrid", which isn't reachable -- see mountLine's own
-  // doc comment in Guide.tsx).
-  // Issue #106: the plate gets its own "fit the plate" step (printed pegs +
-  // glue), then the mount step shows the clips face-on against the drawn
-  // SKÅDIS slot grid.
-  test("the SKÅDIS clip mount gets a fit-the-plate step, then a mount step with the clips in the board's slots", async ({ page }) => {
-    await gotoGuide(page, withHashDoc(ONE_LAYER, { mount: "skadis" }));
-    await expect(page.getByTestId("guide-step-4")).toContainText(/mount plate/i);
-    await expect(page.getByTestId("guide-step-4")).toContainText(/two printed pegs/i);
-    // Issue #132: the pegs are printed parts, shown once in step 1 as x2.
-    await expect(page.getByTestId("guide-step-1")).toContainText(/Alignment peg ×2/);
+  // Issue #14 landed the SKÅDIS mount after this guide shipped (issue #17 PR
+  // review round 2, on #14's own PR): mountLine() must give it real wording
+  // too, not the generic "coming soon" fallback meant only for "none" (and
+  // "opengrid", which isn't reachable -- see mountLine's own doc comment in
+  // Guide.tsx). Issue #207: the rim clips print as separate parts (step 1,
+  // one figure per kind), and the mount step shows them face-on against the
+  // drawn SKÅDIS slot grid.
+  test("the SKÅDIS rim clips are printed parts, and the mount step shows them in the board's slots", async ({ page }) => {
+    await gotoGuide(page, withHashDoc(ONE_LAYER, { size: 85, mount: "skadis" })); // one layer, no top cap: 1 top + 2 bottom clips
+    await expect(page.getByTestId("guide-step-1")).toContainText(/Top clip ×1/);
+    await expect(page.getByTestId("guide-step-1")).toContainText(/Bottom clip ×2/);
     await expect(page.getByTestId("guide-step-1")).toContainText("4 parts");
-    await expect(page.getByTestId("guide-step-5")).toContainText(/SK.DIS/i);
-    await expect(page.getByTestId("guide-step-5")).toContainText(/slots/i);
-    await expect(page.getByTestId("guide-step-5")).not.toContainText("coming soon");
-    await expect(page.getByTestId("guide-step-5").locator(".guide-overlay-slot").first()).toBeVisible();
-    await expect(page.getByTestId("guide-step-6")).toContainText(/unwind/i);
-    await revealFigures(page, page.getByTestId("guide-step-4"));
-    await revealFigures(page, page.getByTestId("guide-step-5"));
-    await expect(page.getByTestId("guide-step-4")).toHaveScreenshot("guide-skadis-fit-plate.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
-    await expect(page.getByTestId("guide-step-5")).toHaveScreenshot("guide-skadis-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+    await expect(page.getByTestId("guide-step-1")).toContainText(/clips lying on their side/i);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/SK.DIS/i);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/bottom clip/i);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/clicks/i);
+    await expect(page.getByTestId("guide-step-4")).not.toContainText("coming soon");
+    await expect(page.getByTestId("guide-step-4").locator(".guide-overlay-slot").first()).toBeVisible();
+    await expect(page.getByTestId("guide-step-5")).toContainText(/unwind/i);
+    await expect(page.getByTestId("guide-step-1")).toHaveScreenshot("guide-skadis-print.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+    await expect(page.getByTestId("guide-step-4")).toHaveScreenshot("guide-skadis-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
   });
 
   // Issue #70 landed the through-hole mount after this guide shipped, the

@@ -51,7 +51,7 @@ import {
   TOLERANCE_MIN,
 } from "./constants";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
-import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, PlateJoint, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
+import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
 
 /** The current (`#s=`) document version. Bump this and add a migration branch if the shape ever changes incompatibly. */
 const DOC_VERSION = 2;
@@ -75,6 +75,7 @@ export const DEFAULT_SPEC: CoilSpec = {
   mount: "none",
   plateJoint: "glue",
   keyholeRotation: 0,
+  skadisLatch: true,
   throughHoleDiameter: DEFAULT_THROUGH_HOLE_DIAMETER,
 };
 
@@ -119,6 +120,7 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
     mount: spec.mount,
     plateJoint: spec.plateJoint,
     keyholeRotation: spec.keyholeRotation,
+    skadisLatch: spec.skadisLatch,
     throughHoleDiameter: spec.throughHoleDiameter,
   };
 }
@@ -186,7 +188,8 @@ const DocSchema = z
     // "skadis" fails this schema, the same as any other garbage input
     // (defaults + notice).
     mount: z.enum(["keyhole", "through", "skadis"]).optional(),
-    pj: z.literal("snap").optional(),
+    // Issue #207: the SKÅDIS rim clips' anti-lift latch, written only when off.
+    latch: z.literal(false).optional(),
     // Issue #71: only ever one of KEYHOLE_ROTATION_OPTIONS (90 is not
     // offered -- see that constant's own doc comment).
     kr: z.union([z.literal(0), z.literal(45)]).optional(),
@@ -272,7 +275,7 @@ function buildParsed(p: {
   shapeKind: ShapeKind;
   rc?: number;
   mount?: MountKind;
-  pj?: PlateJoint;
+  latch?: false;
   kr?: KeyholeRotation;
   thd?: number;
   lockTokens: Set<string>;
@@ -323,8 +326,9 @@ function buildParsed(p: {
     },
     label: p.label || undefined,
     mount: p.mount ?? "none",
-    plateJoint: p.pj ?? DEFAULT_SPEC.plateJoint,
+    plateJoint: DEFAULT_SPEC.plateJoint,
     keyholeRotation: p.kr ?? DEFAULT_SPEC.keyholeRotation,
+    skadisLatch: p.latch ?? DEFAULT_SPEC.skadisLatch,
     throughHoleDiameter: p.thd ?? DEFAULT_SPEC.throughHoleDiameter,
   };
   return { spec, showWire: p.showWire, view: p.view };
@@ -367,6 +371,9 @@ function parseDocHash(encoded: string): ParsedHash {
   if (p.mount !== "through" && p.thd !== undefined) {
     return fallback('The link sets a through-hole diameter ("thd") without mount=through -- showing default values instead.');
   }
+  if (p.mount !== "skadis" && p.latch !== undefined) {
+    return fallback('The link sets the SKÅDIS latch ("latch") without mount=skadis -- showing default values instead.');
+  }
 
   const parsed = buildParsed({
     L: p.L,
@@ -378,7 +385,7 @@ function parseDocHash(encoded: string): ParsedHash {
     shapeKind: p.shape ?? "round",
     rc: p.rc,
     mount: p.mount,
-    pj: p.pj,
+    latch: p.latch,
     kr: p.kr,
     thd: p.thd,
     lockTokens,
@@ -461,7 +468,7 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, vi
   // here anyway, omitting it (falls back to "none" on reload) is safer
   // than writing a value this same codec can't read back.
   if (spec.mount === "keyhole" || spec.mount === "through" || spec.mount === "skadis") doc.mount = spec.mount;
-  if ((spec.mount === "skadis" || spec.mount === "opengrid") && spec.plateJoint === "snap") doc.pj = "snap";
+  if (spec.mount === "skadis" && spec.skadisLatch === false) doc.latch = false;
   if (spec.mount === "keyhole" && spec.keyholeRotation !== DEFAULT_SPEC.keyholeRotation) doc.kr = spec.keyholeRotation;
   if (spec.mount === "through" && spec.throughHoleDiameter !== DEFAULT_SPEC.throughHoleDiameter) doc.thd = spec.throughHoleDiameter;
 

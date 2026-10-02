@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, Part } from "../src/core";
 
-// Issue #132: the SKÅDIS mount plate's two alignment pegs are real printed
+// Issue #132: the mount plate's two alignment pegs (the openGrid placeholder's
+// since issue #207 moved SKÅDIS to rim clips) are real printed
 // parts (low-poly chamfered octagonal prisms), in every export, sized to a
 // printed clearance fit in holes. Issue #143: the holes match the peg's own
 // octagonal profile (not a circumscribing circle any more), grown by half
@@ -23,7 +24,7 @@ function spec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
-    mount: "skadis",
+    mount: "opengrid",
     plateJoint: "glue",
     ...overrides,
   };
@@ -110,8 +111,8 @@ function holeCorners(mesh: CoilMesh, cx: number, cy: number, zLo: number, zHi: n
   return best;
 }
 
-describe("SKÅDIS alignment pegs (issue #132)", () => {
-  it("the SKÅDIS design includes two peg parts, each one connected, low-poly solid", async () => {
+describe("mount plate alignment pegs (issue #132)", () => {
+  it("the openGrid plate design includes two peg parts, each one connected, low-poly solid", async () => {
     const d = await design(spec());
     expect(d.parts.map((p) => p.name)).toEqual(["core", "mount-plate", "peg-1", "peg-2"]);
     const wasm = await Module();
@@ -128,7 +129,7 @@ describe("SKÅDIS alignment pegs (issue #132)", () => {
     }
   });
 
-  it("a design with a top cap and a SKÅDIS plate has 5 parts", async () => {
+  it("a design with a top cap and a mount plate has 5 parts", async () => {
     const d = await design(spec({ layers: { locked: true, value: 2 }, topCap: "on" }));
     expect(d.parts.map((p) => p.role)).toEqual(["core", "topCap", "mountPlate", "peg", "peg"]);
   });

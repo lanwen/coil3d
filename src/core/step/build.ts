@@ -29,8 +29,7 @@ import {
   SCREW_MOUNT_SLOT_DEPTH,
   SCREW_MOUNT_SLOT_RADIUS,
   SCREW_MOUNT_UNDERCUT_DEPTH,
-  SKADIS_CLIP_HEIGHT,
-  SKADIS_CLIP_PROFILE,
+  SKADIS_CLIP_WIDTH,
   SNAP_HOOK_COUNT,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
@@ -49,6 +48,8 @@ import type { FlangePad } from "../flangePads";
 import type { KeyholeSlot, ThroughHole } from "../mount";
 import { mountPlateLayoutFor as layoutFor, pegHoleOutline, pegSweep } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
+import { clipFrame } from "../skadisClips";
+import type { RimClip, SkadisClipLayout } from "../skadisClips";
 import { offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
@@ -66,7 +67,7 @@ function mountPlateLayoutFor(design: Design): MountPlateLayout {
     bendMultiplierOf(spec.wire) * spec.wire.diameter,
     resolveChannelDepth(spec.wire.diameter, flangeSpec.thickness),
   );
-  return layoutFor(spec.mount as "skadis" | "opengrid", offsetOutline(flangeSpec.outline, flangeSpec.margin), flangeSpec.boreOutline, innerEnd);
+  return layoutFor(offsetOutline(flangeSpec.outline, flangeSpec.margin), flangeSpec.boreOutline, innerEnd);
 }
 
 /**
@@ -372,7 +373,15 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   // `relieveFlange`, from the same flangePads.ts layout and rings).
   const anchors = design.parts.some((p) => p.role === "mountPlate") ? mountPlateLayoutFor(design).anchors : [];
   const relieved = relieveFlangeSolid(kernel, flange, flangeSpec, innerEndCutter.layout, anchors, design.spec.tolerance);
-  let coreSolid = tube.fuse(checkedCut(kernel, relieved, innerEndCutter.cutter));
+  let flangeSolid = checkedCut(kernel, relieved, innerEndCutter.cutter);
+  // Issue #207: the SKÅDIS clips' rim notches (manifold.ts's `fuseFlange`,
+  // from the same layout on the flange spec), cut from the flange before it's
+  // fused, like the channel.
+  for (const notch of flangeSpec.skadis?.notches ?? []) {
+    const loop: [number, number][] = notch.map((p) => [p.x, p.y]);
+    flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
+  }
+  let coreSolid = tube.fuse(flangeSolid);
 
   // Issue #9: bayonet/snap add their mating feature inside the core's bore
   // under the rim; press engages the bore's existing surface directly (no
@@ -457,6 +466,18 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     const plateSolid = buildMountPlateSolid(design);
     validateSolid(kernel, plateSolid, mountPlatePart.mesh, mountPlatePart.name);
     shapes.push({ shape: plateSolid, name: mountPlatePart.name });
+  }
+
+  // Issue #207: the SKÅDIS rim clips, in layout order (design.ts names them
+  // in that order), each the same prism the mesh backend builds.
+  const clipParts = design.parts.filter((p) => p.role === "mountClip");
+  if (clipParts.length > 0 && flangeSpec.skadis) {
+    const layout = flangeSpec.skadis;
+    clipParts.forEach((part, i) => {
+      const clipSolid = skadisClipSolid(layout, layout.clips[i]);
+      validateSolid(kernel, clipSolid, part.mesh, part.name);
+      shapes.push({ shape: clipSolid, name: part.name });
+    });
   }
 
   // Issue #132: the alignment pegs, one per anchor (design.ts names them in
@@ -868,27 +889,27 @@ function loopSolid(loop: [number, number][], height: number): R.Shape3D {
   return sketch.extrude(height);
 }
 
-/** One SKÅDIS clip PAIR -- mirrors manifold.ts's `skadisHookSolid` (see its own doc comment for the rotations and the root-only MOUNT_PLATE_EMBED). */
-function skadisHookSolidStep(): R.Shape3D {
-  const leg: [number, number][] = SKADIS_CLIP_PROFILE.map(([s, r]): [number, number] => [s, r === 0 ? -MOUNT_PLATE_EMBED : r]);
-  const leftLoop: [number, number][] = leg.map(([s, r]): [number, number] => [-s, r]).reverse();
-  const solid = loopSolid(leg, SKADIS_CLIP_HEIGHT).fuse(loopSolid(leftLoop, SKADIS_CLIP_HEIGHT));
-  return solid
-    .translate([0, 0, -SKADIS_CLIP_HEIGHT / 2])
-    .rotate(-90, [0, 0, 0], [1, 0, 0])
-    .rotate(-90, [0, 0, 0], [0, 0, 1]);
-}
-
 /** The openGrid placeholder connector (mirrors manifold.ts's `openGridConnectorSolid` -- see constants.ts's TODO). Embedded into the panel by MOUNT_PLATE_EMBED. */
 function openGridConnectorSolidStep(): R.Shape3D {
   const s = OPENGRID_PLACEHOLDER_PEG_SIZE;
   return R.makeBox([-s / 2, -s / 2, -OPENGRID_PLACEHOLDER_PEG_REACH], [s / 2, s / 2, MOUNT_PLATE_EMBED]);
 }
 
-/** One clip instance, placed at its own true (x, y) and rotated onto the layout's up/side axes (mirrors manifold.ts's `mountPlateClipSolid`). */
-function mountPlateClipSolidStep(mountKind: "skadis" | "opengrid", clip: ClipInstance, zBase: number): R.Shape3D {
-  const canonical = mountKind === "skadis" ? skadisHookSolidStep() : openGridConnectorSolidStep();
-  return canonical.rotate(clip.rotationDeg, [0, 0, 0], [0, 0, 1]).translate([clip.x, clip.y, zBase]);
+/** One placeholder connector, placed at its own true (x, y) and rotated onto the layout's up/side axes (mirrors manifold.ts's `mountPlateClipSolid`). */
+function mountPlateClipSolidStep(clip: ClipInstance, zBase: number): R.Shape3D {
+  return openGridConnectorSolidStep().rotate(clip.rotationDeg, [0, 0, 0], [0, 0, 1]).translate([clip.x, clip.y, zBase]);
+}
+
+/** One SKÅDIS rim clip (issue #207): the profile as a face in the clip's own plane, extruded along the layout's side axis -- mirrors manifold.ts's `buildSkadisClip`. */
+function skadisClipSolid(layout: SkadisClipLayout, clip: RimClip): R.Shape3D {
+  const frame = clipFrame(layout.axisDeg, clip.side);
+  const w = SKADIS_CLIP_WIDTH / 2;
+  const face = R.makePolygon(clip.profile.map(([u, z]): [number, number, number] => {
+    const p = frame.at(u, z, -w);
+    return [p.x, p.y, p.z];
+  }));
+  const sketch = new R.Sketch(face.outerWire(), { defaultOrigin: [0, 0, 0], defaultDirection: [frame.side.x, frame.side.y, 0] });
+  return sketch.extrude(2 * w);
 }
 
 /** One peg hole cutter (mirrors manifold.ts's `pinHoleCutter`): the peg's own octagon (`pegHoleOutline`), not a cylinder (issue #143). `dir` +1 cuts into the flange from its outer face, -1 into the plate from its front face. */
@@ -902,13 +923,12 @@ function pinHoleCutterSolid(anchor: AnchorPoint, tolerance: number, zFace: numbe
 /** Build the mount plate solid (issue #14): a flat panel (`layout.outline`, `outlineSolid` -- no bore, unlike the core/flange) with every clip fused onto its back face and a pin hole cut into its front face per anchor, in the shared ASSEMBLY frame -- mirrors manifold.ts's own `buildMountPlate`. */
 function buildMountPlateSolid(design: Design): R.Shape3D {
   const { flangeSpec, spec } = design;
-  const mountKind = spec.mount as "skadis" | "opengrid";
   const layout = mountPlateLayoutFor(design);
   const backZ = -flangeSpec.thickness - MOUNT_PLATE_THICKNESS;
   const frontZ = -flangeSpec.thickness;
 
   let plate = outlineSolid(layout.outline, MOUNT_PLATE_THICKNESS, backZ);
-  for (const clip of layout.clips) plate = plate.fuse(mountPlateClipSolidStep(mountKind, clip, backZ));
+  for (const clip of layout.clips) plate = plate.fuse(mountPlateClipSolidStep(clip, backZ));
   for (const anchor of layout.anchors) plate = plate.cut(pinHoleCutterSolid(anchor, spec.tolerance, frontZ, -1));
   return plate;
 }

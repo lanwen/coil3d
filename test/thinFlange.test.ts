@@ -60,8 +60,8 @@ const DESIGNS: Array<{ label: string; spec: CoilSpec }> = [
   { label: "repro (tri, keyhole, 2.4 mm)", spec: parseHash(REPRO).spec },
   { label: "round, no mount, 3.8 mm", spec: spec({ coreSize: { locked: true, dimension: "outer", value: 60 } }) },
   { label: "sq, through-hole", spec: spec({ shape: { kind: "sq", cornerRadius: 10 }, coreSize: { locked: true, dimension: "outer", value: 60 }, mount: "through" }) },
-  { label: "round, SKADIS plate", spec: spec({ coreSize: { locked: true, dimension: "outer", value: 80 }, mount: "skadis" }) },
-  // Issue #120's SKADIS repro (small solver-picked core, 2.4 mm cable, cap on).
+  { label: "round, openGrid plate", spec: spec({ coreSize: { locked: true, dimension: "outer", value: 80 }, mount: "opengrid" }) },
+  // Issue #120's SKADIS repro (small solver-picked core, 2.4 mm cable, cap on): rim clips since issue #207.
   { label: "#120 SKADIS repro", spec: parseHash("#s=eyJ2IjoyLCJMIjoxMDAwLCJkIjoyLjQsImgiOjMzLCJsb2NrIjpbImgiXSwiY2FwIjoib24iLCJtb3VudCI6InNrYWRpcyIsImJ4Ijo1NzYsImJ5Ijo1NDcsImJ6Ijo1NzV9").spec },
   { label: "round, 8 mm cable, keyhole", spec: spec({ wire: { length: 3000, diameter: 8, type: "custom" }, coreSize: { locked: true, dimension: "outer", value: 90 }, height: { locked: true, value: 120 }, mount: "keyhole" }) },
 ];
@@ -73,8 +73,9 @@ describe("thin bottom flange (issue #122)", () => {
       const T = d.flangeSpec.thickness;
       const spans = midMarginPoints(d).map((p) => flangeSpans(d, p.x, p.y));
       const thin = spans.filter((s) => s.length === 1 && Math.abs(s[0][1] - s[0][0] - FLANGE_PLATE_THICKNESS) < 1e-3);
-      // Most of the flange is the thin plate (on main it was all full thickness).
-      expect(thin.length).toBeGreaterThan(spans.length / 2);
+      // Most of the flange is the thin plate (on main it was all full thickness). Issue #207: the SKÅDIS rim
+      // clips add a full-thickness pad under each clip, which on this small core is a third of the rim.
+      expect(thin.length).toBeGreaterThan(spans.length * (spec.mount === "skadis" ? 0.4 : 0.5));
       // The thin plate lies on the wall face: z = -thickness, the same plane as every pad.
       for (const s of thin) expect(s[0][0]).toBeCloseTo(-T, 3);
       // Nothing sticks out past either face: the wall face at -thickness, the winding face at 0.
@@ -122,7 +123,7 @@ describe("thin bottom flange (issue #122)", () => {
       }
       let minZ = Infinity;
       let maxZ = -Infinity;
-      for (const part of d.parts.filter((p) => p.role !== "mountPlate" && p.role !== "peg")) {
+      for (const part of d.parts.filter((p) => p.role !== "mountPlate" && p.role !== "peg" && p.role !== "mountClip")) {
         for (let i = 2; i < part.mesh.positions.length; i += 3) {
           minZ = Math.min(minZ, part.mesh.positions[i]);
           maxZ = Math.max(maxZ, part.mesh.positions[i]);
@@ -202,14 +203,14 @@ describe("thin bottom flange (issue #122)", () => {
     }
   });
 
-  it("keeps each SKADIS peg hole's shelf on a pad", async () => {
-    for (const { spec: plateSpec } of [DESIGNS[3], DESIGNS[4]]) {
+  it("keeps each openGrid plate peg hole's shelf on a pad", async () => {
+    for (const { spec: plateSpec } of [DESIGNS[3]]) {
       const skadis = await design(plateSpec, "draft");
       const f = skadis.flangeSpec;
       expect(skadis.parts.some((p) => p.role === "mountPlate")).toBe(true);
       const d = skadis.spec.wire.diameter;
       const innerEnd = layoutInnerEnd(f.outline, f.margin, d, skadis.spec.tolerance, bendMultiplierOf(skadis.spec.wire) * d, resolveChannelDepth(d, f.thickness));
-      const layout = mountPlateLayoutFor("skadis", offsetOutline(f.outline, f.margin), f.boreOutline, innerEnd);
+      const layout = mountPlateLayoutFor(offsetOutline(f.outline, f.margin), f.boreOutline, innerEnd);
       expect(layout.anchors.length).toBeGreaterThan(0);
       for (const a of layout.anchors) {
         // Just beside the peg hole: solid from the wall face up to the inner face.
@@ -223,6 +224,38 @@ describe("thin bottom flange (issue #122)", () => {
         expect(inHole).toHaveLength(1);
         expect(inHole[0][0]).toBeCloseTo(-f.thickness + MOUNT_PLATE_PEG_HOLE_DEPTH, 3);
         expect(inHole[0][1]).toBeCloseTo(0, 3);
+      }
+    }
+  });
+});
+
+describe("SKÅDIS rim clips on the thin flange (issue #207)", () => {
+  it("the rim each clip grips is the flange's full thickness, flat on the wall face, and notched where the clip sits", async () => {
+    for (const d of [await design(DESIGNS[4].spec, "draft"), await design(spec({ shape: { kind: "sq", cornerRadius: 10 }, coreSize: { locked: true, dimension: "outer", value: 85 }, mount: "skadis" }), "draft")]) {
+      const T = d.flangeSpec.thickness;
+      const a = (d.mountAxisDeg! * Math.PI) / 180;
+      const up = { x: Math.sin(a), y: Math.cos(a) };
+      const sideV = { x: Math.cos(a), y: -Math.sin(a) };
+      const clips = d.parts.filter((p) => p.role === "mountClip");
+      expect(clips.length).toBeGreaterThanOrEqual(2);
+      for (const clip of clips) {
+        // The clip's lip: its points on the winding side (z > 0), in (up, side).
+        const pts: Array<{ u: number; s: number }> = [];
+        const P = clip.mesh.positions;
+        for (let i = 0; i < P.length; i += 3) if (P[i + 2] > 0.05) pts.push({ u: P[i] * up.x + P[i + 1] * up.y, s: P[i] * sideV.x + P[i + 1] * sideV.y });
+        const s = (Math.max(...pts.map((p) => p.s)) + Math.min(...pts.map((p) => p.s))) / 2;
+        const top = clip.name.includes("-top-");
+        // The bight's inner face is the lip's end nearest the rim; the jaws reach in from there.
+        const us = pts.map((p) => p.u);
+        const inner = top ? Math.min(...us) : Math.max(...us);
+        const at = (u: number) => flangeSpans(d, u * up.x + s * sideV.x + 0.01, u * up.y + s * sideV.y + 0.01);
+        // Under the lip, halfway along it: solid from the wall face to the winding face.
+        const under = at(top ? inner + 2.5 : inner - 2.5);
+        expect(under, `${clip.name}: under the jaws`).toHaveLength(1);
+        expect(under[0][0]).toBeCloseTo(-T, 3);
+        expect(under[0][1]).toBeCloseTo(0, 3);
+        // Just past the notch floor (towards the rim): no flange, the clip's bight is there.
+        expect(at(top ? inner + 5.3 : inner - 5.3), `${clip.name}: notch`).toHaveLength(0);
       }
     }
   });

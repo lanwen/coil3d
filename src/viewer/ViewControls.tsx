@@ -7,7 +7,7 @@ import type { Projection } from "./lineArt/LineArtRenderer";
 export interface ViewControlsProps {
   preset: PresetId;
   onPresetChange: (preset: PresetId) => void;
-  /** Issue #106: offer the "Mount side" preset (only while the design has a SKÅDIS clip plate to show). */
+  /** Issue #106: offer the "Mount side" preset (only while the design has SKÅDIS clips to show). */
   showMountSide?: boolean;
 }
 

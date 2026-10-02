@@ -25,7 +25,6 @@ import {
 import { layoutKeyholeMount, layoutThroughHoleMount, requiredFlangeMargin, requiredThroughMountMargin } from "../src/core/mount";
 import { layoutInnerEnd } from "../src/core/innerEnd";
 import { layoutFlangeThroughHoles } from "../src/core/flangePads";
-import { mountPlateLayoutFor } from "../src/core/mountPlate";
 import { makeOutline, offsetOutline, radiusAtAngle } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 import { bruteForceRadiusAtAngle, coarseOutlineScan } from "./support/bruteForceRadius";
@@ -105,14 +104,12 @@ describe("keyhole mount rotation (issue #71)", () => {
 // axis from the candidates a non-zero request can land on, whenever a
 // second one is reachable at all (mount.ts's `bestAxisDeg`).
 //
-// (2) the SKÅDIS clip mount plate silently disappeared (no `mountPlate`
-// part, only a general warning) whenever the auto-solved -- or a small,
-// locked -- core came out smaller than the plate's fixed 40mm-pitch grid
-// needs: unlike the keyhole/through-hole mounts, nothing grew the flange
-// margin to guarantee the plate's own minimum 2-clip fit. Fixed by
-// `mountPlate.ts`'s new `requiredMountPlateMargin`, wired into
-// `flange.ts`'s `resolveFlangeSizing` exactly like the other two mount
-// kinds already were.
+// (2) the SKÅDIS mount silently disappeared (only a general warning)
+// whenever the auto-solved -- or a small, locked -- core came out too small
+// for it: unlike the keyhole/through-hole mounts, nothing grew the flange
+// margin to guarantee a fit. Fixed by growing the margin in `flange.ts`'s
+// `resolveFlangeSizing` exactly like the other two mount kinds (since issue
+// #207, for the rim clips: `requiredSkadisMargin`).
 describe("issue #120: keyhole rotation and SKÅDIS mount regressions", () => {
   it("a triangle core: keyholeRotation 0 vs 45 land on genuinely different axes and slot positions (previously identical -- confirmed bug)", async () => {
     const specs = [0, 45] as const;
@@ -152,24 +149,21 @@ describe("issue #120: keyhole rotation and SKÅDIS mount regressions", () => {
   // decoded from `#s=eyJ2IjoyLCJMIjoxMDAwLCJkIjoyLjQsImgiOjMzLCJsb2NrIjpb
   // ImgiXSwiY2FwIjoib24iLCJtb3VudCI6InNrYWRpcyIsImJ4Ijo1NzYsImJ5Ijo1NDcsImJ6
   // Ijo1NzV9`.
-  it("the issue's own SKÅDIS repro (round core, h locked 33, cap on, solver-picked size) builds a mount-plate part with clips, not a silent skip", async () => {
+  it("the issue's own SKÅDIS repro (round core, h locked 33, cap on, solver-picked size) builds the clips, not a silent skip", async () => {
     const hash =
       "#s=eyJ2IjoyLCJMIjoxMDAwLCJkIjoyLjQsImgiOjMzLCJsb2NrIjpbImgiXSwiY2FwIjoib24iLCJtb3VudCI6InNrYWRpcyIsImJ4Ijo1NzYsImJ5Ijo1NDcsImJ6Ijo1NzV9";
     const { spec, notice } = parseHash(hash);
     expect(notice).toBeUndefined();
     const d = await design(spec);
-    expect(d.warnings.some((w) => /too small to fit/i.test(w))).toBe(false);
-    const plate = d.parts.find((p) => p.role === "mountPlate");
-    expect(plate).toBeDefined();
-    const layout = mountPlateLayoutFor("skadis", offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin), d.flangeSpec.boreOutline);
-    expect(layout.clips.length).toBeGreaterThanOrEqual(2);
+    expect(d.warnings.some((w) => /too small/i.test(w))).toBe(false);
+    expect(d.parts.filter((p) => p.role === "mountClip").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("a small, locked core still fits the SKÅDIS plate by growing the flange margin, across shapes (never a silent skip)", async () => {
+  it("a small, locked core still fits the SKÅDIS clips by growing the flange margin, across shapes (never a silent skip)", async () => {
     for (const shape of [{ kind: "round" as const }, { kind: "sq" as const, cornerRadius: 5 }, { kind: "tri" as const, cornerRadius: 5 }]) {
       const d = await design(baseSpec({ shape, mount: "skadis", coreSize: { locked: true, dimension: "outer", value: 12 }, height: { locked: true, value: 20 } }));
-      expect(d.warnings.some((w) => /too small to fit/i.test(w))).toBe(false);
-      expect(d.parts.find((p) => p.role === "mountPlate")).toBeDefined();
+      expect(d.warnings.some((w) => /too small/i.test(w))).toBe(false);
+      expect(d.parts.filter((p) => p.role === "mountClip").length).toBeGreaterThanOrEqual(2);
     }
   });
 });

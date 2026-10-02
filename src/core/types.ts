@@ -91,10 +91,11 @@ export interface PrintSpec {
  * face. `"through"` (issue #70, revised #129) instead cuts plain,
  * constant-radius screw-shank holes straight through the flange (near the
  * corners for sq/tri, evenly spaced for round), with no counterbore or pad,
- * for a permanent, non-sliding screw mount. `"skadis"`/`"opengrid"` (issue #14) instead produce a SEPARATE
- * named "mount plate" part with pegboard clips, which glues or snaps onto
- * that same flange face (see `PlateJoint`, mountPlate.ts) -- the core keeps
- * printing flat with no clip features of its own. `"none"` is the default.
+ * for a permanent, non-sliding screw mount. `"skadis"` (issue #207) adds
+ * separate rim clips that hook an IKEA SKÅDIS board and wrap the flange's
+ * rim in small notches (skadisClips.ts). `"opengrid"` (issue #14, a hidden
+ * placeholder) adds a separate mount plate glued to the flange's outer face
+ * on two printed pegs (mountPlate.ts). `"none"` is the default.
  */
 export type MountKind = "none" | "keyhole" | "through" | "skadis" | "opengrid";
 
@@ -102,12 +103,11 @@ export type MountKind = "none" | "keyhole" | "through" | "skadis" | "opengrid";
 export type KeyholeRotation = 0 | 45;
 
 /**
- * How the clip mount plate (issue #14, `mount: "skadis" | "opengrid"`)
- * attaches to the flange. `"glue"`: matching blind holes in the plate and
- * the flange, aligned on two printed pegs (issue #132), then glued.
- * `"snap"` (issue #14's printable snap tabs) is kept only so old links still
- * parse: tabs on the plate's front face can't print without supports, so
- * design() builds the glue joint for it too, with a warning (issue #106).
+ * How the openGrid placeholder's mount plate (issue #14) attaches to the
+ * flange. `"glue"`: matching blind holes in the plate and the flange,
+ * aligned on two printed pegs (issue #132), then glued. `"snap"` gets the
+ * same glue joint with a warning (snap tabs on the plate's front face can't
+ * print without supports, issue #106).
  */
 export type PlateJoint = "glue" | "snap";
 
@@ -138,10 +138,12 @@ export interface CoilSpec {
    * at a legible height.
    */
   label?: string;
-  /** Wall mount (issue #13/#14/#70): recesses a screw-keyhole slot into the core's bottom flange, cuts plain through-holes ("through", issue #70), or (skadis/opengrid) adds a separate clip mount-plate part. */
+  /** Wall mount (issue #13/#14/#70/#207): recesses a screw-keyhole slot into the core's bottom flange, cuts plain through-holes ("through", issue #70), adds SKÅDIS rim clips ("skadis", issue #207), or (opengrid) a separate mount plate. */
   mount: MountKind;
-  /** How the clip mount plate attaches to the flange (issue #14); ignored when `mount` isn't "skadis"/"opengrid". */
+  /** How the openGrid mount plate attaches to the flange (issue #14); ignored unless `mount` is "opengrid". */
   plateJoint: PlateJoint;
+  /** Issue #207: the SKÅDIS top clip's anti-lift latch; ignored unless `mount` is "skadis". Defaults to on when omitted. */
+  skadisLatch?: boolean;
   /** Issue #71: the keyhole mount's own placement rotation; ignored when `mount !== "keyhole"`. Defaults to 0 when omitted. */
   keyholeRotation?: KeyholeRotation;
   /** Issue #70: through-hole diameter (screw-shank clearance), mm; ignored when `mount !== "through"`. Defaults to `DEFAULT_THROUGH_HOLE_DIAMETER` when omitted. */
@@ -335,8 +337,8 @@ export interface WireLayerPath {
   points: Float32Array;
 }
 
-/** Issue #132: `"peg"` is one of the mount plate's two printed alignment pegs (parts "peg-1", "peg-2"). */
-export type PartRole = "core" | "topCap" | "mountPlate" | "peg";
+/** Issue #132: `"peg"` is one of the openGrid mount plate's two printed alignment pegs (parts "peg-1", "peg-2"). Issue #207: `"mountClip"` is one SKÅDIS rim clip (parts "skadis-top-clip-1", "skadis-bottom-clip-1", ...). */
+export type PartRole = "core" | "topCap" | "mountPlate" | "peg" | "mountClip";
 
 /**
  * A rigid transform (rotation about X, then translation) applied to a
@@ -348,9 +350,13 @@ export type PartRole = "core" | "topCap" | "mountPlate" | "peg";
  * need supports if printed as-is; its transform flips it upside-down (so
  * the joint features point up, unsupported) and lands it on the bed.
  * Issue #132's alignment pegs stand along Z in the assembly and turn a
- * quarter turn about X to print lying on a flat.
+ * quarter turn about X to print lying on a flat. Issue #207's SKÅDIS clips
+ * first turn about Z (`rotateZ`) so their flat face lines up with X before
+ * that quarter turn.
  */
 export interface RigidTransform {
+  /** Rotation about the Z axis, radians, applied FIRST (before `rotateX`); omitted means 0. */
+  rotateZ?: number;
   /** Rotation about the X axis, radians: 0 or Math.PI, or Math.PI / 2 to lay a peg on its side (issue #132). */
   rotateX: number;
   /** Translation applied AFTER rotation, mm. */
@@ -373,7 +379,7 @@ export interface Part {
   printTransform: RigidTransform;
 }
 
-/** A section of SKÅDIS board, placed where the clip mount plate hangs on it (issue #106, `Design.pegboard`). */
+/** A section of SKÅDIS board, placed where the rim clips hang on it (issues #106, #207, `Design.pegboard`). */
 export interface PegboardSection {
   /** Slot centres, in the flange plane (the same (x, y) frame as every part's mesh). */
   slots: Array<{ x: number; y: number }>;
@@ -381,9 +387,9 @@ export interface PegboardSection {
   /** End to end, along the slot's own axis. */
   slotLength: number;
   thickness: number;
-  /** The board's front face (against the plate's back face), in the assembly frame's z; the board extends toward more-negative z by `thickness`. */
+  /** The board's front face (against the clips' outer jaws), in the assembly frame's z; the board extends toward more-negative z by `thickness`. */
   frontZ: number;
-  /** Every slot runs along up = (sin, cos) of this angle (the plate layout's `axisDeg`, the same as `Design.mountAxisDeg`). */
+  /** Every slot runs along up = (sin, cos) of this angle (the clip layout's `axisDeg`, the same as `Design.mountAxisDeg`). */
   axisDeg: number;
 }
 
@@ -403,8 +409,8 @@ export interface Design {
   labelFit?: { fits: boolean; maxChars: number };
   /** Every printable part (issue #9): always includes the core (wall +
    * integral bottom flange); a topCap part is appended when
-   * `solution.topCapEnabled`, then (SKÅDIS/openGrid) the mount plate and
-   * its two alignment pegs (issue #132): at most 5 parts. */
+   * `solution.topCapEnabled`, then the SKÅDIS rim clips (issue #207, 3 or
+   * 4), or the openGrid mount plate and its two alignment pegs (issue #132). */
   parts: Part[];
   /** Trivial derived convenience: `parts.find(p => p.role === "core").mesh`.
    * Kept because most existing analysis (volume/manifoldness checks, the
@@ -425,8 +431,8 @@ export interface Design {
   flangeSpec: FlangeSpec;
   /**
    * The `bestAxisDeg` theta the wall mount's own features are actually
-   * centred/mirrored on: the screw-keyhole mount's slot(s) (issue #13), or
-   * (issue #14) the clip mount plate's column layout (undefined when
+   * centred/mirrored on: the screw-keyhole mount's slot(s) (issue #13), the
+   * SKÅDIS rim clips (issue #207), or the openGrid plate's column layout (undefined when
    * `spec.mount` is `"none"`, or the mount didn't fit at all). Not always 0
    * -- see mount.ts's `MountLayout` doc comment: a shape without a genuine
    * mirror axis at literal vertical (a triangle) still hangs level, just
@@ -436,11 +442,11 @@ export interface Design {
    */
   mountAxisDeg?: number;
   /**
-   * Issue #106: the SKÅDIS board section the clip mount plate hangs on,
-   * with the clips seated in their slots (slot centres in the flange plane,
-   * the board's front face against the plate's back face) -- for drawing
-   * the slot grid against the clips. Undefined unless `spec.mount` is
-   * `"skadis"` and a plate was built.
+   * Issues #106, #207: the SKÅDIS board section the rim clips hang on, with
+   * the clips seated in their slots (slot centres in the flange plane, the
+   * board's front face against the clips' outer jaws) -- for drawing the
+   * slot grid against the clips. Undefined unless `spec.mount` is `"skadis"`
+   * and the clips were built.
    */
   pegboard?: PegboardSection;
   /**

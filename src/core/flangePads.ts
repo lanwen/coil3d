@@ -5,8 +5,8 @@
 //
 // Which face stays flat: the OUTER (wall-facing, z = -thickness) face. It is
 // the face the part prints on, the face every wall mount needs flat against
-// the wall (keyhole, through-hole), and the face the SKADIS/openGrid mount
-// plate is glued to. So the plate is z = [-thickness, -thickness +
+// the wall (keyhole, through-hole), the face the SKÅDIS clips' outer jaws
+// rest on, and the face the openGrid mount plate is glued to. So the plate is z = [-thickness, -thickness +
 // plateThickness], and the pads rise from its top up to the inner
 // (winding-side) face at z = 0 -- growing upwards, so they print with no
 // overhang. They all end at z = 0, the face the inner-end channel is flush
@@ -16,7 +16,8 @@
 //   - the channel pad: along the inner-end channel and clip, to the rim,
 //     blending smoothly into the collar at both sides (issue #133);
 //   - a pad around each mount cut that still needs one: the keyhole slot,
-//     the mount-plate pin hole. The through-hole mount (issue #129) gets no
+//     the mount-plate pin hole, the rim under each SKÅDIS clip's jaws
+//     (issue #207). The through-hole mount (issue #129) gets no
 //     pad -- a plain hole needs no relief beyond the ordinary plate.
 // Every pad has a 45 degree chamfer down to the plate. The wound cable never
 // reaches down to the face outside the channel (its first turn starts MARGIN
@@ -35,6 +36,7 @@ import type { ThroughMountLayout } from "./mount";
 import { offsetPerimeter, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { MountKind } from "./types";
+import type { SkadisClipLayout } from "./skadisClips";
 
 /** The parts of manifold.ts's `FlangeSpec` the pads read. */
 export interface PaddedFlange {
@@ -49,6 +51,7 @@ export interface PaddedFlange {
   keyholeRotation?: number;
   throughHoleDiameter?: number;
   envelopeRadius?: number;
+  skadis?: SkadisClipLayout;
 }
 
 /** The plate's top face (z): the pads rise from here to z = 0. Undefined when the plate is (nearly) full thickness, so there's nothing to relieve. */
@@ -363,6 +366,9 @@ export function layoutFlangePads(flange: PaddedFlange, innerEnd: InnerEndLayout 
   // plain, constant-radius hole with the flange staying its ordinary plate
   // thickness right up to the hole's own edge, flat on the wall face.
   for (const anchor of anchors) pads.push(stadiumPad(anchor, anchor, pegHoleRadius(tolerance), FLANGE_PAD_WALL, zPlate));
+  // Issue #207: full thickness under each SKÅDIS clip's jaws, so the rim the
+  // clip grips is as thick as the flange, not just its plate.
+  for (const pad of flange.skadis?.pads ?? []) pads.push(stadiumPad(pad.a, pad.b, pad.radius, FLANGE_PAD_WALL, zPlate));
   return pads;
 }
 

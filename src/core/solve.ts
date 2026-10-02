@@ -30,6 +30,7 @@
 import { computeCapacity, envelopeDiameter } from "./capacity";
 import type { CapacityResult } from "./capacity";
 import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
+import { isHeavyCable } from "./skadisClips";
 import {
   MARGIN,
   CLEARANCE,
@@ -295,7 +296,7 @@ function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap:
     flangeSizeEnvelope,
     spec.wire.diameter,
     spec.mount,
-    { tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * spec.wire.diameter, topCap: topCapEnabled },
+    { tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * spec.wire.diameter, topCap: topCapEnabled, heavyCable: isHeavyCable(spec.wire.diameter, spec.wire.length) },
     spec.keyholeRotation,
     spec.throughHoleDiameter,
   );

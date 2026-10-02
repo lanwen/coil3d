@@ -73,7 +73,7 @@ export function printBBox(part: Part): BBox {
 export function bedRestingTransform(part: Part): RigidTransform {
   const box = printBBox(part);
   const [tx, ty, tz] = part.printTransform.translate;
-  return { rotateX: part.printTransform.rotateX, translate: [tx, ty, tz - box.minZ] };
+  return { rotateZ: part.printTransform.rotateZ, rotateX: part.printTransform.rotateX, translate: [tx, ty, tz - box.minZ] };
 }
 
 /**
@@ -120,7 +120,7 @@ export function printPlacements(parts: Part[], bed: PrintSpec): PartPlacement[] 
     const resting = bedRestingTransform(part);
     return {
       part,
-      transform: { rotateX: resting.rotateX, translate: [resting.translate[0] + ox, resting.translate[1] + oy, resting.translate[2]] },
+      transform: { rotateZ: resting.rotateZ, rotateX: resting.rotateX, translate: [resting.translate[0] + ox, resting.translate[1] + oy, resting.translate[2]] },
     };
   });
 }

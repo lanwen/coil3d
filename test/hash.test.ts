@@ -81,6 +81,7 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       plateJoint: "glue",
       keyholeRotation: 0,
       throughHoleDiameter: 4.5,
+      skadisLatch: true,
     };
     expect(parseHash(toHash(spec))).toEqual({ ...DESIGN, spec });
   });
@@ -368,11 +369,25 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(notice).toBeDefined();
   });
 
-  it("round-trips the skadis clip mount plate with the default (glue) plate joint, omitting pj", () => {
+  it("round-trips the SKÅDIS rim clips with the latch on (the default), omitting latch", () => {
     const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "skadis" };
     const hash = toHash(spec);
     expect(decodeDoc(hash)).toEqual({ v: 2, mount: "skadis" });
     expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
+  });
+
+  it("round-trips the SKÅDIS rim clips with the latch off (issue #207)", () => {
+    const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "skadis", skadisLatch: false };
+    const hash = toHash(spec);
+    expect(decodeDoc(hash)).toEqual({ v: 2, mount: "skadis", latch: false });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
+  });
+
+  it("omits latch unless the mount is SKÅDIS, and rejects a link that sets it without mount=skadis", () => {
+    expect(decodeDoc(toHash({ ...DEFAULT_SPEC, mount: "keyhole", skadisLatch: false })).latch).toBeUndefined();
+    const { spec, notice } = parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, latch: false })).toString("base64url")}`);
+    expect(spec).toEqual(DEFAULT_SPEC);
+    expect(notice).toBeDefined();
   });
 
   it("rejects mount=opengrid from a shared link, falling back to defaults with a notice (issue #14 PR review, issue #38: hidden until the real connector geometry lands)", () => {
@@ -381,8 +396,8 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(notice).toBeDefined();
   });
 
-  it("omits pj from the hash when mount doesn't use a plate, even if plateJoint is non-default", () => {
-    const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "keyhole", plateJoint: "snap" };
+  it("never writes a plate joint (the mount plate is the hidden openGrid placeholder's only)", () => {
+    const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "skadis", plateJoint: "snap" };
     expect(decodeDoc(toHash(spec)).pj).toBeUndefined();
   });
 
@@ -414,7 +429,7 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     { bx: 220, by: 220, bz: 250 },
     { mount: "keyhole" },
     { mount: "keyhole", kr: 45 },
-    { mount: "skadis", pj: "snap" },
+    { mount: "skadis", latch: false },
     { mount: "through", thd: 6 },
     { label: "USB-C 2m" },
     { label: "Кабель \u{1F50C}" },

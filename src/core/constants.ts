@@ -433,7 +433,7 @@ export const THROUGH_MOUNT_PAD_CLEARANCE = 0.5; // mm
 /** Evenly-spaced hole counts tried on a round flange, widest first (issue #70 AC: "evenly spaced (3 or 4) on round"). */
 export const THROUGH_MOUNT_ROUND_HOLE_COUNTS = [4, 3] as const;
 
-// Clip mount plate (issue #14, docs/mounts.md, SKÅDIS): a SEPARATE part that glues (on two printed pegs) onto the bottom
+// Clip mount plate (issue #14, docs/mounts.md, openGrid): a SEPARATE part that glues (on two printed pegs) onto the bottom
 // flange's outer (wall-facing) face -- see mountPlate.ts. Its own footprint
 // is a uniform inward offset of the flange's outline (offsetOutline, always
 // strictly inside it -- AC "the plate must fit inside the flange outline").
@@ -441,8 +441,6 @@ export const MOUNT_PLATE_THICKNESS = 3; // mm, the flat panel itself
 /** How far inside the flange's own outer edge the plate's footprint sits. */
 export const MOUNT_PLATE_EDGE_MARGIN = 3; // mm
 
-/** SKÅDIS: the spacing between clip positions on ONE of the board's two interleaved 40 mm grids (see "SKÅDIS board facts" below). */
-export const SKADIS_PITCH = 40; // mm
 /**
  * openGrid's own grid pitch -- verified against openGrid's own docs
  * (opengrid.world/guides/board: "The board system uses a 28x28mm grid
@@ -475,6 +473,8 @@ export const MOUNT_PLATE_MIN_CLIPS = 2;
 // - Board thickness: about 5 mm; 5.1 mm in florianfesti/boxes'
 //   SkadisSettings and the .scad above, some boards 4.0-4.8 mm, black
 //   boards up to 5.2 mm (Printables/MakerWorld hook listings).
+// - Slot edges: rounded over by about 1 mm on both faces (the Skadis T-Nuts
+//   listing, Printables 228663).
 export const SKADIS_SLOT_WIDTH = 5; // mm, nominal
 export const SKADIS_SLOT_LENGTH = 15; // mm, nominal, end to end (full-radius ends)
 /** The tightest measured slot (see above): the clip's clearance is designed against this, so it also fits a nominal 5 x 15 slot. */
@@ -483,45 +483,60 @@ export const SKADIS_SLOT_LENGTH_MIN = 14.8; // mm
 /** Lattice step between neighbouring columns (and the vertical shift between them). */
 export const SKADIS_LATTICE_STEP = 20; // mm
 export const SKADIS_BOARD_THICKNESS = 5; // mm, nominal
-/** The thickest board the clip's barb still hooks behind (black boards). */
+/** The thickest board the clips' tongues still hook behind (painted boards). */
 export const SKADIS_BOARD_THICKNESS_MAX = 5.2; // mm
 
 /**
- * SKÅDIS clip (issue #106 redesign of the issue #14 clip): ONE LEG of a
- * mirrored, spring-loaded pair, as a closed 2D polygon in mm in the
- * (side, reach) plane -- `side` is the leg's sideways offset from the pair's
- * centreline (the second leg is the mirror image, `-side`), `reach` is the
- * distance out from the plate's back face, through the board. Extruded
- * along WALL_UP by SKADIS_CLIP_HEIGHT. The same technique as skapa's clip
- * (github.com/nmattia/skapa, facts only -- no licence, not copied), but
- * with its own dimensions, checked against a real-size board section in
- * test/mountPlate.test.ts:
- * - Legs 2 x 4.4 mm wide at rest (0.2 mm clearance per side in the
- *   tightest 4.8 mm slot), 1.4 mm thick, 1.6 mm gap between them to flex in.
- * - The barb's retaining face starts at reach 5.4, so it sits BEHIND the
- *   board for anything up to SKADIS_BOARD_THICKNESS_MAX (+0.2 mm): the
- *   barb (5.8 mm across, 0.5 mm wider than the slot per side) springs out
- *   behind the board and resists pulling the plate off. (skapa's barb
- *   starts at 4.3, so on a 5 mm board it only ever presses on the slot
- *   edge.)
- * - Every face is vertical or a 45-degree slope, with the plate printed
- *   back-face up (clips pointing up, design.ts's printTransform), so it
- *   prints without supports.
- * The first and last points sit at reach 0 (the plate's back face); the
- * builders push them MOUNT_PLATE_EMBED into the panel, so the barb stays
- * measured from the face itself.
+ * SKÅDIS rim clips (issue #207, docs/mounts.md): separate clips, each one flat
+ * profile in the (up, z) plane extruded SKADIS_CLIP_WIDTH along the side
+ * axis, printed lying on that face so every load runs along the layers. A
+ * clip hooks one board slot (a stem through it and a tongue behind the
+ * board) and wraps the flange rim in a notch (a U: the outer jaw between the
+ * flange and the board, the bight round the rim, the lip on the winding
+ * side). The top clip(s) carry the anti-lift latch. skadisClips.ts lays them
+ * out; test/skadisFit.test.ts checks them against a board built from the
+ * facts above.
  */
-export const SKADIS_CLIP_PROFILE: ReadonlyArray<readonly [number, number]> = [
-  [0.8, 0],
-  [2.2, 0],
-  [2.2, 5.4],
-  [2.9, 6.1],
-  [2.9, 7.1],
-  [2.2, 7.8],
-  [0.8, 7.8],
-];
-/** The clip's length along WALL_UP: short enough that the 4.4 mm-wide legs clear the rounded ends of the tightest 14.8 mm slot, with about 0.9 mm left to drop into the seated position. */
-export const SKADIS_CLIP_HEIGHT = 11; // mm
+/** Across the slot: the tightest 4.8 mm slot less 0.2 mm a side. */
+export const SKADIS_CLIP_WIDTH = 4.4; // mm
+/** The gap between the flange's outer face and the board's front face, which the outer jaws fill. */
+export const SKADIS_STANDOFF = 3; // mm
+/** The stem through the slot, along up. Stem + tongue (11 mm) pass the tightest slot's 11.9 mm of full width. */
+export const SKADIS_STEM_HEIGHT = 5; // mm
+/** How far the tongue reaches below the stem, behind the board: about 4.6 mm past the slot's end once seated. */
+export const SKADIS_TONGUE_LENGTH = 6; // mm
+export const SKADIS_TONGUE_THICKNESS = 3; // mm
+/** The tongue's retaining face sits this far behind the thickest board. */
+export const SKADIS_TONGUE_GAP = 0.3; // mm
+/** How far the jaws reach in from the notch floor, onto both faces of the flange. */
+export const SKADIS_JAW_OVERLAP = 5; // mm
+export const SKADIS_LIP_THICKNESS = 2.5; // mm
+/** The bight round the rim, along up. */
+export const SKADIS_BIGHT_THICKNESS = 3; // mm
+/** The notch in the rim at each clip: at least this deep, with a flat floor the bight seats on. */
+export const SKADIS_NOTCH_DEPTH = 1; // mm
+/** The lip keeps this far from the wound cable's outer surface. */
+export const SKADIS_ENVELOPE_CLEARANCE = 1; // mm
+/** The latch (top clips): an arm on the board face, a slit, and a rigid mast behind it. The arm flexes in the clip's own plane, so along the layers. */
+export const SKADIS_LATCH_ARM_THICKNESS = 1.6; // mm
+export const SKADIS_LATCH_SLIT = 2.9; // mm, the room the arm flexes into
+export const SKADIS_LATCH_MAST_THICKNESS = 3; // mm
+/** From the tooth's centre to the arm's root: long enough to keep the bending strain under 1.5 % (3·t·δ / 2a²). */
+export const SKADIS_LATCH_ARM_REACH = 21; // mm
+export const SKADIS_LATCH_ROOT = 3; // mm
+/** The gap between the stem's top and the arm's free end. */
+export const SKADIS_LATCH_END_GAP = 0.8; // mm
+/** How far the tooth reaches into the slot: well past the slot's 1 mm edge round-over. */
+export const SKADIS_LATCH_TOOTH_DEPTH = 2.5; // mm
+export const SKADIS_LATCH_TOOTH_LENGTH = 4; // mm
+/** Seated, the tooth's top sits this far below the top of the slot's full-width part (tightest slot): the most the coil can lift. */
+export const SKADIS_LATCH_LIFT = 1; // mm
+/** The tooth's upper face leans this far from the board normal, so a firm lift cams the arm out (about 10 to 20 N, an estimate that depends on friction): a detent you can still undo. */
+export const SKADIS_LATCH_FACE_DEG = 25; // degrees
+/** A second top clip above this estimated cable weight: about a third of the 1.5 to 2 kg per hook that printed SKÅDIS hooks are reported to hold. */
+export const SKADIS_HEAVY_CABLE_KG = 0.5; // kg
+/** For the cable weight estimate: copper and PVC average about 1.8 g/cm³ over the cable's cross-section. */
+export const CABLE_DENSITY = 1.8e-3; // g/mm³
 
 /**
  * openGrid connector placeholder (issue #14): a simple push-fit peg sized
