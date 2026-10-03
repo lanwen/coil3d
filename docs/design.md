@@ -43,8 +43,13 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   start, so the cable never bends tighter than its bend radius. It is round,
   one cable diameter plus tolerance across, and it follows the cable's own
   drop so that layers do not wind over a bump. It ends in a snap-in clip near
-  the rim. The clip opening is narrower than the cable, so the cable presses
-  in and leaves the rim sideways, along its own direction.
+  the rim. The clip opening is 8% of the cable's diameter narrower than the
+  cable, so the cable presses in from the top and leaves the rim sideways,
+  along its own direction. The lips are stubs on a thick wall and PLA does
+  not flex, so the cable's own jacket takes the interference (0.24 mm at
+  3 mm). The mouth is a 45-degree funnel above a 0.3 mm land, which centres
+  the cable. The opening never goes below 0.75 of the bore, which keeps the
+  lip underside within 45 degrees (41 degrees at the floor).
 - Outer end: the same clip, hanging under the top cap on a 45-degree
   chamfered root. It is repeated every 90 degrees (round, square) or every 120
   degrees (triangle), so an end that was unwound a little still has a clip. A

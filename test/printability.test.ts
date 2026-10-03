@@ -260,6 +260,10 @@ for (const shape of SHAPES) {
     }),
   });
 }
+// The base clip's opening scales with the cable: thin and thick cables, and a loose print on a thin one.
+for (const [diameter, tolerance] of [[2, 0.2], [2, TOLERANCE_MAX], [5, 0.2], [8, 0.4]]) {
+  CASES.push({ name: `round, press, cable ${diameter} mm, tolerance ${tolerance}`, spec: baseSpec({ wire: { length: 3000, diameter, type: "flex" }, tolerance, height: { locked: false } }) });
+}
 CASES.push({ name: "sq, press, mount keyhole rotated 45", spec: baseSpec({ shape: SHAPES[1], mount: "keyhole", keyholeRotation: 45 }) });
 CASES.push({ name: "round, press, mount opengrid, snap plate joint", spec: baseSpec({ mount: "opengrid", plateJoint: "snap" }) });
 // Issue #207: the heavy-cable SKÅDIS layout (two top clips) and the latch off.

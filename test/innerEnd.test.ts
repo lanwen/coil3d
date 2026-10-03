@@ -8,7 +8,7 @@ import type { CoilSpec, ShapeSpec } from "../src/core";
 // reimplementation) verifies the actual layout that was cut, the same
 // "vitest check through design()" convention test/design.test.ts already
 // uses for mount.ts's `layoutKeyholeMount`.
-import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
+import { baseClipOpeningFraction, layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
 import { fuseFlange } from "../src/core/manifold";
 import { outlineOffsetAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
@@ -110,6 +110,21 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
       expect(outlineOffsetAt(d.flangeSpec.outline, layout.rimExit.x, layout.rimExit.y).offset).toBeCloseTo(d.flangeSpec.margin, 6);
       const tailEnd = layout.leadIn[0];
       expect(outlineOffsetAt(d.flangeSpec.outline, tailEnd.x, tailEnd.y).offset).toBeGreaterThan(d.flangeSpec.margin + 5);
+    }
+  });
+
+  it("the base clip's opening scales with the cable: a few percent under its diameter, never past the 45 degree overhang limit", () => {
+    for (let d = 2; d <= 8; d += 0.25) {
+      for (const tolerance of [0.05, 0.2, 0.4, 0.8]) {
+        const fraction = baseClipOpeningFraction(d, tolerance);
+        // The lips' underside overhangs by acos(fraction) from vertical.
+        expect((Math.acos(fraction) * 180) / Math.PI, `d=${d} tol=${tolerance}`).toBeLessThanOrEqual(45);
+        // A modest interference: at the default tolerance and at tighter fits the cable is
+        // squeezed by 8% of its diameter (a looser print only gets the overhang floor).
+        const opening = fraction * (d + tolerance);
+        if (tolerance <= 0.2) expect(d - opening, `d=${d} tol=${tolerance}`).toBeCloseTo(0.08 * d, 9);
+        expect(opening, `d=${d} tol=${tolerance}`).toBeGreaterThan(0.75 * d);
+      }
     }
   });
 
