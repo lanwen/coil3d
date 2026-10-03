@@ -153,7 +153,8 @@ export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot bet
 // #117 these were vertical rim keyholes the cable had to turn 90 degrees
 // into.)
 /**
- * The clip's opening width, as a fraction of its bore diameter (d + tolerance).
+ * The CAP clips' opening width, as a fraction of their bore diameter (d + tolerance)
+ * (the base flange's clip has its own, CABLE_BASE_CLIP_INTERFERENCE).
  * Below 1 the cable snaps in past two lips. It must stay at or above
  * sin(45 deg) = 0.707: the lips' underside is the bore's own arc from the
  * opening down to the bore's equator, and at the lip edge that arc overhangs
@@ -164,6 +165,19 @@ export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot bet
  * pre-#117 keyhole's 0.6 would overhang 53 degrees.
  */
 export const CABLE_CLIP_OPENING_FRACTION = 0.75;
+/**
+ * The base flange clip's interference: how much narrower than the cable
+ * (as a fraction of its diameter) the opening is. The lips are stubs on a
+ * thick wall, so in PLA they do not flex and the cable itself has to give:
+ * 8% of a 3 mm cable is 0.24 mm, which a cable jacket takes under finger
+ * pressure, where the old 0.75 * (d + tolerance) opening (0.6 mm at 3 mm,
+ * 20%) did not press in at all.
+ */
+export const CABLE_BASE_CLIP_INTERFERENCE = 0.08;
+/** The narrowest the base clip's opening may get, as a fraction of its bore diameter: the lip underside's overhang is acos of this (41 degrees), inside the 45 degree no-support limit. Only a large tolerance reaches it. */
+export const CABLE_BASE_CLIP_OPENING_MIN = 0.75;
+/** The base clip's lips keep this much vertical wall above the edge where the opening meets the bore (so the lip tip is not a knife edge); above it the mouth flares out at 45 degrees to the face, a lead-in funnel, mm. */
+export const CABLE_BASE_CLIP_LAND = 0.3;
 /** Length of the gripping lips along the cable, as a multiple of the wire diameter (at least CABLE_CLIP_MIN_LENGTH). Short, so the cable is easy to press in and the lips sit only near the rim. */
 export const CABLE_CLIP_LENGTH_FACTOR = 1.5;
 export const CABLE_CLIP_MIN_LENGTH = 5; // mm

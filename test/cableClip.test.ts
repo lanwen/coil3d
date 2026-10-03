@@ -6,8 +6,8 @@ import type { CoilSpec, Design, ShapeSpec, WireTypeId } from "../src/core";
 // The SAME shared layout functions every backend cuts from (see
 // test/innerEnd.test.ts's own note), used here only to know WHERE along the
 // cable to look; what is checked is the real, cut mesh.
-import { capCableZ, clipLength, layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
-import { CABLE_CLIP_OPENING_FRACTION, CABLE_CLIP_WALL, CAP_CLIP_CHAMFER, CAP_CLIP_COIL_GAP, CAP_CLIP_LIP } from "../src/core/constants";
+import { baseClipOpeningFraction, capCableZ, clipLength, layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
+import { CABLE_BASE_CLIP_LAND, CABLE_CLIP_OPENING_FRACTION, CABLE_CLIP_WALL, CAP_CLIP_CHAMFER, CAP_CLIP_COIL_GAP, CAP_CLIP_LIP } from "../src/core/constants";
 import { outlineOffsetAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 
@@ -191,9 +191,18 @@ function checkInnerEnd(d: Design, label: string) {
     let best = 0;
     for (let i = 0; i < n; i++) if (Math.hypot(lead[i * 3] - mid.x, lead[i * 3 + 1] - mid.y) < Math.hypot(lead[best * 3] - mid.x, lead[best * 3 + 1] - mid.y)) best = i;
     const inClip = sectionAcross(core, sample(lead, best), tangentAt(lead, best).dir);
-    const opening = gapAt(inClip, -0.2);
-    expectNear(opening.right - opening.left, 2 * CABLE_CLIP_OPENING_FRACTION * R, `${label}: clip opening`);
+    // Issue: the base clip's own opening, a few percent under the cable, with
+    // a short vertical land above the bore and a 45 degree funnel above that.
+    const fraction = baseClipOpeningFraction(d.spec.wire.diameter, d.spec.tolerance);
+    const edge = zChannel + Math.sqrt(R * R - (fraction * R) ** 2);
+    const opening = gapAt(inClip, edge + CABLE_BASE_CLIP_LAND / 2);
+    expectNear(opening.right - opening.left, 2 * fraction * R, `${label}: clip opening`);
     expect(opening.right - opening.left, `${label}: the cable has to snap in`).toBeLessThan(d.spec.wire.diameter);
+    expect(opening.right - opening.left, `${label}: a stiff cable needs only a little interference`).toBeGreaterThan(0.85 * d.spec.wire.diameter);
+    const mouth = gapAt(inClip, edge + CABLE_BASE_CLIP_LAND + 0.1);
+    expectNear(mouth.right - mouth.left, 2 * fraction * R + 0.2, `${label}: the funnel flares at 45 degrees above the land`);
+    const face = gapAt(inClip, -0.01);
+    expect(face.right - face.left, `${label}: the funnel widens the opening toward the face`).toBeGreaterThan(opening.right - opening.left + 0.1);
     // Below the lips the bore is the full d + tolerance again.
     const belly = gapAt(inClip, zChannel);
     expectNear(belly.right - belly.left, 2 * R, `${label}: bore under the lips`);

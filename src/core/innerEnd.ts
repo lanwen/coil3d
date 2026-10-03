@@ -26,7 +26,7 @@
 // straight up to the face (a "U"). So its depth follows the cable's drop --
 // zero where the cable's bottom reaches the face, full depth once it lies in
 // the channel -- with no step and no square corners. Near the rim the
-// opening narrows below the cable's diameter (CABLE_CLIP_OPENING_FRACTION)
+// opening narrows below the cable's diameter (`baseClipOpeningFraction`)
 // for a short length: the cable snaps down into a C-shaped clip that lies
 // along its own direction, and leaves the flange sideways through the rim
 // along the same chord, with no extra bend (the old vertical rim keyhole
@@ -53,6 +53,9 @@
 import {
   CABLE_BEND_BUDGET,
   CABLE_BRIDGE_STEP,
+  CABLE_BASE_CLIP_INTERFERENCE,
+  CABLE_BASE_CLIP_LAND,
+  CABLE_BASE_CLIP_OPENING_MIN,
   CABLE_CLIP_DEPTH_SLACK,
   CABLE_CLIP_ENTRY,
   CABLE_CLIP_LENGTH_FACTOR,
@@ -162,14 +165,24 @@ export function clippedTailLength(wireDiameter: number): number {
 }
 
 /**
- * The lips' half-opening at distance `s` along a clip spanning [from, to]:
- * the bore's full radius outside it (no lips), CABLE_CLIP_OPENING_FRACTION
- * of it inside, tapering over CABLE_CLIP_ENTRY at each end. `open` is the
- * value used outside the clip (the flange channel's plain "U" uses the full
- * radius; the cap bore keeps a sliver of lip, see `layoutCapClip`).
+ * The base clip's opening, as a fraction of its bore diameter (d +
+ * tolerance). The lips are rigid (stubs on a thick wall; PLA has no flex),
+ * so all of the interference is taken by the cable pressing in: the cable's
+ * own diameter less CABLE_BASE_CLIP_INTERFERENCE of it, but never under
+ * CABLE_BASE_CLIP_OPENING_MIN of the bore (the 45 degree overhang limit).
  */
-function lipHalf(s: number, from: number, to: number, R: number, open = R): number {
-  const closed = CABLE_CLIP_OPENING_FRACTION * R;
+export function baseClipOpeningFraction(wireDiameter: number, tolerance: number): number {
+  const opening = wireDiameter * (1 - CABLE_BASE_CLIP_INTERFERENCE);
+  return Math.max(CABLE_BASE_CLIP_OPENING_MIN, opening / (wireDiameter + tolerance));
+}
+
+/**
+ * The lips' half-opening at distance `s` along a clip spanning [from, to]:
+ * `closed` inside it, `open` outside (the flange channel's plain "U" uses
+ * the bore's full radius; the cap bore keeps a sliver of lip, see
+ * `layoutCapClip`), tapering over CABLE_CLIP_ENTRY at each end.
+ */
+function lipHalf(s: number, from: number, to: number, closed: number, open: number): number {
   const entry = Math.min(CABLE_CLIP_ENTRY, (to - from) / 2);
   if (s <= from || s >= to) return open;
   const k = Math.min(1, (s - from) / entry, (to - s) / entry);
@@ -181,6 +194,8 @@ interface BoreSlot {
   half: number;
   to: number;
   range: [number, number];
+  /** A lead-in funnel on each side: the slot's wall (`half` wide) turns outward at 45 degrees from height `z`, `rise` high up to half-width `reach`, then runs straight up to `to` at half-width `top`. */
+  funnel?: { z: number; rise: number; reach: number; top: number };
 }
 
 /**
@@ -216,11 +231,13 @@ function boreRing(c: XYZ, u: XY, R: number, stretch: number, up: BoreSlot, down?
     const slot = Math.cos(phi) >= 0 ? up.half : (down?.half ?? 0);
     return at(sign * Math.max(R * Math.sin(phi), slot), c.z + R * Math.cos(phi) * stretch);
   };
-  const ring: XYZ[] = [at(up.half, up.to), ...side.map((phi) => point(phi, 1))];
+  const f = up.funnel;
+  const ring: XYZ[] = [at(f ? f.top : up.half, up.to), ...(f ? [at(f.reach, f.z + f.rise), at(up.half, f.z)] : []), ...side.map((phi) => point(phi, 1))];
   if (down) ring.push(at(down.half, down.to), at(-down.half, down.to));
   // The other side, back up (without the bottom twice when there's no down slot).
   ring.push(...(down ? side : side.slice(0, -1)).reverse().map((phi) => point(phi, -1)));
-  ring.push(at(-up.half, up.to));
+  if (f) ring.push(at(-up.half, f.z), at(-f.reach, f.z + f.rise));
+  ring.push(at(-(f ? f.top : up.half), up.to));
   return ring;
 }
 
@@ -499,6 +516,7 @@ export function layoutInnerEnd(
 ): InnerEndLayout {
   const R = clipRadius(wireDiameter, tolerance);
   const clipLen = clipLength(wireDiameter);
+  const closed = baseClipOpeningFraction(wireDiameter, tolerance) * R;
 
   let route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth);
   const minClipEnd = route.settled + clipLen;
@@ -587,9 +605,18 @@ export function layoutInnerEnd(
   // the cut begins at zero depth), and ends with the whole bore past the rim.
   const sStart = bottom(0) <= 0.3 ? 0 : invert((s) => -bottom(s), -0.3, 0, route.dropLength);
   const stations = stationsOver(sStart, sEnd, CABLE_SWEEP_STEP, [clipFrom, clipFrom + CABLE_CLIP_ENTRY, clipEnd - CABLE_CLIP_ENTRY, clipEnd]);
+  // The lips' mouth is a 45 degree funnel: from CABLE_BASE_CLIP_LAND above
+  // the edge where the opening meets the bore, the wall flares out until it
+  // meets the plain channel's wall (half-width R), and runs up from there.
+  // Outside the clip the flare is a hairline on that wall (so no two
+  // vertices of a ring coincide).
   const rings = stations.map((s) => {
     const { c, u, stretch } = frame(s);
-    return boreRing(c, u, R, stretch, { half: lipHalf(s, clipFrom, clipEnd, R), to: Math.max(c.z + R * stretch, 0) + 1, range: [CABLE_CLIP_OPENING_FRACTION * R, R] });
+    const half = lipHalf(s, clipFrom, clipEnd, closed, R);
+    const to = Math.max(c.z + R * stretch, 0) + 1;
+    const z = c.z + Math.sqrt(R * R - closed * closed) * stretch + CABLE_BASE_CLIP_LAND;
+    const rise = Math.max(R - half, CABLE_CLIP_ENTRY);
+    return boreRing(c, u, R, stretch, { half, to, range: [closed, R], funnel: { z, rise, reach: Math.min(R, half + rise), top: R } });
   });
   const channel: SweepSolid = { rings, start: path(sStart), end: path(sEnd) };
 
@@ -608,7 +635,7 @@ export function layoutInnerEnd(
 
   return {
     channelRadius: R,
-    clipOpening: 2 * CABLE_CLIP_OPENING_FRACTION * R,
+    clipOpening: 2 * closed,
     channel,
     clip: { from: route.at(clipFrom), to: route.at(clipEnd) },
     rimExit: { x: atRim.x, y: atRim.y },
@@ -767,7 +794,7 @@ export function layoutCapClip(
     const bore: SweepSolid = {
       rings: boreStations.map((s) => {
         const { c, u } = along(s);
-        return boreRing({ ...c, z: zc }, u, R, 1, { half: R, to: CAP_CLIP_RELIEF, range: [R, R] }, { half: lipHalf(s, 0, len, R, 0.9 * R), to: zLo - 1, range: [closed, 0.9 * R] });
+        return boreRing({ ...c, z: zc }, u, R, 1, { half: R, to: CAP_CLIP_RELIEF, range: [R, R] }, { half: lipHalf(s, 0, len, closed, 0.9 * R), to: zLo - 1, range: [closed, 0.9 * R] });
       }),
       start: { ...along(-C - 1).c, z: zc },
       end: { ...along(len + C + 1).c, z: zc },

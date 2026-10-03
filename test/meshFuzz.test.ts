@@ -287,6 +287,12 @@ const REPRODUCTIONS_219: Reproduction[] = [
     name: "the core's inner-end channel at its lips",
     spec: { wire: { length: 4505, diameter: 6.1, type: "flex" }, windingQuality: 0.78, coreSize: { locked: true, dimension: "outer", value: 37.14 }, height: { locked: true, value: 69.21 }, tolerance: 0.31, mount: "keyhole", plateJoint: "snap", keyholeRotation: 45 },
   },
+  // The base clip's chamfered lips: a chamfer that flares wider than the channel's own wall made the strip between the
+  // channel's plain rings and the first lip ring cross over itself, on both sides of the clip's start and end.
+  {
+    name: "the core's inner-end clip on a thick cable",
+    spec: { wire: { length: 2845, diameter: 7.83, type: "usb" }, windingQuality: 0.8, coreSize: { locked: true, dimension: "inner", value: 50.8 }, height: { locked: true, value: 38.37 }, objective: "aspectRatio", tolerance: 0.33, plateJoint: "snap" },
+  },
   // A round flange's outer columns came from the outline's corner parameter, 45 degrees round from the inner ones,
   // and on a narrow annulus the twisted strips of its faces folded over each other.
   {
