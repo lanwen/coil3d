@@ -42,7 +42,7 @@ function applyPrintTransform(mesh: CoilMesh, t: RigidTransform): CoilMesh {
     out[i + 2] = y * sin + z * cos + dz;
   }
   // Issue #229: the rim's chamfer stays out of the drawing in the printed pose too.
-  return { positions: out, indices: mesh.indices, rimTriangles: mesh.rimTriangles };
+  return { positions: out, indices: mesh.indices, rimTriangles: mesh.rimTriangles, fadeTriangles: mesh.fadeTriangles };
 }
 
 export interface PrintLayoutPart {

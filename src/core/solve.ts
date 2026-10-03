@@ -32,10 +32,7 @@ import type { CapacityResult } from "./capacity";
 import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
 import { isHeavyCable } from "./skadisClips";
 import {
-  MARGIN,
-  CLEARANCE,
   FLANGE_MARGIN,
-  GROOVE_DEPTH_FACTOR,
   HEIGHT_HI,
   LAYERS_HI,
   MAX_WIRE_LENGTH,
@@ -43,11 +40,11 @@ import {
   SHAPE_ROUNDING_EPS,
   SIZE_HI,
   SIZE_LO_FLOOR,
-  WALL_THICKNESS,
 } from "./constants";
 import { makeOutline, offsetArea, shapePlugin } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
+import { grooveShape, wallThickness, windingSpan } from "./wall";
 import type { CoilSpec, Diagnosis, Notice, Objective, ShapeSpec, Solution } from "./types";
 
 /**
@@ -59,7 +56,7 @@ import type { CoilSpec, Diagnosis, Notice, Objective, ShapeSpec, Solution } from
  */
 function bendCornerRadiusFloor(wire: CoilSpec["wire"]): number {
   const mbr = bendMultiplierOf(wire) * wire.diameter;
-  const o1 = wire.diameter / 2 - GROOVE_DEPTH_FACTOR * wire.diameter;
+  const o1 = wire.diameter / 2 - grooveShape(wire.diameter).depth;
   return Math.max(0, mbr - o1);
 }
 
@@ -234,22 +231,22 @@ interface Resolved {
   layers: number;
 }
 
-function toOuterSize(lock: Extract<CoilSpec["coreSize"], { locked: true }>): number {
-  return lock.dimension === "outer" ? lock.value : lock.value + 2 * WALL_THICKNESS;
+function toOuterSize(lock: Extract<CoilSpec["coreSize"], { locked: true }>, wireDiameter: number): number {
+  return lock.dimension === "outer" ? lock.value : lock.value + 2 * wallThickness(wireDiameter);
 }
 
 function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
   const wire = spec.wire;
-  const grooveDepth = GROOVE_DEPTH_FACTOR * wire.diameter;
-  const usableHeight = Math.max(0, g.height - 2 * MARGIN);
+  const groove = grooveShape(wire.diameter);
+  const usableHeight = Math.max(0, windingSpan(g.height, wire.diameter));
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(wire), wire);
   return computeCapacity({
     outline,
     height: usableHeight,
     layers: g.layers,
     wireDiameter: wire.diameter,
-    grooveDepth,
-    clearance: CLEARANCE,
+    grooveDepth: groove.depth,
+    pitch: groove.pitch,
     quality,
   });
 }
@@ -286,7 +283,7 @@ function turnsPerLayerPenalty(cap: CapacityResult): number {
  * against its real, taller assembled height, not just its winding height.
  */
 function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap: CapacityResult): { margin: number; overallHeight: number } {
-  const { boreOutline } = resolveBoreOutline(outline);
+  const { boreOutline } = resolveBoreOutline(outline, spec.wire.diameter);
   const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSizeEnvelope = env + 2 * FLANGE_MARGIN;
   const topCapEnabled = spec.topCap === "on" ? true : spec.topCap === "off" ? false : g.layers > 1;
@@ -364,7 +361,8 @@ function finishSolution(
   const outline = resolveOutline(spec.shape, resolved.outerSize, rcMin, spec.wire);
   const cornerRadius = outline.cornerRadius;
 
-  const innerBore = resolved.outerSize - 2 * WALL_THICKNESS;
+  const wall = wallThickness(spec.wire.diameter);
+  const innerBore = resolved.outerSize - 2 * wall;
   const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSize = env + 2 * FLANGE_MARGIN;
   const capsAuto = resolved.layers > 1;
@@ -374,7 +372,7 @@ function finishSolution(
   const deltaPct = ((totalWireLength - target) / target) * 100;
 
   if (innerBore <= 0) {
-    problem(`Wall thickness (${WALL_THICKNESS} mm) leaves no bore at outer size ${resolved.outerSize.toFixed(1)} mm -- increase outer size.`);
+    problem(`Wall thickness (${Number(wall.toFixed(1))} mm) leaves no bore at outer size ${resolved.outerSize.toFixed(1)} mm -- increase outer size.`);
   }
   if (env > 500) {
     note(`Envelope footprint is ${env.toFixed(0)} mm -- check this fits your print bed.`);
@@ -569,8 +567,8 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   // (this only bites round cores).
   const bendMultiplier = bendMultiplierOf(spec.wire);
   const mbr = bendMultiplier * spec.wire.diameter;
-  const grooveDepth = GROOVE_DEPTH_FACTOR * spec.wire.diameter;
-  const o1 = spec.wire.diameter / 2 - grooveDepth;
+  const groove = grooveShape(spec.wire.diameter);
+  const o1 = spec.wire.diameter / 2 - groove.depth;
   const rcMin = Math.max(0, mbr - o1);
   const minOuterSizeForBend = 2 * rcMin;
   // Issue #54: for sq/tri, the bend limit alone can erode the straight
@@ -582,8 +580,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const minOuterSizeForShapeVal = minOuterSizeForShape(spec.shape, spec.wire, minOuterSizeForBend);
   const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal);
   const sizeHi = SIZE_HI;
-  const pitch = spec.wire.diameter + CLEARANCE;
-  const heightLo = 2 * MARGIN + pitch;
+  const heightLo = groove.pitch - windingSpan(0, spec.wire.diameter); // room for one turn
   const heightHi = HEIGHT_HI;
   const layersLo = 1;
   const layersHi = LAYERS_HI;
@@ -608,7 +605,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   // the bend limit itself -- below it, layer 1 (and every step out to the
   // next layer) would bend the cable tighter than its bend radius, under an
   // "ok" status.
-  let lockedOuterSize = spec.coreSize.locked ? toOuterSize(spec.coreSize) : undefined;
+  let lockedOuterSize = spec.coreSize.locked ? toOuterSize(spec.coreSize, spec.wire.diameter) : undefined;
   if (lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - 1e-9) {
     const why =
       spec.shape.kind === "round"

@@ -113,7 +113,8 @@ describe("edge chamfer in the STEP export", () => {
       // 0.25 mm in from the rim, the chamfer is 0.75 mm up its face: probe 0.3 mm either side of that line.
       const line = EDGE_CHAMFER - 0.25;
       const probes: Array<{ part: "core" | "topCap"; x: number; y: number; z: number; expectInside: boolean }> = [];
-      for (const t of [0.07, 0.3, 0.55, 0.8]) {
+      // (0.31, not 0.3: on a square, t = 0.3 lies exactly on a mesh column, and the probe ray grazes its edges.)
+      for (const t of [0.07, 0.31, 0.55, 0.8]) {
         const { x, y } = pointAt(outline, t, margin - 0.25);
         probes.push({ part: "core", x, y, z: -thickness + line - 0.3, expectInside: false }, { part: "core", x, y, z: -thickness + line + 0.3, expectInside: true });
         // Not under a cable clip, which hangs below the plate there.

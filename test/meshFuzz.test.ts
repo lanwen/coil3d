@@ -349,6 +349,12 @@ const REPRODUCTIONS_219: Reproduction[] = [
     spec: { wire: { length: 5604, diameter: 2.44, type: "flex" }, shape: { kind: "tri", cornerRadius: 1.78 }, windingQuality: 0.88, coreSize: { locked: true, dimension: "inner", value: 41.71 }, height: { locked: true, value: 75.44 }, layers: { locked: true, value: 3 }, objective: "aspectRatio", joint: "snap", mount: "opengrid", keyholeRotation: 45, throughHoleDiameter: 4.48 },
     segments: { round: 192, other: 144 },
   },
+  // A cap clip's end ramp crossed a bore station 0.02 mm from one of the bore ring's vertices, and left an edge the
+  // weld could not collapse (fuzz case 939, once the deeper groove moved the clips).
+  {
+    name: "a cap clip's end ramp beside a bore station (fuzz case 939)",
+    spec: { wire: { length: 2222, diameter: 5.26, type: "usb" }, windingQuality: 0.84, coreSize: { locked: true, dimension: "inner", value: 48.1 }, height: { locked: true, value: 83.4 }, layers: { locked: false }, joint: "snap", tolerance: 0.27, mount: "skadis-tclip", throughHoleDiameter: 6.59 },
+  },
 ];
 
 describe("mesh clean-up reproductions (issue #219): every part is one solid, with no short edges or folds", () => {

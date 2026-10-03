@@ -122,13 +122,13 @@ describe("top cap label (issue #12)", () => {
       expect((await design({ ...DEFAULT_CAP, label: "USB-C 2m" })).labelFit).toEqual({ fits: true, maxChars: 8 });
     });
 
-    it("on the default cap, ABCDEFGHIJK holds 8 characters and the fit warning stays", async () => {
+    it("on the default cap, ABCDEFGHIJK holds 9 characters and the fit warning stays", async () => {
       const d = await design({ ...DEFAULT_CAP, label: "ABCDEFGHIJK" });
-      expect(d.labelFit).toEqual({ fits: false, maxChars: 8 });
+      expect(d.labelFit).toEqual({ fits: false, maxChars: 9 });
       expect(d.warnings.some((w) => w.toLowerCase().includes("doesn't fit"))).toBe(true);
       // The prefix it names really fits, and one more character does not.
-      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGH" })).labelFit?.fits).toBe(true);
-      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGHI" })).labelFit?.fits).toBe(false);
+      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGHI" })).labelFit?.fits).toBe(true);
+      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGHIJ" })).labelFit?.fits).toBe(false);
     });
 
     it("a roomier cap holds at least 11 characters", async () => {
@@ -137,7 +137,7 @@ describe("top cap label (issue #12)", () => {
     });
 
     it("counts a leading space in the raw text it measures", async () => {
-      expect(await maxChars(DEFAULT_CAP, " ABCDEFGHIJK")).toBe(9);
+      expect(await maxChars(DEFAULT_CAP, " ABCDEFGHIJK")).toBe(10);
     });
 
     it("never shrinks as the cap grows (more layers, then a bigger core)", async () => {
@@ -238,11 +238,11 @@ describe("label letter floors bridge at most 2 mm (issue #176)", () => {
 
   it("the stroke cap leaves how much text fits unchanged (labelFit.maxChars)", async () => {
     const maxChars = async (spec: CoilSpec, label: string) => (await design({ ...spec, label })).labelFit?.maxChars;
-    expect(await maxChars(DEFAULT_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(8);
-    expect(await maxChars(DEFAULT_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(13);
+    expect(await maxChars(DEFAULT_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(9);
+    expect(await maxChars(DEFAULT_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(15);
     expect(await maxChars(LARGE_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(14);
     expect(await maxChars(LARGE_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(23);
-    expect(await maxChars(SMALL_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(6);
+    expect(await maxChars(SMALL_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(5);
   });
 });
 

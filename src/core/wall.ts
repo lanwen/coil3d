@@ -9,10 +9,65 @@
 // outer wall, the bore, and the flat annuli at z=0 and z=height are all
 // connected. Fusing the bottom flange (see manifold.ts) only extends it.
 
+import { GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
 import { chamferedRim } from "./edgeChamfer";
-import { arcLengthFractionAt, outlineColumnParams, pointAt } from "./shapes";
+import { arcLengthFractionAt, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
+
+/** The groove's cross-section for one cable (docs/design.md, Geometry: Groove). */
+export interface GrooveShape {
+  /** Depth below the outer (winding) surface, mm. Layer 1's centre is `wireDiameter / 2 - depth` outside the surface. */
+  depth: number;
+  /** Radius of the groove circle, mm. */
+  radius: number;
+  /** Helical pitch, mm: the groove's width at the surface plus RIDGE_LAND. */
+  pitch: number;
+}
+
+/** How far the groove circle reaches below its centre before it meets the surface, and how far its 45 degree upper flank reaches above it. */
+function grooveReach(radius: number, depth: number): { down: number; up: number } {
+  const c = radius - depth;
+  const lip = lipChamfer(radius, depth);
+  const down = lip ? lip.dz - lip.x / lip.slope : c >= radius ? 0 : Math.sqrt(Math.max(0, radius * radius - c * c));
+  return { down, up: radius * Math.SQRT2 - c };
+}
+
+/**
+ * Where the groove circle's lower flank would leave the ridge steeper than
+ * GROOVE_LIP_ANGLE from the axis, it runs on as a straight chamfer instead,
+ * tangent to the circle `dz` below its centre and `x` (< 0) from the
+ * surface, rising `slope` mm outward per mm down. A deep groove's circle
+ * would otherwise meet the ridge almost flat, in a near knife-edge corner.
+ */
+function lipChamfer(radius: number, depth: number): { dz: number; x: number; slope: number } | undefined {
+  const a = (GROOVE_LIP_ANGLE * Math.PI) / 180;
+  const x = radius - depth - radius * Math.cos(a);
+  return x < 0 ? { dz: radius * Math.sin(a), x, slope: Math.tan(a) } : undefined;
+}
+
+/** The groove for a cable of this diameter: shared by the solver, the wall and the inner-end lead-in. */
+export function grooveShape(wireDiameter: number): GrooveShape {
+  const depth = GROOVE_DEPTH_FACTOR * wireDiameter;
+  const radius = wireDiameter / 2 + GROOVE_SLACK;
+  const { down, up } = grooveReach(radius, depth);
+  return { depth, radius, pitch: down + up + RIDGE_LAND };
+}
+
+/**
+ * How far layer 1's centreline can climb on a core of this height (the
+ * solver's usable winding height): from the groove start (`grooveStartHeight`
+ * at MARGIN_BOTTOM) until the cable's top is MARGIN_TOP_FACTOR of its radius
+ * below the wall's top face.
+ */
+export function windingSpan(height: number, wireDiameter: number): number {
+  return height - grooveStartHeight(grooveShape(wireDiameter), MARGIN_BOTTOM) - (1 + MARGIN_TOP_FACTOR) * (wireDiameter / 2);
+}
+
+/** The core's wall thickness for a cable of this diameter: WALL_THICKNESS, or more where the groove needs it. */
+export function wallThickness(wireDiameter: number): number {
+  return Math.max(WALL_THICKNESS, grooveShape(wireDiameter).depth + GROOVE_FLOOR_WALL);
+}
 
 export interface WallSpec {
   /** The winding surface's outline at offset 0 (docs/design.md, Shapes). */
@@ -21,13 +76,19 @@ export interface WallSpec {
   boreOutline: ShapeOutline;
   height: number;
   wireDiameter: number;
-  clearance: number;
+  /** Helical pitch, mm (`grooveShape`). */
+  pitch: number;
+  /** Radius of the groove circle, mm. */
+  grooveRadius: number;
   /** Depth of the groove below the outer (winding) surface, mm. */
   grooveDepth: number;
+  /** Height of the groove's lower edge at layer 1's start above the wall's bottom (the flange face), mm. */
   marginBottom: number;
   marginTop: number;
-  /** The groove fades out over this many turns at each end. */
+  /** The groove fades out over this many turns at its top end. */
   taperTurns: number;
+  /** The groove runs on this many turns before layer 1's start (level with it), fading out, so it is at full depth where layer 1 starts. */
+  runInTurns: number;
   turns: number;
   /** Columns around the circumference (a requested BUDGET -- see `minCornerSegments`; STEP's own B-spline fit (step/build.ts) reuses this exact number as its own uniform sample count, so it never changes here). */
   columns: number;
@@ -44,11 +105,11 @@ export const smoothstep = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 -
  * `point(t, z)` so the two exports never drift apart (docs/design.md,
  * Export). */
 export interface WallProfile {
-  /** Helical pitch, mm (wireDiameter + clearance). */
+  /** Helical pitch, mm (`grooveShape`). */
   pitch: number;
-  /** Axial height at which the grooved region notionally starts (used only
-   * to place mesh sampling rows; the groove itself fades to 0 before this
-   * via `taper`, so `point` is flat well before and after it). */
+  /** Height of the groove centre (and layer 1's centreline) at layer 1's
+   * start, phi = 0. The groove has its full depth from there on; before it
+   * the run-in, level with it, fades out. */
   zStart: number;
   /** Signed inward radial offset (<=0) of the outer wall at arc-length
    * fraction t in [0,1) and axial height z in [0,height]. */
@@ -67,6 +128,14 @@ export interface WallProfile {
    * shear and the profile it samples can never disagree about where a
    * groove ring actually falls. */
   phaseFraction(t: number): number;
+  /** The mesh's rows in one pitch, as heights above a groove centre in
+   * [0, pitch): `n` spaced evenly along the profile's own length (so the
+   * steep edges of the groove get as many as the flat floor), plus one on
+   * each corner (the floor, both flanks' tangent points and both ends of the
+   * ridge's land), so those come out exact. */
+  rowOffsets(n: number): number[];
+  /** True where the groove's fade (its top end, or its run-in) changes the surface: the full-depth groove would differ. */
+  fading(t: number, z: number): boolean;
 }
 
 /**
@@ -75,31 +144,30 @@ export interface WallProfile {
  * Split out so innerEnd.ts can aim the inner-end lead-in at the same point
  * without a whole `WallSpec` (issue #115).
  */
-export function grooveStartHeight(wireDiameter: number, clearance: number, grooveDepth: number, marginBottom: number): number {
-  const rho = wireDiameter / 2 + clearance / 2;
-  const c = rho - grooveDepth;
-  const halfDown = c >= rho ? 0 : Math.sqrt(Math.max(0, rho * rho - c * c));
-  return marginBottom + halfDown;
+export function grooveStartHeight(groove: Pick<GrooveShape, "radius" | "depth">, marginBottom: number): number {
+  return marginBottom + grooveReach(groove.radius, groove.depth).down;
 }
 
 export function createWallProfile(spec: WallSpec): WallProfile {
-  const { outline, wireDiameter: d, clearance, grooveDepth: g, marginBottom, taperTurns: tau, turns } = spec;
+  const { outline, pitch, grooveRadius: rho, grooveDepth: g, marginBottom, taperTurns: tau, runInTurns: tauIn, turns } = spec;
 
-  const pitch = d + clearance;
   // Teardrop profile: a groove circle of radius rho, with its upper flank
   // replaced by a 45 degree tangent line so it prints upright with no
   // overhang (docs/design.md, Geometry: Groove).
-  const rho = d / 2 + clearance / 2;
   const c = rho - g;
   const s45 = Math.SQRT1_2;
   const dz45 = rho * s45;
   const f45 = c - rho * s45;
+  const lip = lipChamfer(rho, g);
   const profile = (dz: number): number => {
     if (dz > dz45) return f45 + (dz - dz45);
+    if (lip && dz < -lip.dz) return lip.x + (-lip.dz - dz) * lip.slope;
     return Math.abs(dz) >= rho ? 1e9 : c - Math.sqrt(rho * rho - dz * dz);
   };
-  const zStart = grooveStartHeight(d, clearance, g, marginBottom);
-  const taper = (phi: number) => smoothstep(phi / tau) * smoothstep((turns - phi) / tau);
+  const zStart = grooveStartHeight({ radius: rho, depth: g }, marginBottom);
+  // Full depth from layer 1's start (phi = 0) on: the run-in below it fades in
+  // over `tauIn` turns, the top end fades out over `tau`.
+  const taper = (phi: number) => smoothstep((phi + tauIn) / Math.max(tauIn, 1e-9)) * smoothstep((turns - phi) / tau);
 
   // Issue #103: the helix's own phase, re-derived from the GROOVE FLOOR's
   // own arc length (offset -g) instead of `t` itself (an arc-length fraction
@@ -111,16 +179,18 @@ export function createWallProfile(spec: WallSpec): WallProfile {
 
   // Surface offset (<=0, inward) at arc-length fraction t and height z: the
   // minimum over the (at most 2) nearby helix turns, tapered out at the ends.
-  const offset = (t: number, z: number): number => {
+  const offset = (t: number, z: number, fullDepth = false): number => {
     const phase = phaseFraction(t);
     const q = (z - zStart) / pitch - phase;
     const k0 = Math.floor(q);
     let f = 0;
     for (let k = k0; k <= k0 + 1; k++) {
       const phi = k + phase;
-      if (phi <= 0 || phi >= turns) continue;
-      const dz = z - zStart - pitch * phi;
-      const v = profile(dz) + (1 - taper(phi)) * (g + clearance);
+      if (phi <= -tauIn || phi >= turns) continue;
+      // The run-in below layer 1's start stays level with it (it doesn't follow
+      // the helix down into the flange face).
+      const dz = z - zStart - pitch * Math.max(phi, 0);
+      const v = profile(dz) + (fullDepth ? 0 : (1 - taper(phi)) * g);
       if (v < f) f = v;
     }
     return f;
@@ -132,7 +202,118 @@ export function createWallProfile(spec: WallSpec): WallProfile {
     return [p.x, p.y, z];
   };
 
-  return { pitch, zStart, offset, point, phaseFraction };
+  // The 45 degree flank meets the surface where the ridge's land starts; the
+  // next groove's edge, where it ends.
+  const landEnd = pitch - grooveReach(rho, g).down;
+  // One row in the middle of the land, none on its two ends: the mesh's crest
+  // is then one sharp edge (as a nozzle prints it), not two creases a fraction
+  // of a millimetre apart that the viewer would draw as one broken line.
+  const landStart = dz45 - f45;
+  const corners = [0, dz45, (landStart + landEnd) / 2, ...(lip ? [pitch - lip.dz] : [])].filter((h) => h >= 0 && h < pitch);
+  const rowOffsets = (n: number): number[] => {
+    // The full-depth surface over one pitch, and its length so far at each sample.
+    const M = 2000;
+    const hs: number[] = [];
+    const len: number[] = [];
+    let prev: [number, number] | undefined;
+    for (let i = 0; i <= M; i++) {
+      const h = (pitch * i) / M;
+      const x = Math.min(0, profile(h), profile(h - pitch));
+      len.push(prev ? len[len.length - 1] + Math.hypot(h - prev[0], x - prev[1]) : 0);
+      hs.push(h);
+      prev = [h, x];
+    }
+    const total = len[M];
+    const lengthAt = (h: number) => len[Math.min(M, Math.round((h / pitch) * M))];
+    const heightAt = (l: number) => {
+      let i = 1;
+      while (i < M && len[i] < l) i++;
+      return hs[i - 1] + ((hs[i] - hs[i - 1]) * (l - len[i - 1])) / Math.max(len[i] - len[i - 1], 1e-12);
+    };
+    const step = total / n;
+    const near = (l: number) => corners.some((c) => {
+      const gap = Math.abs(l - lengthAt(c));
+      return Math.min(gap, total - gap) < step / 4;
+    }) || (l > lengthAt(landStart) - step / 4 && l < lengthAt(landEnd) + step / 4);
+    const even = Array.from({ length: n }, (_, k) => k * step).filter((l) => !near(l)).map(heightAt);
+    return [...corners, ...even].sort((a, b) => a - b);
+  };
+  // A point fades with the groove whose band it lies in: from the land's middle
+  // below that groove to the land's middle above it. A point on the land's
+  // middle is in both bands, so the crest above a fading groove fades with it
+  // (on the crest the groove's depth doesn't show: there the offset is 0 either
+  // way), while a full groove's own rows don't.
+  const landMiddle = (landStart + landEnd) / 2;
+  const fading = (t: number, z: number) => {
+    const phase = phaseFraction(t);
+    const k0 = Math.floor((z - zStart) / pitch - phase);
+    for (let k = k0 - 1; k <= k0 + 1; k++) {
+      const phi = k + phase;
+      if (phi <= -tauIn || phi >= turns || taper(phi) > 1 - 1e-4) continue;
+      const dz = z - zStart - pitch * Math.max(phi, 0);
+      if (dz >= landMiddle - pitch - 1e-3 && dz <= landMiddle + 1e-3) return true;
+    }
+    return false;
+  };
+  return { pitch, zStart, offset: (t, z) => offset(t, z), point, phaseFraction, rowOffsets, fading };
+}
+
+/**
+ * The outer wall's triangles in the finished core `mesh` where the groove fades out (types.ts's
+ * `CoilMesh.fadeTriangles`). Found by position, like edgeChamfer.ts's `rimTriangles`, since the booleans don't track
+ * faces: a triangle counts when each of its corners lies on the grooved wall surface, in its fade.
+ */
+export function grooveFadeTriangles(mesh: CoilMesh, spec: WallSpec): Uint32Array | undefined {
+  const profile = createWallProfile(spec);
+  const { outline, height } = spec;
+  // The outline parameter t of a point on the outline, from its polar angle (the outline is convex about the axis).
+  const N = 4096;
+  const angles: number[] = [];
+  for (let i = 0; i <= N; i++) {
+    const p = pointAt(outline, i / N, 0);
+    let a = Math.atan2(p.y, p.x);
+    while (i > 0 && a < angles[i - 1]) a += 2 * Math.PI;
+    angles.push(a);
+  }
+  const tAt = (x: number, y: number): number => {
+    let a = Math.atan2(y, x);
+    while (a < angles[0]) a += 2 * Math.PI;
+    while (a >= angles[0] + 2 * Math.PI) a -= 2 * Math.PI;
+    let lo = 0;
+    let hi = N;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (angles[mid] <= a) lo = mid;
+      else hi = mid;
+    }
+    return (lo + (a - angles[lo]) / Math.max(angles[lo + 1] - angles[lo], 1e-12)) / N;
+  };
+  const p = mesh.positions;
+  const fadeLow = profile.zStart + profile.pitch;
+  const fadeHigh = profile.zStart + profile.pitch * (spec.turns - spec.taperTurns - 1);
+  const fades = new Map<number, boolean>();
+  const fadeAt = (v: number): boolean => {
+    let f = fades.get(v);
+    if (f === undefined) {
+      const x = p[v * 3];
+      const y = p[v * 3 + 1];
+      const z = p[v * 3 + 2];
+      f = false;
+      // Only near the run-in (layer 1's start) or the top end can the groove fade.
+      if (z > 0 && z < height && (z < fadeLow || z > fadeHigh)) {
+        // The point on the outline the vertex lies off, along its normal.
+        const { offset, nx, ny } = outlineOffsetAt(outline, x, y);
+        const t = tAt(x - offset * nx, y - offset * ny);
+        f = Math.abs(offset - profile.offset(t, z)) < 0.02 && profile.fading(t, z);
+      }
+      fades.set(v, f);
+    }
+    return f;
+  };
+  const t = mesh.indices;
+  const out: number[] = [];
+  for (let i = 0; i < t.length; i += 3) if (fadeAt(t[i]) && fadeAt(t[i + 1]) && fadeAt(t[i + 2])) out.push(i / 3);
+  return out.length > 0 ? new Uint32Array(out) : undefined;
 }
 
 export function buildWall(spec: WallSpec): CoilMesh {
@@ -148,7 +329,9 @@ export function buildWall(spec: WallSpec): CoilMesh {
   const C = ts.length;
 
   const delta = pitch / rowsPerPitch;
-  const zLo = marginBottom * 0.5;
+  const rowOffsets = profile.rowOffsets(rowsPerPitch);
+  // The lowest row stays a quarter row above z = 0, so it never lands on the bottom vertex.
+  const zLo = Math.max(marginBottom * 0.5, delta * 0.25);
   const zHi = height - marginTop * 0.5;
 
   const positions: number[] = [];
@@ -159,7 +342,7 @@ export function buildWall(spec: WallSpec): CoilMesh {
   const topO: number[] = [];
 
   // Sheared (helical) rows: each column's rows sit at z = zStart +
-  // pitch*phaseFraction(t) + j*delta, so every column samples the groove
+  // pitch*phaseFraction(t) + k*pitch + one of `rowOffsets`, so every column samples the groove
   // profile at the same phase `profile.offset` itself uses (issue #103: the
   // groove floor's own phase, not `t` directly -- see
   // `shapes.ts`'s `arcLengthFractionAt`). This is what makes the profile
@@ -179,10 +362,13 @@ export function buildWall(spec: WallSpec): CoilMesh {
     push(0);
     bottomO.push(idx[0]);
     const z0 = zStart + pitch * profile.phaseFraction(t);
-    const jMin = Math.ceil((zLo - z0) / delta);
-    const jMax = Math.floor((zHi - z0) / delta);
-    for (let j = jMin; j <= jMax; j++) {
-      push(z0 + j * delta);
+    const kMin = Math.floor((zLo - z0) / pitch);
+    const kMax = Math.ceil((zHi - z0) / pitch);
+    for (let k = kMin; k <= kMax; k++) {
+      for (const h of rowOffsets) {
+        const z = z0 + k * pitch + h;
+        if (z >= zLo && z <= zHi) push(z);
+      }
     }
     push(height);
     topO.push(idx[idx.length - 1]);

@@ -11,9 +11,10 @@ import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 // the toggle behaviour those don't cover.
 
 const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 });
-// A single layer with ~300 turns: well past the full-tube-to-envelope
+// A single layer with ~200 turns: well past the full-tube-to-envelope
 // switchover, so this exercises the "doesn't read as a black mass" path.
-const MANY_TURN = encodeHashDoc({ L: 15000, d: 0.5, size: 15 });
+// (A 20 mm core: on 15 mm the coil came out 35 cm tall, a sliver on screen.)
+const MANY_TURN = encodeHashDoc({ L: 15000, d: 0.5, size: 20 });
 // A large outer size and a corner radius comfortably clear of the bend-limit
 // floor (see test/wire.test.ts), so the shape is genuinely rounded-square /
 // rounded-triangle, not clamped back toward round.

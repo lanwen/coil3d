@@ -200,7 +200,8 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     const height = await dimensionCm(page, "height");
     expect(height - coreHeightCm).toBeGreaterThan(0.1);
     expect(height - coreHeightCm).toBeLessThan(1.5);
-    expect(height).toBeCloseTo(overallHeightCm, 1);
+    // The axis label rounds to 0.1 cm, the panel shows 0.1 mm: at most half a label step apart (48.5 mm reads 4.9 cm).
+    expect(Math.abs(height - overallHeightCm)).toBeLessThanOrEqual(0.05 + 1e-9);
   });
 
   test("a top cap adds exactly its own thickness to the overall height", async ({ page, context }) => {
@@ -228,9 +229,9 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
         const cm = await dimensionCm(page, which);
         expect(cm, which).toBeGreaterThan(acrossFlatsCm - 0.15);
         expect(cm, which).toBeLessThan(acrossCornersCm + 0.15);
-        // The axes sit flush with the flats, so a square reads exactly the
-        // panel's across-flats flange width on both.
-        if (label === "square") expect(cm, which).toBeCloseTo(acrossFlatsCm, 1);
+        // The axes sit flush with the flats, so a square reads the panel's
+        // across-flats flange width on both (to the label's 0.1 cm: 101.5 mm reads 10.1 or 10.2 cm).
+        if (label === "square") expect(Math.abs(cm - acrossFlatsCm), which).toBeLessThanOrEqual(0.05 + 1e-9);
       }
     });
   }

@@ -19,9 +19,10 @@
 //     the mount-plate pin hole, the rim under each SKÅDIS clip's jaws
 //     (issue #207). The through-hole mount (issue #129) gets no
 //     pad -- a plain hole needs no relief beyond the ordinary plate.
-// Every pad has a 45 degree chamfer down to the plate. The wound cable never
-// reaches down to the face outside the channel (its first turn starts MARGIN
-// above it), so the lower plate top changes nothing for the winding.
+// Every pad has a 45 degree chamfer down to the plate. The wound cable only
+// reaches down to the face on the collar (the first turn starts on the face,
+// at the wall) and the channel pad, so the lower plate top changes nothing for
+// the winding.
 //
 // The pads are carved out of a "relief" (the slab above the plate top, minus
 // the pads), which the backends subtract from the full-thickness flange
@@ -400,5 +401,12 @@ export function layoutFlangeThroughHoles(flange: PaddedFlange, innerEnd: InnerEn
     flange.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER,
     { channelRibbon: innerEnd?.channelRibbon ?? [], pads },
     flange.envelopeRadius ?? 0,
+    collarFootprintOffset(flange),
   );
+}
+
+/** How far past the core's outline the collar pad's footprint reaches (its widest, in the plate), or 0 with no pads. */
+export function collarFootprintOffset(flange: Pick<PaddedFlange, "thickness" | "plateThickness">): number {
+  const zPlate = plateTopZ(flange);
+  return zPlate === undefined ? 0 : offsetAtZ(FLANGE_PAD_COLLAR, zPlate - FLANGE_PAD_EMBED);
 }

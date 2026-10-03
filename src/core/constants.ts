@@ -1,16 +1,26 @@
 // Fixed print/solver parameters (docs/design.md, Capacity math). Not user-facing
 // spec fields in this ticket; later tickets may promote some of these.
 
-/** Core wall thickness; links the locked outer/inner size (docs/design.md, Decisions). */
+/** Core wall thickness; links the locked outer/inner size (docs/design.md, Decisions). A thick cable's deeper groove makes the wall thicker (wall.ts's `wallThickness`). */
 export const WALL_THICKNESS = 3; // mm
-/** Added to the wire diameter for the winding pitch. */
-export const CLEARANCE = 0.3; // mm
-/** Groove depth = factor * wire diameter (docs/design.md, Geometry: Groove). */
-export const GROOVE_DEPTH_FACTOR = 0.3;
-/** Core height margin, top & bottom, outside the winding zone. */
-export const MARGIN = 3; // mm
-/** The groove fades out over this many turns at each end. */
-export const TAPER_TURNS = 0.5;
+/** Wall left under the groove floor, mm: the wall is at least the groove depth plus this. */
+export const GROOVE_FLOOR_WALL = 1.5; // mm
+/** Groove depth = factor * wire diameter: at 0.4 the cable's centre sits 0.1 d proud of the ridges between turns (docs/design.md, Geometry: Groove). */
+export const GROOVE_DEPTH_FACTOR = 0.4;
+/** The groove circle's radius is the cable's radius plus this, mm. */
+export const GROOVE_SLACK = 0.15; // mm
+/** The groove's lower flank leaves the ridge at most this steep, in degrees from the axis (a straight chamfer into the groove circle): a deep groove's circle would meet the ridge almost flat, in a near knife-edge corner. */
+export const GROOVE_LIP_ANGLE = 70;
+/** Flat land on top of each ridge between turns, along the axis, mm: the pitch is the groove's width at the surface plus this, so ridges never come to a knife edge. */
+export const RIDGE_LAND = 0.3; // mm
+/** Height of the groove's lower edge above the flange face at layer 1's start, mm: small, so the first turn sits on the face (its bottom about 0.3 mm above it). */
+export const MARGIN_BOTTOM = 0.2; // mm
+/** The top of the wound cable stays this fraction of the cable's radius below the core's top face (so the drawn cable never grazes it). */
+export const MARGIN_TOP_FACTOR = 0.3;
+/** The groove fades out over this many turns at its top end. */
+export const TAPER_TURNS = 0.15;
+/** The groove runs on this many turns before layer 1's start, level with it, fading out, so it has its full depth where the first turn starts. */
+export const RUN_IN_TURNS = 0.1;
 /** Flange outer radius = solved envelope radius + this margin. */
 export const FLANGE_MARGIN = 4; // mm
 export const FLANGE_THICKNESS = 3; // mm
@@ -31,7 +41,7 @@ export const DEFAULT_CORNER_RADIUS = 8; // mm
 // the same `buildWall`/`fuseFlange` code path -- only these counts differ --
 // so draft and final can never geometrically drift apart.
 export const FINAL_COLUMNS = 96; // mesh columns around the circumference
-export const FINAL_ROWS_PER_PITCH = 8; // mesh rows per helical pitch
+export const FINAL_ROWS_PER_PITCH = 16; // mesh rows per helical pitch (plus one on each corner of the groove profile, wall.ts)
 export const DRAFT_COLUMNS = 24;
 export const DRAFT_ROWS_PER_PITCH = 3;
 
@@ -276,8 +286,6 @@ export const CABLE_BEND_BUDGET = 0.97;
 export const CABLE_BEND_CHECK = 1.03;
 /** Sample spacing along the lead-in, transitions and outer end, mm. */
 export const CABLE_BRIDGE_STEP = 0.5; // mm
-/** Layer 1's last turns rise out of the fading groove and rest this fraction of the cable's radius clear of the bare wall, so the drawn cable never cuts through the wall's surface or top face. */
-export const CABLE_TAIL_CLEARANCE = 0.3;
 /** Cap off: the free straight tail the cable leaves the last turn along, as a multiple of the wire diameter (at least CABLE_TAIL_MIN). */
 export const CABLE_TAIL_FACTOR = 6;
 export const CABLE_TAIL_MIN = 20; // mm

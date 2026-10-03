@@ -16,7 +16,7 @@ This file records why the app works the way it does. The mount geometry is in
 | Use cases | USB and headphone cables (2-5 mm, 0.5-3 m) and EU extension cords with a heavy plug (8-10 mm cable, up to 15 m). The ranges cover both. |
 | Solver | The cable length and diameter are always inputs. The user locks what they know; the solver fills in the rest. At most two of core size, height and layers can be locked. |
 | Winding | Helical. The groove guides layer 1 only. Higher layers nest in the valleys of the layer below (orthocyclic winding). |
-| Core | A tube. It is hollow and open. The user locks either the inner diameter (bore) or the outer diameter (winding surface). A fixed 3 mm wall links the two. |
+| Core | A tube. It is hollow and open. The user locks either the inner diameter (bore) or the outer diameter (winding surface). A 3 mm wall links the two (thicker for a cable over 3 mm, so 1.5 mm of wall stays under the groove). |
 | Shapes | Round, rounded square, rounded triangle. Round is a diameter, square is across flats, triangle is the inscribed-circle diameter. |
 | Cable | Round cross-section only. Bend limit: USB/audio 4x the diameter, flexible cord 4x, stiff or solid 10x, or a custom multiplier. |
 | Parts | A core with the bottom flange printed as one piece. A separate top cap, on by default when there is more than one layer. Separate rim clips or T-clips for SKÅDIS (3 or 4), or a separate mount plate with two alignment pegs for the hidden openGrid placeholder. |
@@ -40,7 +40,9 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
 
 - Inner end: a channel recessed into the bottom flange's inner face. It is
   swept along the straight line the cable takes when it leaves the groove
-  start, so the cable never bends tighter than its bend radius. It is round,
+  start, so the cable never bends tighter than its bend radius. The first turn
+  starts on the flange face, so the cable first shifts sideways along the face
+  until the channel is clear of the wall, and only then drops into it. It is round,
   one cable diameter plus tolerance across, and it follows the cable's own
   drop so that layers do not wind over a bump. It ends in a snap-in clip near
   the rim. The clip opening is 8% of the cable's diameter narrower than the
@@ -128,7 +130,7 @@ P(o) = S + 2 pi (r_c + o)        S = sum of straight sides, r_c = corner radius
 ```
 
 **Layer centrelines.** For a cable of diameter `d` and a groove depth `g`
-(`0.3 d`):
+(`0.4 d`, so `o_1 = 0.1 d`: layer 1's centre sits just above the ridges):
 
 ```
 o_1 = d/2 - g
@@ -139,9 +141,12 @@ A "winding quality" `q` from 0 to 1 blends `h` between the two. Hand winding
 is rarely perfectly orthocyclic. The default is 0.7. Real coil makers report
 25-30 % less than the ideal capacity.
 
-**Turns per layer.** The pitch is `p = d + 0.3 mm`. Layer 1 has
-`floor(H / p)` turns, where `H` is the usable height (core height minus the
-3 mm margins). Higher layers have `floor((H - q p / 2) / p)`. This is a
+**Turns per layer.** The pitch `p` is the groove's width at the surface plus
+a 0.3 mm land on the ridge (about `1.15 d + 0.3 mm`: 3.78 mm for a 3 mm cable,
+see Geometry: Groove). Layer 1 has `floor(H / p)` turns, where `H` is how far
+its centreline can climb: from the groove start, with the cable's bottom on
+the flange face, until the cable's top is 0.3 x its radius below the core's
+top face. Higher layers have `floor((H - q p / 2) / p)`. This is a
 continuous approximation that keeps the solver monotonic. Check it against a
 real wound coil before relying on it at the last turn.
 
@@ -178,8 +183,9 @@ candidates; it can't buy proportions with extra capacity.
 - The innermost layer's corner radius must be at least the minimum bend
   radius `MBR = multiplier x d`. Outer layers only get rounder.
 - For a round core the corner radius is the whole radius, so the bend limit
-  is a hard floor on the size: `2 (k d - d/2 + g)`. A 9 mm cord at 4x needs a
-  core of at least about 68 mm. A square or triangle can have a smaller
+  is a hard floor on the size: `2 (k d - d/2 + g)`, which is `2 (k - 0.1) d`
+  with the groove at `0.4 d`. A 9 mm cord at 4x needs a core of at least about
+  70 mm. A square or triangle can have a smaller
   corner radius, but a core that is too small turns into a circle. So the
   solver also keeps every flat side at least two cable diameters and 15 % of
   the perimeter long. It raises a locked size that is below this floor and
@@ -187,13 +193,9 @@ candidates; it can't buy proportions with extra capacity.
 - The whole drawn cable (lead-in, layer transitions, outer end) stays within
   the bend radius. Tests check this for every "ok" design, piece by piece
   (`test/cableBend.test.ts`).
-- Layer 1's last half turn rises out of the fading groove and rests clear of
-  the bare wall (0.3 x its radius) when its tube would otherwise reach the
-  wall's top face, so the drawn cable never cuts through the wall's surface or
-  its top face. In a multi-layer core the hop to layer 2 starts from the lifted
-  turn but keeps its length, so layer 2 onwards and the cap stay put. A
-  single-layer cable under a top cap is left as is: the cap's clips sit just
-  outside the wound cable.
+- Layer 1 ends with the cable's top 0.3 x its radius below the wall's top
+  face (the usable height above leaves that room), so the drawn cable never
+  grazes the top face. Its last half turn stays in the fading groove.
 - The flange is at least the outermost layer plus a margin.
 - The label only renders when its bounding box fits the cap annulus.
 - Each part is checked against the bed size.
@@ -216,9 +218,21 @@ features: flange, joints, clips, mounts and label.
 - **Sheared rows.** Mesh rows follow the helix, so every column samples the
   groove profile at the same phases. The profile is exact, there is no
   aliasing, and the seam closes without special code. Adjacent columns are
-  stitched with a z-sorted zipper. The groove fades out over half a turn at
-  each end by sliding the profile out of the wall, so it gets shallower and
-  narrower together.
+  stitched with a z-sorted zipper. The rows are spaced evenly along the
+  profile's own length, not in z, so the steep edges of the groove get as many
+  rows as its floor. One more row sits on the floor, on each flank's tangent
+  point and in the middle of each ridge's land. The land's two edges get no row, so the
+  mesh's crest is one sharp edge (as a nozzle prints it) and the viewer draws
+  one line per ridge, not two creases a fraction of a millimetre apart that
+  break up. The groove fades
+  out over 0.15 turn at its top end by sliding the profile out of the wall,
+  so it gets shallower and narrower together. At the bottom it runs on 0.1
+  turn before layer 1's start, level with it, fading the same way, so the
+  first turn already sits in the full groove. The viewer leaves out the
+  creases within a fade (they cross the crease angle along it and would draw
+  as broken lines), so a groove's lines end where its full depth ends. The
+  crest above a fading groove counts as part of the fade too: there the
+  surface sits at offset 0 whatever the groove's depth.
 - **Resolution.** `draft` is coarse and is shown on the first load, and later
   only if a build is slow. `final` is used for the settled view and for every
   export. Both use the same code path, so they cannot drift apart. The
@@ -242,10 +256,23 @@ features: flange, joints, clips, mounts and label.
 
 - The profile follows the cable. A plain semicircle makes a ceiling overhang
   when the core prints upright, so the groove is a teardrop: a circle of
-  radius `d/2 + clearance/2` whose upper flank is a 45-degree tangent line.
-- Depth is `0.3 d`. A deeper teardrop is wider than the pitch, and
-  neighbouring grooves then merge into knife-edge ridges.
-- The groove covers layer 1 only. Pitch is `d + 0.3 mm`.
+  radius `d/2 + 0.15 mm` whose upper flank is a 45-degree tangent line.
+- Depth is `0.4 d`: the cable's centre sits `0.1 d` above the ridges between
+  the turns (at `0.3 d` it sat `0.2 d` proud and slid out while winding). The
+  45-degree flank caps how close the ridges can come: the deeper the groove,
+  the wider it is at the surface. So the pitch is not `d + clearance` but the
+  groove's own width at the surface plus a 0.3 mm flat land on top of each
+  ridge, and ridges never come to a knife edge. At `0.4 d` that costs about
+  12 % of the turns per layer against the old `d + 0.3 mm`; centre level with
+  the ridges (`0.5 d`) would need a pitch of about `1.3 d` and cost 20 %.
+- Where the circle's lower flank would meet the ridge steeper than 70 degrees
+  from the axis (nearly flat), it runs on as a straight chamfer instead. A
+  near-flat shelf is a knife-edge corner, and the STEP export's B-spline wall
+  can't fit it (it folded into an invalid solid on thick cables).
+- The first turn starts on the flange face: at layer 1's start the groove's
+  lower edge is 0.2 mm above the face, so the cable's bottom sits about
+  0.3 mm above it. Nothing is left below the first turn to slide down into.
+- The groove covers layer 1 only.
 - The helix phase follows the arc length of the groove floor, not of the
   un-grooved surface, so the pitch does not bunch up at corners.
 

@@ -306,13 +306,15 @@ describe("the channel pad blends into the collar (issue #133)", () => {
       return false;
     };
     // An edge on the chamfers: running down them (from the face to the
-    // plate at most), clear of the rim and the bore.
+    // plate at most), clear of the rim and the bore. (Where the channel pad
+    // runs out over the rim, its chamfer meets the rim's in a crease up to
+    // about 1.1 mm inside the rim, so the rim's 1.5 mm are left out.)
     const onChamfer = (a: number, b: number) => {
       const za = p[a * 3 + 2];
       const zb = p[b * 3 + 2];
       const mid = (za + zb) / 2;
       if (Math.min(za, zb) < zPlate - 1e-3 || Math.max(za, zb) > 1e-3 || mid < zPlate + 0.05 || mid > -0.05) return false;
-      return [a, b].every((v) => outlineOffsetAt(f.outline, p[v * 3], p[v * 3 + 1]).offset < f.margin - 1 && !nearBore(p[v * 3], p[v * 3 + 1]));
+      return [a, b].every((v) => outlineOffsetAt(f.outline, p[v * 3], p[v * 3 + 1]).offset < f.margin - 1.5 && !nearBore(p[v * 3], p[v * 3 + 1]));
     };
     const normal = (k: number) => {
       const [a, b, c] = [t[k] * 3, t[k + 1] * 3, t[k + 2] * 3];

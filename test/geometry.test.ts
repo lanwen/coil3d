@@ -54,22 +54,26 @@ describe("design().mesh is a valid, expected manifold", () => {
       expect(manifold.genus()).toBe(1);
 
       // Independent analytic estimate (docs/design.md, Geometry): tube volume + flange volume - groove volume. Reproduces
-      // the core's fixed constants (teardrop groove depth ~= 0.3*d) by
+      // the core's fixed constants (teardrop groove depth = 0.4*d) by
       // contract, not by importing core internals. The flange now sizes to
       // the solved envelope (issue #5), not just outerRadius + margin.
       const wireDiameter = baseSpec.wire.diameter;
-      const grooveDepth = 0.3 * wireDiameter;
-      const clearance = 0.3;
-      const rho = wireDiameter / 2 + clearance / 2;
+      const grooveDepth = 0.4 * wireDiameter;
+      const rho = wireDiameter / 2 + 0.15; // GROOVE_SLACK
       const c = rho - grooveDepth;
       const s45 = Math.SQRT1_2;
       const dz45 = rho * s45;
       const f45 = c - rho * s45;
+      // Below 70 degrees from the axis (GROOVE_LIP_ANGLE) the lower flank is a straight chamfer.
+      const lipA = (70 * Math.PI) / 180;
+      const lipX = c - rho * Math.cos(lipA);
+      const lipDz = rho * Math.sin(lipA);
       const profile = (dz: number) => {
         if (dz > dz45) return f45 + (dz - dz45);
+        if (lipX < 0 && dz < -lipDz) return lipX + (-lipDz - dz) * Math.tan(lipA);
         return Math.abs(dz) >= rho ? 0 : c - Math.sqrt(rho * rho - dz * dz);
       };
-      const halfDown = c >= rho ? 0 : Math.sqrt(Math.max(0, rho * rho - c * c));
+      const halfDown = lipX < 0 ? lipDz - lipX / Math.tan(lipA) : Math.sqrt(Math.max(0, rho * rho - c * c));
       const reachUp = dz45 - f45;
       const span = halfDown + reachUp;
       const N = 4000;
@@ -268,8 +272,8 @@ function circumRadius(n: number, apothem: number, rc: number): number {
 }
 
 const SHAPE_CASES: Array<{ shape: "sq" | "tri"; n: number; cornerRadius: number }> = [
-  { shape: "sq", n: 4, cornerRadius: 15 },
-  { shape: "tri", n: 3, cornerRadius: 15 },
+  { shape: "sq", n: 4, cornerRadius: 16 },
+  { shape: "tri", n: 3, cornerRadius: 16 },
 ];
 
 describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shape, n, cornerRadius }) => {
@@ -277,7 +281,7 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
     wire: { length: 2000, diameter: 3.8, type: "usb" },
     shape: { kind: shape, cornerRadius },
     windingQuality: 0.7,
-    // 100mm (not 60mm): big enough that 15mm sits comfortably inside the
+    // 100mm (not 60mm): big enough that 16mm sits comfortably inside the
     // useful-max ceiling issue #134 adds (`solve.ts`'s
     // `usefulMaxCornerRadius`, which grows with size), not just the old,
     // size-independent bend-limit floor this comment already guarded
@@ -310,23 +314,28 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
 
       const outerApothem = d.solution.outerSize / 2;
       const rc = d.solution.cornerRadius;
-      const boreApothem = Math.max(1, outerApothem - 3); // WALL_THICKNESS = 3, MIN_BORE_RADIUS = 1
-      const boreRc = Math.min(Math.max(rc - 3, 0.5), boreApothem); // MIN_BORE_CORNER_RADIUS = 0.5
+      const wall = Math.max(3, 0.4 * shapeSpec.wire.diameter + 1.5); // WALL_THICKNESS = 3, or the groove depth + GROOVE_FLOOR_WALL
+      const boreApothem = Math.max(1, outerApothem - wall); // MIN_BORE_RADIUS = 1
+      const boreRc = Math.min(Math.max(rc - wall, 0.5), boreApothem); // MIN_BORE_CORNER_RADIUS = 0.5
       const tubeVolume = (areaAt(n, outerApothem, rc, 0) - areaAt(n, boreApothem, boreRc, 0)) * d.solution.height;
 
       const wireDiameter = shapeSpec.wire.diameter;
-      const grooveDepth = 0.3 * wireDiameter;
-      const clearance = 0.3;
-      const rho = wireDiameter / 2 + clearance / 2;
+      const grooveDepth = 0.4 * wireDiameter;
+      const rho = wireDiameter / 2 + 0.15; // GROOVE_SLACK
       const c = rho - grooveDepth;
       const s45 = Math.SQRT1_2;
       const dz45 = rho * s45;
       const f45 = c - rho * s45;
+      // Below 70 degrees from the axis (GROOVE_LIP_ANGLE) the lower flank is a straight chamfer.
+      const lipA = (70 * Math.PI) / 180;
+      const lipX = c - rho * Math.cos(lipA);
+      const lipDz = rho * Math.sin(lipA);
       const profile = (dz: number) => {
         if (dz > dz45) return f45 + (dz - dz45);
+        if (lipX < 0 && dz < -lipDz) return lipX + (-lipDz - dz) * Math.tan(lipA);
         return Math.abs(dz) >= rho ? 0 : c - Math.sqrt(rho * rho - dz * dz);
       };
-      const halfDown = c >= rho ? 0 : Math.sqrt(Math.max(0, rho * rho - c * c));
+      const halfDown = lipX < 0 ? lipDz - lipX / Math.tan(lipA) : Math.sqrt(Math.max(0, rho * rho - c * c));
       const reachUp = dz45 - f45;
       const span = halfDown + reachUp;
       const N = 4000;

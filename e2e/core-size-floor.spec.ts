@@ -102,18 +102,18 @@ test("the size slider's own minimum follows the shape's floor: the flats for sq/
   }).toPass();
 
   // Switching to round drops the extra flat-sides floor, down to the bend
-  // limit's own (issue #195): 2 x (4 x 3.8 - 3.8/2 + 0.3 x 3.8) = 28.9 mm,
-  // shown as 29 mm. The link's locked 20 mm is still below it, so the note stays.
+  // limit's own (issue #195): 2 x (4 x 3.8 - 3.8/2 + 0.4 x 3.8) = 29.64 mm,
+  // shown as 30 mm. The link's locked 20 mm is still below it, so the note stays.
   await page.getByTestId("shape-option-round").check();
-  await expect(page.getByTestId("input-outer")).toHaveAttribute("min", "29");
-  expect(29).toBeLessThan(triangleMin);
-  await expect(page.getByTestId("input-outer")).toHaveValue("29");
-  await expect(page.getByTestId("core-size-raised-note")).toContainText("Minimum for this round shape and cable: 29 mm");
+  await expect(page.getByTestId("input-outer")).toHaveAttribute("min", "30");
+  expect(30).toBeLessThan(triangleMin);
+  await expect(page.getByTestId("input-outer")).toHaveValue("30");
+  await expect(page.getByTestId("core-size-raised-note")).toContainText("Minimum for this round shape and cable: 30 mm");
 });
 
 // Issue #195: a round core locked below the bend limit's floor (the default
 // 30 mm core with a stiff 3.6 mm cable, whose 36 mm bend radius needs a
-// 70.6 mm core) shows the raised size in the field, exactly like sq/tri.
+// 71.3 mm core) shows the raised size in the field, exactly like sq/tri.
 test("a locked round core below the bend limit shows the EFFECTIVE (raised) size in the field, matching the note", async ({ page }) => {
   await page.goto(`/${encodeHashDoc({ d: 3.6, wt: "stiff", size: 30, ly: 2 })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();

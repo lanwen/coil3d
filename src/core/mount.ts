@@ -443,6 +443,7 @@ export function requiredThroughMountMargin(
   _boreOutline: ShapeOutline,
   holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
   envelopeRadius = 0,
+  collarOffset = 0,
 ): number {
   const holeRadius = holeDiameter / 2;
   const isRound = outline.cornerRadius === outline.apothem;
@@ -451,7 +452,9 @@ export function requiredThroughMountMargin(
   // review's same fix, mirrored here: see `layoutKeyholeMount`'s `slotAt`
   // doc comment for why the bore alone isn't the right inner bound) -- or
   // the wound envelope, whichever reaches further out.
-  const innerBound0 = Math.max(outlineR0 + THROUGH_MOUNT_EDGE_MARGIN, envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN);
+  // And the collar pad's footprint under the wall (`collarOffset` past the
+  // outline, flangePads.ts), which the screw head must keep clear of.
+  const innerBound0 = Math.max(outlineR0 + THROUGH_MOUNT_EDGE_MARGIN, envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN, outlineR0 + collarOffset + THROUGH_MOUNT_PAD_CLEARANCE + THROUGH_MOUNT_EDGE_MARGIN);
   // A hairline (1e-6 mm) safety margin past the bare-minimum requirement --
   // mirrors `requiredFlangeMargin`'s own epsilon: without it, floating-point
   // rounding can occasionally leave `layoutThroughHoleMount`'s later,
@@ -517,6 +520,7 @@ export function layoutThroughHoleMount(
   holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
   keepOut: { channelRibbon: XY[]; pads?: XY[][] },
   envelopeRadius = 0,
+  collarOffset = 0,
 ): ThroughMountLayout {
   const holeRadius = holeDiameter / 2;
   const flangeOutline = offsetOutline(outline, margin);
@@ -534,7 +538,8 @@ export function layoutThroughHoleMount(
   const holeAt = (phi: number): ThroughHole | null => {
     const wallBound = radiusAtAngle(outline, phi) + THROUGH_MOUNT_EDGE_MARGIN;
     const envelopeBound = envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN;
-    const innerLimit = Math.max(wallBound, envelopeBound) + holeRadius;
+    const collarBound = radiusAtAngle(outline, phi) + collarOffset + THROUGH_MOUNT_PAD_CLEARANCE + THROUGH_MOUNT_EDGE_MARGIN;
+    const innerLimit = Math.max(wallBound, envelopeBound, collarBound) + holeRadius;
     const outerLimit = radiusAtAngle(flangeOutline, phi) - THROUGH_MOUNT_RIM_MARGIN - holeRadius;
     if (outerLimit < innerLimit) return null;
     const R = (innerLimit + outerLimit) / 2;
