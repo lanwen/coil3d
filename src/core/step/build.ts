@@ -833,8 +833,8 @@ async function buildLabelCutterSolid(label: ResolvedLabel): Promise<R.Shape3D | 
 async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
   // Issue #127: the plate's middle is opened by the through-hole below (mirrors manifold.ts).
-  // Issue #229: the outer edge is chamfered on the top face; the underside stays square (edgeChamfer.ts's `chamferedRim`).
-  const plate = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, 0, CAP_THICKNESS, true));
+  // Issues #229, #237: the outer edge is chamfered on both faces (edgeChamfer.ts's `chamferedRim`).
+  const plate = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, 0, CAP_THICKNESS));
 
   // Issue #167: the joint design.ts built (a bayonet may fall back to press fit).
   const capJoint = resolveCapJoint(spec, design.wallSpec);

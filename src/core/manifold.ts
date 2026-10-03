@@ -628,8 +628,8 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     // flange's own ring. Issue #127: its middle is opened up below by the
     // through-hole (`holeOutline`), never by a blind pocket whose floor would
     // print as a bridge (the pre-#121 annulus over a solid collar plug).
-    // Issue #229: the outer edge is chamfered on the top face; the underside stays square (edgeChamfer.ts's `chamferedRim`).
-    const plate = track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, 0, CAP_THICKNESS, true), flange.columns, flange.minCornerSegments));
+    // Issues #229, #237: the outer edge is chamfered on both faces (edgeChamfer.ts's `chamferedRim`).
+    const plate = track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, 0, CAP_THICKNESS), flange.columns, flange.minCornerSegments));
     if (plate.status() !== "NoError") {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
     }
@@ -713,7 +713,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     const welded = weldShortEdges(raw);
     const mesh: CoilMesh = improveFlatFaces(welded.mesh);
     // Issue #229: the rim's chamfer, for the viewer to leave out of the drawing.
-    mesh.rimTriangles = rimTriangles(mesh, flange.outline, flange.margin, [[0, CAP_THICKNESS, true]]);
+    mesh.rimTriangles = rimTriangles(mesh, flange.outline, flange.margin, [[0, CAP_THICKNESS]]);
     if (labelId !== undefined) {
       const isLabel = new Uint8Array(raw.indices.length / 3);
       const runIndex = outMesh.runIndex!;

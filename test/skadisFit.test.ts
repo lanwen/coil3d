@@ -318,8 +318,9 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
       }
       core.delete();
     }
-    expect(volumes[1], "the top clip is the same part for a 3.8 mm and a thin cable").toBeCloseTo(volumes[0], 3);
-    expect(volumes[2], "the top clip is the same part for an 8 mm cable").toBeCloseTo(volumes[0], 3);
+    // To 0.005 mm^3 of about 1345: the meshes sit at different places, and their volumes differ by float noise alone.
+    expect(volumes[1], "the top clip is the same part for a 3.8 mm and a thin cable").toBeCloseTo(volumes[0], 2);
+    expect(volumes[2], "the top clip is the same part for an 8 mm cable").toBeCloseTo(volumes[0], 2);
   }, 120_000);
 
   it("clips keep clear of the inner-end channel's pad across cables, shapes and sizes (they lie on the plate, below the pad's flare)", async () => {

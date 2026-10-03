@@ -6,8 +6,8 @@ import { plateTopZ } from "../src/core/flangePads";
 import { pointAt } from "../src/core/shapes";
 import { STEP_TIMEOUT_MS, insideAt, stepContains, verticalCrossings } from "./support/step";
 
-// Issue #229: the outer perimeter edges of the bottom flange and the top cap are chamfered 1 mm x 45 degrees on both
-// faces. Checked on the built meshes, by casting vertical rays through them near the rim.
+// Issues #229, #237: the outer perimeter edges of the bottom flange and the top cap are chamfered 1 mm x 45 degrees on
+// both faces. Checked on the built meshes, by casting vertical rays through them near the rim.
 
 function rayHits(mesh: { positions: Float32Array; indices: Uint32Array }, x: number, y: number): number[] {
   const p = mesh.positions;
@@ -76,7 +76,7 @@ describe.each(DESIGNS)("edge chamfer: $label", ({ spec }) => {
     expect(inner.filter(([lo, hi]) => Math.abs(lo + T) < 1e-3 && (Math.abs(hi) < 1e-3 || Math.abs(hi - (zPlate ?? 0)) < 1e-3)).length).toBeGreaterThan(30);
   });
 
-  it("chamfers the cap's top face edge the same way, and leaves the underside square (the cable clips' roots stand near it)", async () => {
+  it("chamfers the cap's outer edge the same way, on both faces (issue #237: the cable clips no longer force a square underside)", async () => {
     const d = await design(spec);
     const cap = d.parts.find((p) => p.role === "topCap")!;
     const { outline, margin } = d.flangeSpec;
@@ -94,17 +94,17 @@ describe.each(DESIGNS)("edge chamfer: $label", ({ spec }) => {
     for (const depth of [0.25, 0.5, 0.75]) {
       const spans = spansAt(depth);
       expect(spans.length).toBeGreaterThan(30);
-      expect(share(spans, ([lo, hi]) => Math.abs(lo) < 0.02 && Math.abs(hi - (CAP_THICKNESS - (EDGE_CHAMFER - depth))) < 0.15)).toBeGreaterThan(0.8);
+      expect(share(spans, ([lo, hi]) => Math.abs(lo - (EDGE_CHAMFER - depth)) < 0.15 && Math.abs(hi - (CAP_THICKNESS - (EDGE_CHAMFER - depth))) < 0.15)).toBeGreaterThan(0.8);
     }
     expect(share(spansAt(1.5), ([lo, hi]) => Math.abs(lo) < 0.02 && Math.abs(hi - CAP_THICKNESS) < 0.02)).toBeGreaterThan(0.8);
-    // The vertical land between the chamfer and the square underside is at least 1 mm.
-    expect(CAP_THICKNESS - EDGE_CHAMFER).toBeGreaterThanOrEqual(1);
+    // The vertical land between the two chamfers is at least 1 mm.
+    expect(CAP_THICKNESS - 2 * EDGE_CHAMFER).toBeGreaterThanOrEqual(1);
   });
 });
 
 describe("edge chamfer in the STEP export", () => {
   it(
-    "cuts the same chamfer as the mesh, on the flange's bed face and the cap's top face",
+    "cuts the same chamfer as the mesh, on the flange's bed face and on both faces of the cap",
     async () => {
       const d = await design(DESIGNS[1].spec);
       const bytes = await exportDesign(d, "step");
@@ -118,7 +118,7 @@ describe("edge chamfer in the STEP export", () => {
         probes.push({ part: "core", x, y, z: -thickness + line - 0.3, expectInside: false }, { part: "core", x, y, z: -thickness + line + 0.3, expectInside: true });
         // Not under a cable clip, which hangs below the plate there.
         if (verticalCrossings(d.parts.find((part) => part.role === "topCap")!.mesh, x, y).length !== 2) continue;
-        probes.push({ part: "topCap", x, y, z: z0 + 0.1, expectInside: true });
+        probes.push({ part: "topCap", x, y, z: z0 + line - 0.3, expectInside: false }, { part: "topCap", x, y, z: z0 + line + 0.3, expectInside: true });
         probes.push({ part: "topCap", x, y, z: z0 + CAP_THICKNESS - line + 0.3, expectInside: false }, { part: "topCap", x, y, z: z0 + CAP_THICKNESS - line - 0.3, expectInside: true });
       }
       const inStep = await stepContains(bytes, "edge-chamfer", probes.map((p) => [p.x, p.y, p.z]));

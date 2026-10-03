@@ -50,10 +50,17 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   3 mm). The mouth is a 45-degree funnel above a 0.3 mm land, which centres
   the cable. The opening never goes below 0.75 of the bore, which keeps the
   lip underside within 45 degrees (41 degrees at the floor).
-- Outer end: the same clip, hanging under the top cap on a 45-degree
-  chamfered root. It is repeated every 90 degrees (round, square) or every 120
-  degrees (triangle), so an end that was unwound a little still has a clip. A
-  clip that would stand in the drawn cable's way is left out. The cap's middle
+- Outer end: a clip hanging under the top cap, just outside the wound cable
+  (#237). It is a low rib, flush with the cable's underside, with its ends
+  ramped into the plate at 45 degrees. The cable snaps up through a 45-degree
+  lead-in and a throat only a little narrower than the cable (0.88 of the
+  bore), so the cable's jacket takes the squeeze. The walls round the bore are
+  half a cable diameter thick (1.2 to 2 mm), so the lips stay stiff: in
+  PLA a millimetre-sized lip can't flex much without cracking across the
+  layer lines, which is how the earlier clip broke. It is repeated every 90
+  degrees (round, square) or every 120 degrees (triangle), so an end that was
+  unwound a little still has a clip. A clip that would stand in the drawn
+  cable's way is left out. The cap's middle
   is a straight through-hole, so nothing prints as a bridge. With no top cap,
   the cable leaves the last turn as a straight tangential tail.
 - The flange and cap margins grow when a clip needs more room.
@@ -73,9 +80,8 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   45 degree roof would need a 3.5 mm thicker pad. The tests cap it at 8.5 mm.
 - The flange is the final outer envelope of the wound cable plus a margin.
 - The flange and the top cap have a 1 mm x 45 degree chamfer on their outer
-  edge (#229, `EDGE_CHAMFER`, `src/core/edgeChamfer.ts`): on both faces of the
-  flange, and on the top face of the cap. The cap's underside stays square,
-  because the cable clips' roots stand within a millimetre of the rim. A 3 mm
+  edge, on both faces (#229, #237, `EDGE_CHAMFER`, `src/core/edgeChamfer.ts`).
+  The cap's cable clips stay inside the foot of its underside chamfer. A 3 mm
   plate keeps a 1 mm vertical land. The through-hole mount keeps its holes
   1 mm further from the rim, so the screw head sits on the flat top. The
   exports keep the chamfer; the drawings leave it out (see Rendering).
