@@ -15,7 +15,7 @@
 // WASM heap across files.
 import { beforeEach } from "vitest";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
-import { JOINT_ENGAGE_DEPTH } from "../../src/core";
+import { SNAP_FINGER_LENGTH } from "../../src/core/constants";
 import type { Design } from "../../src/core";
 
 // Issue #163: OCCT runs inline in the test worker, so one STEP test blocks
@@ -135,8 +135,9 @@ export function insideAt(crossings: number[], z: number): boolean {
  * has them. Probe points 0.15 mm either side of every place a vertical line
  * through the joint (on a flat side's middle) crosses the core's or the
  * cap's mesh surface: inside or outside the STEP model exactly as in the
- * mesh. Issue #186: three lines, 0.1 mm inside the bore (the ridge), 0.5 mm
- * (the barb's point and the ridge) and 2 mm (the bevel on the fingers' tips).
+ * mesh. Issue #186: three lines, 0.1 mm inside the bore (the ridge and the
+ * seat), 0.5 mm (the barb's point, the ridge and the seat) and 2 mm (the
+ * bevel on the fingers' tips and the seat), down to 6 mm under the tips.
  */
 export function snapProbes(d: Design): { points: Array<[number, number, number]>; expected: boolean[] } {
   const { boreOutline } = d.flangeSpec;
@@ -147,7 +148,7 @@ export function snapProbes(d: Design): { points: Array<[number, number, number]>
   for (const inset of [0.1, 0.5, 2]) {
     const [x, y] = [(boreOutline.apothem - inset) * Math.cos(angle), (boreOutline.apothem - inset) * Math.sin(angle)];
     const crossings = d.parts.map((p) => verticalCrossings(p.mesh, x, y));
-    const zs = crossings.flat().filter((z) => z > h - JOINT_ENGAGE_DEPTH - 2 && z < h - 0.5);
+    const zs = crossings.flat().filter((z) => z > h - SNAP_FINGER_LENGTH - 6 && z < h - 0.5);
     for (const z of zs.flatMap((z) => [z - 0.15, z + 0.15])) {
       points.push([x, y, z]);
       expected.push(crossings.some((c) => insideAt(c, z)));

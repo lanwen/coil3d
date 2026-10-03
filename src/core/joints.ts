@@ -40,9 +40,12 @@ import {
   SNAP_BARB,
   SNAP_BARB_CLEARANCE,
   SNAP_COLLAR_WALL,
+  SNAP_FINGER_LENGTH,
+  SNAP_LEAD_IN_ANGLE,
+  SNAP_PRELOAD,
   SNAP_RIDGE_DEPTH,
   SNAP_RIDGE_THICKNESS,
-  SNAP_TIP_BEVEL,
+  SNAP_SEAT_GAP,
   SHAPE_ROUNDING_EPS,
   WELD_OVERLAP,
 } from "./constants";
@@ -248,7 +251,7 @@ export function resolveCapJoint(
   wallSpec: WallSpec,
 ): { joint: JointKind; bayonet?: BayonetLayout; snap?: SnapLayout; warning?: string } {
   if (spec.joint === "snap") {
-    const snap = snapLayout(wallSpec.boreOutline, spec.tolerance, wallSpec.height);
+    const snap = snapLayout(wallSpec, spec.tolerance);
     return snap ? { joint: "snap", snap } : { joint: "press", warning: "This core is too small for the snap clips, so the top cap uses a press-fit collar." };
   }
   if (spec.joint !== "bayonet") return { joint: spec.joint };
@@ -272,28 +275,48 @@ export interface OutlineStation {
  */
 export type OutlineStack = OutlineStation[];
 
+/** A ring added inside the core's bore: `lip`, a band welded into the wall, with `relief` cut from it (never from the wall itself). */
+export interface BoreRing {
+  lip: OutlineStack;
+  relief: OutlineStack;
+}
+
 /**
  * The snap joint's shared layout (issues #168, #186), built by both the mesh
  * and the STEP backend. All heights are relative to the core's top rim,
- * which is also the cap's local frame (plate z = [0, CAP_THICKNESS], collar
- * reaching down to z = -JOINT_ENGAGE_DEPTH).
+ * which is also the cap's local frame (plate z = [0, CAP_THICKNESS], fingers
+ * reaching down to z = -SNAP_FINGER_LENGTH).
+ *
+ * The collar is split into one finger per side of the bore's outline, with
+ * the relief slots at its corners, so every finger is a side that bends as a
+ * plate and no barb sits on a stiff corner. Each barb follows the collar's
+ * outline, so it engages the ridge evenly along the whole finger, on every
+ * shape.
  *
  * Each printed part prints without supports. The cap prints plate down: each
- * barb is a diamond point (issue #186), a 45-degree lead-in face toward the
- * finger's tip, then a 45-degree back face toward the plate, with no flat
- * face. The core prints upright: the ridge has a 45-degree chamfer under it
- * and a 45-degree lead-in above it. The latch is a pair of parallel
- * 45-degree cones (the barb's back face under the ridge's underside), and on
- * the way in the barb's lead-in slides down the ridge's lead-in, camming the
- * fingers inward.
+ * barb has a SNAP_LEAD_IN_ANGLE lead-in face toward the finger's tip (facing
+ * up as printed) and a 45-degree back face toward the plate. The core prints
+ * upright: the ridge has a 45-degree chamfer under it and a 45-degree
+ * lead-in above it. The latch is a pair of parallel 45-degree faces (the
+ * barb's back face under the ridge's underside).
  *
- * Issue #186: the barbs stay inside the bore (SNAP_BARB_CLEARANCE +
- * tolerance from its wall), so the ridge is the only core-side feature: a
- * ring added inside the bore, welded into the wall. Nothing is cut into the
- * wall, which keeps its full thickness behind the cable groove.
+ * Seated, the barb's back face sits SNAP_PRELOAD into the ridge's underside,
+ * so the fingers stay a little bent: they pull the cap down onto the rim and
+ * centre it, and it has no radial, axial or tilt play.
+ *
+ * The barbs stay inside the bore (SNAP_BARB_CLEARANCE + tolerance from its
+ * wall), so the core-side features are rings added inside the bore, welded
+ * into the wall: the ridge, and a seat under the finger tips that narrows
+ * the bore to the cap's hole, so looking down the seated cap there is no
+ * step. Nothing is cut into the wall, which keeps its full thickness behind
+ * the cable groove.
  */
 export interface SnapLayout {
-  /** The barb ring around the finger tips (cap frame): from just inside the finger at its tip, a 45-degree lead-in out to the barb's point at `collarRadius + SNAP_BARB`, then a 45-degree back face into the finger again. */
+  /** How far the fingers reach down into the bore: their tips are at z = -depth. */
+  depth: number;
+  /** The relief slots between the fingers, at the outline's corners, degrees. */
+  slotAnglesDeg: number[];
+  /** The barb ring around the finger tips (cap frame): from just inside the finger at its tip, the lead-in out to the barb's point at `collarRadius + SNAP_BARB`, then a 45-degree back face into the finger again. */
   barb: OutlineStack;
   /**
    * Issue #172: the top of the fingers' root flare, which widens the collar
@@ -304,11 +327,9 @@ export interface SnapLayout {
   rootOutline: ShapeOutline;
   /** How far the relief slots between the fingers reach out, past the barb and the root flare at every angle. */
   slotOuterRadius: number;
-  /** The ridge ring's blank: a band welded into the core's wall around the bore. `relief` is cut from it (never from the wall itself), and what is left is added to the core. */
-  lip: OutlineStack;
-  /** Cut from `lip`: the bore offset out (wider than `lip`) below and above, a 45-degree chamfer to the ridge, the ridge itself, then a 45-degree lead-in back out. */
-  relief: OutlineStack;
-  /** Issue #186: the cap's through-hole, with a 45-degree SNAP_TIP_BEVEL on the fingers' inner tip edge. Undefined when the collar has no hole (`jointGeometry`'s `holeOutline`). */
+  /** Added to the core: the ridge, then the seat under the finger tips (left out on a core too short for it, or a collar with no hole). */
+  rings: BoreRing[];
+  /** The cap's through-hole, down past the finger tips. Undefined when the collar has no hole (`jointGeometry`'s `holeOutline`). */
   hole?: OutlineStack;
 }
 
@@ -317,61 +338,91 @@ function inset(o: ShapeOutline, amount: number): ShapeOutline {
   return { n: o.n, apothem: o.apothem - amount, cornerRadius: Math.max(SHAPE_ROUNDING_EPS, o.cornerRadius - amount) };
 }
 
-function circle(r: number): ShapeOutline {
-  return { n: 4, apothem: r, cornerRadius: r };
-}
-
 /** Undefined when the bore or the core is too small for the snap clips (see JOINT_MIN_BORE_RADIUS): both parts then fall back to the plain press collar (`resolveCapJoint`). */
-export function snapLayout(boreOutline: ShapeOutline, tolerance: number, coreHeight: number): SnapLayout | undefined {
-  const { boreRadius, collarRadius, holeOutline } = jointGeometry(boreOutline, "snap", tolerance);
-  if (boreRadius < JOINT_MIN_BORE_RADIUS || coreHeight < JOINT_ENGAGE_DEPTH + 2) return undefined;
+export function snapLayout(wallSpec: WallSpec, tolerance: number): SnapLayout | undefined {
+  const { boreOutline, height: coreHeight } = wallSpec;
+  const { boreRadius, collarOutline, holeOutline } = jointGeometry(boreOutline, "snap", tolerance);
+  const depth = SNAP_FINGER_LENGTH;
+  if (boreRadius < JOINT_MIN_BORE_RADIUS || coreHeight < depth + 2) return undefined;
 
-  // Cap side: the diamond barb. Both faces start a little inside the finger
-  // (by `embed`), so they weld in rather than meet its surface at a tangent.
-  const barbRadius = collarRadius + SNAP_BARB;
-  const tip = -JOINT_ENGAGE_DEPTH;
+  // Cap side: the barb. Both faces start a little inside the finger (by
+  // `embed`), so they weld in rather than meet its surface at a tangent.
+  const tip = -depth;
   const embed = 0.2;
-  const barbPoint = tip + embed + SNAP_BARB;
-  // Where the back face meets the finger: the ridge sits just above it.
-  const barbTop = barbPoint + SNAP_BARB;
+  const barbPoint = tip + (SNAP_BARB + embed) / Math.tan((SNAP_LEAD_IN_ANGLE * Math.PI) / 180);
+  const barbOutline = offsetOutline(collarOutline, SNAP_BARB);
   const barb: OutlineStack = [
-    { outline: circle(collarRadius - embed), z: tip },
-    { outline: circle(barbRadius), z: barbPoint },
-    { outline: circle(collarRadius - embed), z: barbTop + embed },
+    { outline: inset(collarOutline, embed), z: tip },
+    { outline: barbOutline, z: barbPoint },
+    { outline: inset(collarOutline, embed), z: barbPoint + SNAP_BARB + embed },
   ];
   const rootOutline = inset(boreOutline, SNAP_BARB_CLEARANCE + tolerance);
-  const slotOuterRadius = Math.max(barbRadius + 0.5, circumscribedRadius(rootOutline, 0) + 0.5);
+  const slotOuterRadius = Math.max(circumscribedRadius(barbOutline, 0), circumscribedRadius(rootOutline, 0)) + 0.5;
+  const slotAnglesDeg = Array.from({ length: boreOutline.n }, (_, i) => (360 * i) / boreOutline.n);
   const hole: OutlineStack | undefined = holeOutline && [
-    { outline: offsetOutline(holeOutline, SNAP_TIP_BEVEL + 1), z: tip - 1 },
-    { outline: holeOutline, z: tip + SNAP_TIP_BEVEL },
+    { outline: holeOutline, z: tip - 1 },
     { outline: holeOutline, z: CAP_THICKNESS + 1 },
   ];
 
-  // Core side. The ridge follows the bore's shape, so the collar clears it
-  // evenly at every angle, corners included. Its chamfers run out past the
-  // bore (by WELD_OVERLAP) and the blank they are cut from is welded
-  // WELD_OVERLAP / 2 into the wall, so the ring meets the bore at 45 degrees
+  // Core side. Every ring follows the bore's shape, so it stays parallel to
+  // the collar at every angle, corners included. Its chamfers run out past
+  // the bore (by WELD_OVERLAP) and the lip they are cut from is welded
+  // WELD_OVERLAP / 2 into the wall, so a ring meets the bore at 45 degrees
   // instead of being nearly tangent to it, which boolean CSG handles poorly.
-  const ridgeOutline = inset(boreOutline, SNAP_RIDGE_DEPTH);
+  // The rings sit beside the cable groove, so a lip never reaches more than
+  // halfway through the wall behind the groove's floor.
+  // A chamfer's rise is the widest horizontal step (at the corners when an
+  // outline's corner radius is floored), so none is steeper than 45 degrees.
   const wideOutline = offsetOutline(boreOutline, WELD_OVERLAP);
-  // Rise = the widest horizontal step (at the corners when the ridge's corner
-  // radius is floored), so no part of either chamfer is steeper than 45 degrees.
-  const run = circumscribedRadius(wideOutline, 0) - circumscribedRadius(ridgeOutline, 0);
-  const [ridgeLo, ridgeHi] = [barbTop, barbTop + SNAP_RIDGE_THICKNESS];
-  const relief: OutlineStack = [
-    { outline: wideOutline, z: ridgeLo - run - 1 },
-    { outline: wideOutline, z: ridgeLo - run },
-    { outline: ridgeOutline, z: ridgeLo },
-    { outline: ridgeOutline, z: ridgeHi },
-    { outline: wideOutline, z: ridgeHi + run },
-    { outline: wideOutline, z: ridgeHi + run + 1 },
+  const wallBehindGroove = wallSpec.outline.apothem - wallSpec.grooveDepth - boreOutline.apothem;
+  const lipOutline = offsetOutline(boreOutline, Math.min(WELD_OVERLAP / 2, wallBehindGroove / 2));
+  const runTo = (o: ShapeOutline) => circumscribedRadius(wideOutline, 0) - circumscribedRadius(o, 0);
+
+  // The ridge. The barb's back face meets the ridge's inner edge `engage`
+  // above the barb's point; the ridge sits `preload` lower than that.
+  const ridgeOutline = inset(boreOutline, SNAP_RIDGE_DEPTH);
+  const engage = SNAP_RIDGE_DEPTH - SNAP_BARB_CLEARANCE - tolerance;
+  const preload = Math.max(0, Math.min(SNAP_PRELOAD, engage / 2));
+  const run = runTo(ridgeOutline);
+  const [ridgeLo, ridgeHi] = [barbPoint + engage - preload, barbPoint + engage - preload + SNAP_RIDGE_THICKNESS];
+  const rings: BoreRing[] = [
+    {
+      relief: [
+        { outline: wideOutline, z: ridgeLo - run - 1 },
+        { outline: wideOutline, z: ridgeLo - run },
+        { outline: ridgeOutline, z: ridgeLo },
+        { outline: ridgeOutline, z: ridgeHi },
+        { outline: wideOutline, z: ridgeHi + run },
+        { outline: wideOutline, z: ridgeHi + run + 1 },
+      ],
+      // Ends just inside the chamfers' outer ends, where the relief is already
+      // wider than it, so the ring comes to an edge inside the wall at both ends.
+      lip: [
+        { outline: lipOutline, z: ridgeLo - run + 0.1 },
+        { outline: lipOutline, z: ridgeHi + run - 0.1 },
+      ],
+    },
   ];
-  // Ends just inside the chamfers' outer ends, where the relief is already
-  // wider than it, so the ring comes to an edge inside the wall at both ends.
-  const lipOutline = offsetOutline(boreOutline, WELD_OVERLAP / 2);
-  const lip: OutlineStack = [
-    { outline: lipOutline, z: ridgeLo - run + 0.1 },
-    { outline: lipOutline, z: ridgeHi + run - 0.1 },
-  ];
-  return { barb, rootOutline, slotOuterRadius, lip, relief, hole };
+
+  // The seat: under the finger tips the bore narrows to the cap's hole, with
+  // a flat top (facing up as the core prints) and a 45-degree chamfer under it.
+  if (holeOutline) {
+    const seatTop = tip - SNAP_SEAT_GAP;
+    const seatBottom = seatTop - runTo(holeOutline);
+    if (seatBottom > -coreHeight + 1) {
+      rings.push({
+        relief: [
+          { outline: wideOutline, z: seatBottom - 1 },
+          { outline: wideOutline, z: seatBottom },
+          { outline: holeOutline, z: seatTop },
+          { outline: holeOutline, z: seatTop + 1 },
+        ],
+        lip: [
+          { outline: lipOutline, z: seatBottom + 0.1 },
+          { outline: lipOutline, z: seatTop },
+        ],
+      });
+    }
+  }
+  return { depth, slotAnglesDeg, barb, rootOutline, slotOuterRadius, rings, hole };
 }

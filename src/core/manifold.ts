@@ -19,7 +19,7 @@
 // collar centered on the coil axis regardless of the core's own
 // round/sq/tri cross-section -- see joints.ts for why. `applyCoreJointCut`
 // adds the bayonet's lugs (issue #167; its L-slots are in the cap's collar)
-// or the snap's ridge ring (issue #186) inside its bore; press needs no
+// or the snap's ridge and seat rings (issue #186) inside its bore; press needs no
 // core-side feature at all (the collar simply
 // presses against the bore's existing inner surface). Every feature here is
 // built from manifold-3d PRIMITIVES (cylinder/cube + boolean ops), never a
@@ -42,7 +42,6 @@ import {
   SCREW_MOUNT_SLOT_RADIUS,
   SCREW_MOUNT_UNDERCUT_DEPTH,
   SKADIS_CLIP_WIDTH,
-  SNAP_HOOK_COUNT,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
@@ -67,7 +66,7 @@ import { clipFrame } from "./skadisClips";
 import type { RimClip, SkadisClipLayout } from "./skadisClips";
 import { tclipPieceLevels } from "./skadisTclips";
 import type { SkadisTclipLayout, Tclip } from "./skadisTclips";
-import { minCornerSegments, offsetOutline, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
+import { offsetOutline, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh, JointKind, MountKind } from "./types";
 
@@ -147,11 +146,11 @@ export interface InnerEndCut {
 
 type Manifold = InstanceType<ManifoldToplevel["Manifold"]>;
 
-/** Boxes/cylinders repeated at `count` evenly-spaced angles around Z, unioned into one manifold. Every intermediate boolean result is `track()`ed (a real CSG op, unlike a lazy transform chain -- see manifold.ts's own `.add()`/`.subtract()` calls elsewhere), so nothing leaks across the reduce. */
-function unionAtAngles(track: <T extends { delete(): void }>(m: T) => T, build: (angleDeg: number) => Manifold, count: number): Manifold {
+/** Boxes/cylinders repeated at the given angles around Z, unioned into one manifold. Every intermediate boolean result is `track()`ed (a real CSG op, unlike a lazy transform chain -- see manifold.ts's own `.add()`/`.subtract()` calls elsewhere), so nothing leaks across the reduce. */
+function unionAtAngles(track: <T extends { delete(): void }>(m: T) => T, build: (angleDeg: number) => Manifold, anglesDeg: number[]): Manifold {
   let result: Manifold | undefined;
-  for (let i = 0; i < count; i++) {
-    const m = track(build((360 * i) / count));
+  for (const angle of anglesDeg) {
+    const m = track(build(angle));
     result = result ? track(result.add(m)) : m;
   }
   return result!;
@@ -170,44 +169,21 @@ function collarBase(
   track: <T extends { delete(): void }>(m: T) => T,
   collarOutline: ShapeOutline,
   rootOutline: ShapeOutline,
+  depth: number,
   segments: number,
   minCornerSegments: number,
 ): Manifold {
   // The prism runs halfway up into the flare, inside it, so the two share no face: where they met flush at the
   // flare's foot, the union left zero-width slits along the outline's straight sides that came off the cap as
   // separate pieces at some column counts (issue #208). The solid is the same.
-  const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT / 2;
-  const straight = track(outlinePrismSolid(wasm, collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH, segments, minCornerSegments));
-  const bottomPts: [number, number, number][] = outlinePolygon(collarOutline, segments, minCornerSegments).map(([x, y]) => [x, y, -JOINT_TRANSITION_HEIGHT]);
-  const topPts: [number, number, number][] = outlinePolygon(rootOutline, segments, minCornerSegments).map(([x, y]) => [x, y, 0]);
+  const straightHeight = depth - JOINT_TRANSITION_HEIGHT / 2;
+  const straight = track(outlinePrismSolid(wasm, collarOutline, straightHeight, -depth, segments, minCornerSegments));
+  // Only the outlines' corner points (`corners`), as in `stackSolid`: the points along a straight side add nothing to
+  // the hull and can fold a sheet of no thickness into its face.
+  const bottomPts: [number, number, number][] = corners(outlinePolygon(collarOutline, segments, minCornerSegments)).map(([x, y]) => [x, y, -JOINT_TRANSITION_HEIGHT]);
+  const topPts: [number, number, number][] = corners(outlinePolygon(rootOutline, segments, minCornerSegments)).map(([x, y]) => [x, y, 0]);
   const transition = track(wasm.Manifold.hull([...bottomPts, ...topPts]));
   return track(straight.add(transition));
-}
-
-/** Columns for the snap joint's outlines: fine enough that a faceted 45-degree chamfer leans well under a degree past 45 even on a big bore. */
-const SNAP_COLUMNS = 96;
-
-/**
- * Issue #219: the turn (degrees) of the snap barb's facets that keeps the corners of its widest ring, which reaches
- * out past a non-round collar's flat sides and back into them, as far from the collar's outline as it can. A corner
- * a hair off a flat face left needles and edges far under the weld's limit where the two met. A round collar, the
- * same distance away all round, keeps 0.
- */
-function barbTurnDeg(collarOutline: ShapeOutline, barb: OutlineStack): number {
-  const radius = Math.max(...barb.map((station) => station.outline.apothem));
-  const step = 360 / SNAP_COLUMNS;
-  let best = 0;
-  let bestGap = -1;
-  for (let k = 0; k < 16; k++) {
-    const turn = (k * step) / 16;
-    let gap = Infinity;
-    for (let i = 0; i < SNAP_COLUMNS; i++) {
-      const a = ((i * step + turn) * Math.PI) / 180;
-      gap = Math.min(gap, Math.abs(outlineOffsetAt(collarOutline, radius * Math.cos(a), radius * Math.sin(a)).offset));
-    }
-    if (gap > bestGap + 1e-9) [best, bestGap] = [turn, gap];
-  }
-  return best;
 }
 
 /**
@@ -265,7 +241,7 @@ function revolvedFeature(wasm: ManifoldToplevel, f: RevolvedFeature, dz: number)
  * flexes past, then springs back under. Both are added, never cut: the wall
  * keeps its full thickness.
  */
-function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, core: Manifold, cut: CoreJointCut): Manifold {
+function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, core: Manifold, cut: CoreJointCut, flange: FlangeSpec): Manifold {
   // Issue #167: the bayonet's lugs, standing in the bore under the rim,
   // from the shared layout (which already decided the core can take them --
   // see design.ts). Added, never cut: the wall keeps its full thickness.
@@ -273,15 +249,16 @@ function applyCoreJointCut(wasm: ManifoldToplevel, track: <T extends { delete():
     return track(wasm.Manifold.union([core, ...cut.bayonet!.lugs.map((f) => track(revolvedFeature(wasm, f, cut.height)))]));
   }
 
-  // snap (issues #168, #186): a ridge ring with 45-degree chamfers both
-  // sides, added inside the bore -- see joints.ts's `snapLayout`. The ring is
-  // the relief cut from the lip on its own, so the wall is never cut.
+  // snap (issues #168, #186): the ridge and the seat under the finger tips,
+  // rings added inside the bore -- see joints.ts's `snapLayout`. Each ring is
+  // its relief cut from its lip on its own, so the wall is never cut. The
+  // rings take the wall's own columns: a lip with its own, finer facets
+  // poked out through a coarse (draft) wall's chords behind the groove.
   const { height } = cut;
-  const snap = cut.snap!;
   const rim = (stack: OutlineStack): OutlineStack => stack.map(({ outline, z }) => ({ outline, z: z + height }));
-  const lip = stackSolid(wasm, track, rim(snap.lip), SNAP_COLUMNS, minCornerSegments(cut.boreOutline, 8));
-  const relief = stackSolid(wasm, track, rim(snap.relief), SNAP_COLUMNS, minCornerSegments(cut.boreOutline, 8));
-  return track(core.add(track(lip.subtract(relief))));
+  const solid = (stack: OutlineStack) => stackSolid(wasm, track, rim(stack), flange.columns, flange.minCornerSegments);
+  const rings = cut.snap!.rings.map(({ lip, relief }) => track(solid(lip).subtract(solid(relief))));
+  return track(wasm.Manifold.union([core, ...rings]));
 }
 
 /**
@@ -503,7 +480,7 @@ export async function fuseFlange(
 
     let fused = track(wallManifold.add(flangeManifold));
     // `applyCoreJointCut` already tracks its own returned manifold (like every other value it constructs) -- don't track it again here.
-    if (coreJoint) fused = applyCoreJointCut(wasm, track, fused, coreJoint);
+    if (coreJoint) fused = applyCoreJointCut(wasm, track, fused, coreJoint, flange);
 
     let status = fused.status();
     if (status !== "NoError") {
@@ -676,15 +653,16 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       const slots = track(Manifold.union(bayonet!.cuts.map((f) => track(revolvedFeature(wasm, f, 0)))));
       collar = track(straight().subtract(slots));
     } else if (snap) {
-      // snap: a collar with a barb ring at its tip (deepest point) and 3
-      // axial relief slots cutting it into cantilever fingers. The barb is a
-      // diamond point with 45-degree faces (issues #168, #186) -- see
-      // joints.ts's `snapLayout`. The fingers' root flare stays inside the bore.
-      const base = collarBase(wasm, track, collarOutline, snap.rootOutline, segments, flange.minCornerSegments);
-      const barb = track(stackSolid(wasm, track, snap.barb, SNAP_COLUMNS, 1).rotate([0, 0, barbTurnDeg(collarOutline, snap.barb)]));
+      // snap: a collar with a barb ring at its tip (deepest point) and axial
+      // relief slots at the outline's corners cutting it into one cantilever
+      // finger per side -- see joints.ts's `snapLayout`. The barb follows the
+      // collar's outline, sampled at the same columns, so its faces meet the
+      // finger's along clean lines. The fingers' root flare stays inside the bore.
+      const base = collarBase(wasm, track, collarOutline, snap.rootOutline, snap.depth, segments, flange.minCornerSegments);
+      const barb = stackSolid(wasm, track, snap.barb, segments, flange.minCornerSegments);
       const withBarb = track(base.add(barb));
       // Already tracked (unionAtAngles tracks its own final reduce step).
-      const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, angle), SNAP_HOOK_COUNT);
+      const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -snap.depth - 0.5, 0.5, angle), snap.slotAnglesDeg);
       collar = track(withBarb.subtract(slots));
     } else {
       // Press, or a bayonet or snap the core can't take (joints.ts's `resolveCapJoint`).
@@ -695,7 +673,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     // Issue #127: a straight through-hole down the middle -- the collar is a
     // tube, and in the cap's print orientation (face down) the hole's walls
     // rise straight up from the bed with nothing spanning it.
-    // Issue #186: the snap fingers' tips are bevelled on the inside.
+    // The snap fingers reach deeper than JOINT_ENGAGE_DEPTH, so their hole comes with the layout.
     if (snap?.hole) {
       assembled = track(assembled.subtract(stackSolid(wasm, track, snap.hole, segments, flange.minCornerSegments)));
     } else if (holeOutline) {
