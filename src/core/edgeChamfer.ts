@@ -18,15 +18,13 @@ export interface RimRow {
 /**
  * The rim of a plate z = [zLo, zHi] whose outer edge is the core's outline
  * offset by `margin`: the chamfer's foot on each face, then the vertical land
- * between them (at least 1 mm on the thinnest plate, 3 mm). `lowSquare` leaves
- * the edge on the `zLo` face square: the top cap's underside, where the cable
- * clips' roots stand within a millimetre of the rim (constants.ts's CAP_CLIP_RIM_INSET)
- * and the chamfer would cut across them.
+ * between them (at least 1 mm on the thinnest plate, 3 mm).
  */
-export function chamferedRim(margin: number, zLo: number, zHi: number, lowSquare = false): RimRow[] {
+export function chamferedRim(margin: number, zLo: number, zHi: number): RimRow[] {
   const c = EDGE_CHAMFER;
   return [
-    ...(lowSquare ? [{ offset: margin, z: zLo }] : [{ offset: margin - c, z: zLo }, { offset: margin, z: zLo + c }]),
+    { offset: margin - c, z: zLo },
+    { offset: margin, z: zLo + c },
     { offset: margin, z: zHi - c },
     { offset: margin - c, z: zHi },
   ];
@@ -60,12 +58,11 @@ const RIM_Z_TOLERANCE = 0.02;
 
 /**
  * The rim triangles of a finished mesh (types.ts's `CoilMesh.rimTriangles`): those lying on the chamfer bands and on
- * the land between them, of every plate z = [zLo, zHi] in `bands` (a third entry true: square at `zLo`, as `chamferedRim`'s
- * `lowSquare`) whose outer edge is `outline` offset by `margin`
+ * the land between them, of every plate z = [zLo, zHi] in `bands` whose outer edge is `outline` offset by `margin`
  * (a flange thinned to its plate has two: the plate and the pads). Found by position, since the booleans and the
  * clean-up passes that follow them don't track faces. Undefined when the mesh has no rim.
  */
-export function rimTriangles(mesh: CoilMesh, outline: ShapeOutline, margin: number, bands: Array<[number, number, boolean?]>): CoilMesh["rimTriangles"] {
+export function rimTriangles(mesh: CoilMesh, outline: ShapeOutline, margin: number, bands: Array<[number, number]>): CoilMesh["rimTriangles"] {
   const c = EDGE_CHAMFER;
   const p = mesh.positions;
   const t = mesh.indices;
@@ -100,16 +97,16 @@ export function rimTriangles(mesh: CoilMesh, outline: ShapeOutline, margin: numb
     const slope = Math.abs(nz) / len;
     const zs = [za, zb, zd];
     const vs = [a, b, d];
-    const onBand = (zLo: number, zHi: number, lowSquare: boolean, kind: "chamfer" | "land"): boolean =>
+    const onBand = (zLo: number, zHi: number, kind: "chamfer" | "land"): boolean =>
       zs.every((z, k) => {
-        if (kind === "land") return z >= (lowSquare ? zLo : zLo + c) - RIM_Z_TOLERANCE && z <= zHi - c + RIM_Z_TOLERANCE && Math.abs(offsetOf(vs[k]) - margin) < RIM_TOLERANCE;
-        const up = lowSquare ? Infinity : z - zLo; // the bottom chamfer's height above the face
+        if (kind === "land") return z >= zLo + c - RIM_Z_TOLERANCE && z <= zHi - c + RIM_Z_TOLERANCE && Math.abs(offsetOf(vs[k]) - margin) < RIM_TOLERANCE;
+        const up = z - zLo; // the bottom chamfer's height above the face
         const down = zHi - z; // the top chamfer's depth below the face
         const rise = up <= c + RIM_Z_TOLERANCE && down > c ? up : down <= c + RIM_Z_TOLERANCE && up > c ? down : -1;
         return rise >= -RIM_Z_TOLERANCE && Math.abs(offsetOf(vs[k]) - (margin - c + rise)) < RIM_TOLERANCE;
       });
-    if (slope < 0.2 && bands.some(([lo, hi, sq]) => onBand(lo, hi, sq ?? false, "land"))) land.push(i / 3);
-    else if (slope > 0.55 && slope < 0.85 && bands.some(([lo, hi, sq]) => onBand(lo, hi, sq ?? false, "chamfer"))) chamfer.push(i / 3);
+    if (slope < 0.2 && bands.some(([lo, hi]) => onBand(lo, hi, "land"))) land.push(i / 3);
+    else if (slope > 0.55 && slope < 0.85 && bands.some(([lo, hi]) => onBand(lo, hi, "chamfer"))) chamfer.push(i / 3);
   }
   return chamfer.length + land.length === 0 ? undefined : { chamfer: new Uint32Array(chamfer), land: new Uint32Array(land) };
 }

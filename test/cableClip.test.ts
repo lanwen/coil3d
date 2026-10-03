@@ -6,8 +6,8 @@ import type { CoilSpec, Design, ShapeSpec, WireTypeId } from "../src/core";
 // The SAME shared layout functions every backend cuts from (see
 // test/innerEnd.test.ts's own note), used here only to know WHERE along the
 // cable to look; what is checked is the real, cut mesh.
-import { baseClipOpeningFraction, capCableZ, clipLength, layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
-import { CABLE_BASE_CLIP_LAND, CABLE_CLIP_OPENING_FRACTION, CABLE_CLIP_WALL, CAP_CLIP_CHAMFER, CAP_CLIP_COIL_GAP, CAP_CLIP_LIP } from "../src/core/constants";
+import { baseClipOpeningFraction, capCableZ, capClipHalfWidth, capClipLength, capClipThroat, layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
+import { CABLE_BASE_CLIP_LAND, CABLE_CLIP_WALL, CAP_CLIP_COIL_GAP, CAP_CLIP_MOUTH, CAP_CLIP_RIM_INSET, CAP_CLIP_WALL_MIN, EDGE_CHAMFER } from "../src/core/constants";
 import { outlineOffsetAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 
@@ -15,8 +15,9 @@ import { bendMultiplierOf } from "../src/core/types";
 // round (a bore of about d + tolerance around the cable), its depth must
 // follow the cable's own drop smoothly (no fixed-depth box, no square
 // corners), and near the rim the cable snaps into a clip whose opening is
-// narrower than the cable. The top cap's clip is the same bore, opening
-// down. Checked on the actual meshes, sliced across the cable.
+// narrower than the cable. The top cap's clip is a round bore too, opening
+// down through a throat a little narrower than the cable (issue #237).
+// Checked on the actual meshes, sliced across the cable.
 
 let wasm: ManifoldToplevel;
 beforeAll(async () => {
@@ -226,11 +227,13 @@ function crossingsAtU(section: Section, u: number): number[] {
 }
 
 /**
- * The top cap's clips (issues #117, #121), each sliced across the cable: a
- * round bore with a narrow opening facing down, a block whose root widens on
- * a 45 degree chamfer at the plate on both sides and past both ends, sitting
- * just clear of the outermost layer, several of them around the cap, none in
- * the drawn cable's way.
+ * The top cap's clips (issues #117, #121, #237), each sliced across the
+ * cable: a round bore whose throat (facing down) is only a little narrower
+ * than the cable, with a 45 degree lead-in under it; a rib with walls at
+ * least CAP_CLIP_WALL_MIN thick all round the bore, its bottom flush with the
+ * bore's and its ends ramped into the plate at 45 degrees; sitting just clear
+ * of the outermost layer and inside the foot of the cap underside's rim
+ * chamfer; several of them around the cap, none in the drawn cable's way.
  */
 function checkCapEnd(d: Design, label: string) {
   const layout = d.capClip!;
@@ -238,12 +241,15 @@ function checkCapEnd(d: Design, label: string) {
   const { outline, margin } = d.flangeSpec;
   const wd = d.spec.wire.diameter;
   const R = (wd + d.spec.tolerance) / 2;
-  const W = R + CABLE_CLIP_WALL;
-  const C = CAP_CLIP_CHAMFER;
+  const W = capClipHalfWidth(wd, d.spec.tolerance);
   const h = d.solution.height; // the cap plate's underside, assembly frame
   const zc = h + capCableZ(wd);
-  const zLo = zc - R * Math.sqrt(1 - CABLE_CLIP_OPENING_FRACTION ** 2) - CAP_CLIP_LIP;
-  const len = clipLength(wd);
+  const zBottom = zc - R;
+  const throat = capClipThroat(wd, d.spec.tolerance);
+  const zThroat = zc - Math.sqrt(R * R - (throat / 2) ** 2);
+  const len = capClipLength(wd);
+  // Halfway across the flat bottom, between the lead-in and the rounded lower edge.
+  const onBottom = (throat / 2 + Math.min(R + CAP_CLIP_MOUTH - throat / 2, (zThroat - zBottom) / 2) + Math.sqrt(W * W - R * R)) / 2;
   // The wound cable's own outer surface, from the drawn layers.
   let wound = 0;
   for (const layer of d.wirePaths) for (let i = 0; i < layer.points.length; i += 3) wound = Math.max(wound, outlineOffsetAt(outline, layer.points[i], layer.points[i + 1]).offset + wd / 2);
@@ -257,6 +263,11 @@ function checkCapEnd(d: Design, label: string) {
   const spread = Math.max(...layout.clips.map((c) => Math.abs(Math.atan2(Math.sin(angle(c.path[0]) - a0), Math.cos(angle(c.path[0]) - a0)))));
   expect(spread, `${label}: a clip at least a quarter turn from the first`).toBeGreaterThanOrEqual(Math.PI / 2 - 0.05);
 
+  // Issue #237: the throat squeezes the cable only a little (the #121 clip's
+  // 0.75 of the bore snapped its 1 mm walls), but it does squeeze it.
+  expect(throat, `${label}: the cable has to snap in`).toBeLessThan(wd);
+  expect(wd - throat, `${label}: but only a little`).toBeLessThanOrEqual(0.1 * wd);
+
   const cap = toManifold(d.parts.find((p) => p.role === "topCap")!.mesh);
   try {
     layout.clips.forEach((clip, ci) => {
@@ -267,56 +278,63 @@ function checkCapEnd(d: Design, label: string) {
       const c = through[at];
       const dir = { x: through[at + 1].x - through[at - 1].x, y: through[at + 1].y - through[at - 1].y };
       const section = sectionAcross(cap, c, dir);
-      // Round around the cable, d + tolerance across, down to the lips.
-      for (const k of [0.1, 0.3, 0.6]) {
-        const gap = gapAt(section, zc - R * k);
-        expectNear(gap.right - gap.left, 2 * R * Math.sqrt(1 - k * k), `${tag}: cap bore at ${k} R below the centre`);
+      // Round around the cable, d + tolerance across, above and below its centre down to the throat.
+      for (const k of [0.6, 0.3, -0.1, -0.25, -0.4]) {
+        const gap = gapAt(section, zc + R * k);
+        expectNear(gap.right - gap.left, 2 * R * Math.sqrt(1 - k * k), `${tag}: cap bore at ${k} R from the centre`);
       }
-      // The opening between the lips (facing down, away from the plate) is
-      // narrower than the cable.
-      const opening = gapAt(section, zc - R * Math.sqrt(1 - CABLE_CLIP_OPENING_FRACTION ** 2) - CAP_CLIP_LIP / 2);
-      expectNear(opening.right - opening.left, 2 * CABLE_CLIP_OPENING_FRACTION * R, `${tag}: cap clip opening`);
-      expect(opening.right - opening.left).toBeLessThan(wd);
+      // The throat, then the lead-in widening under it at 45 degrees.
+      const lead = Math.min(R + CAP_CLIP_MOUTH - throat / 2, (zThroat - zBottom) / 2);
+      const inThroat = gapAt(section, zBottom + lead + 0.05);
+      expectNear(inThroat.right - inThroat.left, throat, `${tag}: throat`);
+      const mouth = gapAt(section, zBottom + 0.02);
+      expect(mouth.right - mouth.left, `${tag}: lead-in`).toBeGreaterThan(throat + 0.5 * lead);
 
-      // Issue #121: the chamfered root. Beside the bore the block's sides
-      // are W out, and from C under the plate they lean out at 45 degrees:
-      // the block's underside at W + x out is C - x under the plate.
       for (const side of [1, -1]) {
-        for (const x of [0.4, 0.8, 1.2]) {
-          const bottom = Math.min(...crossingsAtU(section, side * (W + x)).filter((z) => z < h + 0.5));
-          expectNear(bottom, h - (C - x), `${tag}: 45 degree chamfer ${x} mm out (side ${side})`);
+        // The rib's side, W out from the cable's centre, straight down from the plate to the cable's centre.
+        for (const z of [h - 0.3, zc + 0.1]) {
+          const wall = crossingsAtZ(section, z).filter((u) => u * side > R + 0.05);
+          expectNear(Math.min(...wall.map((u) => u * side)), W, `${tag}: the rib's side at ${(z - h).toFixed(1)} (side ${side})`);
         }
-        const wall = crossingsAtZ(section, h - C - 0.5).filter((u) => u * side > R + 0.1);
-        expectNear(Math.min(...wall.map((u) => u * side)), W, `${tag}: the block's side (side ${side})`);
+        // Its bottom flush with the bore's.
+        const bottom = Math.min(...crossingsAtU(section, side * onBottom).filter((z) => z < h - 0.5));
+        expectNear(bottom, zBottom, `${tag}: the rib's bottom (side ${side})`);
+        // A thick wall all round the bore, down to the throat (the #121 clip's was 1 mm).
+        for (let z = h - 0.05; z > zThroat; z -= 0.1) {
+          const [bore, rib] = crossingsAtZ(section, z).map((u) => u * side).filter((u) => u > 0).sort((u, v) => u - v);
+          expect(rib - bore, `${tag}: wall at ${(z - h).toFixed(2)} (side ${side})`).toBeGreaterThanOrEqual(CAP_CLIP_WALL_MIN - 0.05);
+        }
       }
-      // ...and past both ends: C/2 beyond the block's end face, beside the
-      // bore, the end chamfer's underside is C/2 under the plate (averaged
-      // over both sides: on a curving outline the ramp is a little steeper
-      // on the inside of the curve and shallower outside).
+
+      // Past both ends of the full-depth part the rib ramps up to the plate
+      // at 45 degrees: x mm beyond it, its bottom beside the bore is x
+      // higher (averaged over both sides: on a curving outline the ramp is a
+      // little steeper on the inside of the curve and shallower outside).
       const t0 = { x: through[1].x - through[0].x, y: through[1].y - through[0].y };
       const tn = { x: through[through.length - 1].x - through[through.length - 2].x, y: through[through.length - 1].y - through[through.length - 2].y };
       const norm = (v: { x: number; y: number }) => ({ x: v.x / Math.hypot(v.x, v.y), y: v.y / Math.hypot(v.x, v.y) });
       const [u0, un] = [norm(t0), norm(tn)];
       const first = through[0];
       const last = through[through.length - 1];
-      for (const [p, t] of [
-        [{ x: first.x - (u0.x * C) / 2, y: first.y - (u0.y * C) / 2 }, u0],
-        [{ x: last.x + (un.x * C) / 2, y: last.y + (un.y * C) / 2 }, un],
-      ] as const) {
-        const endSection = sectionAcross(cap, p, t);
-        const bottomAt = (u: number) => Math.min(...crossingsAtU(endSection, u).filter((z) => z < h + 0.5));
-        expectNear((bottomAt(W - 0.3) + bottomAt(-(W - 0.3))) / 2, h - C / 2, `${tag}: end chamfer`);
+      for (const x of [0.6, 1.5]) {
+        for (const [p, t] of [
+          [{ x: first.x - u0.x * x, y: first.y - u0.y * x }, u0],
+          [{ x: last.x + un.x * x, y: last.y + un.y * x }, un],
+        ] as const) {
+          const endSection = sectionAcross(cap, p, t);
+          const bottomAt = (u: number) => Math.min(...crossingsAtU(endSection, u).filter((z) => z < h - 0.05));
+          expectNear((bottomAt(onBottom) + bottomAt(-onBottom)) / 2, zBottom + x, `${tag}: end ramp ${x} mm out`);
+        }
       }
 
-      // Inside the cap's footprint, and clear of the outermost layer: the
-      // chamfer's inner foot at least CAP_CLIP_COIL_GAP outside the wound
-      // cable -- and close to it (issue #121: nearer the centre, not
-      // pressed against the rim).
+      // Clear of the outermost layer, close to it (issue #121: nearer the
+      // centre, not pressed against the rim), and inside the foot of the
+      // cap underside's rim chamfer (issue #237).
       for (const q of through) {
         const o = outlineOffsetAt(outline, q.x, q.y).offset;
-        expect(o + W + C, `${tag}: root inside the rim`).toBeLessThanOrEqual(margin + 1e-6);
-        expect(o - W - C - wound, `${tag}: clear of the outermost layer`).toBeGreaterThanOrEqual(CAP_CLIP_COIL_GAP - 1e-3);
-        expect(o - W - C - wound, `${tag}: just outside the outermost layer`).toBeLessThanOrEqual(CAP_CLIP_COIL_GAP + wd);
+        expect(o + W, `${tag}: inside the rim chamfer`).toBeLessThanOrEqual(margin - EDGE_CHAMFER - CAP_CLIP_RIM_INSET + 1e-6);
+        expect(o - W - wound, `${tag}: clear of the outermost layer`).toBeGreaterThanOrEqual(CAP_CLIP_COIL_GAP - 1e-3);
+        expect(o - W - wound, `${tag}: just outside the outermost layer`).toBeLessThanOrEqual(CAP_CLIP_COIL_GAP + wd);
       }
 
       // The cable leaves it past the rim.
@@ -324,11 +342,11 @@ function checkCapEnd(d: Design, label: string) {
       expect(outlineOffsetAt(outline, end.x, end.y).offset).toBeGreaterThan(margin);
 
       // No other clip stands in the drawn cable's way: wherever the cable
-      // is as high as a clip's block, it keeps clear of that block.
+      // is as high as a clip's rib, it keeps clear of that rib.
       if (ci > 0) {
         const cable = d.cablePath;
         for (let i = 0; i < cable.length; i += 3) {
-          if (cable[i + 2] + wd / 2 < zLo) continue;
+          if (cable[i + 2] + wd / 2 < zBottom) continue;
           const nearest = Math.min(...through.map((q) => Math.hypot(cable[i] - q.x, cable[i + 1] - q.y)));
           expect(nearest, `${tag}: the drawn cable keeps clear of it (sample ${i / 3})`).toBeGreaterThanOrEqual(W + wd / 2);
         }

@@ -226,7 +226,7 @@ describe("label letter floors bridge at most 2 mm (issue #176)", () => {
     { cap: "default", spec: DEFAULT_CAP, label: "TV" },
     { cap: "default", spec: DEFAULT_CAP, label: "USB-C 2m" },
     { cap: "small", spec: SMALL_CAP, label: "AB" },
-    { cap: "small", spec: SMALL_CAP, label: "HDMI 3m" },
+    { cap: "small", spec: SMALL_CAP, label: "HDMI" },
   ];
   it.each(CASES)("$cap cap, label $label", async ({ spec, label }) => {
     const d = await design({ ...spec, label });

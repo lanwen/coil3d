@@ -170,19 +170,6 @@ export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot bet
 // #117 these were vertical rim keyholes the cable had to turn 90 degrees
 // into.)
 /**
- * The CAP clips' opening width, as a fraction of their bore diameter (d + tolerance)
- * (the base flange's clip has its own, CABLE_BASE_CLIP_INTERFERENCE).
- * Below 1 the cable snaps in past two lips. It must stay at or above
- * sin(45 deg) = 0.707: the lips' underside is the bore's own arc from the
- * opening down to the bore's equator, and at the lip edge that arc overhangs
- * by acos(fraction) from vertical -- 41 degrees at 0.75, inside the usual
- * 45 degree no-support limit in both parts' print orientations (the core
- * prints flange-down, so the flange clip opens UP; the cap prints flipped,
- * so its clip, which opens DOWN in the assembly, also opens up). The
- * pre-#117 keyhole's 0.6 would overhang 53 degrees.
- */
-export const CABLE_CLIP_OPENING_FRACTION = 0.75;
-/**
  * The base flange clip's interference: how much narrower than the cable
  * (as a fraction of its diameter) the opening is. The lips are stubs on a
  * thick wall, so in PLA they do not flex and the cable itself has to give:
@@ -202,25 +189,35 @@ export const CABLE_CLIP_MIN_LENGTH = 5; // mm
 export const CABLE_CLIP_DEPTH_SLACK = 0.25; // mm
 /** The lips start and end square (the cable presses in from above, so it needs no lead-in chamfer, and a square lip end reads cleanly in the line art); this hairline ramp only keeps two cross-sections from sharing one station. */
 export const CABLE_CLIP_ENTRY = 0.05; // mm
-/** Part material kept on each side of the clip's bore (the lips' own root), mm: the flange clip ends this far (plus the bore radius) short of the rim; the cap clip is a block this much wider than its bore on each side. */
+/** Part material kept on each side of the clip's bore (the lips' own root), mm: the flange clip ends this far (plus the bore radius) short of the rim. */
 export const CABLE_CLIP_WALL = 1; // mm
-/** Cap clip: how far the lips reach below the point where the opening meets the bore (the height of their inner, vertical face), mm -- so the lip edge isn't a knife edge. */
-export const CAP_CLIP_LIP = 0.6; // mm
+// Cap clips (issue #237, innerEnd.ts's `layoutCapClip`): their own sizes, independent of the flange clip's.
+/**
+ * The cap clip's throat (where the cable snaps past the lips), as a fraction of its bore diameter (d + tolerance).
+ * Close to 1 on purpose: the lips are stiff (PLA can't flex a millimetre-sized lip by much without cracking it
+ * across the layer lines, which is how the #121 clip with 0.75 broke), so the cable's own jacket takes the squeeze.
+ * 0.88 squeezes a 3 mm cable by 0.18 mm nominal (a little more as printed). The lips' underside overhangs
+ * acos(0.88) = 28 degrees in the cap's flipped print orientation.
+ */
+export const CAP_CLIP_OPENING_FRACTION = 0.88;
+/** The lead-in under the throat widens at 45 degrees to this much more than the bore's radius on each side (or half the lip's height, if less), so the cable centres itself as it's pushed in, mm. */
+export const CAP_CLIP_MOUTH = 0.2; // mm
+/** The cap clip's wall all round the bore, as a multiple of the wire diameter (between CAP_CLIP_WALL_MIN and CAP_CLIP_WALL_MAX): thick enough that the lips stay stiff and the bending stress at their root stays well under PLA's interlayer strength; no thicker, so a thick cable's clips don't widen the margin. */
+export const CAP_CLIP_WALL_FACTOR = 0.5;
+export const CAP_CLIP_WALL_MIN = 1.2; // mm
+export const CAP_CLIP_WALL_MAX = 2; // mm
+/** Length of the cap clip's full-depth section along the cable, as a multiple of the wire diameter (at least CAP_CLIP_MIN_LENGTH). Its ends then ramp into the plate at 45 degrees. */
+export const CAP_CLIP_LENGTH_FACTOR = 1.5;
+export const CAP_CLIP_MIN_LENGTH = 5; // mm
 /** Cap clip: the bore also cuts this far up into the cap plate, so its top never grazes the plate's underside at a near-tangent angle (a fragile boolean case); the cable top still touches the underside. */
 export const CAP_CLIP_RELIEF = 0.5; // mm
-/**
- * Cap clip (issue #121): the block joins the cap through a 45 degree
- * chamfer this big on all four sides -- a pyramid-like base that widens
- * toward the plate, so the layers at its root are not a narrow cantilever
- * that snaps off along a layer line. In the cap's flipped print orientation
- * the chamfer faces lean inward as they rise (no overhang at all), mm.
- */
-export const CAP_CLIP_CHAMFER = 1.5; // mm
-/** Cap clip: the block's chamfered root stops at least this far inside the cap's rim, so its outer face never coincides with the rim's own. */
+/** ...through a slot this fraction of the bore's radius wide on each side (narrow, so it doesn't thin the clip's root). */
+export const CAP_CLIP_RELIEF_WIDTH = 0.5;
+/** Cap clip: its root stops at least this far inside the foot of the cap underside's rim chamfer (EDGE_CHAMFER), mm. */
 export const CAP_CLIP_RIM_INSET = 0.2; // mm
 /** Cap end: the cable runs this far below the cap plate's underside (its top would otherwise sit exactly on that face, which the line art draws as a dashed seam). */
 export const CAP_CABLE_DROP = 0.1; // mm
-/** Cap clip: radial clearance between the clip's inner chamfer foot and the wound cable's outer surface (issue #121: the clips sit exactly this far out); the flange (and cap) margin grows to keep it. */
+/** Cap clip: radial clearance between the clip's inner side and the wound cable's outer surface (issue #121: the clips sit exactly this far out); the flange (and cap) margin grows to keep it. */
 export const CAP_CLIP_COIL_GAP = 0.3; // mm
 /** A clipped cable end's free tail past the rim, as a multiple of the wire diameter (at least CABLE_CLIPPED_TAIL_MIN). */
 export const CABLE_CLIPPED_TAIL_FACTOR = 3;
