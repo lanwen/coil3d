@@ -29,7 +29,7 @@ import {
   MIN_FLANGE_THICKNESS_FOR_TCLIP,
   SCREW_MOUNT_RECESS_DEPTH,
 } from "./constants";
-import { idealChannelDepth, requiredCapClipMargin, requiredInnerEndMargin, resolveChannelDepth } from "./innerEnd";
+import { idealChannelDepth, requiredInnerEndMargin, requiredRimSlotMargin, resolveChannelDepth } from "./innerEnd";
 import { collarFootprintOffset } from "./flangePads";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
 import { requiredMountPlateMargin } from "./mountPlate";
@@ -73,9 +73,9 @@ export interface FlangeSizing {
   mountMargin: number;
   /** The margin the inner-end lead-in alone needs (issue #115). */
   innerEndMargin: number;
-  /** The margin the top cap's cable clip alone needs (issue #117): 0 with the cap off. */
-  capClipMargin: number;
-  /** The wound cable's outer surface, as an offset outside the core's outline (issue #121: the cap clips sit just outside it, innerEnd.ts's `capClipOffset`). */
+  /** The margin the rim cable slot alone needs (issue #241): its seat clear of the base's collar pad. */
+  rimSlotMargin: number;
+  /** The wound cable's outer surface, as an offset outside the core's outline (the cable's lead-out under the cap runs just outside it). */
   envelopeOffset: number;
   /** The plain channel-driven thickness, before any mount/plate bump -- design.ts compares against this the same way. */
   channelOnlyThickness: number;
@@ -95,8 +95,8 @@ export function resolveFlangeSizing(
   flangeSizeEnvelope: number,
   wireDiameter: number,
   mount: MountKind,
-  /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`); issue #117: with the top cap on, its cable clip needs room between the wound cable and the rim (`requiredCapClipMargin`). */
-  leadIn: { tolerance: number; bendRadius: number; topCap?: boolean; heavyCable?: boolean },
+  /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`). */
+  leadIn: { tolerance: number; bendRadius: number; heavyCable?: boolean },
   /** Issue #71: ignored unless `mount === "keyhole"`. */
   keyholeRotation = 0,
   /** Issue #70: ignored unless `mount === "through"`. */
@@ -160,11 +160,11 @@ export function resolveFlangeSizing(
   // Issue #115: wide enough for the inner-end lead-in's straight chord to
   // hold the clip past the end of its drop into the channel.
   const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness));
-  // Issue #117: the cap's clip hangs between the outermost layer and the rim.
-  const capClipMargin = leadIn.topCap ? requiredCapClipMargin(envelopeOffset, wireDiameter, leadIn.tolerance) : 0;
-  const margin = Math.max(mountMargin, innerEndMargin, capClipMargin);
+  // Issue #241: the rim slot's seat stays clear of the collar pad under the wall.
+  const rimSlotMargin = requiredRimSlotMargin(wireDiameter, leadIn.tolerance);
+  const margin = Math.max(mountMargin, innerEndMargin, rimSlotMargin);
 
-  return { margin, thickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, thickness), baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness };
+  return { margin, thickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, thickness), baseMargin, mountMargin, innerEndMargin, rimSlotMargin, envelopeOffset, channelOnlyThickness };
 }
 
 /** Issue #122: the thickness when a keyhole slot's footprint overlaps the channel's, so the pocket (wall face) and the channel (winding face) stack in one spot -- the pre-#122 sizing. design.ts falls back to it; the layouts normally keep the two apart. */

@@ -256,13 +256,13 @@ const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
 
 /**
  * Screenshot-only close-up on one end of the cable: the bottom flange's own
- * inner-end keyhole + channel (issue #8 PR review), gated behind
- * `?debugFocusInnerEnd=1`, or the cable's outer end (issue #115: the cap
- * keyhole, or the free tail with the cap off), behind
+ * inner-end clip + channel (issue #8 PR review), gated behind
+ * `?debugFocusInnerEnd=1`, or the cable's outer end (issue #115: under the
+ * cap's rim slot, or the free tail with the cap off), behind
  * `?debugFocusOuterEnd=1` (checked once at mount, not reactively -- a
  * screenshot tool, not a user control). `&debugFocusFromBelow=1` also turns
  * the model over so the camera looks at that end from underneath (issue
- * #117: the top cap's clip hangs under its rim), and
+ * #117: to see under the top cap), and
  * `&debugFocusRadius=<mm>` frames only the part of that end within this
  * distance of the cable's end, for a tighter close-up.
  */

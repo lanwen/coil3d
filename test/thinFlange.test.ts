@@ -305,8 +305,25 @@ describe("the channel pad blends into the collar (issue #133)", () => {
       }
       return false;
     };
+    // Issue #241: the rim slot is cut straight through the flange, and its
+    // inner end may cut into the collar's chamfer: its walls meet the chamfer
+    // at an edge on purpose.
+    const slot = d.rimSlots.base?.outline ?? [];
+    const nearSlot = (x: number, y: number) => {
+      let inside = false;
+      let best = Infinity;
+      for (let i = 0, j = slot.length - 1; i < slot.length; j = i++) {
+        const [a, b] = [slot[j], slot[i]];
+        if (a.y > y !== b.y > y && x < a.x + ((y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
+        const ex = b.x - a.x;
+        const ey = b.y - a.y;
+        const u = Math.max(0, Math.min(1, ((x - a.x) * ex + (y - a.y) * ey) / (ex * ex + ey * ey || 1)));
+        best = Math.min(best, Math.hypot(x - a.x - u * ex, y - a.y - u * ey));
+      }
+      return inside || best < 0.1;
+    };
     // An edge on the chamfers: running down them (from the face to the
-    // plate at most), clear of the rim and the bore. (Where the channel pad
+    // plate at most), clear of the rim, the bore and the rim slot. (Where the channel pad
     // runs out over the rim, its chamfer meets the rim's in a crease up to
     // about 1.1 mm inside the rim, so the rim's 1.5 mm are left out.)
     const onChamfer = (a: number, b: number) => {
@@ -314,7 +331,7 @@ describe("the channel pad blends into the collar (issue #133)", () => {
       const zb = p[b * 3 + 2];
       const mid = (za + zb) / 2;
       if (Math.min(za, zb) < zPlate - 1e-3 || Math.max(za, zb) > 1e-3 || mid < zPlate + 0.05 || mid > -0.05) return false;
-      return [a, b].every((v) => outlineOffsetAt(f.outline, p[v * 3], p[v * 3 + 1]).offset < f.margin - 1.5 && !nearBore(p[v * 3], p[v * 3 + 1]));
+      return [a, b].every((v) => outlineOffsetAt(f.outline, p[v * 3], p[v * 3 + 1]).offset < f.margin - 1.5 && !nearBore(p[v * 3], p[v * 3 + 1]) && !nearSlot(p[v * 3], p[v * 3 + 1]));
     };
     const normal = (k: number) => {
       const [a, b, c] = [t[k] * 3, t[k + 1] * 3, t[k + 2] * 3];

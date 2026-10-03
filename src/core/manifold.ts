@@ -54,7 +54,7 @@ import { chamferedRim, chamferWedgeRows, rimTriangles } from "./edgeChamfer";
 import type { RimRow } from "./edgeChamfer";
 import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd, sweepMesh } from "./innerEnd";
-import type { CapClipLayout, InnerEndLayout, SweepSolid } from "./innerEnd";
+import type { InnerEndLayout, RimSlot, SweepSolid } from "./innerEnd";
 import { layoutKeyholeMount } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
@@ -109,6 +109,8 @@ export interface FlangeSpec {
   skadis?: SkadisClipLayout;
   /** Issues #213, #221: the SKÅDIS T-clips' layout (skadisTclips.ts) -- a floor fills the bore, with a slot through it per clip and the fin's recess in its top. Present only when `mount` is "skadis-tclip" and the clips fit. */
   skadisTclip?: SkadisTclipLayout;
+  /** Issue #241: the rim cable slot (innerEnd.ts's `layoutRimSlot`), cut straight through the flange. Omitted: none fits. */
+  rimSlot?: RimSlot;
 }
 
 /** What `fuseFlange` needs to cut a bayonet/snap joint's mating feature into the core's own top rim. Press needs no core-side cut, so it's omitted entirely by the caller. */
@@ -365,7 +367,13 @@ export interface MountPlateFlangeCut {
   tolerance: number;
 }
 
-/** A manifold of one of innerEnd.ts's swept solids (the channel/clip cutters and the cap clip's block), meshed by the same shared `sweepMesh` the rings come with. */
+/** Issue #241: a rim slot's cut, its plan outline extruded `height` up from `zLo` (poking past both faces of the plate). */
+function rimSlotCutter(wasm: ManifoldToplevel, slot: RimSlot, zLo: number, height: number): Manifold {
+  const poly: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
+  return new wasm.CrossSection([poly], "NonZero").extrude(height).translate([0, 0, zLo]);
+}
+
+/** A manifold of one of innerEnd.ts's swept solids (the channel/clip cutters and the flange pads), meshed by the same shared `sweepMesh` the rings come with. */
 function sweepSolid(wasm: ManifoldToplevel, sweep: SweepSolid): Manifold {
   const mesh = sweepMesh(sweep);
   const m = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: mesh.positions, triVerts: mesh.indices }));
@@ -543,6 +551,15 @@ export async function fuseFlange(
       }
     }
 
+    // Issue #241: the rim cable slot, straight through the flange.
+    if (flange.rimSlot) {
+      fused = track(fused.subtract(track(rimSlotCutter(wasm, flange.rimSlot, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP))));
+      status = fused.status();
+      if (status !== "NoError") {
+        throw new Error(`Rim slot cut is not a valid manifold: ${status}`);
+      }
+    }
+
     // Issues #213, #221: each T-clip's slot through the floor, and the recess its fin turns in, each a
     // convex loft (with its 45 degree lead-in) built as the hull of its levels.
     if (flange.skadisTclip) {
@@ -601,15 +618,15 @@ export interface TopCapSpec {
   snap?: SnapLayout;
   /** Engraved label text (issue #12), already fit-checked by `label.ts`'s `resolveLabel` -- undefined means no label to cut. */
   label?: ResolvedLabel;
-  /** The cable clips for the outer end (issue #117: where the cable's cap lead-out ends, repeated around the cap since issue #121, `Design.capClip`). Omitted: no clip. */
-  clip?: CapClipLayout;
+  /** Issue #241: the rim cable slot for the outer end (`Design.rimSlots.cap`), cut straight through the plate. Omitted: none. */
+  rimSlot?: RimSlot;
 }
 
 /**
  * Build the top cap: a plate with a through-hole in its middle (issue #127) following the core's own
  * outline out to the flange's footprint (mirroring the bottom flange), with
- * a downward engagement collar for the chosen joint and cable clips for the
- * outer cable end under it. Built entirely in a LOCAL frame (plate z=[0, CAP_THICKNESS],
+ * a downward engagement collar for the chosen joint and a rim slot for the
+ * outer cable end. Built entirely in a LOCAL frame (plate z=[0, CAP_THICKNESS],
  * collar z=[-JOINT_ENGAGE_DEPTH, 0]) and translated by the caller into the
  * shared assembly frame -- see design.ts.
  */
@@ -623,7 +640,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, tolerance, label, clip, bayonet, snap } = spec;
+    const { flange, joint, tolerance, label, rimSlot, bayonet, snap } = spec;
     // The plate: the same outer outline (and columns) as the bottom
     // flange's own ring. Issue #127: its middle is opened up below by the
     // through-hole (`holeOutline`), never by a blind pocket whose floor would
@@ -680,13 +697,8 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       const hole = track(outlinePrismSolid(wasm, holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2, -JOINT_ENGAGE_DEPTH - 1, segments, flange.minCornerSegments));
       assembled = track(assembled.subtract(hole));
     }
-    // Issue #117: the cable clips hang under the plate (each block welded
-    // 1 mm into the plate), with their bores cut through them.
-    for (const c of clip?.clips ?? []) {
-      const block = track(sweepSolid(wasm, c.block));
-      const bore = track(sweepSolid(wasm, c.bore));
-      assembled = track(track(assembled.add(block)).subtract(bore));
-    }
+    // Issue #241: the rim cable slot, straight through the plate.
+    if (rimSlot) assembled = track(assembled.subtract(track(rimSlotCutter(wasm, rimSlot, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP))));
 
     // The cutter gets its own original ID, so the faces it leaves behind
     // (the pockets' walls and floors) can be told apart in the result.

@@ -230,19 +230,20 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
 
 function StepSecureOuterEnd({ design, n }: { design: Design; n: number }) {
   const cap = capPart(design)!;
-  // The cap's clips (issues #117, #121) hang under it; the one the drawn cable runs through is marked from above.
-  const clip = design.capClip?.clips[0].path;
-  const mid = clip ? clip[Math.floor(clip.length / 4)] : undefined;
-  const anchor = mid ? new THREE.Vector3(mid.x, mid.y, meshBounds(cap.mesh).max.z) : approxRimPoint(cap.mesh, 0.5, 1);
+  // Issue #241: the cap's rim slot, marked from above.
+  const seat = design.rimSlots.cap?.seat;
+  const anchor = seat ? new THREE.Vector3(seat.x, seat.y, meshBounds(cap.mesh).max.z) : approxRimPoint(cap.mesh, 0.5, 1);
+  // Wide enough to show the whole slot and the rim round it (the seat alone is just a hole).
+  const insetMm = 5 * (design.spec.wire.diameter + design.spec.tolerance);
   return (
     <StepCard n={n} title="Secure the outer end">
       <div className="guide-figure-row guide-figure-row--solo">
-        <Figure parts={design.parts} testId="guide-secure-outer" zoomInsetAt={anchor} />
+        <Figure parts={design.parts} testId="guide-secure-outer" zoomInsetAt={anchor} zoomInsetWindowMm={seat ? insetMm : undefined} />
       </div>
-      <Callout icons={<KeyholeIcon label="Press the cable into a clip under the cap" />}>
-        {(design.capClip?.clips.length ?? 1) > 1
-          ? "Press the outer end into a clip under the cap. There are clips all around it: after unwinding a little more cable, use the next one."
-          : "Press the outer end into the clip under the cap."}
+      <Callout icons={<KeyholeIcon label="Press the cable into the slot in the cap's rim" />}>
+        {design.rimSlots.cap
+          ? "Bring the outer end up and press it into the slot in the cap's rim, from the edge. It clicks past the narrow neck into the round seat. The base has the same slot, if you'd rather run the end down the side."
+          : "Tie the outer end to the coil."}
       </Callout>
     </StepCard>
   );

@@ -52,20 +52,29 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   3 mm). The mouth is a 45-degree funnel above a 0.3 mm land, which centres
   the cable. The opening never goes below 0.75 of the bore, which keeps the
   lip underside within 45 degrees (41 degrees at the floor).
-- Outer end: a clip hanging under the top cap, just outside the wound cable
-  (#237). It is a low rib, flush with the cable's underside, with its ends
-  ramped into the plate at 45 degrees. The cable snaps up through a 45-degree
-  lead-in and a throat only a little narrower than the cable (0.88 of the
-  bore), so the cable's jacket takes the squeeze. The walls round the bore are
-  half a cable diameter thick (1.2 to 2 mm), so the lips stay stiff: in
-  PLA a millimetre-sized lip can't flex much without cracking across the
-  layer lines, which is how the earlier clip broke. It is repeated every 90
-  degrees (round, square) or every 120 degrees (triangle), so an end that was
-  unwound a little still has a clip. A clip that would stand in the drawn
-  cable's way is left out. The cap's middle
-  is a straight through-hole, so nothing prints as a bridge. With no top cap,
-  the cable leaves the last turn as a straight tangential tail.
-- The flange and cap margins grow when a clip needs more room.
+- Outer end (#241): a rim slot in the top cap, and the same slot in the base
+  flange right below it. Each is a keyhole cut straight through the plate:
+  a round seat one cable diameter plus tolerance across, a 1 mm neck out to
+  the rim that is 8% narrower than the cable (the same squeeze as the inner
+  end's clip, which a cable jacket takes; the plate beside it is rigid), and
+  a 45-degree lead-in through the rim chamfer. The cable is pressed in from
+  the edge and passes through the plate. The seat doesn't clamp it, and a
+  connector behind it stops it pulling through. The walls are vertical, so
+  both parts still print without supports. The cap's slot sits where the
+  cable's lead-out arrives under the cap. Each slot moves along the rim if
+  something is in the way: on the base the inner-end channel and its pad,
+  the mount's holes, slots and pads, the SKÅDIS notches; on the cap the
+  label. The drawn cable runs level under the cap and curves out past the
+  rim, under the cap's slot, within its bend radius. The top turn sits flush
+  under the cap, so a cable pressed up into the slot right above its end
+  bends tighter than its bend radius there; rising through the plate within
+  it would take 10 to 20 mm along the cable. (#237's clips under the cap
+  needed 6 to 8 mm of margin beside the wound cable, so they were removed.)
+  With no top cap, the cable leaves the last turn as a straight tangential
+  tail.
+- The flange and cap margins grow when the inner end's lead-in or the base
+  slot needs more room (the slot's seat stays clear of the collar pad under
+  the wall).
 
 ### Parts and printing
 
@@ -83,7 +92,7 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
 - The flange is the final outer envelope of the wound cable plus a margin.
 - The flange and the top cap have a 1 mm x 45 degree chamfer on their outer
   edge, on both faces (#229, #237, `EDGE_CHAMFER`, `src/core/edgeChamfer.ts`).
-  The cap's cable clips stay inside the foot of its underside chamfer. A 3 mm
+  The rim slots' necks end at the foot of the chamfer. A 3 mm
   plate keeps a 1 mm vertical land. The through-hole mount keeps its holes
   1 mm further from the rim, so the screw head sits on the flat top. The
   exports keep the chamfer; the drawings leave it out (see Rendering).

@@ -293,7 +293,7 @@ function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap:
     flangeSizeEnvelope,
     spec.wire.diameter,
     spec.mount,
-    { tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * spec.wire.diameter, topCap: topCapEnabled, heavyCable: isHeavyCable(spec.wire.diameter, spec.wire.length) },
+    { tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * spec.wire.diameter, heavyCable: isHeavyCable(spec.wire.diameter, spec.wire.length) },
     spec.keyholeRotation,
     spec.throughHoleDiameter,
   );

@@ -240,8 +240,9 @@ describe("label letter floors bridge at most 2 mm (issue #176)", () => {
     const maxChars = async (spec: CoilSpec, label: string) => (await design({ ...spec, label })).labelFit?.maxChars;
     expect(await maxChars(DEFAULT_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(9);
     expect(await maxChars(DEFAULT_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(15);
-    expect(await maxChars(LARGE_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(14);
-    expect(await maxChars(LARGE_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(23);
+    // Issue #241: this two-layer cap now covers the outer end's climb outside the second layer instead of the clips.
+    expect(await maxChars(LARGE_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(13);
+    expect(await maxChars(LARGE_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(22);
     expect(await maxChars(SMALL_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(5);
   });
 });

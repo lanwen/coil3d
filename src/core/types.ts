@@ -5,7 +5,7 @@
 
 import type { WallSpec } from "./wall";
 import type { FlangeSpec } from "./manifold";
-import type { CapClipLayout } from "./innerEnd";
+import type { RimSlot } from "./innerEnd";
 
 export type { ShapeKind } from "./shapes";
 
@@ -483,8 +483,8 @@ export interface Design {
   layerTransitions: Float32Array[];
   /**
    * The outer end (issues #68, #115), from the last wound layer's own end:
-   * with the top cap on, the run up to just under the cap, on through the
-   * cap's first clip (`capClip.clips[0]`) and out past the rim; with it off, a straight
+   * with the top cap on, the run up to just under the cap and out past the
+   * rim, under the cap's rim slot (issue #241); with it off, a straight
    * free tail along the last turn's tangent. Empty when no layer has any
    * turns.
    */
@@ -498,14 +498,14 @@ export interface Design {
    */
   cablePath: Float32Array;
   /**
-   * The top cap's cable clips (issue #117, innerEnd.ts's `layoutCapClip`):
-   * `clips[0]` is laid out where the cable's cap lead-out ends (the drawn
-   * cable runs through it); issue #121 repeats the same clip around the cap.
-   * Undefined when the top cap is off. Not for UI use beyond the guide (the
-   * first clip's `path`, the clip count); the STEP backend builds the same
-   * clips from it.
+   * The rim cable slots (issue #241, innerEnd.ts's `layoutRimSlot`): a keyhole
+   * through the base flange and through the top cap, opening at the rim, each
+   * laid out where the cable's outer end leaves the coil (moved along the rim
+   * if something is in the way). `cap` is undefined with the top cap off;
+   * either is undefined when no place around the rim fits it. Not for UI use
+   * beyond the guide (the seat); both geometry backends cut them from here.
    */
-  capClip?: CapClipLayout;
+  rimSlots: { base?: RimSlot; cap?: RimSlot };
 }
 
 export type ExportFormat = "stl" | "step" | "3mf";
