@@ -342,6 +342,13 @@ const REPRODUCTIONS_219: Reproduction[] = [
     name: "a SKÅDIS bottom clip's jaw and stem",
     spec: { wire: { length: 3807, diameter: 3.42, type: "stiff" }, windingQuality: 0.79, coreSize: { locked: true, dimension: "outer", value: 100.91 }, height: { locked: true, value: 76.16 }, layers: { locked: true, value: 4 }, joint: "bayonet", tolerance: 0.26, mount: "skadis" },
   },
+  // The snap collar's root flare: its hull took every point along the outline's straight sides, and folded a sheet of
+  // no thickness into a flat face (fuzz case 2536, once the snap fingers grew to 12 mm).
+  {
+    name: "a triangular snap cap's root flare (fuzz case 2536)",
+    spec: { wire: { length: 5604, diameter: 2.44, type: "flex" }, shape: { kind: "tri", cornerRadius: 1.78 }, windingQuality: 0.88, coreSize: { locked: true, dimension: "inner", value: 41.71 }, height: { locked: true, value: 75.44 }, layers: { locked: true, value: 3 }, objective: "aspectRatio", joint: "snap", mount: "opengrid", keyholeRotation: 45, throughHoleDiameter: 4.48 },
+    segments: { round: 192, other: 144 },
+  },
 ];
 
 describe("mesh clean-up reproductions (issue #219): every part is one solid, with no short edges or folds", () => {

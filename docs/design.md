@@ -20,7 +20,7 @@ This file records why the app works the way it does. The mount geometry is in
 | Shapes | Round, rounded square, rounded triangle. Round is a diameter, square is across flats, triangle is the inscribed-circle diameter. |
 | Cable | Round cross-section only. Bend limit: USB/audio 4x the diameter, flexible cord 4x, stiff or solid 10x, or a custom multiplier. |
 | Parts | A core with the bottom flange printed as one piece. A separate top cap, on by default when there is more than one layer. Separate rim clips or T-clips for SKÅDIS (3 or 4), or a separate mount plate with two alignment pegs for the hidden openGrid placeholder. |
-| Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core; elsewhere the cap gets the press-fit collar, with a warning. The snap cap has three fingers with diamond-point barbs (45° faces both sides) that click under a ridge ring inside the core's bore; nothing is cut into the core's wall. Its 1.2 mm fingers leave a 2.2 mm + tolerance step inside the seated cap, bevelled at the fingers' tips. A core too small for the clips gets the press-fit collar, with a warning. |
+| Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core; elsewhere the cap gets the press-fit collar, with a warning. The snap cap has one 12 mm finger per side of the bore (slots at the corners: four on round and square cores, three on triangles), each with a barb along its whole width that clicks under a ridge ring inside the core's bore: a 30° lead-in, so it goes on with about half the pull-off force, and a 45° retaining face (the print overhang limit). Seated, the barbs sit 0.2 mm into the ridge, so the fingers stay a little bent, pull the cap onto the rim and centre it: no radial or tilt play. Under the finger tips a seat ring narrows the bore to the cap's hole, so there is no step inside the seated cap. Nothing is cut into the core's wall. A core too small for the clips gets the press-fit collar, with a warning; see [Snap joint](#snap-joint). |
 | Label | Text engraved into the top cap's room-facing face. It is hidden, with a warning, when it does not fit. |
 | Printer | A bed-size setting. It only produces warnings. The app never rearranges parts to fit. |
 | Units | Metric only. English only. |
@@ -248,6 +248,39 @@ features: flange, joints, clips, mounts and label.
 The mesh and STEP backends build from the same shared layouts (the wall
 profile, the joint geometry, the label outlines, the mount and clip layouts).
 Each STEP solid is checked against the part's mesh volume (see Export).
+
+### Snap joint
+
+`snapLayout` in `src/core/joints.ts` lays out both parts. The numbers below
+are for PLA and the default 0.2 mm tolerance; each finger is treated as a
+cantilever strip, so compare them with each other, not with a force gauge.
+
+- **Strain.** A finger's bending strain at full deflection goes with
+  thickness x deflection / length². The old 7 mm fingers reached about 3%
+  for 0.5 mm of engagement, at PLA's yield (and the fingers bend across their
+  layer lines), so they likely took a set and lost grip. The 12 mm fingers
+  reach about 1.8% for 0.8 mm (2.1% at the tightest tolerance).
+- **Engagement.** Barbs and slots follow the outline. A barb on a stiff
+  corner can't flex, so the slots sit at the corners and every finger is one
+  side. The old round barb on a square core engaged only near each flat's
+  middle, about a quarter of the perimeter.
+- **Faces.** Both parts print with the axis vertical, so the retaining faces
+  (the barb's back face, the ridge's underside) are overhangs and stay at
+  45°. The lead-in faces up as printed, so it is 30° from the axis: on a
+  square core the cap goes on with about the old force and comes off with
+  about 1.8 times it.
+- **No play.** Seated, the back face sits `SNAP_PRELOAD` (0.2 mm) into the
+  ridge's underside. The fingers stay bent by that much (about 0.5% strain),
+  which pulls the plate onto the rim and centres the cap. A print error under
+  0.2 mm leaves no gap. The root flare still clears the bore by 0.1 mm +
+  tolerance, as a hard stop. The drawn, assembled parts overlap there by
+  design (`test/snapJoint.test.ts` measures it).
+- **Seat.** A ring under the finger tips narrows the bore to the cap's hole:
+  a flat top 0.3 mm under the tips (it prints facing up), then a 45° chamfer
+  back out to the bore. It is inside the wall, so the winding capacity does
+  not change. It costs a little plastic and narrows the bore just under the
+  joint to the cap's hole, which is the narrowest point anyway once the cap
+  is on. A core too short for it keeps the snap without the seat.
 
 ## Export
 

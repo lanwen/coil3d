@@ -130,20 +130,37 @@ export const BAYONET_MIN_WALL = 1.2; // mm
 export const BAYONET_MIN_LAND = 1.5; // mm
 
 // Snap clips (issues #168, #186, joints.ts's `snapLayout`): the cap's collar
-// is split into SNAP_HOOK_COUNT fingers, each with a diamond-profile barb
-// that clicks under a ridge standing in the core's bore. The barbs stay
-// inside the bore, so nothing is cut into the core's wall.
-export const SNAP_HOOK_COUNT = 3;
-export const SNAP_BARB = 0.9; // mm, how far each hook's barb protrudes past the finger's nominal OD
+// is split into fingers, one per side of the bore's outline (slots at its
+// corners), each with a barb that clicks under a ridge standing in the
+// core's bore. The barbs stay inside the bore, so nothing is cut into the
+// core's wall.
+/**
+ * How far the snap fingers reach down into the bore, mm. Longer than
+ * JOINT_ENGAGE_DEPTH: a finger's bending strain at full deflection goes with
+ * 1/length^2, so 12 mm keeps it near 1.8% for 0.8 mm of engagement, under
+ * PLA's yield (about 2-3%, less across layer lines).
+ */
+export const SNAP_FINGER_LENGTH = 12; // mm
+export const SNAP_BARB = 1.1; // mm, how far each finger's barb protrudes past the finger's nominal OD
 /** Least gap between a barb's tip and the bore wall, mm, on top of the user's tolerance. */
 export const SNAP_BARB_CLEARANCE = 0.1; // mm
-/** How far the core's retaining ridge stands into the bore, mm. The barb then overlaps it by SNAP_RIDGE_DEPTH - SNAP_BARB_CLEARANCE - tolerance (0.7 - tolerance), and the finger clears it by SNAP_BARB + SNAP_BARB_CLEARANCE - SNAP_RIDGE_DEPTH + tolerance (0.2 + tolerance), both as in #168. */
-export const SNAP_RIDGE_DEPTH = 0.8; // mm
+/** How far the core's retaining ridge stands into the bore, mm. The barb then overlaps it by SNAP_RIDGE_DEPTH - SNAP_BARB_CLEARANCE - tolerance (1.0 - tolerance), and the finger clears it by SNAP_BARB + SNAP_BARB_CLEARANCE - SNAP_RIDGE_DEPTH + tolerance (0.1 + tolerance, the same gap as the barb's tip from the bore). */
+export const SNAP_RIDGE_DEPTH = 1.1; // mm
 export const SNAP_RIDGE_THICKNESS = 1.4; // mm, axial height of the core-side retaining ridge
+/** The barb's lead-in face (toward the finger's tip) leans this far from the axis, degrees: shallower than the 45-degree back face, so the cap goes on with about half the force it takes to pull it off. It faces up in the cap's print orientation, so it needs no support. */
+export const SNAP_LEAD_IN_ANGLE = 30; // degrees
+/** The seated barb's back face sits this far (axially, so also radially on the 45-degree faces) into the ridge's underside, mm: the fingers stay that much bent, pulling the cap down onto the rim and centring it, so it has no play. At most half the engagement. */
+export const SNAP_PRELOAD = 0.2; // mm
+/**
+ * The seat under the finger tips (it narrows the bore to the cap's hole, a
+ * flat top over a 45-degree chamfer): its top is this far below the tips, mm.
+ * The cap still seats on the rim, and a wider gap shows as a slit that the
+ * line art draws as a dashed line. Tips that print a layer long just rest on
+ * the seat.
+ */
+export const SNAP_SEAT_GAP = 0.3; // mm
 /** Issue #186: the snap fingers' wall, mm: three 0.4 mm extrusion widths. Thinner than CAP_COLLAR_WALL, so the cap's inner step is smaller and the fingers bend more easily. */
 export const SNAP_COLLAR_WALL = 1.2; // mm
-/** Issue #186: the 45-degree bevel on the inner edge of the fingers' tips, mm, so the step from the core's bore up to the cap's hole reads as a bevel. */
-export const SNAP_TIP_BEVEL = 0.8; // mm
 export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot between fingers
 
 // Cable fix points (issue #117, src/core/innerEnd.ts): both cable ends are

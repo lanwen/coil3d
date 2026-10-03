@@ -2,11 +2,14 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, JointKind, ShapeSpec } from "../src/core";
+import { SNAP_FINGER_LENGTH } from "../src/core/constants";
 
 // Issue #172: the seated top cap sits on the core's rim and doesn't run into
 // it, for every joint and shape. Both parts' meshes share the assembly frame,
 // so the cap as drawn is the cap seated: their faces may touch, but nothing
-// may overlap.
+// may overlap -- except the snap barbs, which bear on the core's ridge by a
+// designed preload (snapJoint.test.ts measures it): with a snap joint, every
+// overlap is in the barbs' 3.6 mm over the finger tips.
 
 function spec(overrides: Partial<CoilSpec>): CoilSpec {
   return {
@@ -71,14 +74,19 @@ describe("issue #172: the seated top cap does not run into the core", () => {
     const d = await design(c.spec);
     const core = await solid(d.parts.find((p) => p.role === "core")!.mesh);
     const cap = await solid(d.parts.find((p) => p.role === "topCap")!.mesh);
-    const hit = core.intersect(cap);
+    const h = d.solution.height;
+    const full = core.intersect(cap);
+    // The snap barbs' preload: cut away the barbs' height (only when the snap joint was actually built).
+    const snap = c.spec.joint === "snap" && !d.warnings.some((w) => w.includes("too small for the snap clips"));
+    const barbs = snap ? full.trimByPlane([0, 0, 1], h - SNAP_FINGER_LENGTH + 3.6) : undefined;
+    const hit = barbs ?? full;
     try {
       const { min, max } = hit.boundingBox();
-      const where = hit.isEmpty() ? "" : `, z ${min[2].toFixed(2)}..${max[2].toFixed(2)} (rim at ${d.solution.height})`;
+      const where = hit.isEmpty() ? "" : `, z ${min[2].toFixed(2)}..${max[2].toFixed(2)} (rim at ${h})`;
       // A little tessellation noise aside.
       expect(hit.volume(), `cap/core overlap, mm^3${where}`).toBeLessThan(0.1);
     } finally {
-      for (const m of [core, cap, hit]) m.delete();
+      for (const m of [core, cap, full, ...(barbs ? [barbs] : [])]) m.delete();
     }
   });
 });

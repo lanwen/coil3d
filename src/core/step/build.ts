@@ -30,7 +30,6 @@ import {
   SCREW_MOUNT_SLOT_RADIUS,
   SCREW_MOUNT_UNDERCUT_DEPTH,
   SKADIS_CLIP_WIDTH,
-  SNAP_HOOK_COUNT,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
@@ -608,9 +607,9 @@ function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Desi
 }
 
 /** The snap collar's base (mirrors manifold.ts's `collarBase`, issue #172): a straight prism flaring over its top `JOINT_TRANSITION_HEIGHT` out to `rootOutline`, which stays inside the core's bore. */
-function collarBaseSolid(collarOutline: ShapeOutline, rootOutline: ShapeOutline): R.Shape3D {
-  const straightHeight = JOINT_ENGAGE_DEPTH - JOINT_TRANSITION_HEIGHT;
-  const straight = outlineSolid(collarOutline, straightHeight, -JOINT_ENGAGE_DEPTH);
+function collarBaseSolid(collarOutline: ShapeOutline, rootOutline: ShapeOutline, depth: number): R.Shape3D {
+  const straightHeight = depth - JOINT_TRANSITION_HEIGHT;
+  const straight = outlineSolid(collarOutline, straightHeight, -depth);
   const transition = outlineLoftSolid(collarOutline, rootOutline, -JOINT_TRANSITION_HEIGHT, 0);
   return straight.fuse(transition);
 }
@@ -628,11 +627,11 @@ function revolvedFeatureSolid(f: RevolvedFeature, dz: number): R.Shape3D {
   return sketch.revolve([0, 0, 1], { origin: [0, 0, 0], angle: f.sweepDeg }).rotate(f.startDeg, [0, 0, 0], [0, 0, 1]);
 }
 
-/** `count` copies of `build(angleDeg)`, evenly spaced around Z, fused into one shape (mirrors manifold.ts's `unionAtAngles`). */
-function unionAtAngles(build: (angleDeg: number) => R.Shape3D, count: number): R.Shape3D {
+/** `build(angleDeg)` at each of the given angles around Z, fused into one shape (mirrors manifold.ts's `unionAtAngles`). */
+function unionAtAngles(build: (angleDeg: number) => R.Shape3D, anglesDeg: number[]): R.Shape3D {
   let result: R.Shape3D | undefined;
-  for (let i = 0; i < count; i++) {
-    const m = build((360 * i) / count);
+  for (const angle of anglesDeg) {
+    const m = build(angle);
     result = result ? result.fuse(m) : m;
   }
   return result!;
@@ -781,11 +780,10 @@ function applyCoreJointCutSolid(core: R.Shape3D, cut: CoreJointCut): R.Shape3D {
     return cut.bayonet!.lugs.reduce((solid, f) => solid.fuse(revolvedFeatureSolid(f, cut.height)), core);
   }
 
-  // snap (issues #168, #186): the ridge ring, the relief cut from the lip on
-  // its own, then added -- the same `snapLayout` as manifold.ts's
-  // `applyCoreJointCut`. The wall is never cut.
-  const snap = cut.snap!;
-  return core.fuse(stackSolidStep(snap.lip, cut.height).cut(stackSolidStep(snap.relief, cut.height)));
+  // snap (issues #168, #186): the ridge and the seat, each its relief cut
+  // from its lip on its own, then added -- the same `snapLayout` as
+  // manifold.ts's `applyCoreJointCut`. The wall is never cut.
+  return cut.snap!.rings.reduce((solid, { lip, relief }) => solid.fuse(stackSolidStep(lip, cut.height).cut(stackSolidStep(relief, cut.height))), core);
 }
 
 /**
@@ -850,10 +848,10 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
     // The L-slots cut into the straight tube (mirrors manifold.ts).
     collar = capJoint.bayonet!.cuts.reduce((solid, f) => solid.cut(revolvedFeatureSolid(f, 0)), straight());
   } else if (snap) {
-    // Issues #168, #186: the root flare, the diamond barb and the slots from
+    // Issues #168, #186: the root flare, the barb and the slots from
     // the same `snapLayout` as manifold.ts's `buildTopCap`.
-    const withBarb = collarBaseSolid(collarOutline, snap.rootOutline).fuse(stackSolidStep(snap.barb));
-    const slots = unionAtAngles((a) => radialBoxSolid(0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -JOINT_ENGAGE_DEPTH - 0.5, 0.5, a), SNAP_HOOK_COUNT);
+    const withBarb = collarBaseSolid(collarOutline, snap.rootOutline, snap.depth).fuse(stackSolidStep(snap.barb));
+    const slots = unionAtAngles((a) => radialBoxSolid(0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -snap.depth - 0.5, 0.5, a), snap.slotAnglesDeg);
     collar = withBarb.cut(slots);
   } else {
     // Press, or a bayonet or snap the core can't take (joints.ts's `resolveCapJoint`).
@@ -862,7 +860,7 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
 
   let assembled = plate.fuse(collar);
   // Issue #127: the straight through-hole down the middle (the collar is a tube).
-  // Issue #186: the snap fingers' tips are bevelled on the inside.
+  // The snap fingers reach deeper than JOINT_ENGAGE_DEPTH, so their hole comes with the layout.
   if (snap?.hole) assembled = assembled.cut(stackSolidStep(snap.hole));
   else if (holeOutline) assembled = assembled.cut(outlineSolid(holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2, -JOINT_ENGAGE_DEPTH - 1));
 
