@@ -104,6 +104,9 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // Issue #229 bumped it DOWN from 33771.81426147255 (by 253.58 mm^3): the flange's outer edge is chamfered 1 mm on
     // both faces, which takes 2 x 0.5 mm^2 of section along the 41.8 mm radius rim (about 260 mm^3), less the rim
     // where the channel leaves and its pad keeps the square edge (the pads reach 1 mm into the plate now, FLANGE_PAD_EMBED).
-    expect(meshVolume(d.mesh)).toBeCloseTo(33518.23794984431, 3);
+    //
+    // The base clip's lips bumped it DOWN from 33518.23794984431 (by 3.21 mm^3): the opening is 0.5 mm wider (3.5 mm
+    // instead of 3.0 mm on this 3.8 mm cable) and its edge is chamfered, over the clip's 5.7 mm length.
+    expect(meshVolume(d.mesh)).toBeCloseTo(33515.030333815084, 3);
   });
 });
