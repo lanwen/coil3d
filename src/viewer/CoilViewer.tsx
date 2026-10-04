@@ -16,6 +16,7 @@ import { PegboardSlots } from "./PegboardSlots";
 import { PrintLayoutLabels } from "./PrintLayoutLabels";
 import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
 import { ViewControls } from "./ViewControls";
+import { useThrowOnContextLoss } from "./ViewerBoundary";
 import { WALL_MOUNT_VIEW_ROTATION, WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
 import { buildCableTube, buildWireGeometries, needsEnvelope } from "./wireGeometry";
 
@@ -714,6 +715,8 @@ export function CoilViewer({
     el.classList.add("edge-fade");
   }, [parts, resolution]);
 
+  const onCanvasCreated = useThrowOnContextLoss();
+
   return (
     <div ref={frameRef} data-testid="coil-viewer" className="coil-viewer-frame">
       {VIEW_CAPTION[viewMode] && (
@@ -724,6 +727,7 @@ export function CoilViewer({
       <Canvas
         flat
         frameloop="demand"
+        onCreated={onCanvasCreated}
         gl={{ alpha: true, antialias: false, preserveDrawingBuffer: true }}
         style={{ width: "100%", height: "100%", background: "transparent" }}
       >

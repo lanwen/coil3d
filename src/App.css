@@ -307,6 +307,20 @@ a.build-label:focus-visible {
   height: 100%;
 }
 
+/* What replaces the 3D view when WebGL is unavailable (ViewerBoundary). */
+.viewer-unavailable,
+.guide-figure-unavailable {
+  margin: 0;
+  padding: 96px 24px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.guide-figure-unavailable {
+  padding: 16px;
+  font-size: 0.75rem;
+}
+
 .wall-view-caption {
   position: absolute;
   bottom: 8px;
