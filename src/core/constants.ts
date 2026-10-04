@@ -255,8 +255,8 @@ export const FLANGE_PAD_BLEND_RADIUS = 5; // mm
 export const FLANGE_PAD_BLEND_STEP = 2; // mm
 /** Where a blend meets the collar, the pad's edge runs this far inside the collar's, mm: never on it (no coincident faces), and close enough that the two meet at a hair of an angle, not a crease. */
 export const FLANGE_PAD_BLEND_BURY = 0.15; // mm
-/** Pads reach this far into the plate below its top face, mm (so no pad face lies on the plate's own). Issue #229: the plate top's rim chamfer is EDGE_CHAMFER deep, and a pad at the rim must reach below it, or its underside would hang over the chamfer's cut. */
-export const FLANGE_PAD_EMBED = EDGE_CHAMFER; // mm
+/** Pads reach this far into the plate below its top face, mm (so no pad face lies on the plate's own). Issue #229: the plate top's rim chamfer is EDGE_CHAMFER deep, and a pad at the rim must reach below it, or its underside would hang over the chamfer's cut. Strictly below it: with the underside exactly on the line where the chamfer meets the rim face, a pad running out over the rim left a zero-length edge there (fuzz case 1097). */
+export const FLANGE_PAD_EMBED = EDGE_CHAMFER + 0.25; // mm
 /** Pads reach this far above the inner face, mm (so the relief cut never has a face on it). */
 export const FLANGE_PAD_RISE = 0.5; // mm
 

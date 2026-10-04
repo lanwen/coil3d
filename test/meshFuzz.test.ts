@@ -398,6 +398,15 @@ const REPRODUCTIONS_227: Reproduction[] = [
     spec: { wire: { length: 1690, diameter: 1.98, type: "flex" }, windingQuality: 0.62, coreSize: { locked: true, dimension: "inner", value: 20.05 }, height: { locked: true, value: 43.19 }, tolerance: 0.18, joint: "bayonet", mount: "skadis" },
     segments: { round: 120, other: 96 },
   },
+  {
+    // The keyhole pad's underside lay exactly on the line where the plate's top rim chamfer meets the rim face
+    // (FLANGE_PAD_EMBED was EDGE_CHAMFER), leaving a zero-length edge where the pad runs out over the rim. Main had
+    // it with the cap off (margin 16, set by the keyhole); without the cap clips the cap-on design got the same margin.
+    name: "a keyhole pad running out over the rim of a slim triangle flange (fuzz case 1097, cap off)",
+    spec: { wire: { length: 2170, diameter: 6.52, type: "usb" }, shape: { kind: "tri", cornerRadius: 7.55 }, windingQuality: 0.62, coreSize: { locked: true, dimension: "outer", value: 42.59 }, height: { locked: false }, layers: { locked: false }, topCap: "off", tolerance: 0.25, mount: "keyhole", keyholeRotation: 0 },
+    resolution: "final",
+    segments: { round: 144, other: 96 },
+  },
 ];
 
 describe("mesh clean-up reproductions (issue #227): every part is one solid, with no short edges or folds", () => {
