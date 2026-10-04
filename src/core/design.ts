@@ -94,7 +94,7 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
     solution.flangeSize,
     wireDiameter,
     spec.mount,
-    { tolerance: spec.tolerance, bendRadius, heavyCable },
+    { tolerance: spec.tolerance, bendRadius, heavyCable, woundLayers: solution.layerResults.filter((r) => r.turns > 0).length, topCap: solution.topCapEnabled },
     spec.keyholeRotation,
     spec.throughHoleDiameter,
   );
@@ -235,7 +235,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
           tolerance: spec.tolerance,
         })
       : undefined;
-  const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, rimSlotMargin, envelopeOffset, channelOnlyThickness } = sizing;
+  const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, rimSlotMargin, channelOnlyThickness } = sizing;
   if (innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= rimSlotMargin) {
     note(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
   }
@@ -384,7 +384,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     topCapEnabled,
     height: solution.height,
     margin,
-    envelopeOffset,
     tolerance: spec.tolerance,
     bendRadius,
   });

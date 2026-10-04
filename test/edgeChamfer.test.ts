@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, exportDesign, parseHash } from "../src/core";
-import type { CoilSpec } from "../src/core";
-import { CAP_THICKNESS, EDGE_CHAMFER } from "../src/core/constants";
+import type { CoilSpec, Design } from "../src/core";
+import { CAP_THICKNESS, EDGE_CHAMFER, FLANGE_PAD_WALL } from "../src/core/constants";
 import { plateTopZ } from "../src/core/flangePads";
 import { pointAt } from "../src/core/shapes";
 import { STEP_TIMEOUT_MS, insideAt, stepContains, verticalCrossings } from "./support/step";
@@ -37,12 +37,24 @@ const DESIGNS: Array<{ label: string; spec: CoilSpec }> = [
   { label: "sq, keyhole (thicker flange)", spec: spec({ shape: { kind: "sq", cornerRadius: 10 }, coreSize: { locked: true, dimension: "outer", value: 60 }, mount: "keyhole" }) },
 ];
 
-/** The vertical extent of the material on the vertical line `depth` mm inside the flange's outer edge, wherever it is one solid interval. */
-function rimSpans(mesh: { positions: Float32Array; indices: Uint32Array }, d: { flangeSpec: { outline: Parameters<typeof pointAt>[0]; margin: number } }, depth: number): Array<[number, number]> {
-  const { outline, margin } = d.flangeSpec;
+/**
+ * The vertical extent of the material on the vertical line `depth` mm inside the flange's outer edge, wherever it is
+ * one solid interval. Rays over the inner end's channel pad are left out: the pad reaches the rim there (along a
+ * square's flat side, for several centimetres of it).
+ */
+function rimSpans(mesh: { positions: Float32Array; indices: Uint32Array }, d: Design, depth: number): Array<[number, number]> {
+  const { outline, margin, thickness, plateThickness } = d.flangeSpec;
+  const lead = d.innerEndLeadIn;
+  // The channel pad's footprint on the plate: its wall past the bore, then its 45 degree chamfer down to the plate.
+  const keepOut = d.spec.wire.diameter / 2 + FLANGE_PAD_WALL + (thickness - (plateThickness ?? thickness)) + EDGE_CHAMFER;
+  const nearLead = (x: number, y: number) => {
+    for (let i = 0; i < lead.length; i += 3) if (lead[i + 2] < 0.5 && Math.hypot(lead[i] - x, lead[i + 1] - y) < keepOut) return true;
+    return false;
+  };
   const spans: Array<[number, number]> = [];
   for (let i = 0; i < 90; i++) {
     const p = pointAt(outline, (i + 0.5) / 90, margin - depth);
+    if (nearLead(p.x, p.y)) continue;
     const hits = rayHits(mesh, p.x, p.y).filter((z) => z < 0.5);
     if (hits.length === 2) spans.push([hits[0], hits[1]]);
   }

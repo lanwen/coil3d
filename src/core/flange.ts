@@ -32,6 +32,7 @@ import {
 import { idealChannelDepth, requiredInnerEndMargin, requiredRimSlotMargin, resolveChannelDepth } from "./innerEnd";
 import { collarFootprintOffset } from "./flangePads";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
+import { woundReachOffset } from "./wire";
 import { requiredMountPlateMargin } from "./mountPlate";
 import { requiredSkadisMargin } from "./skadisClips";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
@@ -75,7 +76,7 @@ export interface FlangeSizing {
   innerEndMargin: number;
   /** The margin the rim cable slot alone needs (issue #241): its seat clear of the base's collar pad. */
   rimSlotMargin: number;
-  /** The wound cable's outer surface, as an offset outside the core's outline (the cable's lead-out under the cap runs just outside it). */
+  /** The drawn cable's outer surface, as an offset outside the core's outline: the wound envelope, or further out where a lifted single-layer turn or the outer end's climb to the cap reaches (wire.ts's `woundReachOffset`). */
   envelopeOffset: number;
   /** The plain channel-driven thickness, before any mount/plate bump -- design.ts compares against this the same way. */
   channelOnlyThickness: number;
@@ -96,7 +97,7 @@ export function resolveFlangeSizing(
   wireDiameter: number,
   mount: MountKind,
   /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`). */
-  leadIn: { tolerance: number; bendRadius: number; heavyCable?: boolean },
+  leadIn: { tolerance: number; bendRadius: number; heavyCable?: boolean; woundLayers?: number; topCap?: boolean },
   /** Issue #71: ignored unless `mount === "keyhole"`. */
   keyholeRotation = 0,
   /** Issue #70: ignored unless `mount === "through"`. */
@@ -107,20 +108,12 @@ export function resolveFlangeSizing(
   const mountKindForPlate = mount === "opengrid" ? mount : undefined;
 
   // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
-  // (the offset term is additive, see shapes.ts), so this margin is exactly
-  // what's needed for the flange's own circumscribed radius to reach
-  // flangeSizeEnvelope / 2.
-  const baseMargin = Math.max(FLANGE_MARGIN, flangeSizeEnvelope / 2 - circumscribedRadius(outline, 0));
-  // Issue #70 AC ("outside the winding envelope, so a screwdriver can reach
-  // them"): `flangeSizeEnvelope` is already the wound envelope's own
-  // diameter (plus a flat FLANGE_MARGIN pad, docs/design.md, Parts and
-  // printing: flange size = final outer envelope + margin) -- reusing it directly as the through
-  // mount's own envelope-clearance radius is a few mm more conservative than
-  // the bare minimum (that pad), never less, so it's a safe stand-in with no
-  // extra plumbing.
-  // Issue #117: the wound cable's outer surface (FLANGE_MARGIN inside
-  // `flangeSizeEnvelope`), as an offset outside the core's outline.
-  const envelopeOffset = flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0);
+  // (the offset term is additive, see shapes.ts), so this is the wound
+  // envelope (`flangeSizeEnvelope` less FLANGE_MARGIN all round) as an offset
+  // outside the core's outline. Issue #239: the flange must cover the drawn
+  // cable as it really runs, which can reach further out (`woundReachOffset`).
+  const envelopeOffset = woundReachOffset(flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0), wireDiameter, leadIn.woundLayers ?? 1, leadIn.topCap ?? false);
+  const baseMargin = Math.max(FLANGE_MARGIN, envelopeOffset + FLANGE_MARGIN);
   const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
   const mountMargin = mount === "skadis"
     ? // Issue #207: the rim clips' lips must clear the wound cable (issue #222: and the collar's flare, which the lips on the plate sit beside).

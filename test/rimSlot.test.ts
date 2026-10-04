@@ -3,7 +3,7 @@ import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
 import { design, parseHash } from "../src/core";
 import type { CoilSpec, Design, ShapeSpec } from "../src/core";
-import { EDGE_CHAMFER, RIM_SLOT_KEEP_OUT, RIM_SLOT_LABEL_KEEP_OUT, RIM_SLOT_NECK, THROUGH_MOUNT_EDGE_MARGIN } from "../src/core/constants";
+import { CAP_LEAD_OUT_WALL_GAP, EDGE_CHAMFER, FLANGE_MARGIN, RIM_SLOT_KEEP_OUT, RIM_SLOT_LABEL_KEEP_OUT, RIM_SLOT_NECK, THROUGH_MOUNT_EDGE_MARGIN } from "../src/core/constants";
 import { layoutFlangeThroughHoles } from "../src/core/flangePads";
 import { layoutInnerEnd, resolveChannelDepth, rimSlotWidths } from "../src/core/innerEnd";
 import type { XY } from "../src/core/innerEnd";
@@ -58,13 +58,15 @@ function pieces(mesh: { positions: Float32Array; indices: Uint32Array }): number
 }
 
 describe("rim cable slots (issue #241)", () => {
-  it("the cap no longer widens the margin: the feedback design is as slim with the cap on as off", async () => {
+  it("the cap no longer sets the margin: on the feedback design only the outer end's run up to the cap does", async () => {
     const { spec } = parseHash(FEEDBACK);
     const on = await design(spec, "draft");
     const off = await design({ ...spec, topCap: "off" }, "draft");
-    expect(on.flangeSpec.margin).toBeCloseTo(off.flangeSpec.margin, 9);
-    // The cap clips set it at 9.8 mm; now the inner end's lead-in does.
-    expect(on.flangeSpec.margin).toBeLessThan(6.5);
+    // The cap clips set it at 9.8 mm. Now the plate covers the drawn cable plus the lip: with the cap on, the single
+    // layer's outer end runs up to the cap clear of the wall (its centre a radius plus 0.3 mm out).
+    const d = spec.wire.diameter;
+    expect(on.flangeSpec.margin).toBeCloseTo(Math.max(off.flangeSpec.margin, d + CAP_LEAD_OUT_WALL_GAP + FLANGE_MARGIN), 6);
+    expect(on.flangeSpec.margin).toBeLessThan(9.8 - 2);
     expect(on.warnings.some((w) => /cap's cable clip/.test(w))).toBe(false);
   });
 

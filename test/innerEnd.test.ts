@@ -94,10 +94,13 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
 
       // Issue #115: on the straight line the cable leaves the groove start
       // along (backwards along layer 1's own tangent), give or take the
-      // small sideways shift that keeps the channel clear of the wall.
+      // small sideways shift that keeps the channel clear of the wall, and on
+      // a square's or triangle's flat side the gentle outward bend that brings
+      // the clip to the rim by the side's middle (innerEnd.ts's `bendToRim`;
+      // it reaches 1.6 mm here once the flange is wide enough to need it).
       const j = grooveStartOf(d);
       for (const at of [layout.clip.from, layout.clip.to]) {
-        expect(distanceFromTangentLine(j, at.x, at.y), `${shape.kind}: clip off the tangent chord`).toBeLessThan((wireDiameter + tolerance) / 2 + 1);
+        expect(distanceFromTangentLine(j, at.x, at.y), `${shape.kind}: clip off the tangent chord`).toBeLessThan((wireDiameter + tolerance) / 2 + (shape.kind === "round" ? 1 : 2));
         // Behind the groove start (the side the cable comes from), not ahead.
         expect((at.x - j.x) * j.tx + (at.y - j.y) * j.ty).toBeLessThan(0);
       }

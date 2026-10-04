@@ -75,6 +75,13 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
 - The flange and cap margins grow when the inner end's lead-in or the base
   slot needs more room (the slot's seat stays clear of the collar pad under
   the wall).
+- The flange and cap cover the drawn cable as it really runs, not just the
+  wound envelope (`woundReachOffset`): with the cap on, an outer end that
+  climbs the whole height outside a last layer ending at the bottom (an even
+  layer count: one cable diameter past the envelope), or, with an odd layer
+  count, its run on at the last layer's own offset under the cap, at least
+  0.3 mm clear of the wall (a single layer sits half in the groove, which has
+  faded out at the top). Only the free ends leave the plate.
 
 ### Parts and printing
 

@@ -35,7 +35,7 @@ import {
   CABLE_BRIDGE_STEP,
   CABLE_TAIL_FACTOR,
   CABLE_TAIL_MIN,
-  CAP_CABLE_COIL_GAP,
+  CAP_LEAD_OUT_WALL_GAP,
   DRAFT_WIRE_MAX_ARC_LENGTH,
   DRAFT_WIRE_MIN_SAMPLES_PER_TURN,
   FINAL_WIRE_MAX_ARC_LENGTH,
@@ -130,6 +130,22 @@ function sampleLayer(outline: ShapeOutline, run: LayerRun, perimeter: number, pi
   const points = new Float32Array(count * 3);
   for (let i = 0; i < count; i++) points.set(samplePoint(outline, run, (run.turns * i) / (count - 1)), i * 3);
   return points;
+}
+
+/**
+ * How far outside the core's outline the drawn cable reaches (its outer
+ * surface), with the top cap on: the outer end's run up to the cap. A last
+ * layer that ends at the bottom (an even layer count) is climbed past
+ * outside itself, one cable diameter beyond the wound envelope
+ * (`envelopeOffset`, the outermost layer's); one that ends at the top runs on
+ * at its own offset, but never closer to the wall than CAP_LEAD_OUT_WALL_GAP
+ * (a single layer sits half in the groove, and the groove has faded out
+ * there). The flange and cap must cover this, not just the envelope.
+ */
+export function woundReachOffset(envelopeOffset: number, wireDiameter: number, woundLayers: number, topCap: boolean): number {
+  if (!topCap) return envelopeOffset;
+  if (woundLayers % 2 === 0) return envelopeOffset + wireDiameter;
+  return Math.max(envelopeOffset, wireDiameter + CAP_LEAD_OUT_WALL_GAP);
 }
 
 /** The standard cubic Hermite basis weights at `s` in [0, 1] for (value0, derivative0, value1, derivative1). */
@@ -248,8 +264,6 @@ export interface CableEnds {
   height: number;
   /** The flange (and top cap) margin, mm. */
   margin: number;
-  /** The wound cable's outer surface as an offset outside the outline (flange.ts), mm: the lead-out under the cap runs just outside it. */
-  envelopeOffset: number;
   tolerance: number;
   /** The cable's minimum bend radius, mm. */
   bendRadius: number;
@@ -369,18 +383,19 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
       outerEndLeadOut[i * 3 + 2] = zEnd + (tz / len) * s;
     }
   } else {
-    // To just under the cap, arriving level along the outline just clear of
-    // the wound cable; from there it curves out past the rim, under the cap's
-    // rim slot (`capTailPath`, issue #241).
+    // To just under the cap, arriving level along the outline; from there it
+    // curves out past the rim, under the cap's rim slot (`capTailPath`, issue
+    // #241). A last layer that ends at the top just runs on at its own offset
+    // (the turn below is a pitch lower), but clear of the wall (a single
+    // layer sits half in the groove, which has faded out there); one that
+    // ends at the bottom climbs the whole height outside itself, one cable
+    // diameter further out. The plate covers both (`woundReachOffset`).
     const d = wallSpec.wireDiameter;
-    const oKey = ends.envelopeOffset + CAP_CABLE_COIL_GAP + d / 2;
     const zKey = ends.height + capCableZ(d);
     const o0 = lastOffset;
-    const climbsAll = last.slope < 0; // ends at the bottom: climb the whole height outside the last layer
-    const oOut = o0 + d; // hug the outside of the last layer while climbing
-    const offsetAt = climbsAll
-      ? (s: number) => (s < 0.5 ? o0 + (oOut - o0) * unitRamp(Math.min(1, s / 0.2)) : oOut + (oKey - oOut) * unitRamp(Math.max(0, (s - 0.8) / 0.2)))
-      : (s: number) => o0 + (oKey - o0) * unitRamp(s);
+    const climbsAll = last.slope < 0;
+    const oKey = climbsAll ? o0 + d : Math.max(o0, d / 2 + CAP_LEAD_OUT_WALL_GAP);
+    const offsetAt = climbsAll ? (s: number) => o0 + (oKey - o0) * unitRamp(Math.min(1, s / 0.2)) : (s: number) => o0 + (oKey - o0) * unitRamp(s);
     const found = searchBlend(
       (turns) => {
         const points = outlineBlend(outline, uEnd, turns, offsetAt, zEnd, last.slope, zKey, 0);

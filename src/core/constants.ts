@@ -200,10 +200,10 @@ export const CABLE_CLIP_DEPTH_SLACK = 0.25; // mm
 export const CABLE_CLIP_ENTRY = 0.05; // mm
 /** Part material kept on each side of the clip's bore (the lips' own root), mm: the flange clip ends this far (plus the bore radius) short of the rim. */
 export const CABLE_CLIP_WALL = 1; // mm
+/** Cap end: with the last layer ending at the top, the outer end runs up to the cap at least this far clear of the wall, mm (its centre a radius plus this out). */
+export const CAP_LEAD_OUT_WALL_GAP = 0.3; // mm
 /** Cap end: the cable runs this far below the cap plate's underside (its top would otherwise sit exactly on that face, which the line art draws as a dashed seam). */
 export const CAP_CABLE_DROP = 0.1; // mm
-/** Cap end: radial clearance between the cable's lead-out under the cap and the wound cable's outer surface, mm. */
-export const CAP_CABLE_COIL_GAP = 0.3; // mm
 // Rim cable slots (issue #241, innerEnd.ts's `layoutRimSlot`): a keyhole cut straight through the base flange and the
 // top cap at the rim. The neck is narrower than the cable by CABLE_BASE_CLIP_INTERFERENCE, like the base clip.
 /** Length of the rim slot's neck, from where it leaves the seat to the foot of the rim chamfer, mm (then a 45 degree lead-in to the rim). */
