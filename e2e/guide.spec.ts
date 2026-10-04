@@ -10,7 +10,7 @@ import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 // (src/viewer/CoilScene.tsx, src/viewer/GuideFigure.tsx).
 
 const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 }); // layers=1 (default): no top cap, so the two cap steps are skipped
-const TWO_LAYER_CAP = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 }); // layers=2: top cap auto-on
+const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 }); // layers=2: top cap auto-on
 
 // The guide's own screenshots render several distinct WebGL figures at
 // once (one per step), so they're the heaviest screenshots in the whole

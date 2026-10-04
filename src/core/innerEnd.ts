@@ -10,15 +10,16 @@
 // radius (MBR). The cable leaves the groove start (layer 1's first sample,
 // `J`) along the helix's OWN tangent, backwards, as a straight chord across
 // the flange margin -- a cable at its MBR can follow a straight line. Two
-// gentle, curvature-limited blends ride on that chord:
-//   - z: the cable drops from the helix start height (`zStart`, a few mm
-//     above the flange face) into the recessed channel (cable top flush
-//     with the face, the #43 guarantee), and
+// gentle, curvature-limited blends ride on that chord, one after the other
+// (the first turn starts on the flange face, so the cable can't drop while
+// it is still beside the wall):
 //   - sideways (`N`, the outward normal at t=0): the channel sits a skin
-//     clear of the wall, so the cable lies in a full-width trench.
+//     clear of the wall, so the cable lies in a full-width trench; meanwhile
+//     the helix's own slope eases off, with the cable's bottom on the face;
+//   - z: then the cable drops into the recessed channel (cable top flush
+//     with the face, the #43 guarantee).
 // Each blend is the lowest-peak-curvature C1 ramp (two parabolas, see
-// `bump`), sized so the combined curvature stays within CABLE_BEND_BUDGET /
-// MBR.
+// `bump`), sized so the curvature stays within CABLE_BEND_BUDGET / MBR.
 //
 // Issue #117: the channel is no longer a flat-bottomed box cut to one depth.
 // It is SWEPT along that same drawn cable: every cross-section is a round
@@ -79,17 +80,15 @@ import {
   CAP_CLIP_WALL_FACTOR,
   CAP_CLIP_WALL_MAX,
   CAP_CLIP_WALL_MIN,
-  CLEARANCE,
   EDGE_CHAMFER,
-  GROOVE_DEPTH_FACTOR,
   INNER_CHANNEL_DEPTH_FACTOR,
   INNER_CHANNEL_MIN_SHELF,
   INNER_CHANNEL_WALL_SKIN,
-  MARGIN,
+  MARGIN_BOTTOM,
 } from "./constants";
 import { outlineOffsetAt, pointAt, sideLength } from "./shapes";
 import type { ShapeOutline } from "./shapes";
-import { grooveStartHeight } from "./wall";
+import { grooveShape, grooveStartHeight } from "./wall";
 
 /** Ideal channel recess depth for the given wire diameter (issue #8): roughly a full cable diameter, so the wound cable's first turn lies flush -- see INNER_CHANNEL_DEPTH_FACTOR's own doc comment. */
 export function idealChannelDepth(wireDiameter: number): number {
@@ -360,6 +359,8 @@ function reach(value: (s: number) => number, target: number, from: number): numb
 interface LeadInRoute {
   /** The cable's centre at chord distance `s` back from the groove start. */
   at(s: number): XYZ;
+  /** Where the drop into the channel starts: before it, the cable shifts clear of the wall on the face. */
+  dropStart: number;
   /** Where the drop into the channel ends (the cable is at channel height from here on). */
   dropLength: number;
   /** The chord's own gentle outward bend (planLeadIn's `curve`), 1/mm. */
@@ -390,10 +391,10 @@ function planLeadIn(
   { forcedDrop, curve = 0 }: { forcedDrop?: number; curve?: number } = {},
 ): LeadInRoute {
   const d = wireDiameter;
-  const grooveDepth = GROOVE_DEPTH_FACTOR * d;
-  const o1 = d / 2 - grooveDepth; // layer 1's radial offset (capacity.ts)
-  const pitch = d + CLEARANCE;
-  const zStart = grooveStartHeight(d, CLEARANCE, grooveDepth, MARGIN);
+  const groove = grooveShape(d);
+  const o1 = d / 2 - groove.depth; // layer 1's radial offset (capacity.ts)
+  const { pitch } = groove;
+  const zStart = grooveStartHeight(groove, MARGIN_BOTTOM);
 
   const j = pointAt(outline, 0, o1);
   const EPS = 1e-6;
@@ -411,45 +412,80 @@ function planLeadIn(
 
   const zChannel = -channelDepth + d / 2; // cable resting on the channel floor
   const drop = zStart - zChannel;
-  const dropToFace = zStart - d / 2; // how far it falls until its bottom reaches the face
   const needSide = (d + tolerance) / 2 + INNER_CHANNEL_WALL_SKIN;
   const lineOffset = (s: number) => outlineOffsetAt(outline, j.x - s * tx, j.y - s * ty).offset;
-  const budget = CABLE_BEND_BUDGET / bendRadius;
-
-  const shape = (L: number) => {
-    const z = bump(drop, helixSlope, L);
-    const channelStart = dropToFace <= 0 ? 0 : invert(z.value, dropToFace, 0, L);
-    const side = channelStart > 1e-6 ? Math.max(0, needSide - lineOffset(channelStart) - (curve * channelStart * channelStart) / 2) : 0;
-    const lateral = bump(side, 0, channelStart);
-    return { z, channelStart, side, lateral, peak: Math.hypot(z.A, (side > 0 ? lateral.A : 0) + curve) };
+  // The first turn starts on the face (its bottom just above it), so the cable
+  // can't drop while it is still beside the wall. While it shifts sideways
+  // until the channel sits a skin clear of the wall, its drop eases off from
+  // the helix's slope (at most to level with the channel's bore on the face); only
+  // then does it drop into the channel. `b` is the curvature each part may
+  // use (with the chord's own bend, `curve`).
+  const plan = (b: number) => {
+    const ease = zStart - (d + tolerance) / 2; // until the channel's bore just touches the face
+    const easeA = Math.min(ease > 1e-9 ? (helixSlope * helixSlope) / (2 * ease) : Infinity, b / 2);
+    const easeLength = helixSlope / easeA;
+    const lateralA = Math.sqrt(Math.max(0, b * b - easeA * easeA)) - curve;
+    const dropA = Math.sqrt(Math.max(0, b * b - curve * curve));
+    if (lateralA <= 0 || dropA <= 0) return undefined;
+    // The shortest shift that is long enough for its own side step (the
+    // chord drifts outward on its own, so a longer shift needs less step).
+    const sideAt = (s: number) => Math.max(0, needSide - lineOffset(s) - (curve * s * s) / 2);
+    const longEnough = (s: number) => Math.sqrt((4 * sideAt(s)) / lateralA) <= s;
+    const shiftEnd = longEnough(0) ? 0 : invert((s) => (longEnough(s) ? 1 : 0), 1, 0, Math.sqrt((4 * needSide) / lateralA));
+    const side = sideAt(shiftEnd);
+    const lateralLength = shiftEnd;
+    const easing = Math.min(shiftEnd, easeLength);
+    const eased = helixSlope * easing - (easeA * easing * easing) / 2;
+    const slope = helixSlope - easeA * easing;
+    const rest = Math.max(0, drop - eased);
+    let dropLength = 1;
+    while (bump(rest, slope, dropLength).A > dropA && dropLength < 1e5) dropLength *= 2;
+    let lo = 0;
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + dropLength) / 2;
+      if (bump(rest, slope, mid).A > dropA) lo = mid;
+      else dropLength = mid;
+    }
+    const tail = bump(rest, slope, dropLength);
+    const fall = (s: number) => (s <= easing ? helixSlope * s - (easeA * s * s) / 2 : s <= shiftEnd ? eased : eased + tail.value(s - shiftEnd));
+    return { fall, side, lateral: bump(side, 0, lateralLength), lateralLength, shiftEnd, length: shiftEnd + dropLength };
   };
 
-  let L: number;
-  if (forcedDrop !== undefined) {
-    L = Math.max(forcedDrop, 1e-3);
-  } else {
-    let lo = 0.5;
-    let hi = 1;
-    while (shape(hi).peak > budget && hi < 1e5) hi *= 2;
+  const budget = CABLE_BEND_BUDGET / bendRadius;
+  let route = plan(budget);
+  if (forcedDrop !== undefined || !route) {
+    // Squeezed into `forcedDrop` (a margin too narrow for it), or a chord bent
+    // past what the budget allows: spend more curvature until it fits.
+    const target = forcedDrop ?? Infinity;
+    let lo = budget;
+    let hi = budget * 2;
+    const fits = (b: number) => {
+      const r = plan(b);
+      return r !== undefined && r.length <= target;
+    };
+    while (!fits(hi) && hi < 1e3) hi *= 2;
     for (let i = 0; i < 50; i++) {
       const mid = (lo + hi) / 2;
-      if (shape(mid).peak > budget) lo = mid;
-      else hi = mid;
+      if (fits(mid)) hi = mid;
+      else lo = mid;
     }
-    L = hi;
+    route = plan(hi)!;
   }
-  const { z, channelStart, side, lateral } = shape(L);
+  const { fall, side, lateral, lateralLength, shiftEnd, length } = route;
 
   const bend = (s: number) => (curve * s * s) / 2;
   const chordAt = (s: number): XY => ({ x: j.x - s * tx + (side + bend(s)) * nx, y: j.y - s * ty + (side + bend(s)) * ny });
   return {
-    dropLength: L,
+    dropStart: shiftEnd,
+    dropLength: length,
     curve,
-    settled: drop <= CABLE_CLIP_DEPTH_SLACK ? 0 : invert(z.value, drop - CABLE_CLIP_DEPTH_SLACK, 0, L),
+    // The lips start no later than this, and no earlier than a clip's length before the drop ends, so the clip's
+    // rim end is always level.
+    settled: Math.max(drop <= CABLE_CLIP_DEPTH_SLACK ? 0 : invert(fall, drop - CABLE_CLIP_DEPTH_SLACK, 0, length), length - clipLength(d)),
     chordAt,
     at: (s) => {
-      const shift = (side > 0 ? lateral.value(Math.min(s, channelStart)) : 0) + bend(s);
-      return { x: j.x - s * tx + shift * nx, y: j.y - s * ty + shift * ny, z: zStart - z.value(s) };
+      const shift = (side > 0 ? lateral.value(Math.min(s, lateralLength)) : 0) + bend(s);
+      return { x: j.x - s * tx + shift * nx, y: j.y - s * ty + shift * ny, z: zStart - fall(Math.min(s, length)) };
     },
   };
 }
@@ -626,8 +662,11 @@ export function layoutInnerEnd(
     return f.c.z - R * f.stretch;
   };
   // It starts where the bore's bottom is still a little above the face (so
-  // the cut begins at zero depth), and ends with the whole bore past the rim.
-  const sStart = bottom(0) <= 0.3 ? 0 : invert((s) => -bottom(s), -0.3, 0, route.dropLength);
+  // the cut begins at zero depth), but not beside the wall: while the cable
+  // shifts clear of it, the bore only touches the face. It ends with the
+  // whole bore past the rim.
+  const from = route.dropStart;
+  const sStart = bottom(from) <= 0.3 ? from : invert((s) => -bottom(s), -0.3, from, route.dropLength);
   const stations = stationsOver(sStart, sEnd, CABLE_SWEEP_STEP, [clipFrom, clipFrom + CABLE_CLIP_ENTRY, clipEnd - CABLE_CLIP_ENTRY, clipEnd]);
   // The lips' mouth is a 45 degree funnel: from CABLE_BASE_CLIP_LAND above
   // the edge where the opening meets the bore, the wall flares out until it
@@ -678,6 +717,8 @@ const CAP_RIB_EDGE_SEGMENTS = 6;
 const CAP_RIB_BOTTOM_SEGMENTS = 8;
 /** Spacing of a cap clip rib's cross-sections along its full-depth part, mm: close, so its vertical sides stay smooth round a corner of the outline (at CABLE_SWEEP_STEP each facet seam showed as a line). */
 const CAP_RIB_STEP = 0.5; // mm
+/** How far (in height) a rib end ramp must cross a bore station from each of the bore ring's vertices, mm: well over the weld's limit. */
+const CAP_BORE_RAMP_CLEARANCE = 0.05; // mm
 
 /**
  * A cap clip's cross-section across the cable (issue #237), in the cap's
@@ -868,8 +909,21 @@ export function layoutCapClip(
     // The bore runs a little past each end of the rib, so the rib is open.
     const boreFrom = -ramp - END - 0.3;
     const boreTo = len + ramp + END + 0.3;
+    // Where an end ramp crosses a bore station a hair from one of the ring's
+    // vertices, the boolean leaves an edge too short to weld. So a station on
+    // a ramp moves (by a few hundredths) until the ramp crosses it clear of
+    // every vertex.
+    const ringZ = capBoreRing({ x: 0, y: 0 }, { x: 1, y: 0 }, sec).map((q) => q.z);
+    const clearOfRing = (s: number) => {
+      const depth = depthAt(s);
+      return depth <= 0 || depth >= ramp || ringZ.every((z) => Math.abs(z + depth) > CAP_BORE_RAMP_CLEARANCE);
+    };
+    const nudged = (s: number) => {
+      for (let k = 0; k <= 30; k++) for (const t of [s + 0.01 * k, s - 0.01 * k]) if (clearOfRing(t)) return t;
+      return s;
+    };
     const bore: SweepSolid = {
-      rings: stationsOver(boreFrom, boreTo, CABLE_SWEEP_STEP, [0, len]).map((s) => {
+      rings: stationsOver(boreFrom, boreTo, CABLE_SWEEP_STEP, [0, len]).map(nudged).map((s) => {
         const { c, u } = along(s);
         return capBoreRing(c, u, sec);
       }),

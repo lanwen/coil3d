@@ -149,21 +149,24 @@ function linePixelRatio(dpr: number): number {
 
 /**
  * Per-vertex attribute, the kind of face a triangle belongs to (issues #176, #229): 0 an ordinary face, 1 the
- * engraved label's pockets, 2 a chamfer on a plate's rim, 3 the land between a rim's two chamfers. The normal+depth
- * pass writes it to the normal target's alpha (1 for ordinary faces), and the edge shader treats the kinds
- * specially: the label gets a fine outline pen, and the crease between a rim's chamfer and its land is left out.
+ * engraved label's pockets, 2 a chamfer on a plate's rim, 3 the land between a rim's two chamfers, 4 the core's wall
+ * where the groove fades out. The normal+depth pass writes it to the normal target's alpha (1 for ordinary faces),
+ * and the edge shader treats the kinds specially: the label gets a fine outline pen, the crease between a rim's
+ * chamfer and its land is left out, and so are the creases within a groove's fade.
  */
 const FACE_KIND_ATTRIBUTE = "faceKind";
 const FACE_KIND_LABEL = 1;
 const FACE_KIND_CHAMFER = 2;
 const FACE_KIND_LAND = 3;
+const FACE_KIND_FADE = 4;
 
-/** Marks the `mesh.labelTriangles` and `mesh.rimTriangles` on `geometry`, the non-indexed geometry `toCreasedNormals` made from `mesh` (it keeps the triangle order). */
+/** Marks the `mesh.labelTriangles`, `mesh.rimTriangles` and `mesh.fadeTriangles` on `geometry`, the non-indexed geometry `toCreasedNormals` made from `mesh` (it keeps the triangle order). */
 export function markFaceKinds(geometry: THREE.BufferGeometry, mesh: CoilMesh) {
   const groups: Array<[Uint32Array | undefined, number]> = [
     [mesh.labelTriangles, FACE_KIND_LABEL],
     [mesh.rimTriangles?.chamfer, FACE_KIND_CHAMFER],
     [mesh.rimTriangles?.land, FACE_KIND_LAND],
+    [mesh.fadeTriangles, FACE_KIND_FADE],
   ];
   if (groups.every(([triangles]) => !triangles?.length)) return;
   const kinds = new Float32Array(geometry.getAttribute("position").count);
@@ -171,7 +174,7 @@ export function markFaceKinds(geometry: THREE.BufferGeometry, mesh: CoilMesh) {
   geometry.setAttribute(FACE_KIND_ATTRIBUTE, new THREE.BufferAttribute(kinds, 1));
 }
 
-/** The normal+depth pass's material: view-space normals, plus the face kind in alpha (geometry without it reads 0): 0.5 for the label, 0.9 for a chamfer, 0.8 for a rim's land, else 1. */
+/** The normal+depth pass's material: view-space normals, plus the face kind in alpha (geometry without it reads 0): 0.5 for the label, 0.9 for a chamfer, 0.8 for a rim's land, 0.97 for a groove's fade, else 1. */
 function createNormalMaterial(): THREE.MeshNormalMaterial {
   const material = new THREE.MeshNormalMaterial({ side: THREE.DoubleSide });
   (material as unknown as { defaultAttributeValues: Record<string, number[]> }).defaultAttributeValues = { [FACE_KIND_ATTRIBUTE]: [0] };
@@ -179,7 +182,7 @@ function createNormalMaterial(): THREE.MeshNormalMaterial {
     shader.vertexShader = shader.vertexShader.replace("void main() {", `attribute float ${FACE_KIND_ATTRIBUTE};\nvarying float vFaceKind;\nvoid main() {\n\tvFaceKind = ${FACE_KIND_ATTRIBUTE};`);
     shader.fragmentShader = shader.fragmentShader
       .replace("void main() {", "varying float vFaceKind;\nvoid main() {")
-      .replace(/}\s*$/, "\tgl_FragColor.a = vFaceKind > 2.5 ? 0.8 : vFaceKind > 1.5 ? 0.9 : vFaceKind > 0.5 ? 0.5 : 1.0;\n}\n");
+      .replace(/}\s*$/, "\tgl_FragColor.a = vFaceKind > 3.5 ? 0.97 : vFaceKind > 2.5 ? 0.8 : vFaceKind > 1.5 ? 0.9 : vFaceKind > 0.5 ? 0.5 : 1.0;\n}\n");
   };
   material.customProgramCacheKey = () => "lineArtNormal";
   return material;

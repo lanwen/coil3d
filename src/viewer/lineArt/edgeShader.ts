@@ -35,6 +35,11 @@ import { Vector2 } from "three";
  * the plate's face meets its rim, as on a plate with square edges, and the
  * silhouette.
  *
+ * Where the core's groove fades out (alpha 0.97), its edges turn gradually
+ * shallower and would cross the crease angle in broken dashes. The creases
+ * within the fade are not drawn, so each groove line ends where the groove's
+ * full depth ends.
+ *
  * Output: r = ink (1 on a line pixel), g = model coverage, b = fine ink (the
  * label's outline), a = 1. The thicken pass turns that into the final white
  * fill, black line and alpha.
@@ -82,6 +87,9 @@ export const EdgeShader = {
     }
     // The crease between a chamfer and the plate's flat face is not drawn.
     bool chamferToFace(float a, float b) { return a + b == 1.0; }
+    // On the groove's fade (alpha 0.97). A crease within it is not drawn.
+    bool fadeAt(vec2 uv) { float a = texture2D(tNormal, uv).a; return a > 0.955 && a < 0.985; }
+    bool quietCrease(vec2 a, vec2 b) { return fadeAt(a) && fadeAt(b); }
 
     void main() {
       float d0 = depthAt(vUv);
@@ -118,8 +126,8 @@ export const EdgeShader = {
 
         vec3 n0 = normalAt(vUv);
         float k0 = rimAt(vUv);
-        if ((dot(n0, normalAt(vUv + dx)) < normalThreshold && !chamferToFace(k0, rimAt(vUv + dx))) ||
-            (dot(n0, normalAt(vUv + dy)) < normalThreshold && !chamferToFace(k0, rimAt(vUv + dy)))) {
+        if ((dot(n0, normalAt(vUv + dx)) < normalThreshold && !chamferToFace(k0, rimAt(vUv + dx)) && !quietCrease(vUv, vUv + dx)) ||
+            (dot(n0, normalAt(vUv + dy)) < normalThreshold && !chamferToFace(k0, rimAt(vUv + dy)) && !quietCrease(vUv, vUv + dy))) {
           ink = 1.0;
         }
       }

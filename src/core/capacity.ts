@@ -30,7 +30,8 @@ export interface GeometryInputs {
   layers: number;
   wireDiameter: number;
   grooveDepth: number;
-  clearance: number;
+  /** Helical pitch, mm (wall.ts's `grooveShape`). */
+  pitch: number;
   /** 0..1, see radialPitch. */
   quality: number;
 }
@@ -44,7 +45,7 @@ export interface CapacityResult {
 
 /**
  * Turns-per-layer for layer k (1-indexed): layer 1 fills the usable height
- * with pitch p = d + clearance. Orthocyclic layers (k>1) nest into the
+ * with the groove's pitch p. Orthocyclic layers (k>1) nest into the
  * valleys of the layer below, offset by up to half a pitch (APPROX,
  * continuous in quality so the solver stays monotonic; see
  * docs/design.md, Capacity math).
@@ -55,7 +56,7 @@ export function turnsForLayer(height: number, pitch: number, layer: number, qual
 }
 
 export function computeCapacity(g: GeometryInputs): CapacityResult {
-  const pitch = g.wireDiameter + g.clearance;
+  const { pitch } = g;
   const h = radialPitch(g.wireDiameter, g.quality);
   const o1 = g.wireDiameter / 2 - g.grooveDepth;
 

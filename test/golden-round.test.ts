@@ -39,17 +39,17 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     const d = await design(spec);
 
     expect(d.solution.outerSize).toBe(60);
-    expect(d.solution.innerBore).toBe(54);
-    expect(d.solution.height).toBe(51.099999999999994);
+    expect(d.solution.innerBore).toBeCloseTo(53.96, 9);
+    expect(d.solution.height).toBeCloseTo(55.894438344487675, 9);
     expect(d.solution.layers).toBe(1);
     expect(d.solution.layerResults[0].turns).toBe(11);
-    expect(d.solution.layerResults[0].perimeter).toBeCloseTo(193.27078004884407, 9);
-    expect(d.solution.layerResults[0].length).toBeCloseTo(2126.456897024562, 6);
-    expect(d.solution.totalWoundLength).toBeCloseTo(2126.456897024562, 6);
-    expect(d.solution.totalWireLength).toBeCloseTo(2126.456897024562, 6);
-    expect(d.solution.envelopeDiameter).toBeCloseTo(65.32, 9);
-    expect(d.solution.flangeSize).toBeCloseTo(73.32, 9);
-    expect(d.solution.minOuterSizeForBend).toBeCloseTo(28.88, 9);
+    expect(d.solution.layerResults[0].perimeter).toBeCloseTo(190.88316963211582, 9);
+    expect(d.solution.layerResults[0].length).toBeCloseTo(2100.339882796659, 6);
+    expect(d.solution.totalWoundLength).toBeCloseTo(2100.339882796659, 6);
+    expect(d.solution.totalWireLength).toBeCloseTo(2100.339882796659, 6);
+    expect(d.solution.envelopeDiameter).toBeCloseTo(64.56, 9);
+    expect(d.solution.flangeSize).toBeCloseTo(72.56, 9);
+    expect(d.solution.minOuterSizeForBend).toBeCloseTo(29.64, 9);
 
     // Vertex/triangle counts are NOT pinned here: the raw wall mesh (before
     // the flange is fused on) has the exact same counts as main's (verified
@@ -107,6 +107,14 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     //
     // The base clip's lips bumped it DOWN from 33518.23794984431 (by 3.21 mm^3): the opening is 0.5 mm wider (3.5 mm
     // instead of 3.0 mm on this 3.8 mm cable) and its edge is chamfered, over the clip's 5.7 mm length.
-    expect(meshVolume(d.mesh)).toBeCloseTo(33515.030333815084, 3);
+    //
+    // The deeper groove moved every number above on purpose (from main's 54 mm bore, 51.1 mm height, 193.27 mm
+    // perimeter, 2126.46 mm length, 65.32/73.32 mm envelope/flange, 28.88 mm bend floor): the cable's centre now sits
+    // 0.38 mm out from the ridges (0.1 d, was 0.76 mm), so the perimeter, envelope and bend floor shrink by that much;
+    // the 4.66 mm pitch (was 4.1) and the first turn starting on the flange face set the height; and the 1.52 mm deep
+    // groove needs a 3.02 mm wall (was 3), so the bore shrinks a hair. The volume went UP from 33515.030333815084 with
+    // the taller wall and the wider flange margin (14.0 mm, was 11.8: the cable now shifts clear of the wall on the face
+    // before it drops into the channel).
+    expect(meshVolume(d.mesh)).toBeCloseTo(34726.67926875156, 3);
   });
 });

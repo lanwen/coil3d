@@ -51,8 +51,9 @@ builds and validates the solids.
 - **The same sweep at a groove depth of half the cable diameter.** The helix
   centre lies on the wall surface. The cut reported only a warning and
   returned a wrong solid that still passed validation, with 120 % too much
-  volume (the groove was mostly not cut). The shipped groove depth is 0.3 d,
-  but the lesson holds for any feature.
+  volume (the groove was mostly not cut). The shipped groove is 0.4 d deep,
+  baked into the B-spline wall rather than cut; the lesson holds for any
+  feature.
 - **A pipe-shell sweep on a rounded square with a single B-spline spine.**
   `pipe shell failed`.
 - **A fillet on the grooved wall's outer edge.** It ran for minutes and then
@@ -82,6 +83,13 @@ Other things we learned in the shipped code:
 - Free WASM objects explicitly (`.delete()`), or they pile up in the OCCT heap.
 - Small features fused exactly flush with a face fail in the mesh backend too.
   Embed them past the face.
+- replicad's `measureVolume` integrates at a fixed order. On the deep groove's
+  B-spline wall it misread the volume by 2-3 %. The export's own check uses
+  `BRepGProp.VolumeProperties` with a 1e-5 precision, like the tests.
+- A near-flat shelf in the wall profile (the deep groove's circle meeting the
+  ridge almost level) folded the fitted B-spline into a solid that was valid
+  in memory but invalid after a STEP round trip, on an 8 mm cable. The profile
+  caps that flank at 70 degrees from the axis (wall.ts).
 
 ## Open
 

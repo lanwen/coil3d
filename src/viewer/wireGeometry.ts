@@ -85,16 +85,18 @@ function fullTube(path: WireLayerPath, wireRadius: number): THREE.BufferGeometry
 
 /**
  * A plain cylindrical shell spanning the layer's occupied radius and height.
- * Sits at the wire's CENTERLINE radius, not its outer surface: the hint
- * tubes below reach centerline + hintRadius, so this leaves them visibly
- * proud of the smooth shell (a flush shell would make them coincide with
- * its own surface and disappear).
+ * Sits half a wire radius outside the wire's CENTERLINE, not at its outer
+ * surface: the hint tubes below reach centerline + hintRadius (at least the
+ * wire radius), so this leaves them visibly proud of the smooth shell (a
+ * flush shell would make them coincide with its own surface and disappear).
+ * Not on the centreline itself: layer 1's centreline sits only 0.1 d above
+ * the groove's ridges, and a shell there would fight them for depth.
  */
-function envelopeShell(path: WireLayerPath): THREE.BufferGeometry {
+function envelopeShell(path: WireLayerPath, wireRadius: number): THREE.BufferGeometry {
   const sampleCount = path.points.length / 3;
   const first = pointAt(path.points, 0);
   const last = pointAt(path.points, sampleCount - 1);
-  const radius = Math.hypot(first.x, first.y);
+  const radius = Math.hypot(first.x, first.y) + wireRadius / 2;
   const zLo = Math.min(first.z, last.z);
   const zHi = Math.max(first.z, last.z);
   const height = Math.max(1e-3, zHi - zLo);
@@ -166,9 +168,9 @@ export function buildWireGeometries(wirePaths: WireLayerPath[], wireRadius: numb
     const layerRadius = Math.hypot(path.points[0], path.points[1]);
     const hintRadius = Math.max(wireRadius, layerRadius * HINT_RADIUS_FRACTION);
 
-    const parts = [envelopeShell(path), ...hintTubes(path, hintRadius)];
+    const parts = [envelopeShell(path, wireRadius), ...hintTubes(path, hintRadius)];
     const merged = mergeGeometries(parts, false);
     for (const part of parts) part.dispose();
-    return merged ?? envelopeShell(path);
+    return merged ?? envelopeShell(path, wireRadius);
   });
 }

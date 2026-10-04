@@ -593,7 +593,12 @@ function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Desi
   const analyzer = new kernel.BRepCheck_Analyzer(solid.wrapped, true, false, false);
   const valid = analyzer.IsValid();
   const solidCount = solid.solids.length;
-  const stepVolume = R.measureVolume(solid);
+  // Adaptive integration to a set precision: the default (fixed-order Gauss)
+  // one misreads a B-spline wall with a deep groove by a few percent.
+  const gprops = new kernel.GProp_GProps();
+  kernel.BRepGProp.VolumeProperties(solid.wrapped, gprops, 1e-5, false, false);
+  const stepVolume = gprops.Mass();
+  gprops.delete();
   const expectedVolume = meshVolume(mesh);
   const volumeError = Math.abs(stepVolume - expectedVolume) / expectedVolume;
 

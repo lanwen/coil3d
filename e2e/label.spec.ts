@@ -157,7 +157,7 @@ test.describe("too-long-text warning (issue #12)", () => {
   });
 });
 
-// Default cable and core with the top cap forced on: ABCDEFGH is the longest
+// Default cable and core with the top cap forced on: ABCDEFGHI is the longest
 // all-caps prefix of ABCDEFGHIJKLMNOP that fits this cap (test/label.test.ts).
 const DEFAULT_CAP_ON = encodeHashDoc({ cap: "on" });
 
@@ -172,7 +172,7 @@ test.describe("the label field stops at what the cap can hold", () => {
     const input = await openLabelField(page, DEFAULT_CAP_ON);
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
     await input.pressSequentially("ABCDEFGHIJKLMNOP");
-    await expect(input).toHaveValue("ABCDEFGH");
+    await expect(input).toHaveValue("ABCDEFGHI");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
     await expect(page.getByTestId("download-stl")).toBeEnabled();
     await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
@@ -181,7 +181,7 @@ test.describe("the label field stops at what the cap can hold", () => {
   test("pasting a long string is cut the same way", async ({ page }) => {
     const input = await openLabelField(page, DEFAULT_CAP_ON);
     await input.fill("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-    await expect(input).toHaveValue("ABCDEFGH");
+    await expect(input).toHaveValue("ABCDEFGHI");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
   });
 
@@ -193,24 +193,24 @@ test.describe("the label field stops at what the cap can hold", () => {
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
 
     await input.fill("ABCDEFGHIJK");
-    await expect(input).toHaveValue("ABCDEFGH");
+    await expect(input).toHaveValue("ABCDEFGHI");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
     await input.press("Backspace");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
   });
 
   test("shrinking the core after typing keeps the text and shows the fit warning", async ({ page }) => {
-    const input = await openLabelField(page, encodeHashDoc({ cap: "on", size: 80 }));
-    await input.fill("ABCDEFGHI");
+    const input = await openLabelField(page, encodeHashDoc({ cap: "on", size: 100 }));
+    await input.fill("ABCDEFGHIJ");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(input).toHaveValue("ABCDEFGHI");
+    await expect(input).toHaveValue("ABCDEFGHIJ");
     await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
 
     await page.getByTestId("input-outer").fill("50");
     await page.getByTestId("input-outer").blur();
     await expect(page.getByTestId("warnings")).toContainText("doesn't fit");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(input).toHaveValue("ABCDEFGHI");
+    await expect(input).toHaveValue("ABCDEFGHIJ");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
   });
 

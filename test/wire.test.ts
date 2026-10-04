@@ -82,52 +82,39 @@ describe("design().wirePaths (issue #4)", () => {
     }
   });
 
-  it("the layer-1 path's last turn rises out of the fading groove and stays clear of the core's top face (issue #224)", async () => {
-    // A tight height: the cable's last turn ends level with the wall top, so its tube reaches the top plane.
+  it("the layer-1 path ends 0.3 r under the core's top face, in its groove, so it never grazes the top face (issue #224)", async () => {
+    // A free height: the solver spends the height on the cable, so its last turn ends as close under the top as allowed.
     for (const shape of [{ kind: "round" }, { kind: "sq", cornerRadius: 20 }, { kind: "tri", cornerRadius: 20 }] as const) {
       const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: 85 }, height: { locked: false } }));
       const [layer1] = d.wirePaths;
       const r = d.wallSpec.wireDiameter / 2;
       const count = layer1.points.length / 3;
-      let reaching = 0;
-      for (let i = 0; i < count; i++) {
-        if (zAt(layer1.points, i) + r < d.wallSpec.height) continue;
-        reaching++;
-        // The tube is off the wall's outer surface and its top rim by at least 0.3 r (the cable's centre stays below the top plane).
-        const z = zAt(layer1.points, i);
-        expect(z, `${shape.kind} sample ${i}`).toBeLessThan(d.wallSpec.height);
-        const { offset } = outlineOffsetAt(d.wallSpec.outline, layer1.points[i * 3], layer1.points[i * 3 + 1]);
-        expect(Math.hypot(Math.max(offset, 0), d.wallSpec.height - z) - r, `${shape.kind} sample ${i}`).toBeGreaterThanOrEqual(0.3 * r - 1e-3);
-      }
-      expect(reaching, `${shape.kind}: the last turn reaches the top plane`).toBeGreaterThan(0);
+      for (let i = 0; i < count; i++) expect(zAt(layer1.points, i) + 1.3 * r, `${shape.kind} sample ${i}`).toBeLessThanOrEqual(d.wallSpec.height + 1e-4);
+      expect(zAt(layer1.points, count - 1) + 1.3 * r, `${shape.kind}: the last turn ends just under the top`).toBeCloseTo(d.wallSpec.height, 3);
+      const { offset } = outlineOffsetAt(d.wallSpec.outline, layer1.points[(count - 1) * 3], layer1.points[(count - 1) * 3 + 1]);
+      expect(offset, `${shape.kind}: still in the groove`).toBeCloseTo(d.solution.layerResults[0].offset, 3);
     }
   });
 
-  it("with more layers, layer 1's last turn and the hop to layer 2 also stay clear of the core's top face, without crowding the cable (issue #228)", async () => {
-    // Two layers at 85 mm: layer 1 climbs to the top and ends level with the wall top, so its tube reaches the top plane.
+  it("with more layers, layer 1's last turn and the hop to layer 2 also stay 0.3 r under the core's top face, without crowding the cable (issue #228)", async () => {
     for (const shape of [{ kind: "round" }, { kind: "sq", cornerRadius: 20 }, { kind: "tri", cornerRadius: 20 }] as const) {
       const d = await design(baseSpec({ shape, wire: { length: 4000, diameter: 3.8, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: 85 }, height: { locked: false }, layers: { locked: true, value: 2 } }));
       expect(d.wirePaths.length, `${shape.kind}: two layers`).toBe(2);
       const r = d.wallSpec.wireDiameter / 2;
-      let reaching = 0;
+      // (The hop turns the climb round, so it rises a few micrometres past layer 1's end.)
       for (const points of [d.wirePaths[0].points, d.layerTransitions[0]]) {
-        for (let i = 0; i < points.length / 3; i++) {
-          const z = zAt(points, i);
-          if (z + r < d.wallSpec.height) continue;
-          reaching++;
-          const { offset } = outlineOffsetAt(d.wallSpec.outline, points[i * 3], points[i * 3 + 1]);
-          expect(Math.hypot(Math.max(offset, 0), d.wallSpec.height - z) - r, `${shape.kind} sample ${i}`).toBeGreaterThanOrEqual(0.3 * r - 1e-3);
-        }
+        for (let i = 0; i < points.length / 3; i++) expect(zAt(points, i) + 1.3 * r, `${shape.kind} sample ${i}`).toBeLessThanOrEqual(d.wallSpec.height + 0.01);
       }
-      expect(reaching, `${shape.kind}: layer 1's end reaches the top plane`).toBeGreaterThan(0);
-      // Turns of the cable that are not neighbours along its length stay about a cable diameter apart (the layers nest, so a little under).
-      expect(closestApproach(d.cablePath, 40), shape.kind).toBeGreaterThanOrEqual(0.88 * d.wallSpec.wireDiameter);
+      // Turns of the wound cable that are not neighbours along its length stay about a cable diameter apart (the layers
+      // nest, so a little under). From layer 1's start on: the inner end's lead-in runs along the flange face from the
+      // first turn, under layer 2's lowest turn.
+      expect(closestApproach(d.cablePath.slice(d.innerEndLeadIn.length - 3), 40), shape.kind).toBeGreaterThanOrEqual(0.88 * d.wallSpec.wireDiameter);
     }
   });
 
-  it("layer 1 stays in its groove to the end when its tube stops short of the top face (issue #228)", async () => {
-    // Three layers at 120 mm: layer 2 starts above layer 1's end, so layer 1 never gets near the top; lifting it would crowd layers 2 and 3.
-    const d = await design(baseSpec({ wire: { length: 12096, diameter: 3.8, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: 120 }, height: { locked: false }, layers: { locked: true, value: 3 } }));
+  it("layer 1 stays in its groove to the end under more layers (issue #228)", async () => {
+    // Three layers at 120 mm on a 63 mm core: lifting layer 1's end would crowd layers 2 and 3.
+    const d = await design(baseSpec({ wire: { length: 12096, diameter: 3.8, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: 120 }, height: { locked: true, value: 63 }, layers: { locked: true, value: 3 } }));
     const [layer1] = d.wirePaths;
     const last = layer1.points.length / 3 - 1;
     expect(zAt(layer1.points, last) + d.wallSpec.wireDiameter / 2).toBeLessThan(d.wallSpec.height);
@@ -187,7 +174,6 @@ describe("design().wirePaths (issue #4)", () => {
 
   it("climbs monotonically in z across the run, spanning roughly turns * pitch", async () => {
     const wireDiameter = 3.8;
-    const clearance = 0.3;
     const d = await design(baseSpec({ wire: { length: 2000, diameter: wireDiameter, type: "usb" } }));
     const [layer1] = d.wirePaths;
     const sampleCount = layer1.points.length / 3;
@@ -195,8 +181,7 @@ describe("design().wirePaths (issue #4)", () => {
       expect(zAt(layer1.points, i)).toBeGreaterThan(zAt(layer1.points, i - 1));
     }
     const span = zAt(layer1.points, sampleCount - 1) - zAt(layer1.points, 0);
-    const pitch = wireDiameter + clearance;
-    expect(span).toBeCloseTo(layer1.turns * pitch, 1);
+    expect(span).toBeCloseTo(layer1.turns * d.wallSpec.pitch, 1);
   });
 
   it("a second orthocyclic layer sits at a larger radius (radialPitch offset) and is phase-shifted from layer 1", async () => {
@@ -224,7 +209,7 @@ describe("design().wirePaths (issue #4)", () => {
     // sits right next to layer 1's own start, one phase-shift's worth of
     // pitch away. At quality=1 the ideal half-pitch shift applies (docs/
     // design.md, Capacity math).
-    const pitch = 3.8 + 0.3;
+    const { pitch } = d.wallSpec;
     const z1 = zAt(layer1.points, 0);
     const layer2Last = layer2.points.length / 3 - 1;
     const z2 = zAt(layer2.points, layer2Last);

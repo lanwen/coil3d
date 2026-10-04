@@ -158,8 +158,10 @@ function checkInnerEnd(d: Design, label: string) {
     for (let i = n - 1; i >= 0; i--) {
       const c = sample(lead, i);
       const offset = outlineOffsetAt(outline, c.x, c.y).offset;
-      // Clear of the wall (where the cut is clipped away) and inside the rim.
-      if (offset < 1.5 || offset > margin - R - 0.5) continue;
+      // Clear of the wall (the cut is clipped 0.2 mm outside it) and inside
+      // the rim. The first turn starts on the face, so the channel starts
+      // right beside the wall.
+      if (offset < 0.3 || offset > margin - R - 0.5) continue;
       const { dir, slope } = tangentAt(lead, i);
       const section = sectionAcross(core, c, dir);
       const top = Math.max(...crossingsAtCentre(section).filter((z) => z < 0.5));

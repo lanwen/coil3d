@@ -2,6 +2,7 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, Part } from "../src/core";
+import { SKADIS_TCLIP_FIN_MAX, SKADIS_TCLIP_RECESS_DEPTH } from "../src/core/constants";
 import { meshVolume } from "../src/core/meshVolume";
 
 // Issue #207: do the printed rim clips really hang on a SKÅDIS board and hold
@@ -611,8 +612,9 @@ describe("the SKÅDIS T-clips lock onto a real SKÅDIS board from inside the bor
       const depth = top - finTop;
       const noted = d.notices.some((n) => /T-clips' fins sit/.test(n.message));
       expect(depth <= 65 || noted, `${part.name}: the fin's top is ${depth.toFixed(1)} mm deep, unnoted`).toBe(true);
-      // Without a cap (and none of these cores is taller than a fin), the fin reaches the wall's top.
-      if (!d.solution.topCapEnabled) expect(depth, `${part.name}: the fin's top stops short of the core's top`).toBeLessThan(2);
+      // Without a cap, the fin reaches the wall's top, unless the core is taller than the tallest fin.
+      const finAtMax = finTop + SKADIS_TCLIP_RECESS_DEPTH >= SKADIS_TCLIP_FIN_MAX - 1e-3;
+      if (!d.solution.topCapEnabled && !finAtMax) expect(depth, `${part.name}: the fin's top stops short of the core's top`).toBeLessThan(2);
       column.delete();
       m.delete();
     }

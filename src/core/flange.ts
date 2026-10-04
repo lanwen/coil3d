@@ -28,15 +28,16 @@ import {
   MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT,
   MIN_FLANGE_THICKNESS_FOR_TCLIP,
   SCREW_MOUNT_RECESS_DEPTH,
-  WALL_THICKNESS,
 } from "./constants";
 import { idealChannelDepth, requiredCapClipMargin, requiredInnerEndMargin, resolveChannelDepth } from "./innerEnd";
+import { collarFootprintOffset } from "./flangePads";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
 import { requiredMountPlateMargin } from "./mountPlate";
 import { requiredSkadisMargin } from "./skadisClips";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { FlangeExtent, MountKind } from "./types";
+import { wallThickness } from "./wall";
 
 /**
  * The bore outline for a given wall outline: a TRUE inward offset by the
@@ -47,15 +48,16 @@ import type { FlangeExtent, MountKind } from "./types";
  * when the apothem floor actually bit; design.ts turns that into a "too
  * small for a wall" warning, the search doesn't need the warning text.
  */
-export function resolveBoreOutline(outline: ShapeOutline): { boreOutline: ShapeOutline; reduced: boolean } {
-  let boreApothem = outline.apothem - WALL_THICKNESS;
+export function resolveBoreOutline(outline: ShapeOutline, wireDiameter: number): { boreOutline: ShapeOutline; reduced: boolean } {
+  const wall = wallThickness(wireDiameter);
+  let boreApothem = outline.apothem - wall;
   const reduced = boreApothem < MIN_BORE_RADIUS;
   if (reduced) boreApothem = MIN_BORE_RADIUS;
   // Round's defining invariant is apothem === cornerRadius (see shapes.ts);
   // preserve it explicitly, or a tiny core would get a very-slightly-square
   // bore instead of a circle once the two floors below bite differently.
   const isRound = outline.cornerRadius === outline.apothem;
-  const boreCornerRadius = isRound ? boreApothem : Math.min(Math.max(outline.cornerRadius - WALL_THICKNESS, MIN_BORE_CORNER_RADIUS), boreApothem);
+  const boreCornerRadius = isRound ? boreApothem : Math.min(Math.max(outline.cornerRadius - wall, MIN_BORE_CORNER_RADIUS), boreApothem);
   return { boreOutline: { n: outline.n, apothem: boreApothem, cornerRadius: boreCornerRadius }, reduced };
 }
 
@@ -126,7 +128,7 @@ export function resolveFlangeSizing(
     : wantsKeyhole
     ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline, keyholeRotation))
     : wantsThrough
-      ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, flangeSizeEnvelope / 2))
+      ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, flangeSizeEnvelope / 2, collarFootprintOffset({ thickness: channelOnlyThickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, channelOnlyThickness) })))
       : mountKindForPlate
         // Issue #120: openGrid used to just take `baseMargin` here,
         // so a plate whose fixed-pitch grid needs more room than the plain

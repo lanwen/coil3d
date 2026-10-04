@@ -58,13 +58,13 @@ test("keyboard: arrow keys move the selection within the shape radiogroup", asyn
 });
 
 test("editing the corner radius for a rounded triangle updates the hash and reproduces on reload", async ({ page }) => {
-  // A large-enough locked outer size that the requested corner radius (15mm)
+  // A large-enough locked outer size that the requested corner radius (16mm)
   // isn't clamped by the bend limit (see test/design.test.ts for the
   // clamping/"became round" cases).
-  await page.goto(`/${encodeHashDoc({ shape: "tri", rc: 15, size: 60 })}`);
+  await page.goto(`/${encodeHashDoc({ shape: "tri", rc: 16, size: 60 })}`);
   await expect(page.getByTestId("shape-option-tri")).toBeChecked();
-  await expect(page.getByTestId("input-shapeCornerRadius")).toHaveValue("15");
-  await expect(page.getByTestId("corner-radius")).toHaveText("15.0 mm");
+  await expect(page.getByTestId("input-shapeCornerRadius")).toHaveValue("16");
+  await expect(page.getByTestId("corner-radius")).toHaveText("16.0 mm");
 
   const cornerInput = page.getByTestId("input-shapeCornerRadius");
   await cornerInput.fill("18");

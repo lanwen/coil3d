@@ -16,9 +16,12 @@ import { offsetPerimeter, sideLength } from "../src/core/shapes";
 // Capacity math), reimplemented independently here so these tests exercise ONLY the
 // public `design()` interface, per the testing rules in AGENTS.md.
 const WALL_THICKNESS = 3;
-const CLEARANCE = 0.3;
-const GROOVE_DEPTH_FACTOR = 0.3;
-const MARGIN = 3;
+const GROOVE_FLOOR_WALL = 1.5;
+const GROOVE_DEPTH_FACTOR = 0.4;
+const GROOVE_SLACK = 0.15;
+const RIDGE_LAND = 0.3;
+const MARGIN_BOTTOM = 0.2;
+const MARGIN_TOP_FACTOR = 0.3;
 const FLANGE_THICKNESS = 3;
 const MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT = 5; // SCREW_MOUNT_RECESS_DEPTH + SCREW_MOUNT_MIN_SHELF
 const FLANGE_MARGIN = 4;
@@ -42,13 +45,28 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   };
 }
 
+/** The teardrop groove (docs/design.md, Geometry: Groove): its depth, how far its circle reaches below its centre, and its pitch (its width at the surface plus the ridge's land). */
+function groove(wireDiameter: number) {
+  const depth = GROOVE_DEPTH_FACTOR * wireDiameter;
+  const radius = wireDiameter / 2 + GROOVE_SLACK;
+  const c = radius - depth;
+  // Below GROOVE_LIP_ANGLE (70 degrees from the axis), the lower flank runs on as a straight chamfer to the surface.
+  const a = (70 * Math.PI) / 180;
+  const lipX = c - radius * Math.cos(a);
+  const down = lipX < 0 ? radius * Math.sin(a) - lipX / Math.tan(a) : Math.sqrt(radius * radius - c * c);
+  const up = radius * Math.SQRT2 - c;
+  return { depth, down, pitch: down + up + RIDGE_LAND };
+}
+
+const wallThickness = (wireDiameter: number) => Math.max(WALL_THICKNESS, groove(wireDiameter).depth + GROOVE_FLOOR_WALL);
+
 /** Forward capacity for a single layer, matching docs/design.md, Capacity math. */
 function expectedSingleLayer(outerSize: number, height: number, wireDiameter: number) {
-  const grooveDepth = GROOVE_DEPTH_FACTOR * wireDiameter;
-  const o1 = wireDiameter / 2 - grooveDepth;
+  const { depth, down, pitch } = groove(wireDiameter);
+  const o1 = wireDiameter / 2 - depth;
   const perimeter = 2 * Math.PI * (outerSize / 2 + o1);
-  const pitch = wireDiameter + CLEARANCE;
-  const usableHeight = height - 2 * MARGIN;
+  // Layer 1's centreline climbs from the groove start until the cable's top is 0.3 of its radius below the top face.
+  const usableHeight = height - (MARGIN_BOTTOM + down) - (1 + MARGIN_TOP_FACTOR) * (wireDiameter / 2);
   const turns = Math.floor(usableHeight / pitch);
   const length = turns * Math.sqrt(perimeter * perimeter + pitch * pitch);
   return { perimeter, pitch, turns, length };
@@ -76,7 +94,7 @@ describe("design() solver (round core)", () => {
     expect(d.solution.layerResults[0].perimeter).toBeCloseTo(expected.perimeter, 6);
     expect(d.solution.totalWoundLength).toBeCloseTo(expected.length, 6);
     expect(d.solution.outerSize).toBe(outerSize);
-    expect(d.solution.innerBore).toBeCloseTo(outerSize - 2 * WALL_THICKNESS, 6);
+    expect(d.solution.innerBore).toBeCloseTo(outerSize - 2 * wallThickness(wireDiameter), 6);
     expect(d.solution.height).toBe(height);
   });
 
@@ -192,7 +210,7 @@ describe("design() solver (round core)", () => {
     const spec = baseSpec({
       wire: { length: 200, diameter: 8, type: "stiff" }, // 10x -> large minimum core, tiny target
       coreSize: { locked: false },
-      height: { locked: true, value: 15 }, // room for one turn only
+      height: { locked: true, value: 21 }, // room for one turn only
       layers: { locked: true, value: 1 },
     });
     const d = await design(spec);
@@ -257,10 +275,11 @@ describe("design() solver (round core)", () => {
   });
 
   it("warns and reduces the bore when the locked core is too small for the fixed wall thickness", async () => {
-    // A 1 mm cable: its bend limit (issue #195 raises a round core to it)
-    // still allows a core under 8 mm, too small for two 3 mm walls.
+    // A 1 mm cable bent to 3x its diameter: its bend limit (issue #195
+    // raises a round core to it) still allows a core under 8 mm, too small
+    // for two 3 mm walls.
     const spec = baseSpec({
-      wire: { length: 50, diameter: 1, type: "usb" },
+      wire: { length: 50, diameter: 1, type: "custom", customBendMultiplier: 3 },
       coreSize: { locked: true, dimension: "outer", value: 4 },
       height: { locked: true, value: 30 },
       layers: { locked: true, value: 1 },
@@ -346,20 +365,20 @@ describe("design() solver (min-volume objective and capacity range, issue #23)",
 
 describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)", () => {
   it("uses the requested corner radius as-is when it's within the bend-limit/size range", async () => {
-    // A big enough locked size that 15mm sits comfortably inside BOTH ends
-    // of `cornerRadiusRange`: above the bend-limit floor (~14.4mm for this
+    // A big enough locked size that 16mm sits comfortably inside BOTH ends
+    // of `cornerRadiusRange`: above the bend-limit floor (15.2mm for this
     // wire, size-independent) and below the useful max issue #134 adds
     // (`solve.ts`'s `usefulMaxCornerRadius`, which grows with size) --
     // unlike the old, size-independent `outerSize/2` ceiling, 60mm would no
     // longer be big enough for this (see the sibling test below).
     const spec = baseSpec({
-      shape: { kind: "sq", cornerRadius: 15 },
+      shape: { kind: "sq", cornerRadius: 16 },
       coreSize: { locked: true, dimension: "outer", value: 100 },
       height: { locked: true, value: 40 },
       layers: { locked: true, value: 1 },
     });
     const d = await design(spec);
-    expect(d.solution.cornerRadius).toBeCloseTo(15, 6);
+    expect(d.solution.cornerRadius).toBeCloseTo(16, 6);
     expect(d.warnings.some((w) => /clamp/i.test(w))).toBe(false);
   });
 
@@ -369,7 +388,7 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
   // catch exactly this well short of a literal circle.
   it("clamps a corner radius that's within the OLD outerSize/2 ceiling but beyond the useful max (issue #134)", async () => {
     const spec = baseSpec({
-      shape: { kind: "sq", cornerRadius: 15 },
+      shape: { kind: "sq", cornerRadius: 16 },
       coreSize: { locked: true, dimension: "outer", value: 60 },
       height: { locked: true, value: 40 },
       layers: { locked: true, value: 1 },
@@ -378,7 +397,7 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
     // Still well short of a literal circle (half the RESOLVED, possibly
     // size-raised, outer size).
     expect(d.solution.cornerRadius).toBeLessThan(d.solution.outerSize / 2);
-    expect(d.solution.cornerRadius).toBeLessThan(15);
+    expect(d.solution.cornerRadius).toBeLessThan(16);
     expect(d.solution.cornerRadius).toBeCloseTo(d.solution.cornerRadiusRange[1], 6);
     expect(d.warnings.some((w) => /clamped down/i.test(w))).toBe(true);
   });
@@ -434,7 +453,7 @@ describe("design() solver (rounded-square and rounded-triangle shapes, issue #6)
       layers: { locked: true, value: 1 },
     });
     const d = await design(spec);
-    expect(d.solution.innerBore).toBeCloseTo(60 - 2 * WALL_THICKNESS, 6);
+    expect(d.solution.innerBore).toBeCloseTo(60 - 2 * wallThickness(spec.wire.diameter), 6);
   });
 
   it("reports a smaller envelope for a rounded square than the round-core (bounding-circle) size at the same outer size", async () => {

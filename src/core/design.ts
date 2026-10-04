@@ -22,19 +22,18 @@
 
 import {
   CAP_THICKNESS,
-  GROOVE_DEPTH_FACTOR,
-  MARGIN,
+  MARGIN_BOTTOM,
+  MARGIN_TOP_FACTOR,
   FINAL_ROWS_PER_PITCH,
   FINAL_COLUMNS,
   FINAL_MIN_CORNER_SEGMENTS_PER_90,
   DRAFT_ROWS_PER_PITCH,
   DRAFT_COLUMNS,
   DRAFT_MIN_CORNER_SEGMENTS_PER_90,
+  RUN_IN_TURNS,
   TAPER_TURNS,
-  CLEARANCE,
   INNER_CHANNEL_MIN_SHELF,
   SCREW_MOUNT_HEAD_RADIUS,
-  WALL_THICKNESS,
 } from "./constants";
 import { buildMountPlate, buildPeg, buildSkadisClip, buildSkadisTclip, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
@@ -56,7 +55,7 @@ import { solve } from "./solve";
 import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
 import type { CoilMesh, CoilSpec, Design, Part, Resolution, Solution } from "./types";
-import { buildWall } from "./wall";
+import { buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
 import { buildCable } from "./wire";
 
 /**
@@ -157,7 +156,7 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
 /** An alternate candidate with its real flange width and overall height filled in (issue #192), from the same `planFlange` design() builds the parts from. */
 function withRealExtents(spec: CoilSpec, alt: Solution): Solution {
   const outline = makeOutline(spec.shape.kind, alt.outerSize, alt.cornerRadius);
-  const { boreOutline } = resolveBoreOutline(outline);
+  const { boreOutline } = resolveBoreOutline(outline, spec.wire.diameter);
   const { sizing, thickness } = planFlange(spec, alt, outline, boreOutline);
   return { ...alt, flangeExtent: flangeExtentOf(outline, sizing.margin), overallHeight: overallHeightOf(thickness, alt.height, alt.topCapEnabled) };
 }
@@ -189,13 +188,13 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // `resolveBoreOutline` for the floor/invariant rationale; factored out
   // there so solve.ts's search can share the exact same derivation (issue
   // #63).
-  const { boreOutline, reduced: boreReduced } = resolveBoreOutline(outline);
+  const { boreOutline, reduced: boreReduced } = resolveBoreOutline(outline, spec.wire.diameter);
   if (boreReduced) {
-    note(`Core size ${solution.outerSize.toFixed(1)} mm is too small for a ${WALL_THICKNESS} mm wall; the bore has been reduced.`);
+    note(`Core size ${solution.outerSize.toFixed(1)} mm is too small for a ${Number(wallThickness(spec.wire.diameter).toFixed(1))} mm wall; the bore has been reduced.`);
   }
 
   const wireDiameter = spec.wire.diameter;
-  const grooveDepth = GROOVE_DEPTH_FACTOR * wireDiameter;
+  const groove = grooveShape(wireDiameter);
   const layer1Turns = solution.layerResults[0]?.turns ?? 0;
 
   const wallSpec = {
@@ -203,11 +202,13 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     boreOutline,
     height: solution.height,
     wireDiameter,
-    clearance: CLEARANCE,
-    grooveDepth,
-    marginBottom: MARGIN,
-    marginTop: MARGIN,
+    pitch: groove.pitch,
+    grooveRadius: groove.radius,
+    grooveDepth: groove.depth,
+    marginBottom: MARGIN_BOTTOM,
+    marginTop: (MARGIN_TOP_FACTOR * wireDiameter) / 2,
     taperTurns: TAPER_TURNS,
+    runInTurns: RUN_IN_TURNS,
     turns: layer1Turns,
     columns,
     minCornerSegments: cornerSegs,
@@ -385,6 +386,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const wall = buildWall(wallSpec);
   const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint, innerEndCut, mountPlateCut);
+  coreMesh.fadeTriangles = grooveFadeTriangles(coreMesh, wallSpec);
 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
 
