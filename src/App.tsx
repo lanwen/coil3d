@@ -5,6 +5,7 @@ import { useDesignPreview } from "./geometry/useDesignPreview";
 import { ControlsForm } from "./components/ControlsForm";
 import { ResultPanel } from "./components/ResultPanel";
 import { CoilViewer } from "./viewer/CoilViewer";
+import { ViewerBoundary, ViewerUnavailable } from "./viewer/ViewerBoundary";
 import { ProjectionToggle } from "./viewer/ViewControls";
 import type { Projection } from "./viewer/lineArt/LineArtRenderer";
 import { EyeToggle } from "./components/fields";
@@ -195,28 +196,30 @@ export default function App() {
         <div className="viewer">
           {result && (
             <>
-              <CoilViewer
-                parts={result.parts}
-                resolution={result.resolution}
-                wirePaths={result.wirePaths}
-                innerEndLeadIn={result.innerEndLeadIn}
-                layerTransitions={result.layerTransitions}
-                outerEndLeadOut={result.outerEndLeadOut}
-                cablePath={result.cablePath}
-                wireDiameter={result.spec.wire.diameter}
-                showWire={showWire}
-                exploded={exploded}
-                mountAxisDeg={result.mountAxisDeg}
-                envelopeWidth={result.solution.flangeExtent?.acrossFlats ?? result.solution.flangeSize}
-                overallHeight={result.solution.overallHeight}
-                showDimensions={showDimensions}
-                shapeKind={result.spec.shape.kind}
-                bed={result.spec.print}
-                onPrintLayoutActiveChange={setIsPrintLayout}
-                mountKind={result.spec.mount}
-                pegboard={result.pegboard}
-                projection={projection}
-              />
+              <ViewerBoundary fallback={<ViewerUnavailable />}>
+                <CoilViewer
+                  parts={result.parts}
+                  resolution={result.resolution}
+                  wirePaths={result.wirePaths}
+                  innerEndLeadIn={result.innerEndLeadIn}
+                  layerTransitions={result.layerTransitions}
+                  outerEndLeadOut={result.outerEndLeadOut}
+                  cablePath={result.cablePath}
+                  wireDiameter={result.spec.wire.diameter}
+                  showWire={showWire}
+                  exploded={exploded}
+                  mountAxisDeg={result.mountAxisDeg}
+                  envelopeWidth={result.solution.flangeExtent?.acrossFlats ?? result.solution.flangeSize}
+                  overallHeight={result.solution.overallHeight}
+                  showDimensions={showDimensions}
+                  shapeKind={result.spec.shape.kind}
+                  bed={result.spec.print}
+                  onPrintLayoutActiveChange={setIsPrintLayout}
+                  mountKind={result.spec.mount}
+                  pegboard={result.pegboard}
+                  projection={projection}
+                />
+              </ViewerBoundary>
               {/* The viewport toggles (issue #145): overlaid on the canvas's
                   corners on desktop (the wrapper is `display: contents`
                   there), one strip under the canvas on a phone -- see

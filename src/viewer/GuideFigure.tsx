@@ -5,6 +5,7 @@ import type { Part, WireLayerPath } from "../core";
 import { CoilScene } from "./CoilScene";
 import { kickInvalidate } from "./lineArt/LineArtRenderer";
 import type { PresetId } from "./lineArt/presets";
+import { ViewerBoundary, useThrowOnContextLoss } from "./ViewerBoundary";
 
 // How far outside the viewport a figure starts rendering, so one that is
 // about to scroll in is already drawn when it arrives.
@@ -73,11 +74,26 @@ export function GuideFigure({ parts, wirePaths, wireDiameter, showWire = false, 
   // resize clears the picture (and redraws it, if the loop is on).
   return (
     <div ref={frameRef} className={className ?? "guide-figure"} data-testid={testId} data-rendered="false">
-      <Canvas flat frameloop="never" resize={{ scroll: false }} gl={{ alpha: true, antialias: false, preserveDrawingBuffer: true }} style={{ width: "100%", height: "100%", background: "transparent" }}>
-        <RenderGate frameRef={frameRef} />
-        <CoilScene parts={parts} wirePaths={wirePaths} wireDiameter={wireDiameter} showWire={showWire} exploded={exploded} preset={preset} fill={fill} controlsRef={controlsRef} />
-      </Canvas>
+      <ViewerBoundary fallback={<p className="guide-figure-unavailable">Illustration unavailable in this browser.</p>}>
+        <GuideCanvas frameRef={frameRef} parts={parts} wirePaths={wirePaths} wireDiameter={wireDiameter} showWire={showWire} exploded={exploded} preset={preset} fill={fill} controlsRef={controlsRef} />
+      </ViewerBoundary>
     </div>
+  );
+}
+
+interface GuideCanvasProps extends Pick<GuideFigureProps, "parts" | "wirePaths" | "wireDiameter" | "showWire" | "exploded" | "preset" | "fill"> {
+  frameRef: React.RefObject<HTMLDivElement | null>;
+  controlsRef: React.RefObject<OrbitControlsImpl | null>;
+}
+
+/** The canvas of one figure, apart from its frame so a `ViewerBoundary` can swap it for a note if WebGL fails. */
+function GuideCanvas({ frameRef, parts, wirePaths, wireDiameter, showWire, exploded, preset, fill, controlsRef }: GuideCanvasProps) {
+  const onCanvasCreated = useThrowOnContextLoss();
+  return (
+    <Canvas flat frameloop="never" onCreated={onCanvasCreated} resize={{ scroll: false }} gl={{ alpha: true, antialias: false, preserveDrawingBuffer: true }} style={{ width: "100%", height: "100%", background: "transparent" }}>
+      <RenderGate frameRef={frameRef} />
+      <CoilScene parts={parts} wirePaths={wirePaths} wireDiameter={wireDiameter} showWire={showWire} exploded={exploded} preset={preset} fill={fill} controlsRef={controlsRef} />
+    </Canvas>
   );
 }
 
