@@ -48,7 +48,7 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     expect(d.solution.totalWoundLength).toBeCloseTo(2100.339882796659, 6);
     expect(d.solution.totalWireLength).toBeCloseTo(2100.339882796659, 6);
     expect(d.solution.envelopeDiameter).toBeCloseTo(64.56, 9);
-    expect(d.solution.flangeSize).toBeCloseTo(72.56, 9);
+    expect(d.solution.flangeSize).toBeCloseTo(67.56, 9); // issue #239: the envelope plus a 1.5 mm lip each side (was 4)
     expect(d.solution.minOuterSizeForBend).toBeCloseTo(29.64, 9);
 
     // Vertex/triangle counts are NOT pinned here: the raw wall mesh (before
@@ -119,6 +119,10 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // Issue #241 bumped it DOWN from 34726.67926875156 (by 48.48 mm^3): the rim cable slot, a keyhole cut through
     // the 3 mm plate (a 4 mm seat, a 3.5 mm neck and its lead-in through the rim chamfer), and the pads reaching
     // 0.25 mm below the rim chamfer's foot (fuzz case 1097). The margin is unchanged (the inner end sets it).
-    expect(meshVolume(d.mesh)).toBeCloseTo(34678.197056711804, 3);
+    //
+    // Issue #239 bumped it UP from 34678.197056711804 (by 421.63 mm^3): the inner end's clip keeps 1.5 mm of flange to
+    // the rim instead of 1 mm (the rim chamfer plus half a millimetre), and the inner end sets this margin, so it grows
+    // by 0.5 mm all round.
+    expect(meshVolume(d.mesh)).toBeCloseTo(35099.827662282645, 3);
   });
 });

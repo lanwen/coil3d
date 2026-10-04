@@ -21,8 +21,9 @@ import {
   SCREW_MOUNT_SHANK_DIAMETER,
   SCREW_MOUNT_SLOT_DEPTH,
   SCREW_MOUNT_UNDERCUT_DEPTH,
+  THROUGH_MOUNT_EDGE_MARGIN,
 } from "../src/core/constants";
-import { layoutKeyholeMount, layoutThroughHoleMount, requiredFlangeMargin, requiredThroughMountMargin } from "../src/core/mount";
+import { distanceToClosedPolygon, layoutKeyholeMount, layoutThroughHoleMount, requiredFlangeMargin, requiredThroughMountMargin } from "../src/core/mount";
 import { layoutInnerEnd } from "../src/core/innerEnd";
 import { layoutFlangeThroughHoles } from "../src/core/flangePads";
 import { makeOutline, offsetOutline, radiusAtAngle } from "../src/core/shapes";
@@ -377,7 +378,7 @@ describe("through-hole mount layout (issue #70)", () => {
     expect(layout.holes).toHaveLength(4);
   });
 
-  it("skips (and warns about) a corner too close to the inner-end cable channel, rather than cutting through it", () => {
+  it("turns a corner's hole round its corner to clear the inner-end cable channel, and skips (and warns about) it only when that can't (issue #239)", () => {
     const outline = makeOutline("sq", 100, 15);
     const boreOutline = makeOutline("sq", 88, 12);
     const margin = requiredThroughMountMargin(outline, boreOutline, DEFAULT_THROUGH_HOLE_DIAMETER) + 1;
@@ -387,18 +388,27 @@ describe("through-hole mount layout (issue #70)", () => {
     const clear = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
     expect(clear.holes).toHaveLength(4);
     const corner0Hole = clear.holes[0];
+    expect(Math.atan2(corner0Hole.y, corner0Hole.x)).toBeCloseTo(0, 9);
 
-    // A channel footprint placed EXACTLY there, comfortably within the
-    // required clearance.
     const square = (c: { x: number; y: number }, half: number) => [
       { x: c.x - half, y: c.y - half },
       { x: c.x + half, y: c.y - half },
       { x: c.x + half, y: c.y + half },
       { x: c.x - half, y: c.y + half },
     ];
-    const collidingChannel = { channelRibbon: square(corner0Hole, 2) };
-    const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, collidingChannel);
-    expect(layout.holes.length).toBe(3); // corner 0 skipped, the other 3 corners keep their own holes
+    // A small channel footprint right there: the hole turns round the corner, clear of it.
+    const small = square(corner0Hole, 1);
+    const nudged = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, { channelRibbon: small });
+    expect(nudged.holes.length).toBe(4);
+    expect(nudged.warning).toBeUndefined();
+    const moved = nudged.holes[0];
+    expect(Math.abs(Math.atan2(moved.y, moved.x))).toBeGreaterThan(0.01);
+    expect(distanceToClosedPolygon(moved.x, moved.y, small)).toBeGreaterThanOrEqual(nudged.holeRadius + THROUGH_MOUNT_EDGE_MARGIN - 1e-9);
+
+    // One covering the whole corner: corner 0 is skipped, the other 3 corners keep their own holes.
+    const big = square(corner0Hole, 20);
+    const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, { channelRibbon: big });
+    expect(layout.holes.length).toBe(3);
     expect(layout.warning).toMatch(/skipped/i);
     for (const h of layout.holes) {
       expect(Math.hypot(h.x - corner0Hole.x, h.y - corner0Hole.y)).toBeGreaterThan(layout.holeRadius);
@@ -459,13 +469,12 @@ describe("through-hole mount mesh (issue #70): manifold, single-piece, across sh
 // which is NOT the same boundary (the flange's inner annulus, bore to the
 // wall's own surface, sits directly below the solid wall tube and is not a
 // safe place to cut -- see mount.ts's own `slotAt`/`holeAt` doc comments).
-// Through-holes additionally stay >= 2mm outside the wound cable's own
-// envelope, so they're genuinely reachable with a screwdriver. Checked
+// (Issue #239: through-holes may sit under the winding now, countersunk.) Checked
 // through design() itself (the real, resolved geometry), across round/sq/tri,
 // a range of sizes, and (for the keyhole) both rotations -- if a design run
 // warns that the mount was skipped as too narrow, THAT is the "clear warning,
 // no unsafe geometry" outcome this test accepts in place of a placed slot.
-describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge, the wall's own outer surface, and (through-holes) the cable envelope", () => {
+describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge and the wall's own outer surface", () => {
   const MIN_CLEARANCE = 2; // mm -- independent of SCREW_MOUNT_EDGE_MARGIN/THROUGH_MOUNT_EDGE_MARGIN's own value, a real external requirement
   const SHAPES: Array<{ label: string; shape: CoilSpec["shape"] }> = [
     { label: "round", shape: { kind: "round" } },
@@ -502,7 +511,6 @@ describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge, t
         if (d.warnings.some((w) => /too narrow/i.test(w))) return;
         const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
         const innerEndLayout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius);
-        const envelopeRadius = d.flangeSpec.envelopeRadius ?? 0;
         const layout = layoutFlangeThroughHoles(d.flangeSpec, innerEndLayout);
         expect(layout.holes.length).toBeGreaterThan(0);
         const flangeOutline = offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin);
@@ -512,7 +520,6 @@ describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge, t
           const wallR = radiusAtAngle(d.flangeSpec.outline, phi);
           const flangeR = radiusAtAngle(flangeOutline, phi);
           expect(r - layout.holeRadius - wallR).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
-          expect(r - layout.holeRadius - envelopeRadius).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6); // reachable with a screwdriver, outside the wound cable
           expect(flangeR - (r + layout.holeRadius)).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
         }
       });

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { design, parseHash } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
 import { FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PEG_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core/constants";
-import { layoutKeyholeMount } from "../src/core/mount";
+import { layoutKeyholeMount, throughHoleCountersink } from "../src/core/mount";
 import { layoutFlangeThroughHoles } from "../src/core/flangePads";
 import { mountPlateLayoutFor, pegHoleRadius } from "../src/core/mountPlate";
 import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
@@ -76,11 +76,12 @@ describe("thin bottom flange (issue #122)", () => {
       // Most of the flange is the thin plate (on main it was all full thickness). Issue #222: this includes the
       // rim under the SKÅDIS clips' jaws, which no longer have a pad.
       expect(thin.length).toBeGreaterThan(spans.length * 0.5);
+      expect(spans.filter((s) => s.length === 0).length, "at most a few points in a cut").toBeLessThanOrEqual(8);
       // The thin plate lies on the wall face: z = -thickness, the same plane as every pad.
       for (const s of thin) expect(s[0][0]).toBeCloseTo(-T, 3);
-      // Nothing sticks out past either face: the wall face at -thickness, the winding face at 0.
-      for (const s of spans) {
-        expect(s.length).toBeGreaterThan(0);
+      // Nothing sticks out past either face: the wall face at -thickness, the winding face at 0. (A point may fall in a
+      // cut through the flange: issue #239's through-holes sit nearer the core, at mid-margin on a slim flange.)
+      for (const s of spans.filter((s) => s.length > 0)) {
         expect(s[0][0]).toBeGreaterThanOrEqual(-T - 1e-3);
         expect(s[s.length - 1][1]).toBeLessThanOrEqual(1e-3);
       }
@@ -164,7 +165,7 @@ describe("thin bottom flange (issue #122)", () => {
   // guard: pre-#129, the ring just outside `holeRadius` sat inside the
   // counterbore's own wider radius and was cut away (void) down to a thin
   // shelf near the wall face instead of being solid, plain-thickness plate.
-  it("cuts a plain, constant-radius through-hole with no counterbore -- the flange stays the plain plate thickness right at the hole's own edge", async () => {
+  it("cuts a constant-radius through-hole with no counterbore, countersunk on the winding face (issue #239)", async () => {
     const through = await design(DESIGNS[2].spec, "draft");
     const none = await design({ ...DESIGNS[2].spec, mount: "none" }, "draft");
     // No thickness bump any more: exactly as thick as with no mount at all.
@@ -188,17 +189,26 @@ describe("thin bottom flange (issue #122)", () => {
           expect(flangeSpans(through, x, y)).toHaveLength(0);
         }
       }
-      // Just outside the hole (well inside the pre-#129 counterbore's own
-      // extra 1.5 mm margin): ordinary, full-thickness plate, flush with
-      // the wall face -- no step, no shelf.
+      // Just outside the hole: solid down to the wall face, flush with it -- no step, no shelf there (the pre-#129
+      // counterbore was cut from that face). Issue #239: on the winding face, the 90 degree countersink: 0.3 mm out
+      // from the hole, 0.3 mm below the plate's top; and past its rim, the plain plate.
+      const plate = f.plateThickness ?? f.thickness;
+      const sink = throughHoleCountersink(layout.holeRadius, plate);
+      expect(sink.depth).toBeGreaterThan(1);
+      const inward = Math.atan2(-hole.y, -hole.x);
       for (const angleDeg of [0, 90, 180, 270]) {
         const a = (angleDeg * Math.PI) / 180;
-        const x = hole.x + (layout.holeRadius + 0.3) * Math.cos(a);
-        const y = hole.y + (layout.holeRadius + 0.3) * Math.sin(a);
-        const s = flangeSpans(through, x, y);
-        expect(s).toHaveLength(1);
-        expect(s[0][0]).toBeCloseTo(-f.thickness, 3);
-        expect(s[0][1] - s[0][0]).toBeCloseTo(f.plateThickness ?? f.thickness, 3);
+        // Past the countersink's rim only toward the core: the hole's rim side ends in the rim chamfer there.
+        for (const [r, height, at] of [
+          [layout.holeRadius + 0.3, plate - sink.depth + 0.3, a],
+          [sink.radius + 0.3, plate, inward],
+        ]) {
+          const s = flangeSpans(through, hole.x + r * Math.cos(at), hole.y + r * Math.sin(at));
+          expect(s).toHaveLength(1);
+          expect(s[0][0]).toBeCloseTo(-f.thickness, 3);
+          // The countersink is a 32-sided cone, within 0.05 mm of the round one.
+          expect(Math.abs(s[0][1] - s[0][0] - height)).toBeLessThan(0.05);
+        }
       }
     }
   });

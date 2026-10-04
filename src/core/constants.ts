@@ -21,8 +21,12 @@ export const MARGIN_TOP_FACTOR = 0.3;
 export const TAPER_TURNS = 0.15;
 /** The groove runs on this many turns before layer 1's start, level with it, fading out, so it has its full depth where the first turn starts. */
 export const RUN_IN_TURNS = 0.1;
-/** Flange outer radius = solved envelope radius + this margin. */
-export const FLANGE_MARGIN = 4; // mm
+/**
+ * Flange (and cap) outer edge = the wound cable's outer surface + this lip (issue #239: it was 4 mm). The rim is
+ * chamfered EDGE_CHAMFER at 45 degrees on both faces, so this keeps half a millimetre of flat face beyond the
+ * outermost turn: the cable rests on the face, not on the chamfer.
+ */
+export const FLANGE_MARGIN = 1.5; // mm
 export const FLANGE_THICKNESS = 3; // mm
 /** Issue #229: the 45 degree chamfer on the outer perimeter edges of the flange and the cap, on both faces (edgeChamfer.ts). Leaves a 1 mm vertical land on the thinnest, 3 mm plate. */
 export const EDGE_CHAMFER = 1; // mm
@@ -198,8 +202,8 @@ export const CABLE_CLIP_MIN_LENGTH = 5; // mm
 export const CABLE_CLIP_DEPTH_SLACK = 0.25; // mm
 /** The lips start and end square (the cable presses in from above, so it needs no lead-in chamfer, and a square lip end reads cleanly in the line art); this hairline ramp only keeps two cross-sections from sharing one station. */
 export const CABLE_CLIP_ENTRY = 0.05; // mm
-/** Part material kept on each side of the clip's bore (the lips' own root), mm: the flange clip ends this far (plus the bore radius) short of the rim. */
-export const CABLE_CLIP_WALL = 1; // mm
+/** Part material kept on each side of the clip's bore (the lips' own root), mm: the flange clip ends this far (plus the bore radius) short of the rim. Issue #239: the rim chamfer (EDGE_CHAMFER) plus half a millimetre of flat face, so the chamfer never trims the outer lip's lead-in once the inner end sets a slim margin (it left a sliver the line art drew as a dark blob). */
+export const CABLE_CLIP_WALL = 1.5; // mm
 /** Cap end: with the last layer ending at the top, the outer end runs up to the cap at least this far clear of the wall, mm (its centre a radius plus this out). */
 export const CAP_LEAD_OUT_WALL_GAP = 0.3; // mm
 /** Cap end: the cable runs this far below the cap plate's underside (its top would otherwise sit exactly on that face, which the line art draws as a dashed seam). */
@@ -208,8 +212,8 @@ export const CAP_CABLE_DROP = 0.1; // mm
 // top cap at the rim. The neck is narrower than the cable by CABLE_BASE_CLIP_INTERFERENCE, like the base clip.
 /** Length of the rim slot's neck, from where it leaves the seat to the foot of the rim chamfer, mm (then a 45 degree lead-in to the rim). */
 export const RIM_SLOT_NECK = 1; // mm
-/** The base rim slot keeps this much plain plate between its seat and the collar pad under the wall, mm. */
-export const RIM_SLOT_COLLAR_GAP = 0.4; // mm
+/** The base rim slot keeps this much flange between its seat and the wall, mm (issue #239: like the inner-end channel's INNER_CHANNEL_WALL_SKIN; it may cut through the collar pad beside the wall). */
+export const RIM_SLOT_WALL_GAP = 0.4; // mm
 /** The base rim slot keeps this much flange between itself and the inner-end channel, the mount's cuts and the pads, mm. */
 export const RIM_SLOT_KEEP_OUT = 1; // mm
 /** The cap rim slot keeps this much plate between itself and the engraved label, mm. */
@@ -455,8 +459,12 @@ export const DEFAULT_THROUGH_HOLE_DIAMETER = 4.5; // mm: shank clearance for a c
 export const THROUGH_MOUNT_EDGE_MARGIN = 2; // mm
 /** Issue #229: the screw head's bearing ring keeps to the flat top of the plate, so the hole sits this far in from the flange's outer edge: the edge margin, past the rim's chamfer. */
 export const THROUGH_MOUNT_RIM_MARGIN = THROUGH_MOUNT_EDGE_MARGIN + EDGE_CHAMFER; // mm
-/** Minimum clearance kept between a through-hole and the wound cable's outer envelope, so the hole is genuinely reachable with a screwdriver from outside the winding (issue #70 AC). */
-export const THROUGH_MOUNT_ENVELOPE_MARGIN = 2; // mm
+/** Issue #239: a square's or triangle's corner hole may turn this far round its corner (degrees) to clear the inner-end channel's pad. */
+export const THROUGH_MOUNT_CORNER_NUDGE_DEG = 20;
+/** Issue #239: a through-hole that doesn't clear the inner-end channel or a pad as close to the core as it could sit moves outward in steps this long, mm. */
+export const THROUGH_MOUNT_SLIDE_STEP = 0.25; // mm
+/** Issue #239: the through-hole's countersink keeps at least this much plain bore below it, mm. */
+export const THROUGH_MOUNT_COUNTERSINK_LAND = 1; // mm
 /** Issue #139: the screw head (the hole plus its THROUGH_MOUNT_EDGE_MARGIN bearing ring) keeps at least this much plain plate between it and any flange pad's footprint, mm. */
 export const THROUGH_MOUNT_PAD_CLEARANCE = 0.5; // mm
 /** Evenly-spaced hole counts tried on a round flange, widest first (issue #70 AC: "evenly spaced (3 or 4) on round"). */

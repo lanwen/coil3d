@@ -198,7 +198,9 @@ function checkInnerEnd(d: Design, label: string) {
     // Issue: the base clip's own opening, a few percent under the cable, with
     // a short vertical land above the bore and a 45 degree funnel above that.
     const fraction = baseClipOpeningFraction(d.spec.wire.diameter, d.spec.tolerance);
-    const edge = zChannel + Math.sqrt(R * R - (fraction * R) ** 2);
+    // From the cable's own height there: the lips may start while it settles the last CABLE_CLIP_DEPTH_SLACK into
+    // the channel, which a slim flange (issue #239) puts under the clip's middle.
+    const edge = sample(lead, best).z + Math.sqrt(R * R - (fraction * R) ** 2);
     const opening = gapAt(inClip, edge + CABLE_BASE_CLIP_LAND / 2);
     expectNear(opening.right - opening.left, 2 * fraction * R, `${label}: clip opening`);
     expect(opening.right - opening.left, `${label}: the cable has to snap in`).toBeLessThan(d.spec.wire.diameter);

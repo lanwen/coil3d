@@ -110,7 +110,7 @@ export function resolveFlangeSizing(
   // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
   // (the offset term is additive, see shapes.ts), so this is the wound
   // envelope (`flangeSizeEnvelope` less FLANGE_MARGIN all round) as an offset
-  // outside the core's outline. Issue #239: the flange must cover the drawn
+  // outside the core's outline. The flange must cover the drawn
   // cable as it really runs, which can reach further out (`woundReachOffset`).
   const envelopeOffset = woundReachOffset(flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0), wireDiameter, leadIn.woundLayers ?? 1, leadIn.topCap ?? false);
   const baseMargin = Math.max(FLANGE_MARGIN, envelopeOffset + FLANGE_MARGIN);
@@ -121,7 +121,7 @@ export function resolveFlangeSizing(
     : wantsKeyhole
     ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline, keyholeRotation))
     : wantsThrough
-      ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, flangeSizeEnvelope / 2, collarFootprintOffset({ thickness: channelOnlyThickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, channelOnlyThickness) })))
+      ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, collarFootprintOffset({ thickness: channelOnlyThickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, channelOnlyThickness) })))
       : mountKindForPlate
         // Issue #120: openGrid used to just take `baseMargin` here,
         // so a plate whose fixed-pitch grid needs more room than the plain

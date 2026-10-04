@@ -68,13 +68,12 @@ import {
   CABLE_SWEEP_STEP,
   CAP_CABLE_DROP,
   EDGE_CHAMFER,
-  FLANGE_PAD_COLLAR,
   INNER_CHANNEL_DEPTH_FACTOR,
   INNER_CHANNEL_MIN_SHELF,
   INNER_CHANNEL_WALL_SKIN,
   MARGIN_BOTTOM,
-  RIM_SLOT_COLLAR_GAP,
   RIM_SLOT_NECK,
+  RIM_SLOT_WALL_GAP,
   RIM_SLOT_SEAT_SEGMENTS,
 } from "./constants";
 import { offsetPerimeter, outlineOffsetAt, pointAt, sideLength } from "./shapes";
@@ -759,10 +758,10 @@ export function rimSlotSeatOffset(margin: number, wireDiameter: number, toleranc
   return margin - EDGE_CHAMFER - rimSlotSection(wireDiameter, tolerance).neckEnd;
 }
 
-/** The narrowest margin whose base slot keeps RIM_SLOT_COLLAR_GAP of plate between its seat and the collar pad under the wall. */
+/** The narrowest margin whose base slot keeps RIM_SLOT_WALL_GAP of flange between its seat and the wall. */
 export function requiredRimSlotMargin(wireDiameter: number, tolerance: number): number {
   const { R, neckEnd } = rimSlotSection(wireDiameter, tolerance);
-  return FLANGE_PAD_COLLAR + RIM_SLOT_COLLAR_GAP + R + neckEnd + EDGE_CHAMFER;
+  return RIM_SLOT_WALL_GAP + R + neckEnd + EDGE_CHAMFER;
 }
 
 /** The slot with its seat at outline parameter `u`. */

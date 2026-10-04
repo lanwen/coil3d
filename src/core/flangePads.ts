@@ -50,7 +50,6 @@ export interface PaddedFlange {
   mount: MountKind;
   keyholeRotation?: number;
   throughHoleDiameter?: number;
-  envelopeRadius?: number;
 }
 
 /** The plate's top face (z): the pads rise from here to z = 0. Undefined when the plate is (nearly) full thickness, so there's nothing to relieve. */
@@ -400,7 +399,6 @@ export function layoutFlangeThroughHoles(flange: PaddedFlange, innerEnd: InnerEn
     flange.margin,
     flange.throughHoleDiameter ?? DEFAULT_THROUGH_HOLE_DIAMETER,
     { channelRibbon: innerEnd?.channelRibbon ?? [], pads },
-    flange.envelopeRadius ?? 0,
     collarFootprintOffset(flange),
   );
 }

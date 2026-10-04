@@ -243,7 +243,8 @@ describe("label letter floors bridge at most 2 mm (issue #176)", () => {
     // Issue #241: this two-layer cap now covers the outer end's climb outside the second layer instead of the clips.
     expect(await maxChars(LARGE_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(13);
     expect(await maxChars(LARGE_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(22);
-    expect(await maxChars(SMALL_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(5);
+    // Issue #239: a 1.5 mm lip past the wound cable; the small cap's width follows the winding, and it gained a letter.
+    expect(await maxChars(SMALL_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(6);
   });
 });
 

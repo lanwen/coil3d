@@ -23,12 +23,19 @@ coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
   at every setting. Sized for a common wood screw (head about 8 mm, shank
   about 4 mm). A tolerance-checked 2 mm of flange is kept around the cut.
 - **Through holes.** Plain round holes, constant radius, with no counterbore
-  and no pad. The screw head bears on the flange's winding-side face. The
-  diameter is a setting (2.5 to 8 mm, 4.5 mm by default). Holes sit near the
-  corners of a square or triangle flange and are evenly spaced on a round one.
-  Each hole stays clear of the wound cable so a screwdriver can reach it.
-  Every screw head (the hole plus a 2 mm bearing ring) also keeps 0.5 mm of
-  plain plate between it and the thickened pads of the flange, such as the
+  and no pad. The diameter is a setting (2.5 to 8 mm, 4.5 mm by default).
+  Holes sit near the corners of a square or triangle flange and are evenly
+  spaced on a round one. Since #239 each hole sits as close to the core as it
+  fits, under the winding if that is where it falls (screw the core to the
+  wall before winding). On the winding face it has a 90-degree countersink,
+  twice the hole's width or the 2 mm bearing ring at most, keeping 1 mm of
+  plain bore below it. A countersunk screw's head then lies flush under the
+  cable. The cone faces up in the core's print orientation, so it needs no
+  support. Every screw head (the hole plus its 2 mm bearing ring) keeps
+  0.5 mm of plain plate between it and the thickened pads of the flange,
+  such as the collar under the wall and the inner-end channel pad. A corner
+  hole turns up to 20 degrees round its corner to clear the channel pad
+  before it is skipped. A round flange rotates the ring of holes to clear the
   inner-end channel pad. A round flange rotates the ring of holes to clear the
   pads. A square or triangle flange skips a corner hole that is blocked and
   warns, so a triangle with a 6-8 mm cable can end up with 2 holes. This mount

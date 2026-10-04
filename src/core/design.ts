@@ -282,14 +282,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (wantsKeyhole && thickness > channelOnlyThickness + 1e-9) {
     note(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
   }
-  // Issue #70 PR review: reuses `solution.flangeSize / 2` as the wound
-  // envelope's own radius -- mirrors flange.ts's `resolveFlangeSizing`
-  // identically (that function's own doc comment explains why this
-  // already-padded number is a safe, conservative stand-in), so the margin
-  // that got GROWN to fit and the layout that actually CUTS the holes can
-  // never disagree about where "outside the envelope" starts.
-  const envelopeRadius = solution.flangeSize / 2;
-
   const flangeSpec = {
     outline,
     boreOutline,
@@ -301,7 +293,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     mount: spec.mount,
     keyholeRotation: spec.keyholeRotation,
     throughHoleDiameter: spec.throughHoleDiameter,
-    envelopeRadius,
     skadis: skadisLayout && skadisLayout.clips.length > 0 ? skadisLayout : undefined,
     skadisTclip: tclipLayout && tclipLayout.clips.length > 0 ? tclipLayout : undefined,
   };
@@ -391,7 +382,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   // Issue #241: the base's rim slot, as near the outer end as it fits, clear
   // of the inner-end channel, the mount's cuts and every pad but the collar
-  // (its seat stays outside that by construction).
+  // (issue #239: beside the wall it may cut through that).
   const baseKeepOut: XY[][] = [
     innerEndLayout.channelRibbon,
     ...layoutFlangePads(flangeSpec, innerEndLayout, mountPlateCut?.anchors, spec.tolerance)
