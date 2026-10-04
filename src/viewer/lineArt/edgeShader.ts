@@ -36,9 +36,10 @@ import { Vector2 } from "three";
  * silhouette.
  *
  * Where the core's groove fades out (alpha 0.97), its edges turn gradually
- * shallower and would cross the crease angle in broken dashes. The creases
- * within the fade are not drawn, so each groove line ends where the groove's
- * full depth ends.
+ * shallower and would cross the crease angle in broken dashes, and its depth
+ * steps die out half way as stubs. Neither the creases nor the depth steps
+ * within the fade are drawn, so each groove line ends where the groove's full
+ * depth ends. Silhouettes and occlusions by other parts still are.
  *
  * Output: r = ink (1 on a line pixel), g = model coverage, b = fine ink (the
  * label's outline), a = 1. The thicken pass turns that into the final white
@@ -87,7 +88,7 @@ export const EdgeShader = {
     }
     // The crease between a chamfer and the plate's flat face is not drawn.
     bool chamferToFace(float a, float b) { return a + b == 1.0; }
-    // On the groove's fade (alpha 0.97). A crease within it is not drawn.
+    // On the groove's fade (alpha 0.97). A crease or depth step within it is not drawn.
     bool fadeAt(vec2 uv) { float a = texture2D(tNormal, uv).a; return a > 0.955 && a < 0.985; }
     bool quietCrease(vec2 a, vec2 b) { return fadeAt(a) && fadeAt(b); }
 
@@ -122,7 +123,10 @@ export const EdgeShader = {
         // negative, so each step marks one pixel, on the occluding surface.
         float lx = (dl + dr - 2.0 * d0) * depthRange;
         float ly = (dd + du - 2.0 * d0) * depthRange;
-        if (max(lx, ly) > depthThreshold) ink = 1.0;
+        bool f0 = fadeAt(vUv);
+        bool quietX = f0 && fadeAt(vUv - dx) && fadeAt(vUv + dx);
+        bool quietY = f0 && fadeAt(vUv - dy) && fadeAt(vUv + dy);
+        if ((lx > depthThreshold && !quietX) || (ly > depthThreshold && !quietY)) ink = 1.0;
 
         vec3 n0 = normalAt(vUv);
         float k0 = rimAt(vUv);

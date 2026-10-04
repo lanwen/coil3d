@@ -331,8 +331,8 @@ export interface CoilMesh {
   rimTriangles?: { chamfer: Uint32Array; land: Uint32Array };
   /**
    * The core's outer wall triangles where the groove fades out: its top end and its run-in before layer 1's start
-   * (wall.ts's `grooveFadeTriangles`). The viewer leaves out the creases among them: a fading groove's edges cross the
-   * crease angle along the fade and would draw as broken lines, so a groove's lines end where its full depth ends.
+   * (wall.ts's `grooveFadeTriangles`). The viewer leaves out the creases and depth steps among them: a fading groove's edges cross the
+   * crease angle along the fade and would draw as broken lines and stubs, so a groove's lines end where its full depth ends.
    */
   fadeTriangles?: Uint32Array;
 }

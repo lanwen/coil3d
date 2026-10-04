@@ -152,7 +152,7 @@ function linePixelRatio(dpr: number): number {
  * engraved label's pockets, 2 a chamfer on a plate's rim, 3 the land between a rim's two chamfers, 4 the core's wall
  * where the groove fades out. The normal+depth pass writes it to the normal target's alpha (1 for ordinary faces),
  * and the edge shader treats the kinds specially: the label gets a fine outline pen, the crease between a rim's
- * chamfer and its land is left out, and so are the creases within a groove's fade.
+ * chamfer and its land is left out, and so are the creases and depth steps within a groove's fade.
  */
 const FACE_KIND_ATTRIBUTE = "faceKind";
 const FACE_KIND_LABEL = 1;
