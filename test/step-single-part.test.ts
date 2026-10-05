@@ -53,6 +53,27 @@ describe.sequential("STEP/OCCT export: single-part designs (issue #32)", () => {
     );
   });
 
+  describe("exportDesign(design, 'step') for a bare core, base off (issue #254)", () => {
+    it.each([
+      ["round", { kind: "round" }, 30],
+      ["rounded-square", { kind: "sq", cornerRadius: 12 }, 50],
+    ] as const)(
+      "re-imports a %s core with no flange as one valid solid with volume matching the mesh",
+      async (_name, shape, size) => {
+        const spec: CoilSpec = { ...roundSpec, shape, base: "off", topCap: "off", wire: { length: 1000, diameter: 3.8, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: size } };
+        const d = await design(spec);
+        expect(d.flangeSpec.thickness).toBe(0);
+        const stepBytes = await exportDesign(d, "step");
+        const { valid, solidVolumes } = await reimportStep(stepBytes, "reimport-bare");
+        expect(valid).toBe(true);
+        expect(solidVolumes.length).toBe(1);
+        const expectedVolume = meshVolume(d.mesh);
+        expect(Math.abs(solidVolumes[0] - expectedVolume) / expectedVolume).toBeLessThan(0.02);
+      },
+      STEP_TIMEOUT_MS,
+    );
+  });
+
   describe("exportDesign(design, 'step') for a non-round shape (issue #6)", () => {
     it(
       "re-imports a rounded-square core as one valid solid with volume matching the mesh",

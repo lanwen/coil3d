@@ -258,7 +258,7 @@ function searchBlend(build: (turns: number) => { points: Float32Array; check: nu
 
 export interface CableEnds {
   /** The inner-end layout (innerEnd.ts), whose `leadIn` starts the cable. */
-  innerEnd: InnerEndLayout;
+  innerEnd?: InnerEndLayout;
   topCapEnabled: boolean;
   /** The wall's own height (the top cap's underside, assembled frame). */
   height: number;
@@ -299,15 +299,6 @@ function joinPieces(pieces: Float32Array[]): Float32Array {
   return new Float32Array(out);
 }
 
-/**
- * Build the whole drawn cable: the inner-end lead-in, every wound layer,
- * every layer-to-layer transition and the outer end (see the file header).
- *
- * `resolution` (issue #7) gates the LAYERS' sample density like the mesh's
- * own draft/final column counts. The lead-in, transitions and outer end are
- * short and always sampled finely, so their shape (and the bend check that
- * sized them) is the same at either resolution.
- */
 export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, windingQuality: number, resolution: Resolution, ends: CableEnds): WoundCable {
   const { pitch, zStart } = createWallProfile(wallSpec);
   const { outline } = wallSpec;
@@ -321,7 +312,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
   for (const result of layerResults) {
     if (result.turns <= 0) continue;
     const prev = runs.at(-1);
-    let start = 0; // layer 1 starts at the groove start, t=0
+    let start = 0;
     if (prev) {
       const prevPoints = wirePaths.at(-1)!.points;
       const u0 = prev.start + prev.turns;
@@ -354,7 +345,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
     return { wirePaths, innerEndLeadIn: new Float32Array(0), layerTransitions, outerEndLeadOut: new Float32Array(0), cablePath: new Float32Array(0), outerEndU: 0, warnings };
   }
 
-  const innerEndLeadIn = new Float32Array(ends.innerEnd.leadIn.flatMap((p) => [p.x, p.y, p.z]));
+  const innerEndLeadIn = new Float32Array((ends.innerEnd?.leadIn ?? []).flatMap((p) => [p.x, p.y, p.z]));
 
   const last = runs.at(-1)!;
   const lastPoints = wirePaths.at(-1)!.points;
@@ -365,7 +356,6 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
   let outerEndU = uEnd;
 
   if (!ends.topCapEnabled) {
-    // A free straight tail along the last turn's own tangent.
     const EPS = 1e-5;
     const a = pointAt(outline, uEnd - EPS, lastOffset);
     const b = pointAt(outline, uEnd, lastOffset);
@@ -383,13 +373,6 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
       outerEndLeadOut[i * 3 + 2] = zEnd + (tz / len) * s;
     }
   } else {
-    // To just under the cap, arriving level along the outline; from there it
-    // curves out past the rim, under the cap's rim slot (`capTailPath`, issue
-    // #241). A last layer that ends at the top just runs on at its own offset
-    // (the turn below is a pitch lower), but clear of the wall (a single
-    // layer sits half in the groove, which has faded out there); one that
-    // ends at the bottom climbs the whole height outside itself, one cable
-    // diameter further out. The plate covers both (`woundReachOffset`).
     const d = wallSpec.wireDiameter;
     const zKey = ends.height + capCableZ(d);
     const o0 = lastOffset;

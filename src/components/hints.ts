@@ -24,6 +24,8 @@ export const HINTS = {
     "This sets how tightly each layer's turns nest into the layer below it. Stacked (0) lines every turn up directly above the turn beneath it. Orthocyclic (1, the tightest packing) settles every turn into the valley between two turns below, so more cable fits in the same space.",
   options:
     "When two or more of core size, height and layers are free, more than one design holds your cable. \"Smallest\" takes up the least space; \"Even proportions\" is about as wide as it is tall. With all three free, the options differ in layer count, and picking one locks its height and layers.",
+  base:
+    "This controls whether the core stands on a flat base plate. Off gives a bare tube that prints flat on its own bottom face. A wall mount needs the base, so choosing a mount turns it on.",
   topCap:
     "This controls whether the coil gets a flat lid on top. Until you touch this switch it stays in auto mode (tagged \"auto\"), turning the cap on once there is more than one layer of cable; the switch always shows that current on/off state. Touch it and it becomes an explicit override, saved in the link -- use \"Reset to auto\" to go back.",
   joint: "This is how the top cap attaches to the core: pressed on, twisted into a bayonet lock, or snapped on with printable clips. All three are meant to be permanent, once assembled.",

@@ -82,6 +82,7 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       keyholeRotation: 0,
       throughHoleDiameter: 4.5,
       skadisLatch: true,
+      base: "on",
     };
     expect(parseHash(toHash(spec))).toEqual({ ...DESIGN, spec });
   });
@@ -261,6 +262,27 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
 
     const off: CoilSpec = { ...DEFAULT_SPEC, topCap: "off", joint: "snap" };
     expect(parseHash(toHash(off))).toEqual({ ...DESIGN, spec: off });
+  });
+
+  it("the base (issue #254) is left out at its default, and round-trips when it differs", () => {
+    expect(DEFAULT_SPEC.base).toBe("on");
+    expect(decodeDoc(toHash({ ...DEFAULT_SPEC, base: "on" }))).toEqual({ v: 2 });
+    expect(parseHash(toHash({ ...DEFAULT_SPEC, base: "on" })).spec.base).toBe("on");
+
+    const off: CoilSpec = { ...DEFAULT_SPEC, base: "off" };
+    expect(decodeDoc(toHash(off))).toEqual({ v: 2, base: "off" });
+    expect(parseHash(toHash(off))).toEqual({ ...DESIGN, spec: off });
+  });
+
+  it("base off with a mount round-trips: the spec keeps what the user chose", () => {
+    const spec: CoilSpec = { ...DEFAULT_SPEC, base: "off", mount: "keyhole", topCap: "off" };
+    const hash = toHash(spec);
+    expect(decodeDoc(hash)).toEqual({ v: 2, base: "off", mount: "keyhole", cap: "off" });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
+  });
+
+  it("falls back to defaults with a notice on an unknown base value", () => {
+    expect(parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, base: "maybe" })).toString("base64url")}`).notice).toBeDefined();
   });
 
   it("falls back to defaults with a notice on an out-of-range tolerance", () => {

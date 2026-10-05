@@ -90,7 +90,7 @@ describe("thin bottom flange (issue #122)", () => {
     it("keeps the channel flush with the face on a full-thickness pad, with its shelf below", async () => {
       const d = await design(spec, "draft");
       const T = d.flangeSpec.thickness;
-      const { from, to } = d.innerEndClip;
+      const { from, to } = d.innerEndClip!;
       const c = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
       // Straight down the cable's centre: the bore floor, then the shelf to the wall face.
       const below = flangeSpans(d, c.x, c.y);

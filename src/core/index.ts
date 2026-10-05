@@ -17,6 +17,7 @@
 // well-typed CoilSpec; they carry no behaviour of their own.
 
 export type {
+  BaseMode,
   CoilMesh,
   CoilSpec,
   CoreSizeLock,
@@ -52,6 +53,7 @@ export {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
   CAP_THICKNESS,
+  DEFAULT_BASE,
   DEFAULT_BED_SIZE,
   DEFAULT_CORNER_RADIUS,
   DEFAULT_THROUGH_HOLE_DIAMETER,

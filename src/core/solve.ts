@@ -29,9 +29,12 @@
 
 import { computeCapacity, envelopeDiameter } from "./capacity";
 import type { CapacityResult } from "./capacity";
-import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
+import { centreInEndLength, minCentreEndsHeight, minCentreEndsOuterSize } from "./centreEnds";
+import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
 import { isHeavyCable } from "./skadisClips";
 import {
+  CENTRE_CONNECTOR_PASSAGE,
+  CENTRE_GRIP_LENGTH,
   FLANGE_MARGIN,
   HEIGHT_HI,
   LAYERS_HI,
@@ -251,8 +254,24 @@ function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
   });
 }
 
+function endsLengthFor(spec: CoilSpec, g: Resolved): number {
+  if (baseEnabled(spec)) return 0;
+  return centreInEndLength(g.height, spec.wire.diameter, spec.tolerance, bendMultiplierOf(spec.wire) * spec.wire.diameter);
+}
+
 function lengthFor(spec: CoilSpec, g: Resolved): number {
-  return capacityOf(spec, spec.windingQuality, g).totalWoundLength;
+  return capacityOf(spec, spec.windingQuality, g).totalWoundLength + endsLengthFor(spec, g);
+}
+
+function resolveTopCap(spec: CoilSpec, layers: number): boolean {
+  return spec.topCap === "on" ? true : spec.topCap === "off" ? false : layers > 1 && baseEnabled(spec);
+}
+
+function centreFloors(spec: CoilSpec): { size: number; height: number } {
+  if (baseEnabled(spec)) return { size: 0, height: 0 };
+  const d = spec.wire.diameter;
+  const mbr = bendMultiplierOf(spec.wire) * d;
+  return { size: minCentreEndsOuterSize(d, spec.tolerance, mbr), height: minCentreEndsHeight(d, spec.tolerance, mbr) };
 }
 
 /**
@@ -271,31 +290,22 @@ function turnsPerLayerPenalty(cap: CapacityResult): number {
   return 1 + shortfall * shortfall;
 }
 
-/**
- * The real, mesh-matching flange margin and overall assembled height for a
- * candidate geometry (issue #63): the SAME analytic derivation design.ts
- * uses to actually BUILD the flange (flange.ts), computed here purely off
- * `g`/`cap` -- no meshing, so the search stays fast -- instead of the
- * cruder envelope-only proxy this used to lean on (the wound envelope's own
- * offset/diameter, which silently ignores the flange margin/thickness and
- * any top cap). `topCapEnabled` mirrors `finishSolution`'s own resolution
- * (`spec.topCap` overriding "layers > 1"), so a candidate with a cap scores
- * against its real, taller assembled height, not just its winding height.
- */
 function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap: CapacityResult): { margin: number; overallHeight: number } {
   const { boreOutline } = resolveBoreOutline(outline, spec.wire.diameter);
   const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSizeEnvelope = env + 2 * FLANGE_MARGIN;
-  const topCapEnabled = spec.topCap === "on" ? true : spec.topCap === "off" ? false : g.layers > 1;
+  const topCapEnabled = resolveTopCap(spec, g.layers);
+  const baseOn = baseEnabled(spec);
   const { margin, thickness } = resolveFlangeSizing(
     outline,
     boreOutline,
     flangeSizeEnvelope,
     spec.wire.diameter,
-    spec.mount,
+    baseOn ? spec.mount : "none",
     { tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * spec.wire.diameter, heavyCable: isHeavyCable(spec.wire.diameter, spec.wire.length), woundLayers: cap.layerResults.filter((r) => r.turns > 0).length, topCap: topCapEnabled },
     spec.keyholeRotation,
     spec.throughHoleDiameter,
+    baseOn,
   );
   return { margin, overallHeight: overallHeightOf(thickness, g.height, topCapEnabled) };
 }
@@ -330,7 +340,6 @@ function scoreOf(objective: Objective): (spec: CoilSpec, g: Resolved) => number 
   return objective === "minVolume" ? envelopeVolumeFor : aspectScoreFor;
 }
 
-/** Build the full Solution + extra notices from a resolved geometry (no further solving). */
 function finishSolution(
   spec: CoilSpec,
   resolved: Resolved,
@@ -345,17 +354,12 @@ function finishSolution(
   const cap = capacityOf(spec, spec.windingQuality, resolved);
   const capLo = capacityOf(spec, 0, resolved);
   const capHi = capacityOf(spec, 1, resolved);
-  const totalWireLength = cap.totalWoundLength;
-  const lengthLo = capLo.totalWoundLength;
-  const lengthHi = capHi.totalWoundLength;
+  const ends = endsLengthFor(spec, resolved);
+  const totalWireLength = cap.totalWoundLength + ends;
+  const lengthLo = capLo.totalWoundLength + ends;
+  const lengthHi = capHi.totalWoundLength + ends;
 
   const rcMin = bendCornerRadiusFloor(spec.wire);
-  // The TRUE geometric ceiling (an exact circle) -- kept separate from
-  // `rcMax` below (issue #134's tighter, "still reads as a shape" ceiling)
-  // only for the "effectively round" check just past it: that's the
-  // strictly worse, bend-limit-forced case where no corner radius at this
-  // size can avoid a circle at all, distinct from merely exceeding the
-  // cosmetic useful max.
   const rcMaxHard = resolved.outerSize / 2;
   const rcMax = spec.shape.kind === "round" ? rcMaxHard : usefulMaxCornerRadius(spec.shape.kind, resolved.outerSize, spec.wire);
   const outline = resolveOutline(spec.shape, resolved.outerSize, rcMin, spec.wire);
@@ -365,10 +369,8 @@ function finishSolution(
   const innerBore = resolved.outerSize - 2 * wall;
   const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSize = env + 2 * FLANGE_MARGIN;
-  const capsAuto = resolved.layers > 1;
-  // Issue #9: the spec's topCap override (auto|on|off) resolves against
-  // capsAuto -- "auto" just follows the automatic recommendation above.
-  const topCapEnabled = spec.topCap === "on" ? true : spec.topCap === "off" ? false : capsAuto;
+  const capsAuto = resolved.layers > 1 && baseEnabled(spec);
+  const topCapEnabled = resolveTopCap(spec, resolved.layers);
   const deltaPct = ((totalWireLength - target) / target) * 100;
 
   if (innerBore <= 0) {
@@ -377,16 +379,9 @@ function finishSolution(
   if (env > 500) {
     note(`Envelope footprint is ${env.toFixed(0)} mm -- check this fits your print bed.`);
   }
-  // An overshoot gets its own note, naming its cause (`overshootNote`).
   if (deltaPct < -10) {
     note(`Resulting capacity is ${deltaPct.toFixed(0)}% vs. the target cable length.`);
   }
-  // Capacity range too wide (issue #23): "ok" only means the CHOSEN winding
-  // quality covers the target -- a design can still leave a loose/stacked
-  // winding well short. Warn explicitly whenever the low end of the range
-  // (the worst-case winding quality, whichever end that is -- see
-  // capacityRange's own min/max ordering above) falls under the target, so
-  // this isn't silently hidden behind an "ok" status.
   const capacityLo = Math.min(lengthLo, lengthHi);
   if (capacityLo < target * (1 - CAPACITY_EPS)) {
     const pctOfTarget = (capacityLo / target) * 100;
@@ -404,10 +399,6 @@ function finishSolution(
     } else if (requested < rcMin - 1e-9) {
       note(`Corner radius clamped up to ${rcMin.toFixed(1)} mm (requested ${requested.toFixed(1)} mm) to respect the bend limit.`);
     } else if (requested > rcMax + 1e-9) {
-      // Issue #134: this is now the "still reads as a shape" ceiling, not
-      // literally half the core size -- past it, the straight flats would
-      // shrink below the same readability floor issue #54 enforces on the
-      // MINIMUM size side (see `usefulMaxCornerRadius`'s own doc comment).
       note(`Corner radius clamped down to ${rcMax.toFixed(1)} mm (the largest that still reads as a ${label}, not a circle).`);
     }
   }
@@ -501,12 +492,6 @@ function searchSizeAndHeight(
 /** A length in mm without trailing zeros ("80", "70.6"). */
 const mm = (v: number) => `${Number(v.toFixed(1))} mm`;
 
-/**
- * Why a design that holds the cable has this much room to spare (issue
- * #199). Every free dimension is already tight (issue #195), so the extra
- * comes from a lock that could shrink and still hold the cable, or, when no
- * lock can, from the smallest core this cable allows.
- */
 function overshootNote(
   spec: CoilSpec,
   g: Resolved,
@@ -540,6 +525,8 @@ function overshootNote(
     const floor =
       sizeLo <= SIZE_LO_FLOOR
         ? `the core can't be smaller than ${mm(sizeLo)}`
+        : centreFloors(spec).size >= sizeLo - 1e-6
+          ? `a bare core has to let this cable's inner end through at its ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius, which needs a core of at least ${mm(sizeLo)}`
         : spec.shape.kind === "round"
           ? `this cable's ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius needs a core of at least ${mm(sizeLo)}`
           : `this cable's bend limit needs a ${shapePlugin(spec.shape.kind).label.toLowerCase()} core of at least ${mm(sizeLo)}`;
@@ -551,8 +538,6 @@ function overshootNote(
 export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[] } {
   const { notices, problem, note } = noticeCollector();
 
-  // Cords above 15 m are rejected: cap the target and warn rather than crash
-  // (docs/design.md, Decisions: up to 15 m).
   const spec: CoilSpec =
     rawSpec.wire.length > MAX_WIRE_LENGTH ? { ...rawSpec, wire: { ...rawSpec.wire, length: MAX_WIRE_LENGTH } } : rawSpec;
   if (rawSpec.wire.length > MAX_WIRE_LENGTH) {
@@ -561,26 +546,19 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
     );
   }
 
-  // Bend limit (docs/design.md, Capacity math): MBR = multiplier * d, applied to the
-  // innermost layer. For a round core the corner radius IS the whole
-  // radius, so the bend limit becomes a hard floor on the outer size
-  // (this only bites round cores).
   const bendMultiplier = bendMultiplierOf(spec.wire);
   const mbr = bendMultiplier * spec.wire.diameter;
   const groove = grooveShape(spec.wire.diameter);
   const o1 = spec.wire.diameter / 2 - groove.depth;
   const rcMin = Math.max(0, mbr - o1);
   const minOuterSizeForBend = 2 * rcMin;
-  // Issue #54: for sq/tri, the bend limit alone can erode the straight
-  // sides well before the core is technically "effectively round" (this
-  // floor is always >= `minOuterSizeForBend`; equal for round, which has no
-  // extra shape constraint). Both a free size search and a locked size (just
-  // below) enforce it, so the solver never silently hands back a shape
-  // that's indistinguishable from round.
-  const minOuterSizeForShapeVal = minOuterSizeForShape(spec.shape, spec.wire, minOuterSizeForBend);
+  const shapeFloor = minOuterSizeForShape(spec.shape, spec.wire, minOuterSizeForBend);
+  const centre = centreFloors(spec);
+  const centreBinds = centre.size > shapeFloor + 1e-9;
+  const minOuterSizeForShapeVal = Math.max(shapeFloor, centre.size);
   const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal);
   const sizeHi = SIZE_HI;
-  const heightLo = groove.pitch - windingSpan(0, spec.wire.diameter); // room for one turn
+  const heightLo = Math.max(groove.pitch - windingSpan(0, spec.wire.diameter), centre.height);
   const heightHi = HEIGHT_HI;
   const layersLo = 1;
   const layersHi = LAYERS_HI;
@@ -595,26 +573,21 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   ];
   const freeCount = freeVars.length as 0 | 1 | 2 | 3;
 
-  // Issue #54 AC: "Clamp the size slider's minimum, or auto-raise the size
-  // with a clear warning, instead of silently degenerating to round." A
-  // locked size is the user's own explicit request, so raise it (rather than
-  // rejecting the spec outright) and say so -- mirrors how a fully-locked
-  // spec still gets its capacity warnings instead of throwing.
-  //
-  // Issue #195: a round core gets the same treatment against its own floor,
-  // the bend limit itself -- below it, layer 1 (and every step out to the
-  // next layer) would bend the cable tighter than its bend radius, under an
-  // "ok" status.
   let lockedOuterSize = spec.coreSize.locked ? toOuterSize(spec.coreSize, spec.wire.diameter) : undefined;
   if (lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - 1e-9) {
-    const why =
-      spec.shape.kind === "round"
+    const why = centreBinds
+      ? `a bare core's bore has to let the cable's inner end through at its ${mbr.toFixed(1)} mm bend radius, and pass a ${CENTRE_CONNECTOR_PASSAGE} mm connector`
+      : spec.shape.kind === "round"
         ? `this cable's ${mbr.toFixed(1)} mm bend radius needs at least that much`
         : `this cable's bend limit needs at least that much to keep the ${shapePlugin(spec.shape.kind).label.toLowerCase()} core's straight sides meaningful, or the shape would be indistinguishable from round`;
     note(`Core size raised from ${lockedOuterSize.toFixed(1)} mm to ${minOuterSizeForShapeVal.toFixed(1)} mm: ${why}.`);
     lockedOuterSize = minOuterSizeForShapeVal;
   }
-  const lockedHeight = spec.height.locked ? spec.height.value : undefined;
+  let lockedHeight = spec.height.locked ? spec.height.value : undefined;
+  if (lockedHeight !== undefined && lockedHeight < centre.height - 1e-9) {
+    note(`Height raised from ${lockedHeight.toFixed(1)} mm to ${centre.height.toFixed(1)} mm: a bare core holds the cable's inner end in a ${CENTRE_GRIP_LENGTH} mm grip, then bends it to level at its ${mbr.toFixed(1)} mm bend radius.`);
+    lockedHeight = centre.height;
+  }
   const lockedLayers = spec.layers.locked ? spec.layers.value : undefined;
 
   const target = spec.wire.length;
@@ -652,8 +625,6 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
     const deltaPct = ((computed - target) / target) * 100;
 
     if (!coversTarget(computed, target)) {
-      // bisect/solveIntegerUpTo only ever returns an undershoot when even the
-      // high bound can't reach the target (see their early-return paths).
       diagnosis = {
         freeCount,
         freeVariables: freeVars,
@@ -688,7 +659,6 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
         candidates.push({ g, length: lengthFor(spec, g) });
       }
     } else {
-      // coreSize + height free, layers locked: coarse grid over height, the tight size (and height) per sample.
       const SAMPLES = 48;
       for (let i = 0; i <= SAMPLES; i++) {
         const height = heightLo + ((heightHi - heightLo) * i) / SAMPLES;
@@ -697,9 +667,6 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
       }
     }
 
-    // Only candidates that actually cover the target are eligible: capacity
-    // must be >= target (tail >= 0), never just "close" to it either way --
-    // and, with a free layer count, only ones that need every layer.
     const feasible = candidates.filter((c) => coversTarget(c.length, target) && (!layersFree || needsEveryLayer(spec, c.g, target)));
 
     if (feasible.length === 0) {
@@ -736,11 +703,8 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
         message: `Two free dimensions: picked the "${objective}" candidate among solutions that cover the target length with the smallest overshoot. See the alternate candidate for comparison.`,
       };
 
-      // The alternate candidate is picked from the same feasible pool under
-      // the other objective -- no recursive solve() call (see the file header).
       const otherObjective: Objective = objective === "minVolume" ? "aspectRatio" : "minVolume";
       const altBest = pickBest(otherObjective);
-      // Several height samples at the size floor tighten to the same candidate.
       const sameGeometry = altBest.g.outerSize === primary.g.outerSize && altBest.g.height === primary.g.height && altBest.g.layers === primary.g.layers;
       if (!sameGeometry) {
         const altDiagnosis: Diagnosis = {
@@ -751,11 +715,6 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
       }
     }
   } else {
-    // freeCount === 3: fully under-constrained. Search a small set of
-    // representative layer counts (1..6) and return 2-3 candidates side by
-    // side: the overall objective-best pick as the primary, plus fixed
-    // layers=1 / layers=2 picks as alternates (when distinct and feasible),
-    // per the ticket's "e.g. 1 layer / 2 layers / min-volume" example.
     const objective = spec.objective;
     objectiveUsed = objective;
     const SAMPLES = 32;
@@ -790,9 +749,6 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
         message: `All three dimensions are free: picked layers=${primary.n} by the "${objective}" objective among combinations that cover the target length. Lock at least one dimension for a deterministic result.`,
       };
 
-      // Alternates: prefer named layers=1 / layers=2 candidates (distinct
-      // from the primary), falling back to the next-best-scoring layer
-      // counts if those specific ones aren't feasible or coincide with it.
       const chosenNs = new Set([primary.n]);
       const altPicks: typeof feasiblePerLayer = [];
       for (const wantN of [1, 2]) {
