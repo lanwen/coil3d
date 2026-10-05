@@ -19,13 +19,30 @@ STEP pitfalls in `docs/step-notes.md`.
   spec changes need no migration code.
 - Keep it simple, match the surrounding code, and add no speculative abstractions.
 
+## Code style
+
+- No comments in `src/`. If code seems to need one, change the code so its
+  intent is obvious: better names, small functions, named constants, types.
+  Design rationale that code can't express (print physics, PLA limits, why a
+  constant has its value) goes, briefly, into `docs/design.md`.
+- Only tool directives are allowed: `// @ts-expect-error <reason>`,
+  `/// <reference ...>`, `/* @vite-ignore */`, `/*#__PURE__*/`. `@ts-ignore` is not.
+- `test/` and `e2e/` may keep short comments explaining why a fixture or
+  threshold exists.
+- `scripts/check-no-comments.mjs` enforces this and runs in `npm run build`.
+  `scripts/comment-allowlist.txt` lists the files that still have comments. It
+  is temporary and only shrinks: when you edit a function in a listed file,
+  remove its comments, and delete a file from the list once it has none (the
+  checker fails on a listed file with no comments). New files are never listed.
+
 ## Commands
 
 ```sh
 npm install
 npm run dev                  # :5182
-npm run build                # tsc -b + vite build
+npm run build                # tsc -b + comment check + vite build
 npx tsc -b                   # typecheck
+npm run lint:comments        # no comments in src/ (see Code style)
 npm test                     # vitest: the core's public interface
 E2E_PORT=<port> npx playwright test --workers=2   # e2e; builds and previews on E2E_PORT (default 5182)
 ```
