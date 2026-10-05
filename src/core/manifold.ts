@@ -458,7 +458,6 @@ function relieveFlange(
   return track(ring.intersect(track(kept.add(padSolid))));
 }
 
-/** Fuse a bottom flange (shaped like `flange.outline`, offset out by `flange.margin`) onto the wall, cutting its own inner-end fixing (issues #8, #117: recessed channel + cable clip, always present), optionally a bayonet/snap joint feature into the top rim, then the screw-keyhole mount (issue #13) or the clip mount plate's alignment features (issue #14) if requested. */
 export async function fuseFlange(
   wall: CoilMesh,
   flange: FlangeSpec,
@@ -480,19 +479,17 @@ export async function fuseFlange(
       throw new Error(`Wall mesh is not a valid manifold: ${wallManifold.status()}`);
     }
 
-    // Issue #221: with T-clips the flange is a solid plate, its floor filling the bottom of the bore (full
-    // thickness -- the collar pad keeps it so through the relief), as the STEP backend builds it.
-    const ringManifold = flange.skadisTclip
-      ? track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, -flange.thickness, 0), flange.columns, flange.minCornerSegments))
-      : outlineRingManifold(wasm, track, flange);
+    const bare = flange.thickness <= 0;
 
-    // Laid out up front: the flange's pads (issue #122) follow the channel
-    // too, not just its cutter below.
     const innerEndLayout = innerEnd ? layoutInnerEnd(flange.outline, flange.margin, innerEnd.wireDiameter, innerEnd.tolerance, innerEnd.bendRadius, innerEnd.channelDepth) : undefined;
-    const flangeManifold = relieveFlange(wasm, track, ringManifold, flange, innerEndLayout, mountPlateCut);
-
-    let fused = track(wallManifold.add(flangeManifold));
-    // `applyCoreJointCut` already tracks its own returned manifold (like every other value it constructs) -- don't track it again here.
+    let fused = wallManifold;
+    if (!bare) {
+      const ringManifold = flange.skadisTclip
+        ? track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, -flange.thickness, 0), flange.columns, flange.minCornerSegments))
+        : outlineRingManifold(wasm, track, flange);
+      const flangeManifold = relieveFlange(wasm, track, ringManifold, flange, innerEndLayout, mountPlateCut);
+      fused = track(wallManifold.add(flangeManifold));
+    }
     if (coreJoint) fused = applyCoreJointCut(wasm, track, fused, coreJoint, flange);
 
     let status = fused.status();
@@ -500,12 +497,7 @@ export async function fuseFlange(
       throw new Error(`Fused mesh is not a valid manifold: ${status}`);
     }
 
-    // `innerEndLayout` is also what issue #70's through-hole mount checks
-    // below: the SAME real channel footprint the cutter cut, never a
-    // re-derivation.
     if (innerEnd && innerEndLayout) {
-      // `cutter` is already tracked (buildInnerEndCutter tracks every
-      // intermediate it builds internally) -- don't track it again here.
       const cutter = buildInnerEndCutter(wasm, track, flange.outline, innerEndLayout, innerEnd);
       fused = track(fused.subtract(cutter));
       status = fused.status();
@@ -527,9 +519,6 @@ export async function fuseFlange(
     }
 
     if (flange.mount === "through") {
-      // No inner-end cut was passed (only some direct/test callers ever omit
-      // it -- design.ts always provides one): then there is no channel or
-      // channel pad to keep clear of, just the collar.
       const layout = layoutFlangeThroughHoles(flange, innerEndLayout);
       for (const hole of layout.holes) {
         const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, flange.thickness, plateTopZ(flange) ?? 0, Math.min(flange.plateThickness ?? flange.thickness, flange.thickness)));
@@ -541,9 +530,6 @@ export async function fuseFlange(
       }
     }
 
-    // Issue #207: a notch through the rim at each SKÅDIS clip, its floor
-    // the flat seat the clip's bight wraps. The rim stays the plain plate
-    // there (issue #222: no pad under the jaws).
     if (flange.skadis) {
       for (const notch of flange.skadis.notches) {
         const poly: [number, number][] = notch.map((p) => [p.x, p.y]);
@@ -556,7 +542,6 @@ export async function fuseFlange(
       }
     }
 
-    // Issue #241: the rim cable slot, straight through the flange.
     if (flange.rimSlot) {
       fused = track(fused.subtract(track(rimSlotCutter(wasm, flange.rimSlot, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP))));
       status = fused.status();
@@ -565,8 +550,6 @@ export async function fuseFlange(
       }
     }
 
-    // Issues #213, #221: each T-clip's slot through the floor, and the recess its fin turns in, each a
-    // convex loft (with its 45 degree lead-in) built as the hull of its levels.
     if (flange.skadisTclip) {
       const cuts = flange.skadisTclip.cutters.flat().map((cutter) => track(wasm.Manifold.hull(cutter.levels.flatMap((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z])))));
       fused = track(fused.subtract(track(Manifold.union(cuts))));
@@ -576,11 +559,6 @@ export async function fuseFlange(
       }
     }
 
-    // Issue #14/#106: the clip mount plate's alignment pegs sit in a
-    // shallow blind hole cut into this SAME outer face (and a matching one
-    // in the plate) -- see `pinHoleCutter` and `buildMountPlate` below (the
-    // plate itself is a SEPARATE part, built by `buildMountPlate`, not
-    // fused here).
     if (mountPlateCut) {
       for (const anchor of mountPlateCut.anchors) {
         const cutter = track(pinHoleCutter(wasm, anchor, mountPlateCut.tolerance, -flange.thickness, 1));
@@ -592,8 +570,6 @@ export async function fuseFlange(
       }
     }
 
-    // Issues #180, #193: the same needle triangles in the flange's flat faces
-    // and near-coincident vertices in its grooved wall (see flatFaces.ts, weld.ts).
     const outMesh = track(fused.refineToLength(FLAT_FACE_MAX_EDGE)).getMesh();
     const mesh = improveFlatFaces(
       weldShortEdges({
@@ -602,7 +578,7 @@ export async function fuseFlange(
       }).mesh,
       { horizontalOnly: true },
     );
-    // Issue #229: the rim's chamfer, for the viewer to leave out of the drawing.
+    if (bare) return mesh;
     const zPlate = plateTopZ(flange);
     const rim = rimTriangles(mesh, flange.outline, flange.margin, zPlate === undefined ? [[-flange.thickness, 0]] : [[-flange.thickness, 0], [-flange.thickness, zPlate]]);
     return rim ? { ...mesh, rimTriangles: rim } : mesh;

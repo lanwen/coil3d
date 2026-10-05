@@ -688,3 +688,7 @@ export const MOUNT_PLATE_EMBED = 0.5; // mm
 export const MOUNT_PLATE_ANCHOR_MIN_SHELF = 1.5; // mm
 /** design.ts bumps FLANGE_THICKNESS up to (at least) this, and warns, whenever mount is "skadis"/"opengrid" -- mirrors MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT. */
 export const MIN_FLANGE_THICKNESS_FOR_PLATE = MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_ANCHOR_MIN_SHELF;
+
+export const DEFAULT_BASE = "on" as const;
+export const CENTRE_GRIP_LENGTH = 30;
+export const CENTRE_CONNECTOR_PASSAGE = 22.4;

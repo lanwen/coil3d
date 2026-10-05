@@ -17,6 +17,7 @@
 
 import {
   CAP_THICKNESS,
+  DEFAULT_BASE,
   DEFAULT_THROUGH_HOLE_DIAMETER,
   FLANGE_MARGIN,
   FLANGE_PLATE_THICKNESS,
@@ -37,8 +38,12 @@ import { requiredMountPlateMargin } from "./mountPlate";
 import { requiredSkadisMargin } from "./skadisClips";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
 import type { ShapeOutline } from "./shapes";
-import type { FlangeExtent, MountKind } from "./types";
+import type { CoilSpec, FlangeExtent, MountKind } from "./types";
 import { wallThickness } from "./wall";
+
+export function baseEnabled(spec: Pick<CoilSpec, "base" | "mount">): boolean {
+  return spec.mount !== "none" || (spec.base ?? DEFAULT_BASE) === "on";
+}
 
 /**
  * The bore outline for a given wall outline: a TRUE inward offset by the
@@ -82,79 +87,48 @@ export interface FlangeSizing {
   channelOnlyThickness: number;
 }
 
-/**
- * The flange's real margin and thickness (design.ts's own derivation,
- * factored out verbatim -- see that file's history for why each floor
- * exists): wide enough to clear `flangeSizeEnvelope`'s own naive
- * wound-envelope estimate AND whatever the requested mount needs; thick
- * enough for the inner-end channel's full depth AND whatever the requested
- * mount/plate joint needs.
- */
 export function resolveFlangeSizing(
   outline: ShapeOutline,
   boreOutline: ShapeOutline,
   flangeSizeEnvelope: number,
   wireDiameter: number,
   mount: MountKind,
-  /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`). */
   leadIn: { tolerance: number; bendRadius: number; heavyCable?: boolean; woundLayers?: number; topCap?: boolean },
-  /** Issue #71: ignored unless `mount === "keyhole"`. */
   keyholeRotation = 0,
-  /** Issue #70: ignored unless `mount === "through"`. */
   throughHoleDiameter = DEFAULT_THROUGH_HOLE_DIAMETER,
+  baseOn = true,
 ): FlangeSizing {
   const wantsKeyhole = mount === "keyhole";
   const wantsThrough = mount === "through";
   const mountKindForPlate = mount === "opengrid" ? mount : undefined;
 
-  // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
-  // (the offset term is additive, see shapes.ts), so this is the wound
-  // envelope (`flangeSizeEnvelope` less FLANGE_MARGIN all round) as an offset
-  // outside the core's outline. The flange must cover the drawn
-  // cable as it really runs, which can reach further out (`woundReachOffset`).
   const envelopeOffset = woundReachOffset(flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0), wireDiameter, leadIn.woundLayers ?? 1, leadIn.topCap ?? false);
   const baseMargin = Math.max(FLANGE_MARGIN, envelopeOffset + FLANGE_MARGIN);
   const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
   const mountMargin = mount === "skadis"
-    ? // Issue #207: the rim clips' lips must clear the wound cable (issue #222: and the collar's flare, which the lips on the plate sit beside).
-      Math.max(baseMargin, requiredSkadisMargin(outline, boreOutline, envelopeOffset, leadIn.heavyCable ?? false, channelOnlyThickness, Math.min(FLANGE_PLATE_THICKNESS, channelOnlyThickness), leadIn.tolerance))
+    ? Math.max(baseMargin, requiredSkadisMargin(outline, boreOutline, envelopeOffset, leadIn.heavyCable ?? false, channelOnlyThickness, Math.min(FLANGE_PLATE_THICKNESS, channelOnlyThickness), leadIn.tolerance))
     : wantsKeyhole
     ? Math.max(baseMargin, requiredFlangeMargin(outline, boreOutline, keyholeRotation))
     : wantsThrough
       ? Math.max(baseMargin, requiredThroughMountMargin(outline, boreOutline, throughHoleDiameter, collarFootprintOffset({ thickness: channelOnlyThickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, channelOnlyThickness) })))
       : mountKindForPlate
-        // Issue #120: openGrid used to just take `baseMargin` here,
-        // so a plate whose fixed-pitch grid needs more room than the plain
-        // wound-envelope clearance gives could be silently skipped (only a
-        // warning to notice) -- this grows the margin exactly like the
-        // other two mount kinds already do, so the plate is never dropped
-        // just because the (often solver-picked) core came out small.
         ? Math.max(baseMargin, requiredMountPlateMargin(outline, boreOutline))
         : baseMargin;
 
-  // Issue #122: the channel and the mount's cut sit on separate pads (the
-  // keyhole on the wall face, the channel on the winding face; the pin-hole
-  // layout keeps clear of the channel, and design.ts checks the keyhole), so
-  // the thickness is the deeper of the two, not their sum. Away from the
-  // pads the plate is FLANGE_PLATE_THICKNESS. Issue #129: the through-hole
-  // mount no longer needs its own thickness floor -- it's a plain,
-  // constant-radius hole with no counterbore, so it fits in the ordinary
-  // channel-driven thickness (or the plain plate, wherever the channel
-  // doesn't reach) exactly like `mount === "none"`.
   const thickness = wantsKeyhole
     ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT)
     : mountKindForPlate
       ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_PLATE)
       : mount === "skadis-tclip"
-        ? // Issues #213, #221: the bore floor under the T-clip fin's recess.
-          Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_TCLIP)
+        ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_TCLIP)
         : channelOnlyThickness;
 
-  // Issue #115: wide enough for the inner-end lead-in's straight chord to
-  // hold the clip past the end of its drop into the channel.
   const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness));
-  // Issue #241: the rim slot's seat stays clear of the collar pad under the wall.
   const rimSlotMargin = requiredRimSlotMargin(wireDiameter, leadIn.tolerance);
+  if (!baseOn) {
+    const margin = leadIn.topCap ? Math.max(baseMargin, rimSlotMargin) : 0;
+    return { margin, thickness: 0, plateThickness: 0, baseMargin, mountMargin: baseMargin, innerEndMargin: 0, rimSlotMargin, envelopeOffset, channelOnlyThickness };
+  }
   const margin = Math.max(mountMargin, innerEndMargin, rimSlotMargin);
 
   return { margin, thickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, thickness), baseMargin, mountMargin, innerEndMargin, rimSlotMargin, envelopeOffset, channelOnlyThickness };

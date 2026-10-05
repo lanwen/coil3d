@@ -276,18 +276,6 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const { wallSpec, flangeSpec } = design;
   const profile = createWallProfile(wallSpec);
   const { height, columns, minCornerSegments, outline, boreOutline } = wallSpec;
-  // Issue #85 PR review round 2: the SAME adaptive, corner-favoring sample
-  // placement the mesh backend uses (shapes.ts's `outlineColumnParams`),
-  // not a uniformly-raised NU -- a sq/tri corner arc that's a small share
-  // of the perimeter would otherwise need a MUCH bigger NU than the mesh
-  // ever does to reach the same per-corner segment floor, and OCCT's own
-  // boolean ops (the bore cut, the flange fuse) scale with NU badly enough
-  // that this blew well past a 2x build-time budget when tried (see
-  // `bspfit.ts`'s own comment on `fitPeriodicUClampedV`). `ts.length` is
-  // usually just `columns` unchanged (round always; sq/tri whenever the
-  // corner floor's own share already fits the existing budget -- only a
-  // shape needing MORE columns than the budget for its corners alone grows
-  // NU at all, exactly like the mesh backend's own `buildWall`).
   const ts = outlineColumnParams(outline, columns, minCornerSegments);
   const NU = ts.length;
 
@@ -301,19 +289,6 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   };
   const fit = fitPeriodicUClampedV(ts, NV, (i, j) => profile.point(ts[i], (j * height) / (NV - 1)), tangent(0, dz), tangent(height - dz, height));
 
-  // OCCT wants the periodic pole index shifted by NU-1 relative to the
-  // textbook (C[i-1]+4C[i]+C[i+1])/6 layout (empirically determined in an
-  // early prototype) -- applied to the POLES only, `uKnots` unchanged. Issue #85 PR
-  // review round 2 (tried and reverted): rotating `uKnots` by the same
-  // amount, reasoning a non-uniform `ts` isn't rotation-invariant the way
-  // the old plain `i / NU` was, seemed plausible but was wrong -- it paired
-  // each rotated pole with the WRONG knot span and threw the surface's own
-  // volume off by ~5%. Empirically, OCCT's own pole/knot association for a
-  // periodic surface evidently isn't "pole i sits at knot i" (which would
-  // need the rotation); leaving `uKnots` exactly as `fitPeriodicUClampedV`
-  // returns it -- unrotated, in `ts`'s own natural order -- and shifting
-  // ONLY the poles (exactly as the original, round-only code already did)
-  // is what's actually correct, uniform or not.
   const SHIFT = NU - 1;
   const poles = new kernel.NCollection_Array2_gp_Pnt(1, NU, 1, fit.nvp);
   for (let i = 0; i < NU; i++) {
@@ -345,7 +320,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const edges = new kernel.TopExp_Explorer(face, kernel.TopAbs_ShapeEnum.TopAbs_EDGE, kernel.TopAbs_ShapeEnum.TopAbs_SHAPE);
   for (; edges.More(); edges.Next()) {
     const edge = kernel.TopoDS.Edge(edges.Current());
-    if (kernel.BRep_Tool.IsClosed(edge, face)) continue; // the U seam, not a boundary
+    if (kernel.BRep_Tool.IsClosed(edge, face)) continue;
     const cap = new kernel.BRepBuilderAPI_MakeFace(new kernel.BRepBuilderAPI_MakeWire(edge).Wire(), true);
     if (!cap.IsDone()) throw new Error("STEP export: planar cap face failed");
     sewing.Add(cap.Face());
@@ -360,62 +335,40 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const bore = outlineSolid(boreOutline, height + 2, -1);
   const tube = outer.cut(bore);
 
-  // Issue #229: the outer edge is chamfered on both faces (edgeChamfer.ts).
-  const flangeOuter = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, -flangeSpec.thickness, 0));
-  const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
-  // Issue #221: with T-clips, a floor fills the bottom of the bore (manifold.ts's `fuseFlange`): the flange stays a full disc.
-  const flange = flangeSpec.skadisTclip ? flangeOuter : flangeOuter.cut(flangeInner);
+  let coreSolid = tube;
+  let innerEndCutter: ReturnType<typeof buildInnerEndCutterSolid> | undefined;
+  if (flangeSpec.thickness > 0) {
+    const flangeOuter = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, -flangeSpec.thickness, 0));
+    const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
+    const flange = flangeSpec.skadisTclip ? flangeOuter : flangeOuter.cut(flangeInner);
 
-  // Issues #8, #117: the bottom flange's own recessed channel + cable clip,
-  // mirroring manifold.ts's `buildInnerEndCutter` (same `layoutInnerEnd`
-  // call, same `resolveChannelDepth`, lofted through the SAME rings), so the
-  // mesh and STEP backends can never drift on where the channel/clip sit.
-  // Kept (not just consumed for its own cutter): issue #70's through-hole
-  // mount checks the SAME real, computed channel footprint, never a
-  // re-derivation. Cut from the flange BEFORE it's fused to the wall: the
-  // cutter is already clipped clear of the wall (so the result is the same
-  // as the mesh backend's cut of the fused core), and OCCT then never has to
-  // test the channel's many faces against the wall's big B-spline surface --
-  // cutting the fused core instead made the whole export several times slower.
-  const innerEndCutter = buildInnerEndCutterSolid(
-    flangeSpec.outline,
-    flangeSpec.margin,
-    flangeSpec.thickness,
-    resolveChannelDepth(design.spec.wire.diameter, flangeSpec.thickness),
-    design.spec.wire.diameter,
-    design.spec.tolerance,
-    bendMultiplierOf(design.spec.wire) * design.spec.wire.diameter,
-  );
-  // Issue #122: thinned to its plate away from the pads (manifold.ts's
-  // `relieveFlange`, from the same flangePads.ts layout and rings).
-  const anchors = design.parts.some((p) => p.role === "mountPlate") ? mountPlateLayoutFor(design).anchors : [];
-  const relieved = relieveFlangeSolid(kernel, flange, flangeSpec, innerEndCutter.layout, anchors, design.spec.tolerance);
-  let flangeSolid = checkedCut(kernel, relieved, innerEndCutter.cutter);
-  // Issue #207: the SKÅDIS clips' rim notches (manifold.ts's `fuseFlange`,
-  // from the same layout on the flange spec), cut from the flange before it's
-  // fused, like the channel.
-  for (const notch of flangeSpec.skadis?.notches ?? []) {
-    const loop: [number, number][] = notch.map((p) => [p.x, p.y]);
-    flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
+    innerEndCutter = buildInnerEndCutterSolid(
+      flangeSpec.outline,
+      flangeSpec.margin,
+      flangeSpec.thickness,
+      resolveChannelDepth(design.spec.wire.diameter, flangeSpec.thickness),
+      design.spec.wire.diameter,
+      design.spec.tolerance,
+      bendMultiplierOf(design.spec.wire) * design.spec.wire.diameter,
+    );
+    const anchors = design.parts.some((p) => p.role === "mountPlate") ? mountPlateLayoutFor(design).anchors : [];
+    const relieved = relieveFlangeSolid(kernel, flange, flangeSpec, innerEndCutter.layout, anchors, design.spec.tolerance);
+    let flangeSolid = checkedCut(kernel, relieved, innerEndCutter.cutter);
+    for (const notch of flangeSpec.skadis?.notches ?? []) {
+      const loop: [number, number][] = notch.map((p) => [p.x, p.y]);
+      flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
+    }
+    if (flangeSpec.rimSlot) {
+      const loop: [number, number][] = flangeSpec.rimSlot.outline.map((p) => [p.x, p.y]);
+      flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
+    }
+    for (const cutters of flangeSpec.skadisTclip?.cutters ?? []) {
+      const [first, ...rest] = cutters.map((cutter) => ruledLoft(cutter.levels.map((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z]))));
+      flangeSolid = checkedCut(kernel, flangeSolid, rest.reduce((acc, r) => acc.fuse(r), first));
+    }
+    coreSolid = tube.fuse(flangeSolid);
   }
-  // Issue #241: the rim cable slot (manifold.ts's `fuseFlange`, from the same layout on the flange spec).
-  if (flangeSpec.rimSlot) {
-    const loop: [number, number][] = flangeSpec.rimSlot.outline.map((p) => [p.x, p.y]);
-    flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
-  }
-  // Issues #213, #221: each T-clip's slot through the floor and its fin's recess, lofted through the same levels.
-  for (const cutters of flangeSpec.skadisTclip?.cutters ?? []) {
-    const [first, ...rest] = cutters.map((cutter) => ruledLoft(cutter.levels.map((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z]))));
-    flangeSolid = checkedCut(kernel, flangeSolid, rest.reduce((acc, r) => acc.fuse(r), first));
-  }
-  let coreSolid = tube.fuse(flangeSolid);
 
-  // Issue #9: bayonet/snap add their mating feature inside the core's bore
-  // under the rim; press engages the bore's existing surface directly (no
-  // core-side feature at all -- see manifold.ts's `applyCoreJointCut`, which
-  // this mirrors so the mesh and STEP backends never drift on fit).
-  // Issue #167: the same `resolveCapJoint` design.ts calls, so a bayonet or
-  // snap that falls back to press fit does so here too.
   const capJoint = resolveCapJoint(design.spec, design.wallSpec);
   if (design.solution.topCapEnabled && (capJoint.joint === "bayonet" || capJoint.joint === "snap")) {
     coreSolid = applyCoreJointCutSolid(coreSolid, {
@@ -428,9 +381,6 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     });
   }
 
-  // Issue #13: cut the same screw-keyhole mount the mesh backend cuts into
-  // the CORE part's own bottom flange (manifold.ts's fuseFlange), from the
-  // identical layout (mount.ts), so STEP and STL/preview never drift apart.
   if (design.flangeSpec.mount === "keyhole") {
     const layout = layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin, flangeSpec.keyholeRotation);
     for (const slot of layout.slots) {
@@ -439,24 +389,13 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     }
   }
 
-  // Issue #70: cut the same through-hole mount the mesh backend cuts into
-  // the CORE part's own bottom flange (manifold.ts's fuseFlange), from the
-  // identical layout (flangePads.ts's `layoutFlangeThroughHoles`), kept clear
-  // of the SAME inner-end channel and pads just built above, so STEP and
-  // STL/preview never drift apart.
   if (design.flangeSpec.mount === "through") {
-    const layout = layoutFlangeThroughHoles(flangeSpec, innerEndCutter.layout);
+    const layout = layoutFlangeThroughHoles(flangeSpec, innerEndCutter?.layout);
     for (const hole of layout.holes) {
       for (const cutter of throughHoleCutterSolid(hole, layout.holeRadius, flangeSpec.thickness, plateTopZ(flangeSpec) ?? 0, Math.min(flangeSpec.plateThickness ?? flangeSpec.thickness, flangeSpec.thickness))) coreSolid = coreSolid.cut(cutter);
     }
   }
 
-  // Issue #14/#106: cut the same peg holes the mesh
-  // backend cuts into the flange's outer face (manifold.ts's `fuseFlange`'s
-  // `mountPlateCut`), from the identical layout (mountPlate.ts), so STEP and
-  // STL/preview never drift apart. Only when the plate itself actually got
-  // built (there's a `mountPlate` part) -- an empty layout means the plate
-  // was skipped, and there's nothing on the flange to cut for.
   if (design.parts.some((p) => p.role === "mountPlate")) {
     const layout = mountPlateLayoutFor(design);
     for (const anchor of layout.anchors) {
@@ -470,12 +409,6 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
 
   const shapes: { shape: R.Shape3D; name: string }[] = [{ shape: coreSolid, name: corePart.name }];
 
-  // Issue #9: the top cap, when present, mirrors manifold.ts's buildTopCap
-  // almost primitive-for-primitive (plate + engagement collar + joint
-  // feature + keyhole cut), sharing the SAME dimensions via joints.ts so
-  // the two backends can't drift on fit. Built directly in the shared
-  // ASSEMBLY frame (see design.ts): plate at z=[height, height+CAP_THICKNESS],
-  // collar reaching down to z=height-JOINT_ENGAGE_DEPTH.
   const topCapPart = design.parts.find((p) => p.role === "topCap");
   if (topCapPart) {
     const capSolid = await buildTopCapSolid(design);
@@ -483,10 +416,6 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     shapes.push({ shape: capSolid, name: topCapPart.name });
   }
 
-  // Issue #14: the clip mount plate, mirroring manifold.ts's own
-  // `buildMountPlate` primitive-for-primitive (a flat panel plus clips on
-  // its back face and pin holes in its front), sharing the SAME dimensions
-  // via constants.ts and the SAME layout via mountPlateLayoutFor.
   const mountPlatePart = design.parts.find((p) => p.role === "mountPlate");
   if (mountPlatePart) {
     const plateSolid = buildMountPlateSolid(design);
@@ -494,8 +423,6 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     shapes.push({ shape: plateSolid, name: mountPlatePart.name });
   }
 
-  // Issue #207: the SKÅDIS rim clips, in layout order (design.ts names them
-  // in that order), each the same prism the mesh backend builds.
   const clipParts = design.parts.filter((p) => p.role === "mountClip");
   if (clipParts.length > 0 && flangeSpec.skadis) {
     const layout = flangeSpec.skadis;
@@ -506,7 +433,6 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     });
   }
 
-  // Issue #213: the SKÅDIS T-clips, in layout order, each the same prism the mesh backend builds.
   const tclipParts = design.parts.filter((p) => p.role === "mountClip");
   if (tclipParts.length > 0 && flangeSpec.skadisTclip) {
     const layout = flangeSpec.skadisTclip;
@@ -517,8 +443,6 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     });
   }
 
-  // Issue #132: the alignment pegs, one per anchor (design.ts names them in
-  // anchor order), from the same `pegSweep` rings the mesh is built from.
   const pegParts = design.parts.filter((p) => p.role === "peg");
   if (pegParts.length > 0) {
     const { anchors } = mountPlateLayoutFor(design);

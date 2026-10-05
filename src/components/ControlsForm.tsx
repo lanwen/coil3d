@@ -3,6 +3,7 @@ import type { CoilSpec, CoreSizeLock, Design, JointKind, KeyholeRotation, Lock, 
 import {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
+  DEFAULT_BASE,
   DEFAULT_CORNER_RADIUS,
   DEFAULT_CUSTOM_BEND_MULTIPLIER,
   DEFAULT_THROUGH_HOLE_DIAMETER,
@@ -125,6 +126,7 @@ export function ControlsForm({
   const lastMountKindRef = useRef<Exclude<MountKind, "none">>(spec.mount !== "none" ? spec.mount : "keyhole");
   if (spec.mount !== "none") lastMountKindRef.current = spec.mount;
   const mountOn = spec.mount !== "none";
+  const baseOn = mountOn || (spec.base ?? DEFAULT_BASE) === "on";
   const setMountOn = (checked: boolean) => onChange({ ...spec, mount: checked ? lastMountKindRef.current : "none" });
 
   const outerSizeMin = roundMm(Math.max(CORE_SIZE_FLOOR_MM, solution?.minOuterSizeForShape ?? CORE_SIZE_FLOOR_MM));
@@ -362,7 +364,20 @@ export function ControlsForm({
         </div>
       </details>
 
-      <Section title="Top cap & joint">
+      <Section title="Base, top cap & joint">
+        <div className="field">
+          <div className="field-top">
+            <FieldTop label="Base" hint={HINTS.base} />
+            <Switch
+              testId="base"
+              ariaLabel="Base"
+              checked={baseOn}
+              disabled={mountOn}
+              title={mountOn ? "On -- a wall mount needs the base" : `${baseOn ? "On" : "Off"} -- click to change`}
+              onChange={(checked) => onChange({ ...spec, base: checked ? "on" : "off" })}
+            />
+          </div>
+        </div>
         <div className="field">
           <div className="field-top">
             <FieldTop label="Top cap" hint={HINTS.topCap} />

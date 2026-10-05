@@ -157,7 +157,8 @@ function OptionArt({ s, scale }: { s: Solution; scale: number }) {
   const size = 56;
   const bottom = size - 2;
   const capT = s.topCapEnabled ? CAP_THICKNESS * scale : 0;
-  const flangeT = Math.max(1.5, (tallOf(s) - s.height) * scale - capT);
+  const flangeSpan = (tallOf(s) - s.height) * scale - capT;
+  const flangeT = flangeSpan > 0.5 ? Math.max(1.5, flangeSpan) : 0;
   const flangeW = widthOf(s) * scale;
   const coreW = s.outerSize * scale;
   const cableW = s.envelopeDiameter * scale;
@@ -170,7 +171,7 @@ function OptionArt({ s, scale }: { s: Solution; scale: number }) {
       <rect className="option-art-cable" x={left(cableW)} y={wallTop + inset} width={cableW} height={Math.max(0, flangeTop - wallTop - 2 * inset)} rx={1.5} />
       <line className="option-art-wall" x1={left(coreW)} x2={left(coreW)} y1={wallTop} y2={flangeTop} />
       <line className="option-art-wall" x1={left(coreW) + coreW} x2={left(coreW) + coreW} y1={wallTop} y2={flangeTop} />
-      <rect className="option-art-part" x={left(flangeW)} y={flangeTop} width={flangeW} height={flangeT} />
+      {flangeT > 0 && <rect className="option-art-part" x={left(flangeW)} y={flangeTop} width={flangeW} height={flangeT} />}
       {s.topCapEnabled && <rect className="option-art-part" x={left(flangeW)} y={wallTop - capT} width={flangeW} height={capT} />}
     </svg>
   );

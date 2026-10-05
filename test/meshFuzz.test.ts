@@ -69,12 +69,12 @@ function sample(index: number): FuzzCase {
     throughHoleDiameter: between(2.5, 8),
   };
   if (r() < 0.15) spec.label = pick(["USB-C 2m", "HDMI", "Lamp 5 m", "ok"]);
-  return {
-    spec,
-    resolution: r() < 0.15 ? "draft" : "final",
-    // The shipped counts most of the time, others to show the passes don't depend on them.
-    segments: r() < 0.5 ? { round: 144, other: 48 } : { round: pick([96, 120, 144, 192]), other: pick([48, 96, 120, 144]) },
-  };
+  const resolution = r() < 0.15 ? "draft" : "final";
+  // The shipped counts most of the time, others to show the passes don't depend on them.
+  const segments = r() < 0.5 ? { round: 144, other: 48 } : { round: pick([96, 120, 144, 192]), other: pick([48, 96, 120, 144]) };
+  // Issue #254: drawn last, so the cases before it stay what they were. A bare core is a third of them (a mount forces the base back on).
+  spec.base = r() < 0.33 ? "off" : "on";
+  return { spec, resolution, segments };
 }
 
 /**

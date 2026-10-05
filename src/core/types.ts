@@ -21,6 +21,8 @@ export type ShapeSpec = { kind: "round" } | { kind: "sq"; cornerRadius: number }
 /** Top-cap override (issue #9): `auto` follows `Solution.capsAuto` (on when layers > 1). */
 export type TopCapMode = "auto" | "on" | "off";
 
+export type BaseMode = "on" | "off";
+
 /** Permanent, glue-friendly cap joints (issue #9, docs/design.md, Parts and printing). */
 export type JointKind = "press" | "bayonet" | "snap";
 
@@ -124,6 +126,7 @@ export interface CoilSpec {
   layers: Lock<number>;
   /** Used only when exactly two of {coreSize, height, layers} are free. */
   objective: Objective;
+  base?: BaseMode;
   /** Top-cap override (issue #9): defaults to "auto" (on when layers > 1). */
   topCap: TopCapMode;
   /** Cap joint (issue #9): press-fit, bayonet/twist-lock or snap clips, all permanent and glue-friendly. */
@@ -472,7 +475,7 @@ export interface Design {
    */
   innerEndLeadIn: Float32Array;
   /** Issue #117: the inner end's clip in the bottom flange -- the cable centre where its gripping lips start (`from`) and end (`to`, nearer the rim). */
-  innerEndClip: { from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } };
+  innerEndClip?: { from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } };
   /**
    * The cable's run from the chronological end of each wound layer to the
    * start of the next (issues #68, #115): `layerTransitions[i]` joins

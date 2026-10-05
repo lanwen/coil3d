@@ -83,6 +83,35 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   0.3 mm clear of the wall (a single layer sits half in the groove, which has
   faded out at the top). Only the free ends leave the plate.
 
+### Bare core (#254, part 1)
+
+The base plate is an option (`base`: on or off). A wall mount needs it, so a
+mount keeps the base on (a notice says so; the spec keeps the user's value).
+With the base off the core is the only part: a grooved tube that stands on its
+own bottom face, with no flange, no inner-end channel and no base rim slot.
+The top cap stays optional, and `auto` means off on a bare core. An explicit
+cap is still built, sized to the wound cable.
+
+The cable ends move into the core in the next parts of #254, so the solver
+already sizes a bare core for them:
+
+- The bore always passes a 22.4 mm free circle (an HDMI plug's diagonal), so a
+  connector can be fed up through it.
+- The inner end drops down the bore, bends to level and runs tangent into the
+  groove start. A path tangent to the layer-1 circle (radius `rho`) that bends
+  no tighter than the bend radius `m` (the MBR over the lead-in's curvature
+  budget) reaches `|2m - rho|` from the axis. The bore's chord on that line
+  must hold `m` of level run plus the cable's seat. `minCentreEndsOuterSize`
+  finds the smallest core size for this by bisection, on the inscribed circle
+  (a square or a triangle only has more room).
+- The height is at least the 30 mm grip, the quarter bend and the seat.
+- The cable length counts the vertical run and the quarter bend. The level
+  chord and the plan arc are real cable too and are not counted yet, so the
+  count can only fall short of the real length.
+
+With the 2.6 x d bend radius (#255), the default 3.8 mm USB cable needs a
+28.4 mm core, set by the passage, so the 30 mm default still fits.
+
 ### Parts and printing
 
 - Every part is one connected solid and prints flat on the bed without
@@ -389,7 +418,7 @@ The hash is `#s=<base64url(JSON)>` (`src/core/hash.ts`).
   the spec: `L` (cable length, mm), `d` (diameter), `wt` (cable type), `mbr`
   (custom bend multiplier), `q` (winding quality), `obj`, `shape` and `rc`
   (corner radius), `lock` with `size`, `h` and `ly`, `cap`, `joint`, `tol`,
-  `bx`/`by`/`bz` (bed), `label`, and the mount keys (`mount`, `pj`, `kr`,
+  `base` (the base plate, only written when off), `bx`/`by`/`bz` (bed), `label`, and the mount keys (`mount`, `pj`, `kr`,
   `thd`). View-only state is nested under `ui` (`wire`, `view`). Lengths are
   always millimetres; the centimetre display in the controls is a UI-only
   conversion.

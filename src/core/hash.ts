@@ -39,6 +39,7 @@ import { z } from "zod";
 import {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
+  DEFAULT_BASE,
   DEFAULT_BED_SIZE,
   DEFAULT_CORNER_RADIUS,
   DEFAULT_THROUGH_HOLE_DIAMETER,
@@ -51,7 +52,7 @@ import {
   TOLERANCE_MIN,
 } from "./constants";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
-import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
+import type { BaseMode, CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
 
 /** The current (`#s=`) document version. Bump this and add a migration branch if the shape ever changes incompatibly. */
 const DOC_VERSION = 2;
@@ -68,6 +69,7 @@ export const DEFAULT_SPEC: CoilSpec = {
   height: { locked: false },
   layers: { locked: true, value: DEFAULT_LAYERS },
   objective: "minVolume",
+  base: DEFAULT_BASE,
   topCap: "auto",
   joint: "press",
   tolerance: DEFAULT_TOLERANCE,
@@ -112,6 +114,7 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
     height: { ...spec.height },
     layers: { ...spec.layers },
     objective: spec.objective,
+    base: spec.base,
     topCap: spec.topCap,
     joint: spec.joint,
     tolerance: spec.tolerance,
@@ -200,6 +203,7 @@ const DocSchema = z
     h: z.number().finite().min(1).max(1000).optional(),
     ly: z.number().int().min(1).max(100).optional(),
     cap: z.enum(["on", "off"]).optional(),
+    base: z.enum(["on", "off"]).optional(),
     joint: z.enum(["bayonet", "snap"]).optional(),
     tol: z.number().finite().min(TOLERANCE_MIN).max(TOLERANCE_MAX).optional(),
     bx: z.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
@@ -264,7 +268,6 @@ function capMaxTwoLocked(tokens: Set<string>): { tokens: Set<string>; droppedLay
   return { tokens, droppedLayers: false };
 }
 
-/** Builds the resolved `CoilSpec` + `showWire` once every raw field is validated and typed. */
 function buildParsed(p: {
   L?: number;
   d?: number;
@@ -285,6 +288,7 @@ function buildParsed(p: {
   showWire: boolean;
   view: ViewMode;
   cap?: TopCapMode;
+  base?: BaseMode;
   joint?: JointKind;
   tol?: number;
   bx?: number;
@@ -316,6 +320,7 @@ function buildParsed(p: {
     height,
     layers,
     objective: p.obj === "ar" ? "aspectRatio" : "minVolume",
+    base: p.base ?? DEFAULT_SPEC.base,
     topCap: p.cap ?? DEFAULT_SPEC.topCap,
     joint: p.joint ?? DEFAULT_SPEC.joint,
     tolerance: p.tol ?? DEFAULT_SPEC.tolerance,
@@ -339,8 +344,6 @@ function parseDocHash(encoded: string): ParsedHash {
   if (decoded === undefined) {
     return fallback('Could not read this link ("s" is not a valid encoded document) -- showing default values instead.');
   }
-  // Check the version before full schema validation so a future/foreign
-  // version gets its own clearer notice.
   const rawVersion = decoded && typeof decoded === "object" ? (decoded as Record<string, unknown>).v : undefined;
   if (rawVersion !== undefined && rawVersion !== DOC_VERSION) {
     return fallback(`Unsupported link version "${rawVersion}" -- showing default values instead.`);
@@ -355,8 +358,6 @@ function parseDocHash(encoded: string): ParsedHash {
   const requestedLockTokens = new Set<string>(p.lock ?? DEFAULT_LOCK_TOKENS);
   const lockNotice = validateLockTokens(requestedLockTokens);
   if (lockNotice) return fallback(lockNotice);
-  // Issue #119: normalize (not fallback) a link locking all three -- see
-  // `capMaxTwoLocked`'s own doc comment for why this drops "ly" specifically.
   const { tokens: lockTokens, droppedLayers } = capMaxTwoLocked(requestedLockTokens);
 
   if (p.wt !== "custom" && p.mbr !== undefined) {
@@ -395,6 +396,7 @@ function parseDocHash(encoded: string): ParsedHash {
     showWire: p.ui?.wire ?? DEFAULT_SHOW_WIRE,
     view: p.ui?.view ?? DEFAULT_VIEW,
     cap: p.cap,
+    base: p.base,
     joint: p.joint,
     tol: p.tol,
     bx: p.bx,
@@ -422,7 +424,6 @@ export function parseHash(hash: string): ParsedHash {
   return parseDocHash(new URLSearchParams(qs).get("s") ?? "");
 }
 
-/** Encode a spec (+ the view-only `showWire`/`view` state) into a hash string (with leading `#`), omitting defaults. Always writes the current `#s=` format. */
 export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, view: ViewMode = DEFAULT_VIEW): string {
   const doc: Doc = { v: DOC_VERSION };
 
@@ -455,18 +456,11 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, vi
   }
   if (lockTokens.join(",") !== DEFAULT_LOCK_TOKENS.join(",")) doc.lock = lockTokens;
 
-  // Narrowed against the literal default (not `DEFAULT_SPEC.topCap`/`.joint`,
-  // whose own declared types are the full `TopCapMode`/`JointKind` unions,
-  // which wouldn't narrow `spec.topCap`/`spec.joint` down to the doc's
-  // stricter "only the non-default values" field types below).
   if (spec.topCap !== "auto") doc.cap = spec.topCap;
   if (spec.joint !== "press") doc.joint = spec.joint;
+  if (spec.base !== undefined && spec.base !== DEFAULT_SPEC.base) doc.base = spec.base;
   if (spec.tolerance !== DEFAULT_SPEC.tolerance) doc.tol = spec.tolerance;
   if (spec.label) doc.label = spec.label;
-  // "opengrid" is unreachable through the UI (ControlsForm hides it) and
-  // rejected on parse (see DocSchema's `mount` comment); if it ever got
-  // here anyway, omitting it (falls back to "none" on reload) is safer
-  // than writing a value this same codec can't read back.
   if (spec.mount === "keyhole" || spec.mount === "through" || spec.mount === "skadis" || spec.mount === "skadis-tclip") doc.mount = spec.mount;
   if (spec.mount === "skadis" && spec.skadisLatch === false) doc.latch = false;
   if (spec.mount === "keyhole" && spec.keyholeRotation !== DEFAULT_SPEC.keyholeRotation) doc.kr = spec.keyholeRotation;
@@ -476,8 +470,6 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, vi
   if (spec.print.bedY !== DEFAULT_SPEC.print.bedY) doc.by = spec.print.bedY;
   if (spec.print.bedZ !== DEFAULT_SPEC.print.bedZ) doc.bz = spec.print.bedZ;
 
-  // View-only state, nested under `ui` (see this file's own header) --
-  // omitted entirely when both are at their default.
   const ui: NonNullable<Doc["ui"]> = {};
   if (showWire !== DEFAULT_SHOW_WIRE) ui.wire = false;
   if (view !== DEFAULT_VIEW) ui.view = "guide";

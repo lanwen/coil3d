@@ -94,12 +94,11 @@ function StepPrintParts({ design }: { design: Design }) {
   );
 }
 
-function StepThreadInnerEnd({ design }: { design: Design }) {
+function StepThreadInnerEnd({ design, n, clip }: { design: Design; n: number; clip: NonNullable<Design["innerEndClip"]> }) {
   const core = corePart(design);
-  const clip = design.innerEndClip;
   const anchor = design.innerEndLeadIn.length >= 3 ? new THREE.Vector3((clip.from.x + clip.to.x) / 2, (clip.from.y + clip.to.y) / 2, 0) : approxRimPoint(core.mesh, 0.1, 1);
   return (
-    <StepCard n={2} title="Clip in the inner cable end">
+    <StepCard n={n} title="Clip in the inner cable end">
       <div className="guide-figure-row guide-figure-row--solo">
         <Figure parts={[core]} testId="guide-thread-inner" zoomInsetAt={anchor} />
       </div>
@@ -127,12 +126,12 @@ function windDirectionPoints(layer: WireLayerPath, fit: GuideFit): Pt[] {
   });
 }
 
-function StepWind({ design }: { design: Design }) {
+function StepWind({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
   const { layers } = design.solution;
   const layer0 = design.wirePaths[0];
   return (
-    <StepCard n={3} title="Wind the cable">
+    <StepCard n={n} title="Wind the cable">
       <div className="guide-figure-row guide-figure-row--solo">
         <Figure
           parts={[core]}
@@ -524,10 +523,14 @@ function StepUnwind({ design, n }: { design: Design; n: number }) {
 export function Guide({ design, onBack }: { design: Design; onBack: () => void }) {
   const { topCapEnabled } = design.solution;
   const hasPlate = !!platePart(design) && !!design.pegboard;
+  const clip = design.innerEndClip;
+  const hasBase = clip !== undefined;
+  const windN = hasBase ? 3 : 2;
+  const capN = windN + 1;
   const capStepCount = topCapEnabled ? 2 : 0;
-  const plateN = 4 + capStepCount;
+  const plateN = capN + capStepCount;
   const mountN = plateN + (hasPlate ? 1 : 0);
-  const unwindN = mountN + 1;
+  const unwindN = hasBase ? mountN + 1 : mountN;
   return (
     <div className="guide" data-testid="guide-view" data-resolution={design.resolution}>
       <div className="guide-toolbar" data-testid="guide-toolbar">
@@ -543,12 +546,12 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
         <p>Print, thread, wind, fit the cap, mount it.</p>
       </header>
       <StepPrintParts design={design} />
-      <StepThreadInnerEnd design={design} />
-      <StepWind design={design} />
-      {topCapEnabled && <StepFitCap design={design} n={4} />}
-      {topCapEnabled && <StepSecureOuterEnd design={design} n={5} />}
+      {clip && <StepThreadInnerEnd design={design} n={2} clip={clip} />}
+      <StepWind design={design} n={windN} />
+      {topCapEnabled && <StepFitCap design={design} n={capN} />}
+      {topCapEnabled && <StepSecureOuterEnd design={design} n={capN + 1} />}
       {hasPlate && <StepFitPlate design={design} n={plateN} />}
-      <StepMount design={design} n={mountN} />
+      {hasBase && <StepMount design={design} n={mountN} />}
       <StepUnwind design={design} n={unwindN} />
     </div>
   );
