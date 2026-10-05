@@ -20,21 +20,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: npx tsc -b
+        run: pnpm exec tsc -b
 
       - name: Unit tests (vitest)
-        run: npx vitest run
+        run: pnpm exec vitest run
 
       - name: Production build
-        run: npm run build
+        run: pnpm build
 
   e2e:
     name: Playwright e2e (shard ${{ matrix.shard }}/${{ strategy.job-total }})
@@ -66,12 +68,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No actions/setup-node here: the container's own Node/npm is intentional, and npm ci
-      # against the committed lockfile is verified to work with it.
-      - run: npm ci
+      # No actions/setup-node here: the container's own Node is intentional.
+      # Corepack provides the pnpm version pinned in package.json.
+      - run: corepack enable
+
+      - run: pnpm install --frozen-lockfile
 
       - name: Playwright e2e (workers=1 in CI, see playwright.config.ts)
-        run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: pnpm exec playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
         env:
           CI: true
 
@@ -107,12 +111,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
+          cache: pnpm
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - uses: actions/download-artifact@v4
         with:
@@ -120,7 +126,7 @@ jobs:
           path: all-blob-reports
           merge-multiple: true
 
-      - run: npx playwright merge-reports --reporter=html ./all-blob-reports
+      - run: pnpm exec playwright merge-reports --reporter=html ./all-blob-reports
 
       - uses: actions/upload-artifact@v4
         with:

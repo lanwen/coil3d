@@ -13,7 +13,7 @@ import { unsupportedOverhangs } from "./support/overhangs";
 // design is built once at the final resolution, and each invariant reads it through design()'s public result. The
 // cap's joint cycles through press, bayonet and snap, and the core is locked on every third case. The default run is
 // one round (about 50 designs); for a longer sweep over fresh diameters and sizes:
-//   COIL3D_SWEEP=8 npx vitest run test/sweepInvariants.test.ts
+//   COIL3D_SWEEP=8 pnpm exec vitest run test/sweepInvariants.test.ts
 
 const SHAPES: ShapeSpec[] = [{ kind: "round" }, { kind: "sq", cornerRadius: 8.3 }, { kind: "tri", cornerRadius: 7.7 }];
 const MOUNTS: MountKind[] = ["keyhole", "through", "skadis", "opengrid"];

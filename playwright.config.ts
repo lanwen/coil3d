@@ -4,7 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.E2E_PORT ?? 5182);
 
 // Optional: path to a specific Chromium executable. Unset (the default) uses
-// the browser Playwright installed (`npx playwright install chromium`). Set it
+// the browser Playwright installed (`pnpm exec playwright install chromium`). Set it
 // when that browser is unavailable, or to match the build the screenshot
 // baselines were taken with (Chromium 1228, as in the CI image below).
 const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_PATH;
@@ -76,13 +76,13 @@ export default defineConfig({
     toHaveScreenshot: { maxDiffPixelRatio: 0.005 },
   },
   webServer: {
-    // `npm run build` is `tsc -b && vite build`, but typechecking isn't this
-    // job's contract -- `npx tsc -b` already runs as its own, separate proof
+    // `pnpm build` is `tsc -b && vite build`, but typechecking isn't this
+    // job's contract -- `pnpm exec tsc -b` already runs as its own, separate proof
     // step (see the repo's test-audit S3 finding: every e2e run paid for a
     // redundant typecheck here on top of that). `vite build` alone still
     // gives the e2e suite the real production bundle, just without paying
     // for tsc a second time.
-    command: `npx vite build && npx vite preview --port ${PORT} --host 0.0.0.0 --strictPort`,
+    command: `pnpm exec vite build && pnpm exec vite preview --port ${PORT} --host 0.0.0.0 --strictPort`,
     url: `http://localhost:${PORT}`,
     reuseExistingServer: !process.env.CI,
     // A fixed build id, so the version label in the screenshots doesn't change

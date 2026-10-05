@@ -29,7 +29,7 @@ STEP pitfalls in `docs/step-notes.md`.
   `/// <reference ...>`, `/* @vite-ignore */`, `/*#__PURE__*/`. `@ts-ignore` is not.
 - `test/` and `e2e/` may keep short comments explaining why a fixture or
   threshold exists.
-- `scripts/check-no-comments.mjs` enforces this and runs in `npm run build`.
+- `scripts/check-no-comments.mjs` enforces this and runs in `pnpm build`.
   `scripts/comment-allowlist.txt` lists the files that still have comments. It
   is temporary and only shrinks: when you edit a function in a listed file,
   remove its comments, and delete a file from the list once it has none (the
@@ -38,14 +38,19 @@ STEP pitfalls in `docs/step-notes.md`.
 ## Commands
 
 ```sh
-npm install
-npm run dev                  # :5182
-npm run build                # tsc -b + comment check + vite build
-npx tsc -b                   # typecheck
-npm run lint:comments        # no comments in src/ (see Code style)
-npm test                     # vitest: the core's public interface
-E2E_PORT=<port> npx playwright test   # e2e (4 workers); builds and previews on E2E_PORT (default 5182)
+pnpm install
+pnpm dev                     # :5182
+pnpm build                   # tsc -b + comment check + vite build
+pnpm exec tsc -b             # typecheck
+pnpm lint:comments           # no comments in src/ (see Code style)
+pnpm test                    # vitest: the core's public interface
+E2E_PORT=<port> pnpm exec playwright test   # e2e (4 workers); builds and previews on E2E_PORT (default 5182)
 ```
+
+pnpm's `node_modules` is strict: declare every package you import in
+`package.json`. Dependency build scripts stay off; add one to
+`pnpm.onlyBuiltDependencies` only when something fails without it (esbuild's
+is skipped on purpose: vite works without it).
 
 Use a free `E2E_PORT` when another dev server or test run is already using
 the default. If Playwright's own Chromium isn't available, point
@@ -79,10 +84,10 @@ the default. If Playwright's own Chromium isn't available, point
 - GitHub CI is manual-only: it doesn't run on pushes to `main`, and runs on
   a PR only when it is labelled `run-ci` (or on manual dispatch).
 - Every push to `main` deploys to Cloudflare Pages
-  (https://coil3d.lanwen.dev), which runs `npm run build` and serves `dist/`.
+  (https://coil3d.lanwen.dev), which runs `pnpm build` and serves `dist/`.
   A merge ships to production, so the merge gate matters.
 - The merge gate is the full local suite on the final head, rebased onto
-  `origin/main`: `npx tsc -b`, `npm test`, `E2E_PORT=<port> npx playwright test`.
+  `origin/main`: `pnpm exec tsc -b`, `pnpm test`, `E2E_PORT=<port> pnpm exec playwright test`.
   Put the counts in the PR's evidence comment (see "Pull requests").
 - Before opening or updating a PR, rebase onto the latest `origin/main` and
   verify with `git merge-base --is-ancestor origin/main HEAD`.

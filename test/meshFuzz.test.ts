@@ -16,8 +16,8 @@ import { WELD_EPSILON, weldShortEdges } from "../src/core/weld";
 //
 // The default run is a fixed sample. For a long run, set the case count (and,
 // to continue elsewhere, the first case index):
-//   COIL3D_FUZZ=5000 npx vitest run test/meshFuzz.test.ts
-//   COIL3D_FUZZ=2500 COIL3D_FUZZ_FROM=2500 npx vitest run test/meshFuzz.test.ts
+//   COIL3D_FUZZ=5000 pnpm exec vitest run test/meshFuzz.test.ts
+//   COIL3D_FUZZ=2500 COIL3D_FUZZ_FROM=2500 pnpm exec vitest run test/meshFuzz.test.ts
 // Each case is seeded by its index alone, so a failure prints the index and
 // the spec, and reruns on its own with COIL3D_FUZZ=1 COIL3D_FUZZ_FROM=<index>.
 
