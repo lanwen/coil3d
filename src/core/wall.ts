@@ -242,7 +242,10 @@ export function createWallProfile(spec: WallSpec): WallProfile {
   // below that groove to the land's middle above it. A point on the land's
   // middle is in both bands, so the crest above a fading groove fades with it
   // (on the crest the groove's depth doesn't show: there the offset is 0 either
-  // way), while a full groove's own rows don't.
+  // way), while a full groove's own rows don't. The band's top is the land's
+  // middle under the next turn, which follows the helix: the level run-in sits
+  // up to `tauIn` pitches above it, and a band measured from the run-in would
+  // take in that turn's crest, which then went undrawn.
   const landMiddle = (landStart + landEnd) / 2;
   const fading = (t: number, z: number) => {
     const phase = phaseFraction(t);
@@ -251,7 +254,7 @@ export function createWallProfile(spec: WallSpec): WallProfile {
       const phi = k + phase;
       if (phi <= -tauIn || phi >= turns || taper(phi) > 1 - 1e-4) continue;
       const dz = z - zStart - pitch * Math.max(phi, 0);
-      if (dz >= landMiddle - pitch - 1e-3 && dz <= landMiddle + 1e-3) return true;
+      if (dz >= landMiddle - pitch - 1e-3 && z - zStart - pitch * phi <= landMiddle + 1e-3) return true;
     }
     return false;
   };

@@ -251,10 +251,12 @@ features: flange, joints, clips, mounts and label.
   so it gets shallower and narrower together. At the bottom it runs on 0.1
   turn before layer 1's start, level with it, fading the same way, so the
   first turn already sits in the full groove. The viewer leaves out the
-  creases within a fade (they cross the crease angle along it and would draw
-  as broken lines), so a groove's lines end where its full depth ends. The
-  crest above a fading groove counts as part of the fade too: there the
-  surface sits at offset 0 whatever the groove's depth.
+  creases and the depth steps within a fade (they cross the crease angle
+  along it and die out half way as stubs), so a groove's lines end where its
+  full depth ends. The crest above a fading groove counts as part of the fade
+  too: there the surface sits at offset 0 whatever the groove's depth. That
+  band's top is the land's middle under the next turn, which follows the
+  helix, so the level run-in's band stops below the full turn's crest.
 - **Resolution.** `draft` is coarse and is shown on the first load, and later
   only if a build is slow. `final` is used for the settled view and for every
   export. Both use the same code path, so they cannot drift apart. The
