@@ -19,7 +19,6 @@ import { HINTS } from "./hints";
 import { LabelField } from "./LabelField";
 import { ShapePicker } from "./ShapePicker";
 
-/** Slider bounds in cm (issue #51 AC: "20-1500 cm"); converted to the mm `CoilSpec` stores. */
 const WIRE_LENGTH_MIN_CM = 20;
 const WIRE_LENGTH_MAX_CM = 1500;
 
@@ -36,25 +35,19 @@ const WIRE_TYPE_OPTIONS: Array<{ id: WireTypeId; label: string }> = [
   { id: "custom", label: "Custom" },
 ];
 
-// openGrid (issue #14 PR review): the grid pitch is verified, but its real
-// snap/connector geometry isn't published anywhere as plain dimensions (see
-// constants.ts's OPENGRID_PLACEHOLDER_PEG_SIZE comment) -- shipping a
-// placeholder peg under a real "openGrid" option would mislead users into
-// printing a plate that doesn't actually fit an openGrid board. Hidden from
-// this list (and rejected from the hash, see hash.ts) until the real
-// connector geometry lands -- tracked in issue #38. The underlying
-// `mount: "opengrid"` capability stays implemented and tested (mountPlate.ts,
-// manifold.ts, step/build.ts) so that follow-up is just swapping the
-// connector solid, not building the feature from scratch.
-//
-// Issue #131: no "None" entry any more -- that state is now the mount
-// toggle's OFF position (see `mountOn` below), not a dropdown option.
 const MOUNT_KIND_OPTIONS: Array<{ id: Exclude<MountKind, "none">; label: string }> = [
   { id: "keyhole", label: "Screw keyhole (wall mount)" },
   { id: "through", label: "Through-holes (screw straight on)" },
   { id: "skadis", label: "IKEA SKÅDIS rim clips: hook on, lift off" },
   { id: "skadis-tclip", label: "IKEA SKÅDIS T-clips: twist to lock" },
 ];
+
+const CORNER_RADIUS_STEP_MM = 0.5;
+const ROUND_CORNER_RADIUS_MAX_MM = 250;
+const CORE_SIZE_FLOOR_MM = 5;
+
+const ceilToStep = (mm: number) => Math.ceil(mm / CORNER_RADIUS_STEP_MM) * CORNER_RADIUS_STEP_MM;
+const floorToStep = (mm: number) => Math.floor(mm / CORNER_RADIUS_STEP_MM) * CORNER_RADIUS_STEP_MM;
 
 const KEYHOLE_ROTATION_LABELS: Record<KeyholeRotation, string> = {
   0: "0°",
@@ -69,9 +62,7 @@ export function ControlsForm({
   onChange,
 }: {
   spec: CoilSpec;
-  /** The current design's solved numbers, so free fields can show them instead of a placeholder. Undefined before the first design() resolves. */
   solution?: Solution;
-  /** The latest design and whether it is the final one for the current spec; the label field uses them to stop text the cap can't hold. */
   design?: Design | null;
   finalReady?: boolean;
   onChange: (next: CoilSpec) => void;
@@ -90,75 +81,20 @@ export function ControlsForm({
     onChange({ ...spec, coreSize: { locked: true, dimension, value: spec.coreSize.value } });
   };
 
-  // Issue #105 AC #4: the corner radius's own bend-limit floor for the
-  // CURRENT shape/cable -- `solve.ts`'s `bendCornerRadiusFloor`, surfaced on
-  // `Solution.cornerRadiusRange[0]` so the UI never derives its own,
-  // possibly-drifting copy of that math. Round has no corner radius at all;
-  // `solution` is undefined only before the very first solve, when 0 (no
-  // floor yet known) is a safe placeholder.
-  //
-  // PR review: rounded UP (never to the nearest, which could round DOWN
-  // past the true floor) to the field's own 0.5mm step, so the displayed
-  // min-note and the field's own clamped value always agree, and neither
-  // can ever read as below the real, unrounded floor.
-  const cornerRadiusMinRaw = spec.shape.kind === "round" ? 0 : (solution?.cornerRadiusRange[0] ?? 0);
-  const cornerRadiusMin = Math.ceil(cornerRadiusMinRaw / 0.5) * 0.5;
+  const bendLimitCornerRadius = spec.shape.kind === "round" ? 0 : (solution?.cornerRadiusRange[0] ?? 0);
+  const cornerRadiusMin = ceilToStep(bendLimitCornerRadius);
 
-  // Issue #134: the slider's own maximum follows `Solution.cornerRadiusRange[1]`
-  // -- the largest corner radius that still keeps the shape reading as a
-  // square/triangle rather than a circle (solve.ts's `usefulMaxCornerRadius`),
-  // not the old fixed 250mm (which let the slider keep moving for a long
-  // stretch after the shape had already become visually indistinguishable
-  // from round). `solution` is undefined only before the very first solve,
-  // when 250 (the field's old static ceiling) is as good a placeholder as
-  // any.
-  //
-  // Rounded DOWN to the field's own 0.5mm step (the opposite direction from
-  // the min above): rounding UP here could push the field's max past the
-  // true, unrounded ceiling.
-  //
-  // PR review: when the useful max and the bend-limit floor sit within the
-  // SAME 0.5mm step of each other (the two criteria agree almost exactly --
-  // see `usefulMaxCornerRadius`'s own doc comment on why they can coincide),
-  // rounding each one in its own safe direction can flip their order --
-  // ceil(14.44) = 14.5 but floor(14.44) = 14, an inverted [14.5, 14]
-  // min/max that left the field's clamped VALUE (min(max, ...)) reading
-  // BELOW the bend-limit floor it must never go under. `Math.max` against
-  // `cornerRadiusMin` guarantees a valid, non-inverted range, at the cost of
-  // the max occasionally reading up to 0.5mm past the true useful ceiling --
-  // the same order of rounding slop the min side already accepts.
-  const cornerRadiusMaxRaw = spec.shape.kind === "round" ? 250 : (solution?.cornerRadiusRange[1] ?? 250);
-  const cornerRadiusMax = Math.max(cornerRadiusMin, Math.floor(cornerRadiusMaxRaw / 0.5) * 0.5);
+  const usefulMaxCornerRadius = spec.shape.kind === "round" ? ROUND_CORNER_RADIUS_MAX_MM : (solution?.cornerRadiusRange[1] ?? ROUND_CORNER_RADIUS_MAX_MM);
+  const cornerRadiusMax = Math.max(cornerRadiusMin, floorToStep(usefulMaxCornerRadius));
+  const clampCornerRadius = (cornerRadius: number) => Math.min(cornerRadiusMax, Math.max(cornerRadiusMin, cornerRadius));
 
-  // Issue #140: no useful room to move the slider at all -- either the
-  // bend-limit floor and the useful max already coincide exactly (a
-  // literally empty range) or they're close enough that they round to the
-  // SAME 0.5mm step (the same coincidence `cornerRadiusMax`'s own
-  // `Math.max` clamp above already guards against), leaving only one
-  // reachable value on the slider's own grid. Kept as its own flag, not
-  // reused from `disabled`'s existing "hide the slider" meaning elsewhere
-  // in this file (`LockRangeField`, a free dimension) -- this field must
-  // stay VISIBLE while unmovable (the issue's own "grey out the slider",
-  // not "hide it"), via `RangeField`'s opt-in `keepSliderWhenDisabled`.
   const cornerRadiusDisabled = spec.shape.kind !== "round" && cornerRadiusMax <= cornerRadiusMin;
 
-  // Issue #140: the (i) hint explains WHY, once the field is disabled --
-  // appended rather than replacing `HINTS.shapeCornerRadius` outright, so
-  // the hint still says what the field normally does too.
   const cornerRadiusHint = cornerRadiusDisabled ? `${HINTS.shapeCornerRadius} The core is too small for a larger radius; grow the core to unlock.` : HINTS.shapeCornerRadius;
 
-  // Issue #167: the twist lock needs a round core. On a square or triangle
-  // core its option is greyed out and the (i) hint says why; a spec that
-  // already has it (a shared link, or a shape switched after picking it)
-  // keeps it, and design() warns that it builds the press-fit collar instead.
   const bayonetUnavailable = spec.shape.kind !== "round";
   const jointHint = bayonetUnavailable ? `${HINTS.joint} Twist lock needs a round core.` : HINTS.joint;
 
-  // Issue #105 AC #5: "enabled" tracks whether the user switched the label
-  // ON, not whether it currently has text -- an empty label while the
-  // switch is on must stay revealed, not snap shut. `spec.label` is only
-  // ever `undefined` (never `""`) while the switch is off: the switch's own
-  // onChange below is the one place that clears it back to `undefined`.
   const labelEnabled = spec.label !== undefined;
   const setLabelEnabled = (checked: boolean) => onChange({ ...spec, label: checked ? (spec.label ?? "") : undefined });
 
@@ -167,93 +103,31 @@ export function ControlsForm({
   };
   const setShapeCornerRadius = (cornerRadius: number) => {
     if (spec.shape.kind === "round") return;
-    // Issue #105 AC #4: never let a manual edit (slider drag OR typed
-    // number) push the corner radius below this cable's own bend-limit
-    // floor -- `solution.cornerRadiusRange[0]` is that exact floor for the
-    // CURRENT shape/cable (solve.ts's `bendCornerRadiusFloor`), so this
-    // can't drift from what the solver would clamp to anyway. Issue #134:
-    // the SAME immediate-clamp treatment for the other end -- a manual edit
-    // above `cornerRadiusMax` snaps right back down, matching the slider's
-    // own max attribute instead of silently accepting a request the solver
-    // would just clamp down to anyway.
-    onChange({ ...spec, shape: { kind: spec.shape.kind, cornerRadius: Math.min(cornerRadiusMax, Math.max(cornerRadiusMin, cornerRadius)) } });
+    onChange({ ...spec, shape: { kind: spec.shape.kind, cornerRadius: clampCornerRadius(cornerRadius) } });
   };
 
-  // Ids for the plain `<select>` fields below, so each one's `FieldTop`
-  // label is a real `<label for>` (issue #53's (i) button sits next to that
-  // label, as a sibling -- never nested inside a wrapping `<label>`).
   const wireTypeId = useId();
   const coreSizeDimensionId = useId();
   const mountId = useId();
   const keyholeRotationId = useId();
   const jointId = useId();
 
-  // Issue #119 AC #1: at most 2 of {core size, height, layers} can be locked
-  // at once -- something has to stay free so the solver can fit the cable
-  // length. `lockedCount >= 2` disables locking any dimension that ISN'T
-  // already locked (an already-locked one must always stay toggleable back
-  // to free); `LockRangeField` renders the explanatory
-  // note itself (see fields.tsx's `LOCK_LIMIT_NOTE`) once disabled.
   const lockedCount = [spec.coreSize.locked, spec.height.locked, spec.layers.locked].filter(Boolean).length;
   const coreSizeLockDisabled = !spec.coreSize.locked && lockedCount >= 2;
   const heightLockDisabled = !spec.height.locked && lockedCount >= 2;
   const layersLockDisabled = !spec.layers.locked && lockedCount >= 2;
 
-  // Issue #119 AC #3: the top-cap switch is "auto" (untouched) exactly when
-  // `spec.topCap === "auto"` -- `TopCapMode` already distinguishes that from
-  // an explicit "on"/"off" (issue #9), so no new field is needed. While
-  // auto, the switch shows the CURRENT automatic recommendation
-  // (`solution.capsAuto`, layers > 1); `solution` is undefined only before
-  // the very first solve, when "no cap yet" (false) is as good a placeholder
-  // as any (matches the default layers=1). Touching the switch writes an
-  // explicit "on"/"off" (stored in the hash, see hash.ts's `doc.cap`); the
-  // "Reset to auto" link is the documented way back.
   const topCapAuto = spec.topCap === "auto";
   const topCapOn = topCapAuto ? (solution?.capsAuto ?? false) : spec.topCap === "on";
   const setTopCapExplicit = (checked: boolean) => onChange({ ...spec, topCap: checked ? "on" : "off" });
   const resetTopCapToAuto = () => onChange({ ...spec, topCap: "auto" });
 
-  // Issue #131: the Wall-mount section now leads with a pill toggle instead
-  // of a "None" entry in the dropdown -- off IS `spec.mount === "none"`
-  // (already the hash's own backward-compatible default, hash.ts: absent or
-  // "none" means off), so no new spec/hash field is needed. Turning it back
-  // on restores whichever real kind was last selected rather than resetting
-  // to a fixed one -- a plain "latest ref" kept in sync with `spec.mount`
-  // on every render where it's a real kind, defaulting to "keyhole" before
-  // the user has ever picked one (including a link that starts with the
-  // mount already off).
   const lastMountKindRef = useRef<Exclude<MountKind, "none">>(spec.mount !== "none" ? spec.mount : "keyhole");
   if (spec.mount !== "none") lastMountKindRef.current = spec.mount;
   const mountOn = spec.mount !== "none";
   const setMountOn = (checked: boolean) => onChange({ ...spec, mount: checked ? lastMountKindRef.current : "none" });
 
-  // Issue #54/#58: for a square or triangle core, this cable's bend limit
-  // can force a bigger minimum core size than a round core needs (a bigger
-  // corner radius, at a fixed size, erodes the straight sides). A round core
-  // has its own floor, the bend limit alone (issue #195; for round
-  // `minOuterSizeForShape` is `minOuterSizeForBend`). The size
-  // slider's own minimum follows that (never lets the user drag below a
-  // size the solver would just raise anyway); `solution` is undefined only
-  // before the very first solve, when 5mm is as good a placeholder as any.
-  //
-  // PR review: rounded to the SAME whole/half-mm precision the field
-  // already shows a free (solver-set) size at (`roundMm`, issue #72 AC) --
-  // matching that existing convention, rather than a stricter ceiling, so
-  // this reads exactly like every other core-size number in the app.
-  // `LockRangeField` clamps the FIELD's own displayed value (and every
-  // edit) to this exact number, so the field can never show a stale/
-  // shared-link request below it -- it always shows the effective size,
-  // matching the note below. (A locked value can, in rare cases, still be a
-  // hair's-width under the solver's own unrounded floor after this rounding
-  // -- the solver's existing "Core size raised from X to Y" warning already
-  // covers that residual, sub-millimetre gap.)
-  const outerSizeMin = roundMm(Math.max(5, solution?.minOuterSizeForShape ?? 5));
-  // A LOCKED size below that floor only reaches the spec via a shared link
-  // predating this clamp (any edit through the UI is clamped immediately,
-  // by `LockRangeField` above) -- this note explains why the field's own
-  // displayed value doesn't match what that link asked for. Both the field
-  // and this note read off the SAME `outerSizeMin`, so they can never
-  // disagree (issue #105 PR review).
+  const outerSizeMin = roundMm(Math.max(CORE_SIZE_FLOOR_MM, solution?.minOuterSizeForShape ?? CORE_SIZE_FLOOR_MM));
   const coreSizeRaised = spec.coreSize.locked && spec.coreSize.value < outerSizeMin - 0.05;
 
   return (
@@ -298,11 +172,6 @@ export function ControlsForm({
             ))}
           </select>
         </div>
-        {/* Issue #105 AC #6: the custom bend multiplier lives directly under
-            "Cable type" (not tucked away in "Advanced settings") and only
-            when it's actually read (wire.type === "custom", see
-            `bendMultiplierOf`) -- every other cable type has this baked into
-            its own preset, so the field would be inert noise otherwise. */}
         {spec.wire.type === "custom" && (
           <RangeField
             testId="customMultiplier"
@@ -328,13 +197,7 @@ export function ControlsForm({
             min={cornerRadiusMin}
             max={cornerRadiusMax}
             step={0.5}
-            // PR review: the FIELD must show the effective (clamped) value,
-            // never a stale/shared-link request below the bend-limit floor
-            // or above the useful max -- `cornerRadiusMin`/`cornerRadiusMax`
-            // are already the safe, rounded floor/ceiling (never inside the
-            // true one), so this can't drift from the min-note's own number
-            // below or the slider's own `max` attribute.
-            value={Math.min(cornerRadiusMax, Math.max(cornerRadiusMin, spec.shape.cornerRadius))}
+            value={clampCornerRadius(spec.shape.cornerRadius)}
             disabled={cornerRadiusDisabled}
             keepSliderWhenDisabled
             maxLabel
@@ -359,10 +222,6 @@ export function ControlsForm({
           lockDisabled={coreSizeLockDisabled}
           onChange={setCoreSizeLock}
         />
-        {/* Issue #119 AC #2: directly under the core-size lock, and only
-            while core size is locked -- a free core size has no "locked
-            dimension" to speak of (the dropdown was previously always
-            rendered, just disabled). */}
         {spec.coreSize.locked && (
           <div className="field">
             <FieldTop label="Locked dimension" hint={HINTS.coreSizeDimension} htmlFor={coreSizeDimensionId} />
@@ -419,8 +278,6 @@ export function ControlsForm({
             <Switch testId="mount-enabled" ariaLabel="Wall mount" checked={mountOn} onChange={setMountOn} />
           </div>
         </div>
-        {/* Issue #131: the kind picker only exists once the toggle above is
-            on -- off is exactly today's "none", nothing left to pick. */}
         {mountOn && (
           <div className="field">
             <FieldTop label="Mount type" hint={HINTS.mount} htmlFor={mountId} />
@@ -433,7 +290,6 @@ export function ControlsForm({
             </select>
           </div>
         )}
-        {/* Issues #207, #213, #221: what the SKÅDIS clips are, in one line (the T-clips with their CC BY credit), and the top rim clip's latch. */}
         {spec.mount === "skadis-tclip" && (
           <p className="field-note mount-credit-note" data-testid="mount-note">
             Twist-lock clips pass through slots in the core's floor: reach in, push each one through upright, then pinch its fin and turn it a quarter turn. After the{" "}
@@ -489,8 +345,6 @@ export function ControlsForm({
         )}
       </Section>
 
-      {/* Always collapsed on load, whatever the URL sets (issue #169): the
-          open state is plain DOM state, never part of the spec or the hash. */}
       <details className="advanced">
         <summary className="advanced-summary">Advanced settings</summary>
         <div className="advanced-body">
@@ -512,12 +366,6 @@ export function ControlsForm({
         <div className="field">
           <div className="field-top">
             <FieldTop label="Top cap" hint={HINTS.topCap} />
-            {/* Issue #131: the "auto" tag sits BEFORE the switch (matching
-                its pill height) so the row reads left-to-right as "current
-                mode, then state" -- once touched, that same spot shows a
-                "reset" link back to auto instead, and the separate
-                "Reset to auto" line that used to sit below the switch is
-                gone (issue #119's own version of this row). */}
             <span className="cap-toggle-row">
               {topCapAuto ? (
                 <span className="tag-auto" data-testid="topCap-auto-tag">
@@ -542,12 +390,6 @@ export function ControlsForm({
             </span>
           </div>
         </div>
-        {/* Issue #131 AC #4: the joint/tolerance/label controls only apply
-            to a cap that actually exists -- hidden whenever the cap is off,
-            whether that's the user's own explicit override or just the
-            current automatic (layers <= 1) decision. Their values stay put
-            in `spec` either way (only the CONTROLS hide, nothing resets),
-            so they're exactly as the user left them once the cap comes back. */}
         {topCapOn && (
           <>
             <div className="field">
@@ -577,15 +419,6 @@ export function ControlsForm({
                 <Switch testId="label-enabled" ariaLabel="Engrave a label on the top cap" checked={labelEnabled} onChange={setLabelEnabled} />
               </div>
             </div>
-            {/* Issue #105 AC #5: off by default, and the text input stays
-                collapsed until switched on -- `labelEnabled` reads "the user
-                turned this on", not "there's text in it" (an empty label
-                while the switch is on is still a deliberate, revealed field,
-                not a reason to re-collapse it). Switching off clears the
-                label back to `undefined`, which `toHash` already omits from
-                the URL (see hash.ts's `if (spec.label) doc.label = ...`), so
-                "clears the hash" falls out of the existing encode rule for
-                free. */}
             {labelEnabled && (
               <LabelField spec={spec} design={design} finalReady={finalReady} onChange={onChange} />
             )}

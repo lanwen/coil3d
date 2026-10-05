@@ -1,19 +1,3 @@
-// Small, flat, black-on-white pictograms for the printable assembly guide
-// (issue #17, "big line-art illustrations, minimal text, pictograms"). These
-// are deliberately plain, generic symbols -- IKEA-manual style -- laid over
-// or beside the 3D line-art figure, not baked into the render: several of
-// the steps they illustrate (the inner-end keyhole/channel, ticket #8; any
-// wall mount, tickets #13/#14) have no built geometry yet, and even where a
-// feature exists (the cap's rim keyhole), the UI layer intentionally never
-// reaches into core internals (WallSpec/FlangeSpec are documented "not for
-// UI use", core/types.ts) to compute an exact on-model position. A stylised
-// pictogram sidesteps both problems and matches the reference look, where
-// pictograms are schematic call-outs, not precise renders.
-//
-// Every icon shares a 64x64 viewBox, a 3.5px black stroke and no fill (a
-// solid arrowhead aside), so they read consistently at the guide's fixed
-// pictogram size regardless of which one appears.
-
 function Icon({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <svg className="pictogram" viewBox="0 0 64 64" role="img" aria-label={label} focusable="false">
@@ -24,7 +8,6 @@ function Icon({ children, label }: { children: React.ReactNode; label: string })
 
 const STROKE = { fill: "none", stroke: "currentColor", strokeWidth: 3.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
-/** The literal keyhole slot (a wide circle tapering into a narrower channel, mount.ts's own shape) with a cable end curling into it -- the generic "thread/secure the cable end" call-out (steps 2 and 5). */
 export function KeyholeIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -36,7 +19,6 @@ export function KeyholeIcon({ label }: { label: string }) {
   );
 }
 
-/** A spool: a rod through several stacked wraps, seen edge-on -- "wind the cable" (step 3). */
 export function WindIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -49,7 +31,6 @@ export function WindIcon({ label }: { label: string }) {
   );
 }
 
-/** A downward arrow onto a flat plate -- "press to fit" (press joint). */
 export function PressIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -60,7 +41,6 @@ export function PressIcon({ label }: { label: string }) {
   );
 }
 
-/** A curved arrow with a short straight lead-in -- "insert, then twist" (bayonet joint). */
 export function TwistIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -71,7 +51,6 @@ export function TwistIcon({ label }: { label: string }) {
   );
 }
 
-/** A hook snapping past a ridge with a small "click" burst -- "press until it clicks" (snap joint). */
 export function ClickIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -81,7 +60,6 @@ export function ClickIcon({ label }: { label: string }) {
   );
 }
 
-/** A single drop -- the "add a dab of glue for a permanent bond" note. */
 export function GlueDropIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -90,7 +68,6 @@ export function GlueDropIcon({ label }: { label: string }) {
   );
 }
 
-/** A hatched wall with a screw and the coil's axis pointing straight out of it -- "mount on the wall" (step 6, generic). */
 export function WallMountIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -103,7 +80,6 @@ export function WallMountIcon({ label }: { label: string }) {
   );
 }
 
-/** A screwdriver shaft + flat-blade tip lined up with a plain round hole -- "drive the screw straight through the hole" (issue #70's through-hole mount step). */
 export function ScrewdriverIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -114,7 +90,6 @@ export function ScrewdriverIcon({ label }: { label: string }) {
   );
 }
 
-/** A single circular arrow around a coil silhouette -- "unwind by rotating the coil", twist-free (step 7). */
 export function RotateIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -125,7 +100,6 @@ export function RotateIcon({ label }: { label: string }) {
   );
 }
 
-/** A hand pulling a cable straight out, struck through -- "don't pull the cable" (step 7, paired with RotateIcon). */
 export function NoPullIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>
@@ -137,7 +111,6 @@ export function NoPullIcon({ label }: { label: string }) {
   );
 }
 
-/** A part footprint on a bed line with a barred "no supports" mark. */
 export function NoSupportsIcon({ label }: { label: string }) {
   return (
     <Icon label={label}>

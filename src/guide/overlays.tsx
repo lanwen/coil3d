@@ -1,12 +1,3 @@
-// Geometry-attached SVG overlays for the assembly guide (issue #17 review:
-// "arrows and callouts are simple black line art: SVG overlays positioned
-// from projected 3D points, so they stay attached to the geometry"). Every
-// coordinate here is a FRACTION (0..1, origin top-left) of a `GuideFigure`'s
-// own frame -- see src/guide/projection.ts's `projectToFigure` -- converted
-// to this file's fixed viewBox units so the overlay's own aspect always
-// matches `FIGURE_ASPECT` (guide.css's `.guide-figure` `aspect-ratio`),
-// regardless of how wide the figure actually renders.
-
 import { useMemo } from "react";
 import type { Part, WireLayerPath } from "../core";
 import { GuideFigure } from "../viewer/GuideFigure";
@@ -27,7 +18,6 @@ function toVb(p: Pt): Pt {
   return { x: p.x * VB_W, y: p.y * VB_H };
 }
 
-/** The absolutely-positioned SVG layer every overlay lives in, stacked over one `GuideFigure`'s own frame. Never intercepts pointer events -- it's illustration, not UI. */
 export function FigureOverlay({ children }: { children: React.ReactNode }) {
   return (
     <svg className="guide-overlay" viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
@@ -41,7 +31,6 @@ export function FigureOverlay({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** A smooth polyline through 2+ projected points, with an arrowhead at the last one pointing along its own final segment -- used both for a straight two-point arrow and for a curved one traced through several points along a real path (the winding direction, the rotate arc). */
 export function PolylineArrow({ points, curved = true }: { points: Pt[]; curved?: boolean }) {
   if (points.length < 2) return null;
   const vb = points.map(toVb);
@@ -57,18 +46,15 @@ export function PolylineArrow({ points, curved = true }: { points: Pt[]; curved?
   return <path className="guide-overlay-arrow" d={d} markerEnd="url(#guide-arrowhead)" />;
 }
 
-/** A straight arrow between two projected points -- the align->fit press direction, a leader line from a callout circle. */
 export function StraightArrow({ from, to }: { from: Pt; to: Pt }) {
   return <PolylineArrow points={[from, to]} curved={false} />;
 }
 
-/** A dashed circle around a projected point -- a schematic call-out (the keyhole, a screw), not a precise measurement. */
 export function CircleMark({ at, r }: { at: Pt; r: number }) {
   const c = toVb(at);
   return <circle className="guide-overlay-mark" cx={c.x} cy={c.y} r={r * VB_H} />;
 }
 
-/** A short curved twist arrow (bayonet) or a small burst of "click" ticks (snap), both anchored at a projected point (the core/cap seam) -- see pictograms.tsx's TwistIcon/ClickIcon for the same motifs at fixed, non-attached scale; this version is sized and placed from the actual model. */
 export function TwistMark({ at, r }: { at: Pt; r: number }) {
   const c = toVb(at);
   const rr = r * VB_H;
@@ -93,40 +79,16 @@ export function ClickMark({ at, r }: { at: Pt; r: number }) {
   return <>{ticks}</>;
 }
 
-/** A single stroked line, e.g. the crossed-out "don't pull" mark over a straight arrow. */
 export function SlashMark({ at, r }: { at: Pt; r: number }) {
   const c = toVb(at);
   const rr = r * VB_H;
   return <line className="guide-overlay-mark" x1={c.x - rr} y1={c.y - rr} x2={c.x + rr} y2={c.y + rr} />;
 }
 
-/**
- * The rendered CSS width `.guide-figure-row--solo` (guide.css) holds a
- * single figure to -- fixed, NOT fluid (`flex: 0 0`), specifically so a zoom
- * inset's own "how many times bigger" is a known ratio against a known
- * reference, not against whatever width flexbox happened to grow the main
- * figure to. Kept as one constant both sides read, exactly like
- * `FIGURE_ASPECT`.
- */
-export const HOST_FIGURE_WIDTH = 480; // CSS px
+export const HOST_FIGURE_WIDTH_PX = 480;
 
-/**
- * A magnified, circular crop of the SAME figure, panned so `at` (a fraction
- * of the HOST figure) sits centred in the small window -- issue #17
- * review's "a circled zoom inset" (steps 2 and 5, the rim keyhole). Renders
- * a second, larger copy of the exact same `GuideFigure` (same parts/preset/
- * `fill` -- see the caller) inside an `overflow:hidden` circle, sized so it
- * is `zoom`x as WIDE (in real CSS px) as `HOST_FIGURE_WIDTH` -- the host
- * figure's own known rendered width -- at the SAME aspect ratio: a fraction
- * is scale-invariant (it depends only on aspect/fill/preset, all unchanged),
- * so `at` lands at the identical fraction of the bigger box too, and
- * "bigger" here is bigger than the host ACTUALLY IS, not just bigger than
- * the small window -- this crops a true higher-resolution, visually
- * magnified render of that region, not a same-scale (or, worse, smaller)
- * one that merely happens to sit behind a small round mask.
- */
 export function zoomInsetStyle(insetPx: number, zoom: number, at: Pt): { wrapStyle: React.CSSProperties; innerStyle: React.CSSProperties } {
-  const bigW = HOST_FIGURE_WIDTH * zoom;
+  const bigW = HOST_FIGURE_WIDTH_PX * zoom;
   const bigH = bigW / FIGURE_ASPECT;
   const offsetX = at.x * bigW - insetPx / 2;
   const offsetY = at.y * bigH - insetPx / 2;
@@ -136,10 +98,14 @@ export function zoomInsetStyle(insetPx: number, zoom: number, at: Pt): { wrapSty
   };
 }
 
-const INSET_SIZE = 100; // CSS px, the small round window's diameter
-const INSET_ZOOM = 2.6; // how many times bigger than HOST_FIGURE_WIDTH the cropped render is
+export function zoomForWindowMm(fit: GuideFit, insetPx: number, windowMm: number): number {
+  const hostFigureWidthMm = 2 * fit.halfHeight * fit.aspect;
+  return (insetPx * hostFigureWidthMm) / (HOST_FIGURE_WIDTH_PX * windowMm);
+}
 
-/** The visible circled zoom inset itself: a round, `INSET_SIZE`px window magnifying the model `INSET_ZOOM`x around `at` (a fraction of the HOST figure it's laid over), positioned at a fixed corner so it never covers the very feature it's zooming into. */
+const INSET_DIAMETER_PX = 100;
+const INSET_ZOOM = 2.6;
+
 export function ZoomInset({
   parts,
   wirePaths,
@@ -150,7 +116,7 @@ export function ZoomInset({
   at,
   corner = "bottom-right",
   zoom = INSET_ZOOM,
-  size = INSET_SIZE,
+  size = INSET_DIAMETER_PX,
 }: {
   parts: Part[];
   wirePaths?: WireLayerPath[];
@@ -173,7 +139,7 @@ export function ZoomInset({
   );
 }
 
-const DEFAULT_FIGURE_FILL = 0.85; // tighter than the interactive viewer's own 0.75 default -- issue #17 review: "the model fills ~70% of its figure"
+const DEFAULT_FIGURE_FILL = 0.85;
 
 export interface FigureProps {
   parts: Part[];
@@ -184,22 +150,12 @@ export interface FigureProps {
   preset?: PresetId;
   fill?: number;
   testId?: string;
-  /** Given the ACTUAL camera fit this figure rendered at (already accounting for `exploded`'s Z-shift), returns whatever geometry-attached arrows/marks belong on top of it -- see projection.ts's `projectToFigure`. */
   renderOverlay?: (fit: GuideFit) => React.ReactNode;
-  /** A world point (same posed frame as `renderOverlay`'s fit) to show a circled zoom inset of, e.g. a rim keyhole -- issue #17 review. */
   zoomInsetAt?: THREE.Vector3;
   zoomInsetCorner?: "bottom-right" | "bottom-left";
-  /** Issue #221: how much of the model (mm across) the zoom inset shows, whatever the figure's scale; the inset's fixed `INSET_ZOOM` when absent. */
   zoomInsetWindowMm?: number;
 }
 
-/**
- * One guide illustration PLUS its geometry-attached SVG overlay and/or zoom
- * inset, sharing a single computed camera fit (`computeGuideFit`) so
- * neither can ever drift from what `GuideFigure` actually draws for the
- * same parts/preset/fill (see projection.ts's file header for why this is a
- * parallel, not shared, computation).
- */
 export function Figure({ parts, wirePaths, wireDiameter, showWire, exploded, preset = "iso", fill = DEFAULT_FIGURE_FILL, testId, renderOverlay, zoomInsetAt, zoomInsetCorner, zoomInsetWindowMm }: FigureProps) {
   const posedParts = useMemo(() => explodedParts(parts, exploded ?? false, EXPLODE_GAP), [parts, exploded]);
   const fit = useMemo(() => computeGuideFit(posedParts, preset, fill), [posedParts, preset, fill]);
@@ -221,8 +177,7 @@ export function Figure({ parts, wirePaths, wireDiameter, showWire, exploded, pre
             fill={fill}
             at={projectToFigure(fit, zoomInsetAt)}
             corner={zoomInsetCorner}
-            // The host figure is HOST_FIGURE_WIDTH px for 2 * halfHeight * aspect mm.
-            zoom={zoomInsetWindowMm ? (INSET_SIZE * 2 * fit.halfHeight * fit.aspect) / (HOST_FIGURE_WIDTH * zoomInsetWindowMm) : undefined}
+            zoom={zoomInsetWindowMm ? zoomForWindowMm(fit, INSET_DIAMETER_PX, zoomInsetWindowMm) : undefined}
           />
         </>
       )}
@@ -230,13 +185,6 @@ export function Figure({ parts, wirePaths, wireDiameter, showWire, exploded, pre
   );
 }
 
-/**
- * A schematic hatched wall plane along a figure's left edge -- the GENERIC
- * mount step (no mount selected, or a future SKÅDIS/openGrid mount): there's
- * no real hung orientation to show yet, so this stays a plain 2D decoration
- * rather than the real, projected `WallQuad` below (issue #17 review: "for
- * SKÅDIS/none, render generically as before").
- */
 export function WallPlane() {
   const bandW = VB_W * 0.09;
   const spacing = bandW * 0.85;
@@ -259,18 +207,6 @@ function lerpPt(a: Pt, b: Pt, t: number): Pt {
   return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
-/**
- * A real, projected wall plane -- issue #17 review: "the wall plane drawn
- * behind the flange in proper perspective (a hatched plane parallel to the
- * flange face, not a 2D strip)". `corners` are 4 points already projected
- * (`projectToFigure`) from a quadrilateral that is genuinely coplanar with,
- * and parallel to, the flange's own face in 3D (see Guide.tsx's `StepMount`:
- * the quad sits in the SAME rotated frame the coil itself renders in, offset
- * sideways so it never overlaps the coil's own silhouette), wound in order
- * around the perimeter (0-1-2-3-0) with (0,1) and (3,2) as the two edges the
- * hatch lines connect (so they run PARALLEL to the real plane's own edge,
- * not at an arbitrary angle).
- */
 export function WallQuad({ corners }: { corners: [Pt, Pt, Pt, Pt] }) {
   const vb = corners.map(toVb) as [Pt, Pt, Pt, Pt];
   const pointsAttr = vb.map((p) => `${p.x},${p.y}`).join(" ");
@@ -293,8 +229,7 @@ export function WallQuad({ corners }: { corners: [Pt, Pt, Pt, Pt] }) {
   );
 }
 
-/** A small round window in a fixed corner, for a figure rendered at a DIFFERENT orientation than the host (the mount-side face-on view, issue #17 review) -- unlike `ZoomInset`, this isn't a crop of the host's own render, so it needs no fill/zoom math: whatever's passed as `children` (typically another `GuideFigure` plus an `InsetMark`) is simply drawn at the window's own natural size. */
-export function CornerInset({ children, corner = "bottom-right", size = INSET_SIZE }: { children: React.ReactNode; corner?: "bottom-right" | "bottom-left"; size?: number }) {
+export function CornerInset({ children, corner = "bottom-right", size = INSET_DIAMETER_PX }: { children: React.ReactNode; corner?: "bottom-right" | "bottom-left"; size?: number }) {
   return (
     <div className={`guide-zoom-inset guide-zoom-inset-${corner}`} style={{ width: size, height: size }}>
       {children}
@@ -302,7 +237,6 @@ export function CornerInset({ children, corner = "bottom-right", size = INSET_SI
   );
 }
 
-/** SKÅDIS slot outlines (issue #106): each slot's outline, already projected (`projectToFigure`) point by point, as a thin grey closed path -- drawn over a mount-side figure so the clips show inside their slots. */
 export function SlotOutlines({ slots }: { slots: Pt[][] }) {
   return (
     <g className="guide-overlay-slots">
@@ -313,12 +247,10 @@ export function SlotOutlines({ slots }: { slots: Pt[][] }) {
   );
 }
 
-/** A dashed circle mark inside a `CornerInset`, positioned by plain CSS percentage (not the main figure's fixed-aspect SVG viewBox: a `CornerInset` is a 1:1 square, so a percentage position needs no aspect conversion at all). */
 export function InsetMark({ at }: { at: Pt }) {
   return <div className="guide-inset-mark" style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }} />;
 }
 
-/** A thin leader line from the source point (on the host figure) to the zoom inset's fixed corner, plus a small dashed circle marking exactly what's being zoomed -- the two visual halves of one call-out. */
 export function ZoomLeader({ at, corner = "bottom-right" }: { at: Pt; corner?: "bottom-right" | "bottom-left" | "top-right" }) {
   const cornerPt: Pt = corner === "bottom-right" ? { x: 0.92, y: 0.88 } : corner === "top-right" ? { x: 0.92, y: 0.12 } : { x: 0.08, y: 0.88 };
   return (

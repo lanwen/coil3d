@@ -1,15 +1,3 @@
-// Plain-English hint text for every control (issue #53), plus a few result
-// rows (issue #65) whose numbers are easy to misread side by side. Kept in
-// this one module, separate from the field/row components that render it,
-// so the text is easy to find and edit without touching any component
-// markup. Each entry is shown by an (i) button next to its control or row
-// (see Hint.tsx) and stays short: 1-3 plain sentences, active voice, no
-// jargon left undefined.
-//
-// Keys match the field/row's own `testId` (ControlsForm.tsx/App.tsx,
-// ResultPanel.tsx), so a hint is easy to look up from the control or row
-// that uses it.
-
 export const HINTS = {
   wireLength:
     "This is the total length of cable the coil must hold, in centimetres. The solver sizes the coil so it has room for this length.",
@@ -49,9 +37,6 @@ export const HINTS = {
   exploded: "This pulls the parts apart in the 3D view so you can see how they fit together. It does not change the printed design.",
   projection:
     "Off shows an isometric view with no depth distortion, like an assembly manual. On shows a perspective view, like a photo.",
-  // Result-panel rows (issue #65): the wound cable's own outer size and the
-  // flange's two outer-extent rows read as unrelated numbers unless a hint
-  // spells out which of them are actually measured the same way.
   envelope:
     "This is the wound cable's own outer size, at its widest point. For a square or triangle core, that's measured across the corners, so compare it to the flange's own \"across corners\" number below, not the narrower \"Flange width\" (measured across flats). The flange is sized to clear this.",
   flange:

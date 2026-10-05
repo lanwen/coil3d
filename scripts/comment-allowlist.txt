@@ -1,11 +1,3 @@
-src/App.tsx
-src/components/ControlsForm.tsx
-src/components/Hint.tsx
-src/components/LabelField.tsx
-src/components/ResultPanel.tsx
-src/components/ShapePicker.tsx
-src/components/fields.tsx
-src/components/hints.ts
 src/core/capacity.ts
 src/core/constants.ts
 src/core/design.ts
@@ -41,13 +33,3 @@ src/core/wall.ts
 src/core/weld.ts
 src/core/wire.ts
 src/core/zip.ts
-src/geometry/client.ts
-src/geometry/useDesignPreview.ts
-src/geometry/worker.ts
-src/guide/Guide.tsx
-src/guide/overlays.tsx
-src/guide/pictograms.tsx
-src/guide/printOrientation.ts
-src/guide/projection.ts
-src/guide/wallView.ts
-src/vite-env.d.ts
