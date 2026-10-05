@@ -47,6 +47,35 @@ async function gotoGuide(page: Page, hash: string, { reveal = false } = {}) {
   if (reveal) await revealFigures(page);
 }
 
+// Counts the dark line pixels in the middle of a step's zoom inset (the half of the visible circle's radius), read straight from the inset's canvas.
+async function insetInkPixels(page: Page, stepTestId: string): Promise<number> {
+  return page.getByTestId(stepTestId).evaluate((step) => {
+    const wrap = step.querySelector(".guide-zoom-inset") as HTMLElement;
+    const canvas = wrap.querySelector("canvas") as HTMLCanvasElement;
+    const visible = wrap.getBoundingClientRect();
+    const frame = canvas.getBoundingClientRect();
+    const scale = canvas.width / frame.width;
+    const copy = document.createElement("canvas");
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const context = copy.getContext("2d")!;
+    context.drawImage(canvas, 0, 0);
+    const pixels = context.getImageData(0, 0, copy.width, copy.height).data;
+    const cx = (visible.left + visible.width / 2 - frame.left) * scale;
+    const cy = (visible.top + visible.height / 2 - frame.top) * scale;
+    const radius = (visible.width / 2) * 0.5 * scale;
+    let ink = 0;
+    for (let y = Math.floor(cy - radius); y < cy + radius; y++) {
+      for (let x = Math.floor(cx - radius); x < cx + radius; x++) {
+        if ((x - cx) ** 2 + (y - cy) ** 2 > radius * radius) continue;
+        const at = (y * copy.width + x) * 4;
+        if (pixels[at + 3] > 0 && pixels[at] < 100) ink++;
+      }
+    }
+    return ink;
+  });
+}
+
 test.describe("printable assembly guide (issue #17)", () => {
   // Also covers: a shared link with ui.view=guide opens the guide directly,
   // generated from that design (gotoGuide's own goto IS that direct
@@ -232,6 +261,25 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.locator("[data-rendered='false']")).not.toHaveCount(0);
     await page.getByTestId("guide-print").click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __printState?: string }).__printState), { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toBe(`${total}/${total}`);
+  });
+
+  // Issue #253: a figure that has drawn and then resizes while off screen (a full-page capture or the print layout does this) lost its
+  // pixels, and the zoom inset showed an empty circle. The full-guide screenshot below is that resize.
+  test.describe("zoom insets show their close-up (issue #253)", () => {
+    const MIN_INK_PIXELS = 50;
+    const DESIGNS = [
+      { name: "1-layer design", hash: ONE_LAYER, insets: ["guide-step-2"] },
+      { name: "2-layer design with a top cap", hash: withHashDoc(TWO_LAYER_CAP, { joint: "bayonet" }), insets: ["guide-step-2", "guide-step-5"] },
+    ];
+    for (const { name, hash, insets } of DESIGNS) {
+      test(`${name}: the inset circles have line pixels, also after a full-guide capture`, async ({ page }) => {
+        test.slow();
+        await gotoGuide(page, hash, { reveal: true });
+        for (const step of insets) await expect.poll(() => insetInkPixels(page, step), { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toBeGreaterThan(MIN_INK_PIXELS);
+        await page.getByTestId("guide-view").screenshot();
+        for (const step of insets) await expect.poll(() => insetInkPixels(page, step), { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toBeGreaterThan(MIN_INK_PIXELS);
+      });
+    }
   });
 
   test.describe("screenshots (visual review)", () => {

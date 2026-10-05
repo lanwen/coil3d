@@ -65,6 +65,7 @@ function RenderGate({ frameRef }: { frameRef: React.RefObject<HTMLDivElement | n
   const frameloop = useThree((s) => s.frameloop);
   const [onScreen, setOnScreen] = useState(typeof IntersectionObserver === "undefined");
   const [forced, setForced] = useState(false);
+  const [drawn, setDrawn] = useState(false);
   const active = onScreen || forced;
 
   const [firstDraw] = useState(() => {
@@ -93,15 +94,16 @@ function RenderGate({ frameRef }: { frameRef: React.RefObject<HTMLDivElement | n
   }, [firstDraw]);
 
   useEffect(() => {
-    const wanted = active ? "demand" : "never";
+    const wanted = active || drawn ? "demand" : "never";
     if (frameloop !== wanted) setFrameloop(wanted);
     else if (active) kickInvalidate(invalidate);
-  }, [active, frameloop, setFrameloop, invalidate]);
+  }, [active, drawn, frameloop, setFrameloop, invalidate]);
 
   useFrame(() => {
     const frame = frameRef.current;
     if (!frame || frame.dataset.rendered === "true") return;
     frame.dataset.rendered = "true";
+    setDrawn(true);
     firstDraw.resolve();
   }, AFTER_LINE_ART_FRAME_PRIORITY);
   return null;
