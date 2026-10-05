@@ -96,7 +96,7 @@ function StepPrintParts({ design }: { design: Design }) {
 
 function StepThreadInnerEnd({ design, n, clip }: { design: Design; n: number; clip: NonNullable<Design["innerEndClip"]> }) {
   const core = corePart(design);
-  const anchor = design.innerEndLeadIn.length >= 3 ? new THREE.Vector3((clip.from.x + clip.to.x) / 2, (clip.from.y + clip.to.y) / 2, 0) : approxRimPoint(core.mesh, 0.1, 1);
+  const anchor = new THREE.Vector3((clip.from.x + clip.to.x) / 2, (clip.from.y + clip.to.y) / 2, (clip.from.z + clip.to.z) / 2);
   return (
     <StepCard n={n} title="Clip in the inner cable end">
       <div className="guide-figure-row guide-figure-row--solo">
