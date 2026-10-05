@@ -115,6 +115,10 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // groove needs a 3.02 mm wall (was 3), so the bore shrinks a hair. The volume went UP from 33515.030333815084 with
     // the taller wall and the wider flange margin (14.0 mm, was 11.8: the cable now shifts clear of the wall on the face
     // before it drops into the channel).
-    expect(meshVolume(d.mesh)).toBeCloseTo(34726.67926875156, 3);
+    //
+    // Issue #241 bumped it DOWN from 34726.67926875156 (by 48.48 mm^3): the rim cable slot, a keyhole cut through
+    // the 3 mm plate (a 4 mm seat, a 3.5 mm neck and its lead-in through the rim chamfer), and the pads reaching
+    // 0.25 mm below the rim chamfer's foot (fuzz case 1097). The margin is unchanged (the inner end sets it).
+    expect(meshVolume(d.mesh)).toBeCloseTo(34678.197056711804, 3);
   });
 });

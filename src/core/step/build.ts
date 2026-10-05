@@ -391,6 +391,11 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     const loop: [number, number][] = notch.map((p) => [p.x, p.y]);
     flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
   }
+  // Issue #241: the rim cable slot (manifold.ts's `fuseFlange`, from the same layout on the flange spec).
+  if (flangeSpec.rimSlot) {
+    const loop: [number, number][] = flangeSpec.rimSlot.outline.map((p) => [p.x, p.y]);
+    flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
+  }
   // Issues #213, #221: each T-clip's slot through the floor and its fin's recess, lofted through the same levels.
   for (const cutters of flangeSpec.skadisTclip?.cutters ?? []) {
     const [first, ...rest] = cutters.map((cutter) => ruledLoft(cutter.levels.map((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z]))));
@@ -555,39 +560,6 @@ function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape
   throw new Error("STEP export: a boolean cut failed (it removed nothing)");
 }
 
-/**
- * `shape` fused with every one of `tool`, the same way as `checkedCut` (issue #121): the
- * cap's swept clip blocks fused plainly into the plate gave a solid OCCT's
- * own checker rejects, so each fuzzy value is tried in turn until the result
- * checks valid.
- */
-function checkedFuse(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D[]): R.Shape3D {
-  for (const fuzzy of FUZZY_CUTS) {
-    const args = new kernel.NCollection_List_TopoDS_Shape();
-    args.Append(shape.wrapped);
-    const tools = new kernel.NCollection_List_TopoDS_Shape();
-    for (const t of tool) tools.Append(t.wrapped);
-    const op = new kernel.BRepAlgoAPI_Fuse();
-    try {
-      op.SetArguments(args);
-      op.SetTools(tools);
-      op.SetFuzzyValue(fuzzy);
-      op.Build(new kernel.Message_ProgressRange());
-      if (op.HasErrors()) continue;
-      const result = R.cast(op.Shape()) as R.Shape3D;
-      const analyzer = new kernel.BRepCheck_Analyzer(result.wrapped, true, false, false);
-      const valid = analyzer.IsValid();
-      analyzer.delete();
-      if (valid) return result;
-    } finally {
-      op.delete();
-      args.delete();
-      tools.delete();
-    }
-  }
-  throw new Error("STEP export: a boolean fuse failed (no valid result)");
-}
-
 /** Validate one part's solid: manifold-valid, exactly one solid, and its volume matches the part's own mesh within tolerance. Throws with a descriptive message otherwise. */
 function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Design["mesh"], name: string): void {
   const analyzer = new kernel.BRepCheck_Analyzer(solid.wrapped, true, false, false);
@@ -643,8 +615,8 @@ function unionAtAngles(build: (angleDeg: number) => R.Shape3D, anglesDeg: number
 }
 
 /**
- * One of innerEnd.ts's swept solids (the channel/clip cutter and the cap
- * clip's block and bore) as a polyhedral solid: exactly the triangles
+ * One of innerEnd.ts's swept solids (the channel/clip cutter and the flange
+ * pads) as a polyhedral solid: exactly the triangles
  * manifold.ts's `sweepMesh` meshes from the same rings (each end capped by
  * one planar face), so the two backends cut the identical shape. (A ruled
  * loft through the same rings gave the same shape but made the export
@@ -834,7 +806,7 @@ async function buildLabelCutterSolid(label: ResolvedLabel): Promise<R.Shape3D | 
   return cutter;
 }
 
-/** Build the top cap solid (plate + engagement collar for the chosen joint + cable clip + engraved label), directly in the shared assembly frame -- see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin. */
+/** Build the top cap solid (plate + engagement collar for the chosen joint + engraved label + rim slot), directly in the shared assembly frame -- see design.ts's own `buildTopCap` call and manifold.ts's mesh-backend twin. */
 async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
   // Issue #127: the plate's middle is opened by the through-hole below (mirrors manifold.ts).
@@ -871,37 +843,18 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
 
   // Mirrors design.ts's own call: the SAME `resolveLabel` the mesh backend
   // uses, against the SAME outline/boreOutline/margin, so the two backends
-  // can never fit the label text differently. Cut before the clips (issue
-  // #121): a plain cut after their fuzzy fuses gave an invalid solid.
+  // can never fit the label text differently.
   const { label } = await resolveLabel(spec.label, flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin, solution.topCapEnabled);
   if (label) {
     const labelCutter = await buildLabelCutterSolid(label);
     if (labelCutter) assembled = assembled.cut(labelCutter);
   }
 
-  // Issue #117/#121: the cable clips under the cap (mirrors manifold.ts's
-  // `buildTopCap`, built from the same `Design.capClip` rings). Their bores
-  // are cut from the plate and from each block separately, then everything
-  // fused in one (fuzzy, `checkedFuse`) boolean: cutting a bore from the
-  // already-fused plate + block made OCCT remove the bore's WHOLE volume
-  // (about 100 mm^3 too much per clip for a 3.8 mm cable), even where it runs
-  // outside the part, and a plain fuse gave a solid OCCT's checker rejects.
-  const clips = design.capClip?.clips ?? [];
-  if (clips.length > 0) {
-    const kernel = getOCSync();
-    const bores = clips.map((clip) => sweepSolidStep(clip.bore));
-    const blocks = clips.map((clip, i) => {
-      const block = sweepSolidStep(clip.block);
-      const cut = checkedCut(kernel, block, bores[i]);
-      block.delete();
-      return cut;
-    });
-    const plateCut = checkedCut(kernel, assembled, bores);
-    const next = checkedFuse(kernel, plateCut, blocks);
-    // Freed right away: several clips' worth of many-faceted solids would
-    // otherwise pile up in OCCT's WASM heap until GC.
-    for (const shape of [...bores, ...blocks, plateCut, assembled]) shape.delete();
-    assembled = next;
+  // Issue #241: the rim cable slot (mirrors manifold.ts's `buildTopCap`, from the same `Design.rimSlots.cap`).
+  const slot = design.rimSlots.cap;
+  if (slot) {
+    const loop: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
+    assembled = checkedCut(getOCSync(), assembled, loopSolid(loop, CAP_THICKNESS + 2 * WELD_OVERLAP).translate([0, 0, -WELD_OVERLAP]));
   }
 
   return assembled.translate([0, 0, solution.height]);

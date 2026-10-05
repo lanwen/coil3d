@@ -33,24 +33,29 @@ import {
   RUN_IN_TURNS,
   TAPER_TURNS,
   INNER_CHANNEL_MIN_SHELF,
+  RIM_SLOT_KEEP_OUT,
+  RIM_SLOT_LABEL_KEEP_OUT,
   SCREW_MOUNT_HEAD_RADIUS,
+  SKADIS_CLIP_WIDTH,
+  THROUGH_MOUNT_EDGE_MARGIN,
 } from "./constants";
 import { buildMountPlate, buildPeg, buildSkadisClip, buildSkadisTclip, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { jointGeometry, resolveCapJoint } from "./joints";
-import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
+import { layoutInnerEnd, layoutRimSlot, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
+import type { RimSlot, XY } from "./innerEnd";
 import { printBBox } from "./plate";
 import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
-import { channelPadFootprints, layoutFlangeThroughHoles } from "./flangePads";
-import type { MountLayout } from "./mount";
+import { channelPadFootprints, layoutFlangePads, layoutFlangeThroughHoles } from "./flangePads";
+import type { MountLayout, ThroughMountLayout } from "./mount";
 import { mountPlateLayoutFor } from "./mountPlate";
-import { clipPrintRotateZ, isHeavyCable, layoutSkadisClips, lipKeepOffset, skadisBoardSection } from "./skadisClips";
+import { clipFrame, clipPrintRotateZ, isHeavyCable, layoutSkadisClips, lipKeepOffset, skadisBoardSection } from "./skadisClips";
 import type { SkadisClipLayout } from "./skadisClips";
 import { layoutSkadisTclips, skadisTclipBoardSection, tclipPrintRotateZ } from "./skadisTclips";
 import type { SkadisTclipLayout } from "./skadisTclips";
 import { flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing, stackedKeyholeThickness } from "./flange";
 import { circumscribedRadius, makeOutline, minCornerSegments, offsetOutline } from "./shapes";
-import { resolveLabel } from "./label";
+import { getLabelFont, labelLoops, resolveLabel } from "./label";
 import { solve } from "./solve";
 import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
@@ -89,7 +94,7 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
     solution.flangeSize,
     wireDiameter,
     spec.mount,
-    { tolerance: spec.tolerance, bendRadius, topCap: solution.topCapEnabled, heavyCable },
+    { tolerance: spec.tolerance, bendRadius, heavyCable, woundLayers: solution.layerResults.filter((r) => r.turns > 0).length, topCap: solution.topCapEnabled },
     spec.keyholeRotation,
     spec.throughHoleDiameter,
   );
@@ -230,12 +235,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
           tolerance: spec.tolerance,
         })
       : undefined;
-  const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness } = sizing;
-  if (innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= capClipMargin) {
+  const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, rimSlotMargin, channelOnlyThickness } = sizing;
+  if (innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= rimSlotMargin) {
     note(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
   }
-  if (capClipMargin > Math.max(mountMargin, innerEndMargin) + 1e-9) {
-    note(`Flange margin increased to ${margin.toFixed(1)} mm so the top cap's cable clip fits outside the wound cable.`);
+  if (rimSlotMargin > Math.max(mountMargin, innerEndMargin) + 1e-9) {
+    note(`Flange margin increased to ${margin.toFixed(1)} mm so the rim cable slot fits beside the core.`);
   }
   if (wantsKeyhole && mountMargin > baseMargin) {
     note(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
@@ -370,22 +375,38 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   // The drawn cable (issues #4, #68, #115, #117): one path from the inner
   // end's clip, through every layer and transition, to the outer end --
-  // built before the top cap, whose clip is laid out where the cable's cap
-  // lead-out ends. The lead-in is `innerEndLayout`'s own, the same layout
-  // the flange's channel and clip are cut from.
+  // built before the flange and the cap, whose rim slots are laid out where
+  // the cable's outer end leaves the coil (issue #241). The lead-in is
+  // `innerEndLayout`'s own, the same layout the flange's channel and clip are
+  // cut from.
   const cable = buildCable(solution.layerResults, wallSpec, spec.windingQuality, resolution, {
     innerEnd: innerEndLayout,
     topCapEnabled,
     height: solution.height,
     margin,
-    envelopeOffset,
     tolerance: spec.tolerance,
     bendRadius,
   });
   for (const warning of cable.warnings) problem(warning);
 
+  // Issue #241: the base's rim slot, as near the outer end as it fits, clear
+  // of the inner-end channel, the mount's cuts and every pad but the collar
+  // (its seat stays outside that by construction).
+  const baseKeepOut: XY[][] = [
+    innerEndLayout.channelRibbon,
+    ...layoutFlangePads(flangeSpec, innerEndLayout, mountPlateCut?.anchors, spec.tolerance)
+      .filter((pad) => pad.shape.kind !== "collar")
+      .map((pad) => pad.footprint),
+    ...(mountLayout?.slots ?? []).map((slot) => stadiumPolygon(slot.head, slot.shankEnd, SCREW_MOUNT_HEAD_RADIUS)),
+    ...(wantsThrough ? throughHoleKeepOut(layoutFlangeThroughHoles(flangeSpec, innerEndLayout)) : []),
+    ...(flangeSpec.skadis ? skadisClipFootprints(flangeSpec.skadis) : []),
+  ].filter((poly) => poly.length >= 3);
+  const baseSlot = layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, baseKeepOut, RIM_SLOT_KEEP_OUT);
+  if (!baseSlot) note("The base's rim cable slot doesn't fit anywhere round the rim beside the mount, so it's left out.");
+  const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot };
+
   const wall = buildWall(wallSpec);
-  const coreMesh = await fuseFlange(wall, flangeSpec, coreJoint, innerEndCut, mountPlateCut);
+  const coreMesh = await fuseFlange(wall, coreFlangeSpec, coreJoint, innerEndCut, mountPlateCut);
   coreMesh.fadeTriangles = grooveFadeTriangles(coreMesh, wallSpec);
 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
@@ -398,8 +419,14 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const { label, fit: labelFit, warning: labelWarning } = await resolveLabel(spec.label, outline, boreOutline, flangeSpec.margin, topCapEnabled);
   if (labelWarning) problem(labelWarning);
 
+  // Issue #241: the cap's rim slot, where the cable's outer end arrives under
+  // the cap (moved along the rim only if the label is in the way).
+  let capSlot: RimSlot | undefined;
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: flangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, clip: cable.capClip });
+    const labelKeepOut = label ? labelLoops(await getLabelFont(), label).map((loop) => loop.map(([x, y]) => ({ x, y }))) : [];
+    capSlot = layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, labelKeepOut, RIM_SLOT_LABEL_KEEP_OUT);
+    if (!capSlot) note("The top cap's rim cable slot doesn't fit anywhere round the rim beside the label, so it's left out.");
+    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot });
     // `capMesh` is built in a LOCAL frame (plate z=[0, CAP_THICKNESS], collar
     // reaching down to z=-JOINT_ENGAGE_DEPTH); translating by `height` lands
     // it in the shared assembly frame, flush against the wall's top rim.
@@ -520,7 +547,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     resolution,
     wirePaths: cable.wirePaths,
     wallSpec,
-    flangeSpec,
+    flangeSpec: coreFlangeSpec,
     mountAxisDeg: mountLayout?.axisDeg ?? flangeSpec.skadis?.axisDeg ?? flangeSpec.skadisTclip?.axisDeg ?? mountPlateLayout?.axisDeg,
     pegboard: flangeSpec.skadis
       ? skadisBoardSection(flangeSpec.skadis, circumscribedRadius(outline, margin) + 45)
@@ -532,8 +559,31 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     layerTransitions: cable.layerTransitions,
     outerEndLeadOut: cable.outerEndLeadOut,
     cablePath: cable.cablePath,
-    capClip: cable.capClip,
+    rimSlots: { base: baseSlot, cap: capSlot },
   };
+}
+
+/** The stadium from `a` to `b` at radius `r`, as a closed polygon. */
+function stadiumPolygon(a: XY, b: XY, r: number): XY[] {
+  const base = Math.atan2(b.y - a.y, b.x - a.x);
+  const half = (c: XY, from: number) => Array.from({ length: 13 }, (_, i) => ({ x: c.x + r * Math.cos(from + (Math.PI * i) / 12), y: c.y + r * Math.sin(from + (Math.PI * i) / 12) }));
+  return [...half(b, base - Math.PI / 2), ...half(a, base + Math.PI / 2)];
+}
+
+/** Each through-hole with the screw head's bearing ring round it, as a polygon. */
+function throughHoleKeepOut(layout: ThroughMountLayout): XY[][] {
+  return layout.holes.map((hole) => stadiumPolygon(hole, hole, layout.holeRadius + THROUGH_MOUNT_EDGE_MARGIN));
+}
+
+/** Each SKÅDIS rim clip's footprint on the flange (its notch and the jaws beside it), as a polygon. */
+function skadisClipFootprints(layout: SkadisClipLayout): XY[][] {
+  return layout.clips.map((clip) => {
+    const ups = clip.profile.map(([u]) => u);
+    const [lo, hi] = [Math.min(...ups), Math.max(...ups)];
+    const { at } = clipFrame(layout.axisDeg, clip.side);
+    const w = SKADIS_CLIP_WIDTH / 2;
+    return [at(lo, 0, -w), at(hi, 0, -w), at(hi, 0, w), at(lo, 0, w)].map(({ x, y }) => ({ x, y }));
+  });
 }
 
 /** A copy of `mesh` with every vertex shifted by [dx, dy, dz]; `indices` is shared (never mutated). */

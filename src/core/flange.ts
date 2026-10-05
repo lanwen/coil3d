@@ -29,9 +29,10 @@ import {
   MIN_FLANGE_THICKNESS_FOR_TCLIP,
   SCREW_MOUNT_RECESS_DEPTH,
 } from "./constants";
-import { idealChannelDepth, requiredCapClipMargin, requiredInnerEndMargin, resolveChannelDepth } from "./innerEnd";
+import { idealChannelDepth, requiredInnerEndMargin, requiredRimSlotMargin, resolveChannelDepth } from "./innerEnd";
 import { collarFootprintOffset } from "./flangePads";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
+import { woundReachOffset } from "./wire";
 import { requiredMountPlateMargin } from "./mountPlate";
 import { requiredSkadisMargin } from "./skadisClips";
 import { circumscribedRadius, inscribedRadius } from "./shapes";
@@ -73,9 +74,9 @@ export interface FlangeSizing {
   mountMargin: number;
   /** The margin the inner-end lead-in alone needs (issue #115). */
   innerEndMargin: number;
-  /** The margin the top cap's cable clip alone needs (issue #117): 0 with the cap off. */
-  capClipMargin: number;
-  /** The wound cable's outer surface, as an offset outside the core's outline (issue #121: the cap clips sit just outside it, innerEnd.ts's `capClipOffset`). */
+  /** The margin the rim cable slot alone needs (issue #241): its seat clear of the base's collar pad. */
+  rimSlotMargin: number;
+  /** The drawn cable's outer surface, as an offset outside the core's outline: the wound envelope, or further out where a lifted single-layer turn or the outer end's climb to the cap reaches (wire.ts's `woundReachOffset`). */
   envelopeOffset: number;
   /** The plain channel-driven thickness, before any mount/plate bump -- design.ts compares against this the same way. */
   channelOnlyThickness: number;
@@ -95,8 +96,8 @@ export function resolveFlangeSizing(
   flangeSizeEnvelope: number,
   wireDiameter: number,
   mount: MountKind,
-  /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`); issue #117: with the top cap on, its cable clip needs room between the wound cable and the rim (`requiredCapClipMargin`). */
-  leadIn: { tolerance: number; bendRadius: number; topCap?: boolean; heavyCable?: boolean },
+  /** Issue #115: the inner-end lead-in needs room to reach the groove within the cable's bend radius (innerEnd.ts's `requiredInnerEndMargin`). */
+  leadIn: { tolerance: number; bendRadius: number; heavyCable?: boolean; woundLayers?: number; topCap?: boolean },
   /** Issue #71: ignored unless `mount === "keyhole"`. */
   keyholeRotation = 0,
   /** Issue #70: ignored unless `mount === "through"`. */
@@ -107,20 +108,12 @@ export function resolveFlangeSizing(
   const mountKindForPlate = mount === "opengrid" ? mount : undefined;
 
   // circumscribedRadius(outline, margin) === circumscribedRadius(outline, 0) + margin
-  // (the offset term is additive, see shapes.ts), so this margin is exactly
-  // what's needed for the flange's own circumscribed radius to reach
-  // flangeSizeEnvelope / 2.
-  const baseMargin = Math.max(FLANGE_MARGIN, flangeSizeEnvelope / 2 - circumscribedRadius(outline, 0));
-  // Issue #70 AC ("outside the winding envelope, so a screwdriver can reach
-  // them"): `flangeSizeEnvelope` is already the wound envelope's own
-  // diameter (plus a flat FLANGE_MARGIN pad, docs/design.md, Parts and
-  // printing: flange size = final outer envelope + margin) -- reusing it directly as the through
-  // mount's own envelope-clearance radius is a few mm more conservative than
-  // the bare minimum (that pad), never less, so it's a safe stand-in with no
-  // extra plumbing.
-  // Issue #117: the wound cable's outer surface (FLANGE_MARGIN inside
-  // `flangeSizeEnvelope`), as an offset outside the core's outline.
-  const envelopeOffset = flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0);
+  // (the offset term is additive, see shapes.ts), so this is the wound
+  // envelope (`flangeSizeEnvelope` less FLANGE_MARGIN all round) as an offset
+  // outside the core's outline. Issue #239: the flange must cover the drawn
+  // cable as it really runs, which can reach further out (`woundReachOffset`).
+  const envelopeOffset = woundReachOffset(flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0), wireDiameter, leadIn.woundLayers ?? 1, leadIn.topCap ?? false);
+  const baseMargin = Math.max(FLANGE_MARGIN, envelopeOffset + FLANGE_MARGIN);
   const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
   const mountMargin = mount === "skadis"
     ? // Issue #207: the rim clips' lips must clear the wound cable (issue #222: and the collar's flare, which the lips on the plate sit beside).
@@ -160,11 +153,11 @@ export function resolveFlangeSizing(
   // Issue #115: wide enough for the inner-end lead-in's straight chord to
   // hold the clip past the end of its drop into the channel.
   const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness));
-  // Issue #117: the cap's clip hangs between the outermost layer and the rim.
-  const capClipMargin = leadIn.topCap ? requiredCapClipMargin(envelopeOffset, wireDiameter, leadIn.tolerance) : 0;
-  const margin = Math.max(mountMargin, innerEndMargin, capClipMargin);
+  // Issue #241: the rim slot's seat stays clear of the collar pad under the wall.
+  const rimSlotMargin = requiredRimSlotMargin(wireDiameter, leadIn.tolerance);
+  const margin = Math.max(mountMargin, innerEndMargin, rimSlotMargin);
 
-  return { margin, thickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, thickness), baseMargin, mountMargin, innerEndMargin, capClipMargin, envelopeOffset, channelOnlyThickness };
+  return { margin, thickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, thickness), baseMargin, mountMargin, innerEndMargin, rimSlotMargin, envelopeOffset, channelOnlyThickness };
 }
 
 /** Issue #122: the thickness when a keyhole slot's footprint overlaps the channel's, so the pocket (wall face) and the channel (winding face) stack in one spot -- the pre-#122 sizing. design.ts falls back to it; the layouts normally keep the two apart. */

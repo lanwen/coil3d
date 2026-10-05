@@ -173,12 +173,11 @@ export const SNAP_SEAT_GAP = 0.3; // mm
 export const SNAP_COLLAR_WALL = 1.2; // mm
 export const SNAP_SLOT_WIDTH = 2; // mm, tangential width of the relief slot between fingers
 
-// Cable fix points (issue #117, src/core/innerEnd.ts): both cable ends are
-// held by a snap-in clip that lies ALONG the cable -- a round bore of
-// diameter d + tolerance whose opening is narrower than the cable, so the
-// cable presses in and then leaves the part along its own tangent. (Before
-// #117 these were vertical rim keyholes the cable had to turn 90 degrees
-// into.)
+// Cable fix points (issues #117, #241, src/core/innerEnd.ts): the inner end is
+// held by a snap-in clip in the base that lies ALONG the cable -- a round bore
+// of diameter d + tolerance whose opening is narrower than the cable, so the
+// cable presses in and then leaves the part along its own tangent. The outer
+// end is pressed into a rim slot in the cap (or the base).
 /**
  * The base flange clip's interference: how much narrower than the cable
  * (as a fraction of its diameter) the opening is. The lips are stubs on a
@@ -201,34 +200,22 @@ export const CABLE_CLIP_DEPTH_SLACK = 0.25; // mm
 export const CABLE_CLIP_ENTRY = 0.05; // mm
 /** Part material kept on each side of the clip's bore (the lips' own root), mm: the flange clip ends this far (plus the bore radius) short of the rim. */
 export const CABLE_CLIP_WALL = 1; // mm
-// Cap clips (issue #237, innerEnd.ts's `layoutCapClip`): their own sizes, independent of the flange clip's.
-/**
- * The cap clip's throat (where the cable snaps past the lips), as a fraction of its bore diameter (d + tolerance).
- * Close to 1 on purpose: the lips are stiff (PLA can't flex a millimetre-sized lip by much without cracking it
- * across the layer lines, which is how the #121 clip with 0.75 broke), so the cable's own jacket takes the squeeze.
- * 0.88 squeezes a 3 mm cable by 0.18 mm nominal (a little more as printed). The lips' underside overhangs
- * acos(0.88) = 28 degrees in the cap's flipped print orientation.
- */
-export const CAP_CLIP_OPENING_FRACTION = 0.88;
-/** The lead-in under the throat widens at 45 degrees to this much more than the bore's radius on each side (or half the lip's height, if less), so the cable centres itself as it's pushed in, mm. */
-export const CAP_CLIP_MOUTH = 0.2; // mm
-/** The cap clip's wall all round the bore, as a multiple of the wire diameter (between CAP_CLIP_WALL_MIN and CAP_CLIP_WALL_MAX): thick enough that the lips stay stiff and the bending stress at their root stays well under PLA's interlayer strength; no thicker, so a thick cable's clips don't widen the margin. */
-export const CAP_CLIP_WALL_FACTOR = 0.5;
-export const CAP_CLIP_WALL_MIN = 1.2; // mm
-export const CAP_CLIP_WALL_MAX = 2; // mm
-/** Length of the cap clip's full-depth section along the cable, as a multiple of the wire diameter (at least CAP_CLIP_MIN_LENGTH). Its ends then ramp into the plate at 45 degrees. */
-export const CAP_CLIP_LENGTH_FACTOR = 1.5;
-export const CAP_CLIP_MIN_LENGTH = 5; // mm
-/** Cap clip: the bore also cuts this far up into the cap plate, so its top never grazes the plate's underside at a near-tangent angle (a fragile boolean case); the cable top still touches the underside. */
-export const CAP_CLIP_RELIEF = 0.5; // mm
-/** ...through a slot this fraction of the bore's radius wide on each side (narrow, so it doesn't thin the clip's root). */
-export const CAP_CLIP_RELIEF_WIDTH = 0.5;
-/** Cap clip: its root stops at least this far inside the foot of the cap underside's rim chamfer (EDGE_CHAMFER), mm. */
-export const CAP_CLIP_RIM_INSET = 0.2; // mm
+/** Cap end: with the last layer ending at the top, the outer end runs up to the cap at least this far clear of the wall, mm (its centre a radius plus this out). */
+export const CAP_LEAD_OUT_WALL_GAP = 0.3; // mm
 /** Cap end: the cable runs this far below the cap plate's underside (its top would otherwise sit exactly on that face, which the line art draws as a dashed seam). */
 export const CAP_CABLE_DROP = 0.1; // mm
-/** Cap clip: radial clearance between the clip's inner side and the wound cable's outer surface (issue #121: the clips sit exactly this far out); the flange (and cap) margin grows to keep it. */
-export const CAP_CLIP_COIL_GAP = 0.3; // mm
+// Rim cable slots (issue #241, innerEnd.ts's `layoutRimSlot`): a keyhole cut straight through the base flange and the
+// top cap at the rim. The neck is narrower than the cable by CABLE_BASE_CLIP_INTERFERENCE, like the base clip.
+/** Length of the rim slot's neck, from where it leaves the seat to the foot of the rim chamfer, mm (then a 45 degree lead-in to the rim). */
+export const RIM_SLOT_NECK = 1; // mm
+/** The base rim slot keeps this much plain plate between its seat and the collar pad under the wall, mm. */
+export const RIM_SLOT_COLLAR_GAP = 0.4; // mm
+/** The base rim slot keeps this much flange between itself and the inner-end channel, the mount's cuts and the pads, mm. */
+export const RIM_SLOT_KEEP_OUT = 1; // mm
+/** The cap rim slot keeps this much plate between itself and the engraved label, mm. */
+export const RIM_SLOT_LABEL_KEEP_OUT = 1; // mm
+/** Facets round a whole circle of the rim slot's seat. */
+export const RIM_SLOT_SEAT_SEGMENTS = 32;
 /** A clipped cable end's free tail past the rim, as a multiple of the wire diameter (at least CABLE_CLIPPED_TAIL_MIN). */
 export const CABLE_CLIPPED_TAIL_FACTOR = 3;
 export const CABLE_CLIPPED_TAIL_MIN = 10; // mm
@@ -268,8 +255,8 @@ export const FLANGE_PAD_BLEND_RADIUS = 5; // mm
 export const FLANGE_PAD_BLEND_STEP = 2; // mm
 /** Where a blend meets the collar, the pad's edge runs this far inside the collar's, mm: never on it (no coincident faces), and close enough that the two meet at a hair of an angle, not a crease. */
 export const FLANGE_PAD_BLEND_BURY = 0.15; // mm
-/** Pads reach this far into the plate below its top face, mm (so no pad face lies on the plate's own). Issue #229: the plate top's rim chamfer is EDGE_CHAMFER deep, and a pad at the rim must reach below it, or its underside would hang over the chamfer's cut. */
-export const FLANGE_PAD_EMBED = EDGE_CHAMFER; // mm
+/** Pads reach this far into the plate below its top face, mm (so no pad face lies on the plate's own). Issue #229: the plate top's rim chamfer is EDGE_CHAMFER deep, and a pad at the rim must reach below it, or its underside would hang over the chamfer's cut. Strictly below it: with the underside exactly on the line where the chamfer meets the rim face, a pad running out over the rim left a zero-length edge there (fuzz case 1097). */
+export const FLANGE_PAD_EMBED = EDGE_CHAMFER + 0.25; // mm
 /** Pads reach this far above the inner face, mm (so the relief cut never has a face on it). */
 export const FLANGE_PAD_RISE = 0.5; // mm
 

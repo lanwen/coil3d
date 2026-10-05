@@ -200,17 +200,18 @@ test.describe("the label field stops at what the cap can hold", () => {
   });
 
   test("shrinking the core after typing keeps the text and shows the fit warning", async ({ page }) => {
-    const input = await openLabelField(page, encodeHashDoc({ cap: "on", size: 100 }));
-    await input.fill("ABCDEFGHIJ");
+    // 50 mm core, 6 m of cable: a 5-layer cap holds 12 letters; at 30 mm it holds 10.
+    const input = await openLabelField(page, encodeHashDoc({ cap: "on", size: 50, L: 6000, lock: ["outer"] }));
+    await input.fill("ABCDEFGHIJKL");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(input).toHaveValue("ABCDEFGHIJ");
+    await expect(input).toHaveValue("ABCDEFGHIJKL");
     await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
 
-    await page.getByTestId("input-outer").fill("50");
+    await page.getByTestId("input-outer").fill("30");
     await page.getByTestId("input-outer").blur();
     await expect(page.getByTestId("warnings")).toContainText("doesn't fit");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(input).toHaveValue("ABCDEFGHIJ");
+    await expect(input).toHaveValue("ABCDEFGHIJKL");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
   });
 

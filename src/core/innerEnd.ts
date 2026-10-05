@@ -1,6 +1,6 @@
-// Cable fix points (issues #8, #115, #117, docs/design.md, Cable ends):
+// Cable fix points (issues #8, #115, #117, #241, docs/design.md, Cable ends):
 // the bottom flange's recessed channel + clip for the inner cable end, and
-// the top cap's clip for the outer end. Pure geometry math only -- no
+// the rim slots in the base and the cap. Pure geometry math only -- no
 // manifold-3d, no replicad -- shared by the mesh backend (manifold.ts), the
 // STEP backend (step/build.ts) AND the drawn cable (wire.ts, design.ts), the
 // same "one shared layout, several consumers" principle as mount.ts's
@@ -34,19 +34,17 @@
 // needed a 90 degree turn). The clip sits where both lips are still inside
 // the rim (`CABLE_CLIP_WALL` of flange beyond them), after the drop.
 //
-// The cap end (`layoutCapClip`) holds the cable the other way up: the cable
-// arrives level just under the cap, follows the outline for the clip's
-// length, then curves gently out past the rim. The cap is only 3 mm thick,
-// too thin to recess a cable into, so its clip is a low rib hanging under the
-// plate with the bore through it and the opening facing down (up, in the
-// cap's flipped print orientation). Issue #237: the rib is stiff on purpose
-// (thick walls all round the bore, a narrow relief, a rounded lower edge, ends
-// ramped into the plate at 45 degrees), the throat is only a little narrower
-// than the cable so the cable's jacket takes the squeeze, and a 45 degree
-// lead-in guides the cable in. The rib sits between the wound cable and the
-// rim, as close to the coil as the wound cable allows (issue #121), so the
-// flange (and cap) margin grows to fit it (`requiredCapClipMargin`), and the
-// same clip repeats every 1/n of the way around the cap.
+// The outer end (issue #241): the top cap's clips are gone (any clip beside
+// the coil needed 6 to 8 mm of margin). Instead the cap and the base each
+// get a rim slot (`layoutRimSlot`): a keyhole cut straight through the plate
+// at the rim, which the cable is pressed into from the edge and passes
+// through. The cap's sits where the cable's lead-out arrives under the cap,
+// the base's right below it. The drawn cable doesn't go through the cap's
+// slot: the top turn sits flush under the cap, so a cable pressed up into a
+// slot right above its end bends tighter than its bend radius there (rising
+// through the plate within it takes 10 to 20 mm along the cable). It runs
+// level under the cap instead and curves gently out past the rim, right
+// under the slot (`capTailPath`).
 //
 // If the flange margin is too narrow for the chord to hold the clip past
 // the end of the drop, `requiredInnerEndMargin` says how wide it must be --
@@ -69,24 +67,17 @@ import {
   CABLE_SWEEP_ARC_SEGMENTS,
   CABLE_SWEEP_STEP,
   CAP_CABLE_DROP,
-  CAP_CLIP_COIL_GAP,
-  CAP_CLIP_LENGTH_FACTOR,
-  CAP_CLIP_MIN_LENGTH,
-  CAP_CLIP_MOUTH,
-  CAP_CLIP_OPENING_FRACTION,
-  CAP_CLIP_RELIEF,
-  CAP_CLIP_RELIEF_WIDTH,
-  CAP_CLIP_RIM_INSET,
-  CAP_CLIP_WALL_FACTOR,
-  CAP_CLIP_WALL_MAX,
-  CAP_CLIP_WALL_MIN,
   EDGE_CHAMFER,
+  FLANGE_PAD_COLLAR,
   INNER_CHANNEL_DEPTH_FACTOR,
   INNER_CHANNEL_MIN_SHELF,
   INNER_CHANNEL_WALL_SKIN,
   MARGIN_BOTTOM,
+  RIM_SLOT_COLLAR_GAP,
+  RIM_SLOT_NECK,
+  RIM_SLOT_SEAT_SEGMENTS,
 } from "./constants";
-import { outlineOffsetAt, pointAt, sideLength } from "./shapes";
+import { offsetPerimeter, outlineOffsetAt, pointAt, sideLength } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { grooveShape, grooveStartHeight } from "./wall";
 
@@ -133,8 +124,6 @@ export interface SweepSolid {
   rings: XYZ[][];
   start: XYZ;
   end: XYZ;
-  /** For a convex solid: split each quad between two rings along whichever diagonal keeps the surface convex (else always the same one). The cap clip's end ramps need it: there a quad can join a vertex on the rib's side to three on the ramp. */
-  convexQuads?: boolean;
 }
 
 export interface InnerEndLayout {
@@ -267,28 +256,13 @@ export function sweepMesh(sweep: SweepSolid): { positions: Float32Array; indices
   positions.set([start.x, start.y, start.z], s * 3);
   positions.set([end.x, end.y, end.z], e * 3);
   const tris: number[] = [];
-  const p = (k: number) => rings[Math.floor(k / m)][k % m];
-  const centre = rings.map((ring) => ({ x: ring.reduce((t, q) => t + q.x, 0) / m, y: ring.reduce((t, q) => t + q.y, 0) / m, z: ring.reduce((t, q) => t + q.z, 0) / m }));
-  /** Whether `q` lies on the same side of the plane through a, b, c as `inside` (or on it). */
-  const sameSide = (a: number, b: number, c: number, q: XYZ, inside: XYZ) => {
-    const [pa, pb, pc] = [p(a), p(b), p(c)];
-    const u = { x: pb.x - pa.x, y: pb.y - pa.y, z: pb.z - pa.z };
-    const v = { x: pc.x - pa.x, y: pc.y - pa.y, z: pc.z - pa.z };
-    const nx = u.y * v.z - u.z * v.y;
-    const ny = u.z * v.x - u.x * v.z;
-    const nz = u.x * v.y - u.y * v.x;
-    const side = (r: XYZ) => nx * (r.x - pa.x) + ny * (r.y - pa.y) + nz * (r.z - pa.z);
-    return side(q) * side(inside) >= -1e-12;
-  };
   for (let i = 0; i + 1 < n; i++) {
-    const inside = { x: (centre[i].x + centre[i + 1].x) / 2, y: (centre[i].y + centre[i + 1].y) / 2, z: (centre[i].z + centre[i + 1].z) / 2 };
     for (let j = 0; j < m; j++) {
       const a = i * m + j;
       const b = i * m + ((j + 1) % m);
       const c = a + m;
       const d = b + m;
-      if (sweep.convexQuads && !sameSide(a, b, d, p(c), inside)) tris.push(a, b, c, b, d, c);
-      else tris.push(a, b, d, a, d, c);
+      tris.push(a, b, d, a, d, c);
     }
   }
   for (let j = 0; j < m; j++) {
@@ -710,81 +684,7 @@ export function layoutInnerEnd(
 }
 
 
-// --- The top cap's clips (the cable's outer end) ----------------------------
-
-/** How many facets round each lower edge of a cap clip's rib, and across its bottom. */
-const CAP_RIB_EDGE_SEGMENTS = 6;
-const CAP_RIB_BOTTOM_SEGMENTS = 8;
-/** Spacing of a cap clip rib's cross-sections along its full-depth part, mm: close, so its vertical sides stay smooth round a corner of the outline (at CABLE_SWEEP_STEP each facet seam showed as a line). */
-const CAP_RIB_STEP = 0.5; // mm
-/** How far (in height) a rib end ramp must cross a bore station from each of the bore ring's vertices, mm: well over the weld's limit. */
-const CAP_BORE_RAMP_CLEARANCE = 0.05; // mm
-
-/**
- * A cap clip's cross-section across the cable (issue #237), in the cap's
- * local frame (plate underside at z = 0, the cable below it): a rib with
- * vertical sides `outer` out from the cable's centre, a rounded lower edge
- * (an arc about the cable's centre, so the wall round the bore is one
- * thickness everywhere) and a flat bottom flush with the bore's. The bore
- * opens downward through a `throat` a little narrower than the cable, with a
- * 45 degree lead-in `lead` high under it.
- */
-interface CapClipSection {
-  /** The bore's radius, (d + tolerance) / 2. */
-  R: number;
-  /** The cable's centre height (`capCableZ`). */
-  zc: number;
-  /** The rib's half-width: the bore plus its wall. */
-  outer: number;
-  /** The throat's half-width. */
-  throat: number;
-  /** The rib's flat bottom, z. */
-  bottom: number;
-  /** The lead-in's height (and width, at 45 degrees). */
-  lead: number;
-}
-
-function capClipSection(wireDiameter: number, tolerance: number): CapClipSection {
-  const R = clipRadius(wireDiameter, tolerance);
-  const zc = capCableZ(wireDiameter);
-  const throat = CAP_CLIP_OPENING_FRACTION * R;
-  const bottom = zc - R;
-  const zThroat = zc - Math.sqrt(R * R - throat * throat);
-  return {
-    R,
-    zc,
-    outer: R + Math.min(CAP_CLIP_WALL_MAX, Math.max(CAP_CLIP_WALL_MIN, CAP_CLIP_WALL_FACTOR * wireDiameter)),
-    throat,
-    bottom,
-    lead: Math.min(R + CAP_CLIP_MOUTH - throat, (zThroat - bottom) / 2),
-  };
-}
-
-/** How long a cap clip's full-depth section is, along the cable (mm). Its ends ramp into the plate beyond it. */
-export function capClipLength(wireDiameter: number): number {
-  return Math.max(CAP_CLIP_MIN_LENGTH, CAP_CLIP_LENGTH_FACTOR * wireDiameter);
-}
-
-/** A cap clip's half-width (its rib's vertical sides, from the cable's centre), mm. */
-export function capClipHalfWidth(wireDiameter: number, tolerance: number): number {
-  return capClipSection(wireDiameter, tolerance).outer;
-}
-
-/** The cap clip's throat width (narrower than the cable), mm. */
-export function capClipThroat(wireDiameter: number, tolerance: number): number {
-  return 2 * capClipSection(wireDiameter, tolerance).throat;
-}
-
-/**
- * The cap clips' centre offset (outside the core's outline). Issue #121: as
- * close to the coil as the wound cable allows -- the rib's inner side
- * CAP_CLIP_COIL_GAP clear of the outermost layer's outer surface
- * (`envelopeOffset`) -- instead of pressed against the rim; the flange (and
- * cap) margin keeps room for the rest (`requiredCapClipMargin`).
- */
-export function capClipOffset(envelopeOffset: number, wireDiameter: number, tolerance: number): number {
-  return envelopeOffset + CAP_CLIP_COIL_GAP + capClipHalfWidth(wireDiameter, tolerance);
-}
+// --- The top cap's cable end, and the rim cable slots (issue #241) ----------
 
 /** The cable's centre height at the cap end, relative to the cap plate's underside: its top a hair (CAP_CABLE_DROP) below it. */
 export function capCableZ(wireDiameter: number): number {
@@ -792,229 +692,146 @@ export function capCableZ(wireDiameter: number): number {
 }
 
 /**
- * The narrowest margin that fits the cap clip between the wound cable's
- * outer surface (`envelopeOffset`, outside the core's outline) and the rim:
- * the clip at `capClipOffset`, its rib still CAP_CLIP_RIM_INSET inside the
- * foot of the cap underside's rim chamfer (issue #237: the cap is chamfered
- * on both faces).
+ * The cap end's plan-view path (issue #241): from where the cable's lead-out
+ * arrives level under the cap (outline parameter `u0`, offset `offset`,
+ * running along the outline), it curves gently (a fraction of its bend
+ * budget) outward and leaves past the rim, with a free tail beyond it. It
+ * runs under the cap's rim slot; pressing it up into the slot is the user's
+ * last step (see the file header).
  */
-export function requiredCapClipMargin(envelopeOffset: number, wireDiameter: number, tolerance: number): number {
-  return capClipOffset(envelopeOffset, wireDiameter, tolerance) + capClipHalfWidth(wireDiameter, tolerance) + EDGE_CHAMFER + CAP_CLIP_RIM_INSET;
-}
-
-/** One clip under the top cap, in the cap's LOCAL frame (plate underside at z = 0). */
-export interface CapClip {
-  /** The clip's rib (the lips' body), its ends ramped into the plate at 45 degrees; its top reaches 1 mm into the plate so the two weld. */
-  block: SweepSolid;
-  /** The bore, its downward throat and lead-in, cut through the rib (and CAP_CLIP_RELIEF up into the plate). */
-  bore: SweepSolid;
-  /** The cable's plan-view path from the clip's start, through the clip and out past the rim to its free end. Its height is level, at `capCableZ`. */
-  path: XY[];
-}
-
-export interface CapClipLayout {
-  /** Every clip around the cap (issue #121). The drawn cable runs through `clips[0]`; the others are the same clip at other positions, for a cable end unwound a little further. */
-  clips: CapClip[];
+export function capTailPath(outline: ShapeOutline, margin: number, offset: number, wireDiameter: number, bendRadius: number, u0: number): XY[] {
+  const p = pointAt(outline, u0, offset);
+  const q = pointAt(outline, u0 + 1e-6, offset);
+  const l = Math.hypot(q.x - p.x, q.y - p.y);
+  const tan = { x: (q.x - p.x) / l, y: (q.y - p.y) / l };
+  const curve = (0.8 * CABLE_BEND_BUDGET) / bendRadius;
+  const exit = (s: number): XY => ({
+    x: p.x + tan.x * s + p.nx * ((curve * s * s) / 2),
+    y: p.y + tan.y * s + p.ny * ((curve * s * s) / 2),
+  });
+  const sRim = reach((s) => {
+    const e = exit(s);
+    return outlineOffsetAt(outline, e.x, e.y).offset;
+  }, margin, 0);
+  const sOut = sRim + clippedTailLength(wireDiameter);
+  const steps = Math.max(2, Math.ceil(sOut / CABLE_BRIDGE_STEP));
+  return Array.from({ length: steps + 1 }, (_, i) => exit((sOut * i) / steps));
 }
 
 /**
- * Lay out the top cap's clips. The first starts where the cable's cap
- * lead-out ends (outline parameter `u0`, at `capClipOffset`, level, running
- * along the outline): the cable follows the outline through the clip, then
- * curves gently (a fraction of its bend budget) outward and leaves past the
- * rim. `outline`/`margin` mirror the cap's own (the flange's) exactly.
- *
- * Issue #121: the same clip is repeated at `outline.n` evenly spaced
- * positions around the cap (every 90 degrees on round and square, every 120
- * on a triangle), all at the same offset and height and all along the
- * outline in the winding direction, so each one is exactly the first clip's
- * layout moved along the outline: a cable end arriving at any of them level
- * along the outline (as the drawn one arrives at the first) goes through it
- * and out past the rim within the same bend budget. A repeated clip is left
- * out where it would stand in the drawn cable's way (`avoid`, the lead-out's
- * samples in this local frame, or another clip's cable path) -- e.g. just
- * behind the first clip, where the lead-out runs up under the cap.
+ * A rim cable slot (issue #241): a keyhole cut straight through the plate (the
+ * base flange or the top cap) at its rim. A round seat the cable passes
+ * through, a straight neck out to the rim a little narrower than the cable,
+ * and a 45 degree lead-in at the mouth, so the cable is pressed in from the
+ * edge. The plate beside the neck is rigid (PLA doesn't flex), so the cable's
+ * jacket takes the squeeze: the same CABLE_BASE_CLIP_INTERFERENCE as the base
+ * clip. The seat is a print tolerance wider than the cable, so it holds the
+ * cable without clamping it; a connector behind it stops it pulling through.
+ * Its walls are vertical, so it needs no support either way up. The slot runs
+ * straight in along the rim's normal: the coil lies inboard of the seat, so
+ * its pull on the cable draws it away from the neck.
  */
-export function layoutCapClip(
-  outline: ShapeOutline,
-  margin: number,
-  envelopeOffset: number,
-  wireDiameter: number,
-  tolerance: number,
-  bendRadius: number,
-  u0: number,
-  avoid: XYZ[] = [],
-): CapClipLayout {
-  const sec = capClipSection(wireDiameter, tolerance);
-  const o = capClipOffset(envelopeOffset, wireDiameter, tolerance);
-  const len = capClipLength(wireDiameter);
-  // The ends ramp at 45 degrees from the full depth up to the plate.
-  const ramp = -sec.bottom;
-  const reachBack = ramp + 1;
+export interface RimSlot {
+  /** The cut in plan: a closed, counter-clockwise polygon reaching past the rim. */
+  outline: XY[];
+  /** The seat's centre, where the cable passes through the plate. */
+  seat: XY;
+  /** The unit vector along the slot, from the seat out through the mouth. */
+  axis: XY;
+}
 
-  const one = (uStart: number): { clip: CapClip; spine: XY[] } => {
-    // Along the outline at offset `o`, by arc length (pointAt's own parameter
-    // is only proportional to arc length at offset 0).
-    const fine: { s: number; t: number }[] = [{ s: 0, t: uStart }];
-    const dt = 0.05 / Math.max(1, Math.hypot(pointAt(outline, uStart + 1e-4, o).x - pointAt(outline, uStart, o).x, pointAt(outline, uStart + 1e-4, o).y - pointAt(outline, uStart, o).y) / 1e-4);
-    while (fine[fine.length - 1].s < len + reachBack) {
-      const prev = fine[fine.length - 1];
-      const a = pointAt(outline, prev.t, o);
-      const b = pointAt(outline, prev.t + dt, o);
-      fine.push({ s: prev.s + Math.hypot(b.x - a.x, b.y - a.y), t: prev.t + dt });
-    }
-    // ...and back past the start, where the rib's ramp and the bore reach.
-    while (fine[0].s > -reachBack) {
-      const next = fine[0];
-      const a = pointAt(outline, next.t - dt, o);
-      const b = pointAt(outline, next.t, o);
-      fine.unshift({ s: next.s - Math.hypot(b.x - a.x, b.y - a.y), t: next.t - dt });
-    }
-    const tAt = (s: number) => {
-      const i = Math.max(1, fine.findIndex((f) => f.s >= s));
-      const [a, b] = [fine[i - 1], fine[i]];
-      return a.t + ((b.t - a.t) * (s - a.s)) / Math.max(1e-12, b.s - a.s);
-    };
-    const along = (s: number) => {
-      const t = tAt(s);
-      const p = pointAt(outline, t, o);
-      const q = pointAt(outline, t + 1e-6, o);
-      const l = Math.hypot(q.x - p.x, q.y - p.y);
-      return { c: { x: p.x, y: p.y }, u: { x: -(q.y - p.y) / l, y: (q.x - p.x) / l }, n: { x: p.nx, y: p.ny }, tan: { x: (q.x - p.x) / l, y: (q.y - p.y) / l } };
-    };
+/** The seat's radius, the neck's half-width, and where (along the slot, from the seat's centre) the neck starts and ends. */
+function rimSlotSection(wireDiameter: number, tolerance: number) {
+  const R = clipRadius(wireDiameter, tolerance);
+  const neck = (wireDiameter * (1 - CABLE_BASE_CLIP_INTERFERENCE)) / 2;
+  const neckStart = Math.sqrt(R * R - neck * neck);
+  return { R, neck, neckStart, neckEnd: neckStart + RIM_SLOT_NECK };
+}
 
-    // The rib: the full section over the clip's length; past each end a 45
-    // degree ramp cuts it off, rising to the plate. A station exactly where
-    // the ramp passes each of the section's vertices, and none in between: so
-    // each quad of the ramp lies on it or on the rib's side, and each edge of
-    // the rib runs cleanly into it. (A station whose cut fell between two
-    // vertices left a folded quad there, drawn as a stray line.) It runs on
-    // END into the plate, so it crosses the plate's underside cleanly (a rib
-    // end stopping just short of it left a sliver step, and long tilted
-    // triangles across the underside).
-    const depthAt = (s: number) => (s >= 0 && s <= len ? ramp : ramp - Math.max(-s, s - len));
-    const END = 0.2;
-    const cuts = [...new Set(capRibRing({ x: 0, y: 0 }, { x: 1, y: 0 }, sec, ramp).map((q) => q.z).filter((z) => z < 0 && z > -ramp + 1e-6))];
-    const rampAt = cuts.map((z) => ramp + z);
-    const blockStations = [-ramp - END, ...rampAt.map((e) => -e).sort((a, b) => a - b), ...stationsOver(0, len, CAP_RIB_STEP, []), ...rampAt.map((e) => len + e).sort((a, b) => a - b), len + ramp + END];
-    const block: SweepSolid = {
-      rings: blockStations.map((s) => {
-        const { c, u } = along(s);
-        return capRibRing(c, u, sec, depthAt(s));
-      }),
-      start: { ...along(-ramp - END).c, z: 0.6 },
-      end: { ...along(len + ramp + END).c, z: 0.6 },
-      convexQuads: true,
-    };
-    // The bore runs a little past each end of the rib, so the rib is open.
-    const boreFrom = -ramp - END - 0.3;
-    const boreTo = len + ramp + END + 0.3;
-    // Where an end ramp crosses a bore station a hair from one of the ring's
-    // vertices, the boolean leaves an edge too short to weld. So a station on
-    // a ramp moves (by a few hundredths) until the ramp crosses it clear of
-    // every vertex.
-    const ringZ = capBoreRing({ x: 0, y: 0 }, { x: 1, y: 0 }, sec).map((q) => q.z);
-    const clearOfRing = (s: number) => {
-      const depth = depthAt(s);
-      return depth <= 0 || depth >= ramp || ringZ.every((z) => Math.abs(z + depth) > CAP_BORE_RAMP_CLEARANCE);
-    };
-    const nudged = (s: number) => {
-      for (let k = 0; k <= 30; k++) for (const t of [s + 0.01 * k, s - 0.01 * k]) if (clearOfRing(t)) return t;
-      return s;
-    };
-    const bore: SweepSolid = {
-      rings: stationsOver(boreFrom, boreTo, CABLE_SWEEP_STEP, [0, len]).map(nudged).map((s) => {
-        const { c, u } = along(s);
-        return capBoreRing(c, u, sec);
-      }),
-      start: { ...along(boreFrom).c, z: sec.zc },
-      end: { ...along(boreTo).c, z: sec.zc },
-    };
+/** The rim slot's seat width and neck width, mm (narrower than the cable). */
+export function rimSlotWidths(wireDiameter: number, tolerance: number): { seat: number; neck: number } {
+  const { R, neck } = rimSlotSection(wireDiameter, tolerance);
+  return { seat: 2 * R, neck: 2 * neck };
+}
 
-    // The cable: through the clip along the outline, then out along the
-    // clip end's tangent, bending gently outward, past the rim.
-    const path: XY[] = [];
-    const clipSteps = Math.max(2, Math.ceil(len / CABLE_BRIDGE_STEP));
-    for (let i = 0; i <= clipSteps; i++) path.push(along((len * i) / clipSteps).c);
-    const end = along(len);
-    const curve = (0.8 * CABLE_BEND_BUDGET) / bendRadius;
-    const exit = (s: number): XY => ({
-      x: end.c.x + end.tan.x * s + end.n.x * ((curve * s * s) / 2),
-      y: end.c.y + end.tan.y * s + end.n.y * ((curve * s * s) / 2),
-    });
-    const sRim = reach((s) => {
-      const p = exit(s);
-      return outlineOffsetAt(outline, p.x, p.y).offset;
-    }, margin, 0);
-    const sOut = sRim + clippedTailLength(wireDiameter);
-    const exitSteps = Math.max(2, Math.ceil(sOut / CABLE_BRIDGE_STEP));
-    for (let i = 1; i <= exitSteps; i++) path.push(exit((sOut * i) / exitSteps));
+/** The seat centre's offset outside the core's outline: as far out as the rim allows, the neck ending at the foot of the rim chamfer (so it keeps the plate's full thickness). */
+export function rimSlotSeatOffset(margin: number, wireDiameter: number, tolerance: number): number {
+  return margin - EDGE_CHAMFER - rimSlotSection(wireDiameter, tolerance).neckEnd;
+}
 
-    const spineSteps = Math.ceil((len + 2 * ramp) / CABLE_BRIDGE_STEP);
-    const spine = Array.from({ length: spineSteps + 1 }, (_, i) => along(-ramp + ((len + 2 * ramp) * i) / spineSteps).c);
-    return { clip: { block, bore, path }, spine };
-  };
+/** The narrowest margin whose base slot keeps RIM_SLOT_COLLAR_GAP of plate between its seat and the collar pad under the wall. */
+export function requiredRimSlotMargin(wireDiameter: number, tolerance: number): number {
+  const { R, neckEnd } = rimSlotSection(wireDiameter, tolerance);
+  return FLANGE_PAD_COLLAR + RIM_SLOT_COLLAR_GAP + R + neckEnd + EDGE_CHAMFER;
+}
 
-  // Whether a cable (centre samples `points`, local frame) would run into a
-  // clip's rib: within its half-width (plus the cable's own radius and the
-  // coil gap) of its spine, and not wholly below it.
-  const reachHalf = sec.outer + wireDiameter / 2 + CAP_CLIP_COIL_GAP;
-  const blocks = (spine: XY[], points: XYZ[]) =>
-    points.some((q) => q.z + wireDiameter / 2 > sec.bottom - CAP_CLIP_COIL_GAP && spine.some((c) => Math.hypot(q.x - c.x, q.y - c.y) < reachHalf));
-  const onPath = (clip: CapClip) => clip.path.map((p) => ({ ...p, z: sec.zc }));
+/** The slot with its seat at outline parameter `u`. */
+function rimSlotAt(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, u: number): RimSlot {
+  const { R, neck, neckStart, neckEnd } = rimSlotSection(wireDiameter, tolerance);
+  const c = pointAt(outline, u, rimSlotSeatOffset(margin, wireDiameter, tolerance));
+  const a = { x: c.nx, y: c.ny };
+  // Past the rim, with the lead-in's 45 degree walls well out of the plate too.
+  const far = reach((s) => outlineOffsetAt(outline, c.x + a.x * s, c.y + a.y * s).offset, margin, 0) + 1;
+  const at = (along: number, across: number): XY => ({ x: c.x + a.x * along - a.y * across, y: c.y + a.y * along + a.x * across });
+  const start = Math.atan2(neck, neckStart);
+  const arcSteps = Math.ceil(((2 * Math.PI - 2 * start) / (2 * Math.PI)) * RIM_SLOT_SEAT_SEGMENTS);
+  const arc = Array.from({ length: arcSteps + 1 }, (_, i) => {
+    const phi = start + ((2 * Math.PI - 2 * start) * i) / arcSteps;
+    return at(R * Math.cos(phi), R * Math.sin(phi));
+  });
+  const flare = neck + far - neckEnd;
+  return { outline: [at(far, flare), at(neckEnd, neck), ...arc, at(neckEnd, -neck), at(far, -flare)], seat: { x: c.x, y: c.y }, axis: a };
+}
 
-  const all = Array.from({ length: outline.n }, (_, i) => one(u0 + i / outline.n));
-  const kept = [all[0]];
-  for (const candidate of all.slice(1)) {
-    if (blocks(candidate.spine, avoid)) continue;
-    if (all.some((other) => other !== candidate && (blocks(candidate.spine, onPath(other.clip)) || blocks(other.spine, onPath(candidate.clip))))) continue;
-    kept.push(candidate);
+/** Whether `p` lies inside the closed polygon `poly`. */
+function inside(p: XY, poly: XY[]): boolean {
+  let odd = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [a, b] = [poly[i], poly[j]];
+    if (a.y > p.y !== b.y > p.y && p.x < a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y)) odd = !odd;
   }
-  return { clips: kept.map((k) => k.clip) };
+  return odd;
+}
+
+/** Distance from `p` to the closed polygon `poly`'s edges. */
+function edgeDistance(p: XY, poly: XY[]): number {
+  let best = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [a, b] = [poly[j], poly[i]];
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 > 1e-12 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
+    best = Math.min(best, Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)));
+  }
+  return best;
 }
 
 /**
- * A cap clip rib's cross-section across the cable at `c` (`u` the unit
- * vector across it): straight up from where the rounded lower edge begins
- * (level with the cable's centre) to 1 mm into the plate, where the two
- * weld, round the edge and across the bottom (the bore cuts the middle).
- * Cut off `depth` under the plate (the full depth is the bottom, less on the
- * end ramps): a vertex below the cut moves straight up onto it, so the
- * section keeps its vertex count and order and the sweep never folds.
+ * Lay out a rim slot as near outline parameter `u0` as it fits: half a
+ * millimetre at a time either way round the rim, the first position whose
+ * cut (inside the rim) keeps `clearance` from every `keepOut` polygon and
+ * has none of them inside it. Undefined when no position around the rim
+ * fits. `outline`/`margin` are the plate's (the flange's) own, so every
+ * backend cuts the same slot.
  */
-function capRibRing(c: XY, u: XY, sec: CapClipSection, depth: number): XYZ[] {
-  const at = (p: number, z: number): XYZ => ({ x: c.x + u.x * p, y: c.y + u.y * p, z: Math.max(z, -depth) });
-  const { R, zc, outer } = sec;
-  // From the vertical side, round the edge to where it meets the bottom (zc - R).
-  const end = Math.asin(R / outer);
-  const edge = Array.from({ length: CAP_RIB_EDGE_SEGMENTS + 1 }, (_, i) => {
-    const phi = (end * i) / CAP_RIB_EDGE_SEGMENTS;
-    return { p: outer * Math.cos(phi), z: zc - outer * Math.sin(phi) };
-  });
-  // Across the bottom in short steps: on a curving outline the end ramp is
-  // slightly twisted, and one wide quad across it would fold along its
-  // diagonal (a stray line in the drawing).
-  const across = Array.from({ length: CAP_RIB_BOTTOM_SEGMENTS - 1 }, (_, i) => edge[CAP_RIB_EDGE_SEGMENTS].p * (1 - (2 * (i + 1)) / CAP_RIB_BOTTOM_SEGMENTS));
-  return [at(outer, 1), ...edge.map((e) => at(e.p, e.z)), ...across.map((p) => at(p, zc - R)), ...edge.reverse().map((e) => at(-e.p, e.z)), at(-outer, 1)];
-}
-
-/**
- * A cap clip bore's cross-section across the cable at `c`: the round bore
- * about the cable's centre, a narrow relief slot CAP_CLIP_RELIEF up into the
- * plate, and below the bore the throat, straight down, widening at 45
- * degrees into the lead-in and on past the rib's bottom. Star-shaped about
- * the cable's centre, so a fan from it caps the sweep.
- */
-function capBoreRing(c: XY, u: XY, sec: CapClipSection): XYZ[] {
-  const at = (p: number, z: number): XYZ => ({ x: c.x + u.x * p, y: c.y + u.y * p, z });
-  const { R, zc, throat, bottom, lead } = sec;
-  const relief = CAP_CLIP_RELIEF_WIDTH * R;
-  const a0 = Math.asin(relief / R);
-  const a1 = Math.PI - Math.asin(throat / R);
-  const arc = Array.from({ length: CABLE_SWEEP_ARC_SEGMENTS + 1 }, (_, i) => {
-    const a = a0 + ((a1 - a0) * i) / CABLE_SWEEP_ARC_SEGMENTS;
-    return { p: R * Math.sin(a), z: zc + R * Math.cos(a) };
-  });
-  const right = [{ p: relief, z: CAP_CLIP_RELIEF }, ...arc, { p: throat, z: bottom + lead }, { p: throat + lead + 1, z: bottom - 1 }];
-  return [...right.map((q) => at(q.p, q.z)), ...right.reverse().map((q) => at(-q.p, q.z))];
+export function layoutRimSlot(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, u0: number, keepOut: XY[][] = [], clearance = 0): RimSlot | undefined {
+  const du = 0.5 / offsetPerimeter(outline, Math.max(0, rimSlotSeatOffset(margin, wireDiameter, tolerance)));
+  const fits = (slot: RimSlot) => {
+    // The cut's edges, sampled finely, where they're inside the plate.
+    const samples = slot.outline.flatMap((a, i) => {
+      const b = slot.outline[(i + 1) % slot.outline.length];
+      const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / 0.25));
+      return Array.from({ length: n }, (_, k) => ({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n }));
+    });
+    const cut = samples.filter((p) => outlineOffsetAt(outline, p.x, p.y).offset <= margin);
+    return keepOut.every((poly) => cut.every((p) => !inside(p, poly) && edgeDistance(p, poly) >= clearance) && poly.every((q) => outlineOffsetAt(outline, q.x, q.y).offset > margin || !inside(q, slot.outline)));
+  };
+  for (let k = 0; k * du <= 0.5; k++) {
+    for (const u of k === 0 ? [u0] : [u0 + k * du, u0 - k * du]) {
+      const slot = rimSlotAt(outline, margin, wireDiameter, tolerance, u);
+      if (fits(slot)) return slot;
+    }
+  }
+  return undefined;
 }

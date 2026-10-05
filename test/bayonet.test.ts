@@ -143,10 +143,11 @@ describe("bayonet on a round core (issue #167)", () => {
     expect(Math.abs(collar(press, h - 6, 0) - collar(press, h - 6, -TWIST_DEG))).toBeLessThan(0.05);
   });
 
-  it("the cable clips under the cap stay outside the wound cable through the whole twist", async () => {
+  it("nothing under the cap catches the wound cable through the whole twist", async () => {
     // A round coil turns into itself: if every bit of the cap below its
     // plate that isn't the collar or a lug stays outside the wound cable's
-    // envelope radius, it stays outside at every angle of the twist.
+    // envelope radius, it stays outside at every angle of the twist. Issue
+    // #241: the cap's clips are gone, so nothing hangs there at all.
     for (const overrides of ROUND_CASES.map((c) => c.overrides)) {
       const d = await design(spec(overrides));
       const h = d.solution.height;
@@ -159,7 +160,7 @@ describe("bayonet on a round core (issue #167)", () => {
         if (r < d.wallSpec.outline.apothem) continue; // the collar, inside the core
         nearest = Math.min(nearest, r);
       }
-      expect(nearest, "something under the cap outside the bore").toBeLessThan(Infinity);
+      expect(nearest, "nothing under the cap outside the bore").toBe(Infinity);
       expect(nearest).toBeGreaterThanOrEqual(envelope);
     }
   });

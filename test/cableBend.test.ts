@@ -150,23 +150,19 @@ function expectFixPointsWithinBendLimit(d: Design, mbr: number, label: string) {
   expect(outlineOffsetAt(d.flangeSpec.outline, fix[0], fix[1]).offset, `${label}: the inner end leaves past the rim`).toBeGreaterThan(d.flangeSpec.margin);
   expectWithinBendLimit(fix, mbr, `${label}: inner fix point`);
 
-  if (d.capClip) {
+  // Issue #241: with the cap on, the outer end runs level just under the cap
+  // and curves out past the rim (under the cap's rim slot), within the bend
+  // limit, joined to the lead-out without a kink.
+  if (d.parts.some((p) => p.role === "topCap")) {
     const out = d.outerEndLeadOut;
-    const n = d.capClip.clips[0].path.length;
-    const capSegment = out.slice(out.length - 3 * n);
-    for (let i = 2; i < capSegment.length; i += 3) expect(capSegment[i], `${label}: the outer end runs level through the cap clip and out`).toBeCloseTo(capSegment[2], 6);
-    // With the lead-out's last sample before it, so the join is covered too.
-    expectWithinBendLimit(out.slice(out.length - 3 * (n + 1)), mbr, `${label}: cap fix point`);
-    // Issue #121: the cap has several clips, each the first one's layout
-    // moved along the outline; a cable end through any of them runs level
-    // (by construction: its path is plan-view only) and out past the rim
-    // within the bend limit.
-    expect(d.capClip.clips.length, `${label}: clips around the cap`).toBeGreaterThanOrEqual(2);
-    d.capClip.clips.forEach((clip, i) => {
-      expectWithinBendLimit(new Float32Array(clip.path.flatMap((p) => [p.x, p.y, 0])), mbr, `${label}: cap clip ${i}`);
-      const end = clip.path[clip.path.length - 1];
-      expect(outlineOffsetAt(d.flangeSpec.outline, end.x, end.y).offset, `${label}: cap clip ${i} leads out past the rim`).toBeGreaterThan(d.flangeSpec.margin);
-    });
+    const n = out.length / 3;
+    const zKey = out[n * 3 - 1];
+    expect(zKey + d.spec.wire.diameter / 2, `${label}: the outer end runs just under the cap`).toBeCloseTo(d.solution.height - 0.1, 4);
+    let first = n - 1;
+    while (first > 0 && Math.abs(out[first * 3 - 1] - zKey) < 1e-6) first--;
+    expect(n - first, `${label}: a level run out from under the cap`).toBeGreaterThanOrEqual(4);
+    expectWithinBendLimit(out.slice(Math.max(0, first - 1) * 3), mbr, `${label}: cap end`);
+    expect(outlineOffsetAt(d.flangeSpec.outline, out[n * 3 - 3], out[n * 3 - 2]).offset, `${label}: the outer end leads out past the rim`).toBeGreaterThan(d.flangeSpec.margin);
   }
 }
 
@@ -231,7 +227,7 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
             expectWithinBendLimit(d.cablePath, mbr, "cablePath");
             expect(maxGap(d.cablePath), "cablePath: largest step between samples").toBeLessThan(5);
             expectFixPointsWithinBendLimit(d, mbr, "fix points");
-            expect(d.capClip !== undefined, "a cap clip exactly when the cap is on").toBe(d.parts.some((p) => p.role === "topCap"));
+            expect(d.rimSlots.cap !== undefined, "a cap rim slot exactly when the cap is on").toBe(d.parts.some((p) => p.role === "topCap"));
           });
         }
       }
