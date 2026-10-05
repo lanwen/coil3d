@@ -151,8 +151,9 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
   });
 
   it("a square/triangle's clip reaches the rim along the flat side, clear of the next corner's through-hole (issue #115)", async () => {
-    for (const shape of [{ kind: "sq", cornerRadius: 10 }, { kind: "tri", cornerRadius: 10 }] as ShapeSpec[]) {
-      const d = await design(baseSpec({ shape, coreSize: { locked: false }, height: { locked: false }, mount: "through" }));
+    for (const shape of [{ kind: "sq", cornerRadius: 15 }, { kind: "tri", cornerRadius: 15 }] as ShapeSpec[]) {
+      // A locked 65 mm core (the size the solver gave this design with the old 4 x d bend radius): the free minimum is smaller now, and a corner that tight can lose its hole to the channel, with a warning.
+      const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: 65 }, height: { locked: false }, mount: "through" }));
       expect(d.warnings.some((w) => /through-hole\(s\) skipped/.test(w)), `${shape.kind}: ${d.warnings.join(" | ")}`).toBe(false);
     }
   });
@@ -180,7 +181,7 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
     const layout = layoutOf(d);
     expect(layout.warning).toBeUndefined();
     expect(d.flangeSpec.margin).toBeGreaterThanOrEqual(layout.requiredMargin - 1e-9);
-    expect(d.warnings.some((w) => /Flange margin increased to .* so the inner cable end can reach the groove within its 38\.0 mm bend radius/.test(w))).toBe(true);
+    expect(d.warnings.some((w) => /Flange margin increased to .* so the inner cable end can reach the groove within its 24\.7 mm bend radius/.test(w))).toBe(true);
     await assertManifold(d.mesh, "stiff-cable core");
   });
 

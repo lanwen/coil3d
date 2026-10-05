@@ -15,7 +15,7 @@ import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 const ROOMY_ROUND = encodeHashDoc({ L: 10000, d: 3.8, lock: ["outer", "h"], size: 30, h: 60 });
 // A bigger core (70mm, vs. round's 30mm) so a requested corner radius of 16
 // clears the bend-limit floor for the default "usb" wire type at 3.8mm
-// (MBR = 4 x 3.8 = 15.2mm) instead of being silently clamped UP to it --
+// (MBR = 2.6 x 3.8 = 9.9mm) instead of being silently clamped UP to it --
 // issue #12 review: the earlier fixture used the default corner radius
 // (8mm) at size=30, which the solver clamps to the apothem (15mm), so the
 // "square"/"triangle" core rendered fully round. rc=16 is comfortably above
@@ -157,7 +157,7 @@ test.describe("too-long-text warning (issue #12)", () => {
   });
 });
 
-// Default cable and core with the top cap forced on: ABCDEFGHI is the longest
+// Default cable and core with the top cap forced on: ABCDEFGH is the longest
 // all-caps prefix of ABCDEFGHIJKLMNOP that fits this cap (test/label.test.ts).
 const DEFAULT_CAP_ON = encodeHashDoc({ cap: "on" });
 
@@ -172,7 +172,7 @@ test.describe("the label field stops at what the cap can hold", () => {
     const input = await openLabelField(page, DEFAULT_CAP_ON);
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
     await input.pressSequentially("ABCDEFGHIJKLMNOP");
-    await expect(input).toHaveValue("ABCDEFGHI");
+    await expect(input).toHaveValue("ABCDEFGH");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
     await expect(page.getByTestId("download-stl")).toBeEnabled();
     await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
@@ -181,7 +181,7 @@ test.describe("the label field stops at what the cap can hold", () => {
   test("pasting a long string is cut the same way", async ({ page }) => {
     const input = await openLabelField(page, DEFAULT_CAP_ON);
     await input.fill("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-    await expect(input).toHaveValue("ABCDEFGHI");
+    await expect(input).toHaveValue("ABCDEFGH");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
   });
 
@@ -193,7 +193,7 @@ test.describe("the label field stops at what the cap can hold", () => {
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
 
     await input.fill("ABCDEFGHIJK");
-    await expect(input).toHaveValue("ABCDEFGHI");
+    await expect(input).toHaveValue("ABCDEFGH");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
     await input.press("Backspace");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);

@@ -18,7 +18,7 @@ This file records why the app works the way it does. The mount geometry is in
 | Winding | Helical. The groove guides layer 1 only. Higher layers nest in the valleys of the layer below (orthocyclic winding). |
 | Core | A tube. It is hollow and open. The user locks either the inner diameter (bore) or the outer diameter (winding surface). A 3 mm wall links the two (thicker for a cable over 3 mm, so 1.5 mm of wall stays under the groove). |
 | Shapes | Round, rounded square, rounded triangle. Round is a diameter, square is across flats, triangle is the inscribed-circle diameter. |
-| Cable | Round cross-section only. Bend limit: USB/audio 4x the diameter, flexible cord 4x, stiff or solid 10x, or a custom multiplier. |
+| Cable | Round cross-section only. Bend limit: USB/audio 2.6x the diameter, flexible cord 2.6x, stiff or solid 6.5x, or a custom multiplier (2.6x by default). |
 | Parts | A core with the bottom flange printed as one piece. A separate top cap, on by default when there is more than one layer. Separate rim clips or T-clips for SKÅDIS (3 or 4), or a separate mount plate with two alignment pegs for the hidden openGrid placeholder. |
 | Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core; elsewhere the cap gets the press-fit collar, with a warning. The snap cap has one 12 mm finger per side of the bore (slots at the corners: four on round and square cores, three on triangles), each with a barb along its whole width that clicks under a ridge ring inside the core's bore: a 30° lead-in, so it goes on with about half the pull-off force, and a 45° retaining face (the print overhang limit). Seated, the barbs sit 0.2 mm into the ridge, so the fingers stay a little bent, pull the cap onto the rim and centre it: no radial or tilt play. Under the finger tips a seat ring narrows the bore to the cap's hole, so there is no step inside the seated cap. Nothing is cut into the core's wall. A core too small for the clips gets the press-fit collar, with a warning; see [Snap joint](#snap-joint). |
 | Label | Text engraved into the top cap's room-facing face. It is hidden, with a warning, when it does not fit. |
@@ -206,8 +206,8 @@ candidates; it can't buy proportions with extra capacity.
   radius `MBR = multiplier x d`. Outer layers only get rounder.
 - For a round core the corner radius is the whole radius, so the bend limit
   is a hard floor on the size: `2 (k d - d/2 + g)`, which is `2 (k - 0.1) d`
-  with the groove at `0.4 d`. A 9 mm cord at 4x needs a core of at least about
-  70 mm. A square or triangle can have a smaller
+  with the groove at `0.4 d`. A 9 mm cord at 2.6x needs a core of at least about
+  45 mm. A square or triangle can have a smaller
   corner radius, but a core that is too small turns into a circle. So the
   solver also keeps every flat side at least two cable diameters and 15 % of
   the perimeter long. It raises a locked size that is below this floor and

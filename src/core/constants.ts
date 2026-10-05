@@ -227,6 +227,8 @@ export const CABLE_CLIPPED_TAIL_MIN = 10; // mm
 export const CABLE_SWEEP_ARC_SEGMENTS = 16;
 /** Spacing of the channel/clip cross-sections along the cable, mm. */
 export const CABLE_SWEEP_STEP = 2.5; // mm
+/** The channel floor may sag at most this far between two cross-sections where the cable bends at its tightest, mm: the cross-sections get closer than CABLE_SWEEP_STEP on a cable with a small bend radius (step = sqrt(8 * sag * bend radius)). */
+export const CABLE_SWEEP_MAX_SAG = 0.08; // mm
 
 // Inner-end fixing (issues #8, #115, #117, docs/design.md, Cable ends): a recessed channel on the bottom flange's inner (winding-side,
 // z=0) face, swept along the cable from the wall's own groove start (a

@@ -49,7 +49,7 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     expect(d.solution.totalWireLength).toBeCloseTo(2100.339882796659, 6);
     expect(d.solution.envelopeDiameter).toBeCloseTo(64.56, 9);
     expect(d.solution.flangeSize).toBeCloseTo(67.56, 9); // issue #239: the envelope plus a 1.5 mm lip each side (was 4)
-    expect(d.solution.minOuterSizeForBend).toBeCloseTo(29.64, 9);
+    expect(d.solution.minOuterSizeForBend).toBeCloseTo(19, 9); // 2 x (2.6 x 3.8 - 3.8 / 2 + 0.4 x 3.8)
 
     // Vertex/triangle counts are NOT pinned here: the raw wall mesh (before
     // the flange is fused on) has the exact same counts as main's (verified
@@ -123,6 +123,9 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     // Issue #239 bumped it UP from 34678.197056711804 (by 421.63 mm^3): the inner end's clip keeps 1.5 mm of flange to
     // the rim instead of 1 mm (the rim chamfer plus half a millimetre), and the inner end sets this margin, so it grows
     // by 0.5 mm all round.
-    expect(meshVolume(d.mesh)).toBeCloseTo(35099.827662282645, 3);
+    //
+    // Issue #255 bumped it DOWN from 35099.827662282645 (by 1612.31 mm^3): the USB cable's bend radius is 9.9 mm now
+    // (2.6 x d, was 4 x d = 15.2 mm), so the inner end's lead-in needs less flange margin, and the flange is smaller all round.
+    expect(meshVolume(d.mesh)).toBeCloseTo(33487.518719260865, 3);
   });
 });
