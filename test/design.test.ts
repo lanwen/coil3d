@@ -39,6 +39,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
@@ -75,7 +76,7 @@ function expectedSingleLayer(outerSize: number, height: number, wireDiameter: nu
 describe("design() solver (round core)", () => {
   it("matches a hand calculation for a fully-locked round core (0 free)", async () => {
     const outerSize = 64;
-    const height = 40;
+    const height = 60;
     const wireDiameter = 3.8;
     const expected = expectedSingleLayer(outerSize, height, wireDiameter);
 
@@ -210,7 +211,7 @@ describe("design() solver (round core)", () => {
     const spec = baseSpec({
       wire: { length: 200, diameter: 8, type: "stiff" }, // 10x -> large minimum core, tiny target
       coreSize: { locked: false },
-      height: { locked: true, value: 21 }, // room for one turn only
+      height: { locked: false },
       layers: { locked: true, value: 1 },
     });
     const d = await design(spec);
@@ -218,7 +219,7 @@ describe("design() solver (round core)", () => {
     expect(d.solution.totalWireLength).toBeGreaterThan(200);
     const note = d.notices.find((n) => /more cable than you need/.test(n.message));
     expect(note?.severity).toBe("note");
-    expect(note?.message).toMatch(/bend radius needs a core of at least/i);
+    expect(note?.message).toMatch(/inner end through at its .* bend radius, which needs a core of at least/i);
     expect(note?.message).toMatch(/smallest coil for this cable/i);
   });
 
@@ -273,20 +274,6 @@ describe("design() solver (round core)", () => {
       expect(d.solution.totalWireLength).toBeGreaterThanOrEqual(d.solution.targetWireLength * (1 - 1e-6));
     }
   });
-
-  it("warns and reduces the bore when the locked core is too small for the fixed wall thickness", async () => {
-    // A 1 mm cable bent to 3x its diameter: its bend limit (issue #195
-    // raises a round core to it) still allows a core under 8 mm, too small
-    // for two 3 mm walls.
-    const spec = baseSpec({
-      wire: { length: 50, diameter: 1, type: "custom", customBendMultiplier: 3 },
-      coreSize: { locked: true, dimension: "outer", value: 4 },
-      height: { locked: true, value: 30 },
-      layers: { locked: true, value: 1 },
-    });
-    const d = await design(spec);
-    expect(d.warnings.some((w) => /too small/i.test(w))).toBe(true);
-  });
 });
 
 describe("design() solver (min-volume objective and capacity range, issue #23)", () => {
@@ -332,10 +319,10 @@ describe("design() solver (min-volume objective and capacity range, issue #23)",
 
   it("warns when the loosest winding quality's capacity falls short of the target, even though the chosen quality is 'ok'", async () => {
     const spec = baseSpec({
-      wire: { length: 3000, diameter: 4, type: "usb" },
+      wire: { length: 5000, diameter: 4, type: "usb" },
       coreSize: { locked: true, dimension: "outer", value: 60 },
       height: { locked: false },
-      layers: { locked: false },
+      layers: { locked: true, value: 3 },
       objective: "minVolume",
     });
     const d = await design(spec);
@@ -347,7 +334,7 @@ describe("design() solver (min-volume objective and capacity range, issue #23)",
 
   it("does not warn about the capacity range when capacity is quality-independent (single fully-locked layer)", async () => {
     const outerSize = 64;
-    const height = 40;
+    const height = 60;
     const wireDiameter = 3.8;
     const expected = expectedSingleLayer(outerSize, height, wireDiameter);
     const spec = baseSpec({
@@ -519,7 +506,7 @@ describe("design() keeps square/triangle distinct at small sizes (issue #54)", (
     }
   });
 
-  it("raises a round core only to the bend-limit floor (round has no flats to keep, so minOuterSizeForShape falls back to it; issue #195)", async () => {
+  it("raises a round core to the floor of the bend limit and the inner end (round has no flats to keep; issue #195)", async () => {
     const d = await design(
       baseSpec({
         wire: { length: 2000, diameter: 3.8, type: "stiff" },
@@ -529,8 +516,8 @@ describe("design() keeps square/triangle distinct at small sizes (issue #54)", (
         layers: { locked: true, value: 1 },
       }),
     );
-    expect(d.solution.minOuterSizeForShape).toBeCloseTo(d.solution.minOuterSizeForBend, 6);
-    expect(d.solution.outerSize).toBeCloseTo(d.solution.minOuterSizeForBend, 6);
+    expect(d.solution.minOuterSizeForShape).toBeGreaterThanOrEqual(d.solution.minOuterSizeForBend - 1e-6);
+    expect(d.solution.outerSize).toBeCloseTo(d.solution.minOuterSizeForShape, 6);
     expect(d.notices.find((n) => /core size raised.*bend radius/i.test(n.message))?.severity, "an automatic adjustment, so a note").toBe("note");
     expect(d.warnings.some((w) => /straight sides/i.test(w))).toBe(false);
   });
@@ -613,6 +600,7 @@ describe("design() useful corner-radius maximum (issue #134)", () => {
         expect(pastMax.warnings.some((w) => /clamped down/i.test(w))).toBe(true);
       }
     },
+    60_000,
   );
 
   it.each(["sq", "tri"] as const)("%s: cornerRadiusRange[1] is monotone increasing in core size", async (kind) => {

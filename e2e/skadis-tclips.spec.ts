@@ -8,8 +8,8 @@ import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 // credit, the exports and the screenshots.
 
 const tclips = (doc: Record<string, unknown>) => encodeHashDoc({ L: 2000, d: 3.8, mount: "skadis-tclip", ...doc });
-const ROUND_40 = tclips({ size: 40 });
-const ROUND_60 = tclips({ size: 60 });
+const ROUND_64 = tclips({ size: 64 });
+const ROUND_76 = tclips({ size: 76 });
 const ROUND_85 = tclips({ size: 85 });
 const ROUND_120 = tclips({ size: 120 });
 
@@ -31,7 +31,7 @@ test.describe("SKÅDIS T-clip controls (issues #213, #221)", () => {
   });
 
   test("selecting the T-clips adds three clips, credits the T-Clip System, has no latch switch, and reproduces on reload", async ({ page }) => {
-    await gotoDesign(page, encodeHashDoc({ L: 2000, d: 3.8, size: 85 }));
+    await gotoDesign(page, encodeHashDoc({ L: 2000, d: 3.8, size: 100 }));
     await page.getByTestId("mount-enabled").check();
     await page.getByTestId("select-mount").selectOption("skadis-tclip");
     await expect(async () => expect(decodeHashDoc(page.url()).mount).toBe("skadis-tclip")).toPass();
@@ -51,8 +51,8 @@ test.describe("SKÅDIS T-clip controls (issues #213, #221)", () => {
   });
 
   for (const { label, hash, parts, message } of [
-    { label: "round-60", hash: ROUND_60, parts: "3 parts", message: /room for 2 SK.DIS T-clips/i },
-    { label: "round-40", hash: ROUND_40, parts: "2 parts", message: /room for 1 SK.DIS T-clip.*lift the coil/i },
+    { label: "round-76", hash: ROUND_76, parts: "3 parts", message: /room for 2 SK.DIS T-clips/i },
+    { label: "round-64", hash: ROUND_64, parts: "2 parts", message: /room for 1 SK.DIS T-clip.*lift the coil/i },
   ]) {
     test(`${label}: a smaller bore gets fewer clips, and says how the coil hangs`, async ({ page }) => {
       await gotoDesign(page, hash);
@@ -83,8 +83,8 @@ test.describe("SKÅDIS T-clip controls (issues #213, #221)", () => {
 
 test.describe("SKÅDIS T-clip screenshots (issues #213, #221)", () => {
   for (const { label, hash } of [
-    { label: "round-40", hash: ROUND_40 },
-    { label: "round-60", hash: ROUND_60 },
+    { label: "round-64", hash: ROUND_64 },
+    { label: "round-76", hash: ROUND_76 },
     { label: "round-85", hash: ROUND_85 },
     { label: "round-120", hash: ROUND_120 },
   ]) {

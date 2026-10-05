@@ -1,30 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
 
-// End-to-end checks for issue #8 (bottom rim keyhole and inner channel):
-// docs/design.md, Cable ends: a recessed channel on the flange's inner face
-// so layers don't wind over a bump, ending in a clip at the rim. Solver/geometry/manifold checks
-// themselves live in test/innerEnd.test.ts against the public `design()`
-// interface; these check the actual render: the feature is visible, and
-// the wound-cable toggle visibly changes it (the schematic's lead-in runs
-// from the keyhole through the channel, innerEnd.ts's `leadIn`).
+// End-to-end checks for issue #254, part 2: the cable's inner end is held in the bore (docs/design.md, Cable ends): it
+// hangs out of the top of the bore, runs down a rib on the bore wall, crosses the open bottom and leaves under the wall
+// into the groove. Geometry, solver and bend-radius checks live in vitest against the public `design()` interface
+// (test/centreEnds.test.ts, test/cableBend.test.ts); these check the actual render: the rib, its keyhole and the cable
+// are visible, and the wound-cable toggle visibly changes the close-up.
 //
-// Close-up framing: `?debugFocusInnerEnd=1` (CoilViewer.tsx, mirroring the
-// existing `?debugAxis=1` screenshot-only debug convention) rotates the
-// rendered geometry about the coil axis so the keyhole's own (data-
-// dependent) azimuth lines up with the default "iso" preset's camera
-// azimuth, and substitutes a SMALL framing geometry (just
-// `innerEndLeadIn`'s own extent, keyhole to groove start) for
-// LineArtRenderer's fit -- so the existing iso camera, unchanged, ends up
-// looking down at the keyhole/channel from iso's own ~32 degree elevation,
-// zoomed in tight, with the actual rendered scene (core + wire) unaffected.
-// A plain mouse-wheel zoom was tried first and rejected: LineArtRenderer
-// re-locks the orbit target to the WHOLE model's own centre every frame
-// (its "self-healing" reframe, see that file's own useFrame comment), so
-// no amount of scrolling/panning keeps an off-centre feature like the
-// bottom flange in frame once zoomed in far enough.
-const ROUND = `?debugFocusInnerEnd=1${encodeHashDoc({ L: 800, d: 4, size: 60, h: 20 })}`;
-const SQUARE = `?debugFocusInnerEnd=1${encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 20 })}`;
+// Close-up framing: `?debugFocusInnerEnd=1` (CoilViewer.tsx) rotates the rendered geometry about the coil axis so the
+// inner end's own (data-dependent) azimuth lines up with the default "iso" preset's camera azimuth, and substitutes a
+// small framing geometry (the `debugFocusRadius` mm of the inner end nearest its free end) for LineArtRenderer's fit.
+const FOCUS = "?debugFocusInnerEnd=1&debugFocusRadius=22";
+const ROUND = `${FOCUS}${encodeHashDoc({ L: 800, d: 4, size: 60, h: 60 })}`;
+const SQUARE = `${FOCUS}${encodeHashDoc({ L: 800, d: 4, size: 60, h: 60, shape: "sq", rc: 20 })}`;
 
 test.use({ viewport: { width: 900, height: 700 } });
 
@@ -38,54 +26,38 @@ async function gotoDesign(page: Page, hash: string) {
   await expect(page.getByTestId("download-stl")).toBeEnabled();
 }
 
-test.describe("bottom rim keyhole + channel close-up (issue #8)", () => {
-  test("round core: the keyhole is centred and visible, and toggling the wound cable changes the render", async ({ page }) => {
+test.describe("centre-held inner end close-up (issue #254)", () => {
+  test("round core: the rib and its keyhole are visible, and toggling the wound cable changes the render", async ({ page }) => {
     await gotoDesign(page, ROUND);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
 
-    await expect(canvas).toHaveScreenshot("inner-end-round-keyhole-wire.png");
+    await expect(canvas).toHaveScreenshot("inner-end-round-rib-wire.png");
     const withWire = await canvas.screenshot();
 
     await page.getByTestId("toggle-wire").uncheck();
-    await expect(canvas).toHaveScreenshot("inner-end-round-keyhole-nowire.png");
+    await expect(canvas).toHaveScreenshot("inner-end-round-rib-nowire.png");
     const withoutWire = await canvas.screenshot();
 
-    // The lead-in (innerEnd.ts's leadIn) draws a real, additional
-    // line from the keyhole into the channel only when the cable is shown;
-    // an exact byte comparison (not the tolerant toHaveScreenshot diff)
-    // proves the toggle actually changes THIS close-up, not just the coil
-    // as a whole.
-    expect(withWire.equals(withoutWire), "the wound-cable toggle must change the keyhole close-up").toBe(false);
+    // The inner end is drawn with the cable only; an exact byte comparison (not the tolerant toHaveScreenshot diff)
+    // proves the toggle actually changes THIS close-up, not just the coil as a whole.
+    expect(withWire.equals(withoutWire), "the wound-cable toggle must change the inner-end close-up").toBe(false);
   });
 
-  test("rounded-square core: the keyhole is centred and visible, and toggling the wound cable changes the render", async ({ page }) => {
+  test("rounded-square core: the rib and its keyhole are visible, and toggling the wound cable changes the render", async ({ page }) => {
     await gotoDesign(page, SQUARE);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
 
-    await expect(canvas).toHaveScreenshot("inner-end-square-keyhole-wire.png");
+    await expect(canvas).toHaveScreenshot("inner-end-square-rib-wire.png");
     const withWire = await canvas.screenshot();
 
     await page.getByTestId("toggle-wire").uncheck();
-    await expect(canvas).toHaveScreenshot("inner-end-square-keyhole-nowire.png");
+    await expect(canvas).toHaveScreenshot("inner-end-square-rib-nowire.png");
     const withoutWire = await canvas.screenshot();
 
-    expect(withWire.equals(withoutWire), "the wound-cable toggle must change the keyhole close-up").toBe(false);
+    expect(withWire.equals(withoutWire), "the wound-cable toggle must change the inner-end close-up").toBe(false);
   });
 
-  test("a heavy-cord design (large channel width relative to the flange) still renders and stays manifold-clean (no design error)", async ({ page }) => {
-    // A thick, stiff cord: the same class of design that once reproduced a
-    // spurious extra genus in the mesh backend (a wide channel reaching
-    // past the wall into the bore, see src/core/manifold.ts's
-    // `outlineBlocker`) before that clip was added -- kept here as an e2e
-    // guard that the app never surfaces that as a broken render, on top of
-    // test/innerEnd.test.ts's own vitest genus check.
-    //
-    // This used to listen for `console.error` instead, but `src` has no
-    // `console.error` call at all -- a thrown `design()` failure is caught
-    // by `useDesignPreview` and rendered as App.tsx's own `data-testid=
-    // design-error` banner, so that check passed for an unrelated reason
-    // (a negative control with no teeth). Asserting the banner itself is
-    // absent is the real, failing-for-the-right-reason check.
+  test("a heavy-cord design (a big core, a long tunnel under the wall) still renders without a design error", async ({ page }) => {
     await gotoDesign(page, encodeHashDoc({ L: 2000, d: 8, wt: "stiff", size: 60, ly: 1 }));
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
     await expect(page.getByTestId("design-error")).toHaveCount(0);

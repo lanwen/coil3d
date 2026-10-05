@@ -105,6 +105,7 @@ import {
   THROUGH_MOUNT_CORNER_NUDGE_DEG,
   THROUGH_MOUNT_COUNTERSINK_LAND,
   THROUGH_MOUNT_EDGE_MARGIN,
+  THROUGH_MOUNT_RIM_HAIR,
   THROUGH_MOUNT_RIM_MARGIN,
   THROUGH_MOUNT_SLIDE_STEP,
   THROUGH_MOUNT_PAD_CLEARANCE,
@@ -565,7 +566,10 @@ export function layoutThroughHoleMount(
     };
     for (let R = innerLimit; R <= outerLimit + 1e-9; R += THROUGH_MOUNT_SLIDE_STEP) {
       const h = { x: R * Math.cos(phi), y: R * Math.sin(phi) };
-      if (fits(h.x, h.y) && clearOfChannel(h.x, h.y)) return h;
+      if (fits(h.x, h.y) && clearOfChannel(h.x, h.y)) {
+        const inset = Math.min(Math.max(0, THROUGH_MOUNT_RIM_HAIR - (outerLimit - R)), R - innerLimit);
+        return { x: (R - inset) * Math.cos(phi), y: (R - inset) * Math.sin(phi) };
+      }
     }
     return null;
   };

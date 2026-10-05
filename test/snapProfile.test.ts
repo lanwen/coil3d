@@ -2,6 +2,7 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, ShapeSpec } from "../src/core";
+import { inRibNotch } from "./support/ribNotch";
 import { SNAP_FINGER_LENGTH, SNAP_SEAT_GAP } from "../src/core/constants";
 
 // Issue #186 and the snap-joint rework: the snap clips' shape, measured on
@@ -28,6 +29,7 @@ function spec(overrides: Partial<CoilSpec>): CoilSpec {
     joint: "snap",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
@@ -95,7 +97,7 @@ async function partsOf(c: { spec: CoilSpec }) {
 
 describe("snap barbs: a 30-degree lead-in, a 45-degree back face, along the whole finger", () => {
   it.each(SHAPES.map((shape) => ({ name: shape.kind, shape, spec: spec({ shape }) })))("$name: no other face on the hook, and the barb all along every finger", async (c) => {
-    const { h, cap, core, capMesh } = await partsOf(c);
+    const { d, h, cap, core, capMesh } = await partsOf(c);
     try {
       // The finger's own outer face, per angle, above the barb and below the root flare.
       const shaftSlice = cap.slice(h + TIP + 5).toPolygons() as Slice;
@@ -131,7 +133,7 @@ describe("snap barbs: a 30-degree lead-in, a 45-degree back face, along the whol
       expect(back, "back face area, mm^2").toBeGreaterThan(50);
       // The barb's point stands SNAP_BARB (1.1 mm) out from the finger at every angle over the fingers.
       const pointSlice = cap.slice(h + TIP + (1.3 / Math.tan(Math.PI / 6))).toPolygons() as Slice;
-      const reach = fingerDegs(c.shape).map((deg) => Math.max(...rayCrossings(pointSlice, deg)) - shaftAt(deg));
+      const reach = fingerDegs(c.shape).filter((deg) => !inRibNotch(d, deg)).map((deg) => Math.max(...rayCrossings(pointSlice, deg)) - shaftAt(deg));
       expect(Math.min(...reach), "the barb's least reach past the finger, mm").toBeGreaterThan(0.9);
     } finally {
       cap.delete();
@@ -142,7 +144,7 @@ describe("snap barbs: a 30-degree lead-in, a 45-degree back face, along the whol
 
 describe("snap joint: no step from the core's bore up into the seated cap's hole", () => {
   it.each(CASES)("$name", async (c) => {
-    const { h, cap, core } = await partsOf(c);
+    const { d, h, cap, core } = await partsOf(c);
     try {
       // The seat's top edge under the finger tips, the plain bore under the seat, and the cap's hole, above the tips and at them.
       const seat = core.slice(h + TIP - SNAP_SEAT_GAP - 0.02).toPolygons() as Slice;
@@ -151,7 +153,7 @@ describe("snap joint: no step from the core's bore up into the seated cap's hole
       const tip = cap.slice(h + TIP + 0.05).toPolygons() as Slice;
       // The radial gap is smallest, and equals the offset between the two
       // outlines, where the ray is square to both (everywhere on round, a flat's middle otherwise).
-      const degs = fingerDegs(c.spec.shape);
+      const degs = fingerDegs(c.spec.shape).filter((deg) => !inRibNotch(d, deg));
       const gap = (a: Slice, b: Slice) => Math.min(...degs.map((deg) => rayCrossings(a, deg)[0] - rayCrossings(b, deg)[0]));
       // Within the two outlines' faceting.
       expect(Math.abs(gap(seat, hole)), "seated step from the seat to the cap's hole, mm").toBeLessThan(0.1);
@@ -186,14 +188,5 @@ describe("issue #186: the snap joint cuts nothing into the core's wall", () => {
       cap.delete();
       core.delete();
     }
-  });
-});
-
-describe("issue #186: a core too small for the snap clips", () => {
-  it("gets the press-fit collar, and says so", async () => {
-    const d = await design(
-      spec({ coreSize: { locked: true, dimension: "outer", value: 10 }, height: { locked: true, value: 20 }, wire: { length: 500, diameter: 1.2, type: "usb" } }),
-    );
-    expect(d.warnings).toContain("This core is too small for the snap clips, so the top cap uses a press-fit collar.");
   });
 });

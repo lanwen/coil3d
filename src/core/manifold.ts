@@ -27,6 +27,8 @@
 
 import Module, { type ManifoldToplevel } from "manifold-3d";
 import {
+  CAP_NOTCH_DEPTH,
+  CENTRE_VARIANTS,
   CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
   JOINT_TRANSITION_HEIGHT,
@@ -44,7 +46,6 @@ import {
   SKADIS_CLIP_WIDTH,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
-  INNER_CHANNEL_WALL_GUARD,
 } from "./constants";
 import { jointGeometry } from "./joints";
 import type { BayonetLayout, OutlineStack, RevolvedFeature, SnapLayout } from "./joints";
@@ -53,12 +54,14 @@ import type { ResolvedLabel } from "./label";
 import { chamferedRim, chamferWedgeRows, rimTriangles } from "./edgeChamfer";
 import type { RimRow } from "./edgeChamfer";
 import { buildOutlineRing } from "./wall";
-import { layoutInnerEnd, sweepMesh } from "./innerEnd";
-import type { InnerEndLayout, RimSlot, SweepSolid } from "./innerEnd";
+import { sweepMesh } from "./innerEnd";
+import type { RimSlot, SweepSolid, XY } from "./innerEnd";
+import type { CentreInnerEnd } from "./centreEnds";
 import { layoutKeyholeMount, throughHoleCountersink } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
 import { weldShortEdges } from "./weld";
+import { hasFoldEdge, hasShortEdge } from "./meshHealth";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
@@ -66,7 +69,7 @@ import { clipFrame } from "./skadisClips";
 import type { RimClip, SkadisClipLayout } from "./skadisClips";
 import { tclipPieceLevels } from "./skadisTclips";
 import type { SkadisTclipLayout, Tclip } from "./skadisTclips";
-import { offsetOutline, outlineColumnParams, pointAt } from "./shapes";
+import { outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh, JointKind, MountKind } from "./types";
 
@@ -124,29 +127,8 @@ export interface CoreJointCut {
   snap?: SnapLayout;
 }
 
-/**
- * What `fuseFlange` needs to cut the bottom-flange inner-end fixing (issues
- * #8, #115, #117): the recessed channel swept along the cable (a round bore
- * following its drop, along its tangent chord) from the wall's own groove
- * start on the flange's inner (z=0) face, with the cable clip near the rim
- * and the cable leaving through the rim. Always present (unlike the mount,
- * this isn't user-optional -- every core has a bottom flange and every
- * bottom flange gets this feature), so design.ts always passes one.
- */
-export interface InnerEndCut {
-  wireDiameter: number;
-  tolerance: number;
-  /** The wire's own minimum bend radius (bendMultiplier * wireDiameter, see types.ts's `bendMultiplierOf`); innerEnd.ts sizes the lead-in's chord and drop from it. */
-  bendRadius: number;
-  /** Depth of the channel recess below the flange's inner (z=0) face, mm. */
-  channelDepth: number;
-  /** The flange's own thickness, mm. */
-  flangeThickness: number;
-}
-
 type Manifold = InstanceType<ManifoldToplevel["Manifold"]>;
 
-/** Boxes/cylinders repeated at the given angles around Z, unioned into one manifold. Every intermediate boolean result is `track()`ed (a real CSG op, unlike a lazy transform chain -- see manifold.ts's own `.add()`/`.subtract()` calls elsewhere), so nothing leaks across the reduce. */
 function unionAtAngles(track: <T extends { delete(): void }>(m: T) => T, build: (angleDeg: number) => Manifold, anglesDeg: number[]): Manifold {
   let result: Manifold | undefined;
   for (const angle of anglesDeg) {
@@ -386,53 +368,24 @@ function sweepSolid(wasm: ManifoldToplevel, sweep: SweepSolid): Manifold {
   return m;
 }
 
-/**
- * A solid matching the wall's own outline (round/sq/tri) at offset 0,
- * spanning [zLo, zHi] -- protects the wall's own footprint (and, being a
- * strict subset of it, the bore inside) from the channel cutter: the
- * channel's bore (its width scales with wire diameter, and can exceed
- * WALL_THICKNESS for a heavy cord) extends radially on BOTH sides of the
- * cable, and near the groove start the cable itself is still in the
- * groove -- without this clip, a wide-enough bore reaches past the wall
- * into the bore's own void, wiring the exterior to that void a SECOND,
- * independent way and adding a genus the part shouldn't
- * have (reproduced directly: an 8mm cable on a 60mm round core gave the
- * core's bore a spurious genus of 2, not 1, before this clip).
- *
- * Sampled at `outline` offset by INNER_CHANNEL_WALL_GUARD (not 0): clipping against the
- * wall's true outline unmodified would risk a razor-thin, exactly-coincident seam -- mirrors this
- * file's own `collarBase` reasoning, and step/build.ts's matching offset on
- * its own STEP-side blocker (needed there to avoid an outright invalid
- * BRep, not just a stray sliver).
- */
-function outlineBlocker(wasm: ManifoldToplevel, outline: ShapeOutline, zLo: number, zHi: number, segments = 96): Manifold {
-  const grown = offsetOutline(outline, INNER_CHANNEL_WALL_GUARD);
-  const loop: [number, number][] = [];
-  for (let i = 0; i < segments; i++) {
-    const p = pointAt(grown, i / segments, 0);
-    loop.push([p.x, p.y]);
-  }
-  return new wasm.CrossSection([loop], "NonZero").extrude(zHi - zLo).translate([0, 0, zLo]);
+function prismOf(wasm: ManifoldToplevel, polygon: XY[], zLo: number, zHi: number): Manifold {
+  const loop: [number, number][] = polygon.map((p) => [p.x, p.y]);
+  const section = new wasm.CrossSection([loop], "NonZero");
+  const raw = section.extrude(zHi - zLo);
+  const moved = raw.translate([0, 0, zLo]);
+  section.delete();
+  raw.delete();
+  return moved;
 }
 
-/**
- * The bottom flange's own inner-end fixing (issues #8, #117): the channel +
- * clip swept along the cable (`layoutInnerEnd`'s `channel`), cut from the
- * flange's inner (z=0) face and out through its rim, CLIPPED to stay outside
- * the wall's own outline -- see `outlineBlocker` (near the groove start the
- * bore still overlaps the wall, where the cable is still in the air).
- */
-function buildInnerEndCutter(
-  wasm: ManifoldToplevel,
-  track: <T extends { delete(): void }>(m: T) => T,
-  outline: ShapeOutline,
-  layout: InnerEndLayout,
-  cut: InnerEndCut,
-): Manifold {
-  const raw = track(sweepSolid(wasm, layout.channel));
-  const top = Math.max(...layout.channel.rings.flat().map((p) => p.z)) + 1;
-  const blocker = track(outlineBlocker(wasm, outline, -cut.flangeThickness - 1, top));
-  return track(raw.subtract(blocker));
+function buildCentreRib(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, layout: CentreInnerEnd): Manifold {
+  const rib = track(prismOf(wasm, layout.rib, layout.floorZ, layout.height));
+  const keyhole = track(prismOf(wasm, layout.neck, layout.floorZ - 1, layout.height + 1));
+  return track(rib.subtract(keyhole));
+}
+
+function buildCentreChannelCutter(wasm: ManifoldToplevel, layout: CentreInnerEnd, variant = 0): Manifold {
+  return sweepSolid(wasm, layout.channelVariants[variant]);
 }
 
 /**
@@ -445,12 +398,11 @@ function relieveFlange(
   track: <T extends { delete(): void }>(m: T) => T,
   ring: Manifold,
   flange: FlangeSpec,
-  innerEnd: InnerEndLayout | undefined,
   mountPlateCut: MountPlateFlangeCut | undefined,
 ): Manifold {
   const zPlate = plateTopZ(flange);
   if (zPlate === undefined) return ring;
-  const pads = layoutFlangePads(flange, innerEnd, mountPlateCut?.anchors, mountPlateCut?.tolerance);
+  const pads = layoutFlangePads(flange, undefined, mountPlateCut?.anchors, mountPlateCut?.tolerance);
   const padSolid = track(wasm.Manifold.union(pads.map((pad) => track(sweepSolid(wasm, pad.sweep)))));
   // Issue #229: the plate's top edge is chamfered too: what stays is the flange inside the frustum under the plate
   // top (edgeChamfer.ts's `chamferWedgeRows`, reaching below the flange) and the pads.
@@ -458,12 +410,45 @@ function relieveFlange(
   return track(ring.intersect(track(kept.add(padSolid))));
 }
 
+async function isOneCleanSolid(mesh: CoilMesh): Promise<boolean> {
+  if (hasShortEdge(mesh) || hasFoldEdge(mesh)) return false;
+  const wasm = await getWasm();
+  const solid = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: mesh.positions, triVerts: mesh.indices }));
+  const pieces = solid.decompose();
+  const count = solid.status() === "NoError" ? pieces.length : -1;
+  pieces.forEach((piece) => piece.delete());
+  solid.delete();
+  return count === 1;
+}
+
 export async function fuseFlange(
   wall: CoilMesh,
   flange: FlangeSpec,
   coreJoint?: CoreJointCut,
-  innerEnd?: InnerEndCut,
+  centre?: CentreInnerEnd,
   mountPlateCut?: MountPlateFlangeCut,
+): Promise<CoilMesh> {
+  if (!centre) return fuseFlangeVariant(wall, flange, coreJoint, centre, mountPlateCut, 0);
+  let first: CoilMesh | undefined;
+  for (let variant = 0; variant < centre.channelVariants.length; variant++) {
+    const mesh = await fuseFlangeVariant(wall, flange, coreJoint, centre, mountPlateCut, variant);
+    if (await isOneCleanSolid(mesh)) {
+      centre.variant = variant;
+      return mesh;
+    }
+    first ??= mesh;
+  }
+  centre.variant = 0;
+  return first as CoilMesh;
+}
+
+async function fuseFlangeVariant(
+  wall: CoilMesh,
+  flange: FlangeSpec,
+  coreJoint: CoreJointCut | undefined,
+  centre: CentreInnerEnd | undefined,
+  mountPlateCut: MountPlateFlangeCut | undefined,
+  variant: number,
 ): Promise<CoilMesh> {
   const wasm = await getWasm();
   const { Manifold, Mesh } = wasm;
@@ -481,13 +466,12 @@ export async function fuseFlange(
 
     const bare = flange.thickness <= 0;
 
-    const innerEndLayout = innerEnd ? layoutInnerEnd(flange.outline, flange.margin, innerEnd.wireDiameter, innerEnd.tolerance, innerEnd.bendRadius, innerEnd.channelDepth) : undefined;
     let fused = wallManifold;
     if (!bare) {
       const ringManifold = flange.skadisTclip
         ? track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, -flange.thickness, 0), flange.columns, flange.minCornerSegments))
         : outlineRingManifold(wasm, track, flange);
-      const flangeManifold = relieveFlange(wasm, track, ringManifold, flange, innerEndLayout, mountPlateCut);
+      const flangeManifold = relieveFlange(wasm, track, ringManifold, flange, mountPlateCut);
       fused = track(wallManifold.add(flangeManifold));
     }
     if (coreJoint) fused = applyCoreJointCut(wasm, track, fused, coreJoint, flange);
@@ -497,12 +481,12 @@ export async function fuseFlange(
       throw new Error(`Fused mesh is not a valid manifold: ${status}`);
     }
 
-    if (innerEnd && innerEndLayout) {
-      const cutter = buildInnerEndCutter(wasm, track, flange.outline, innerEndLayout, innerEnd);
-      fused = track(fused.subtract(cutter));
+    if (centre) {
+      fused = track(fused.add(buildCentreRib(wasm, track, centre)));
+      fused = track(fused.subtract(track(track(buildCentreChannelCutter(wasm, centre, variant)).translate(CENTRE_VARIANTS[variant].shift))));
       status = fused.status();
       if (status !== "NoError") {
-        throw new Error(`Inner-end channel/clip cut is not a valid manifold: ${status}`);
+        throw new Error(`Centre-held inner end is not a valid manifold: ${status}`);
       }
     }
 
@@ -519,7 +503,7 @@ export async function fuseFlange(
     }
 
     if (flange.mount === "through") {
-      const layout = layoutFlangeThroughHoles(flange, innerEndLayout);
+      const layout = layoutFlangeThroughHoles(flange, centre);
       for (const hole of layout.holes) {
         const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, flange.thickness, plateTopZ(flange) ?? 0, Math.min(flange.plateThickness ?? flange.thickness, flange.thickness)));
         fused = track(fused.subtract(cutter));
@@ -601,6 +585,7 @@ export interface TopCapSpec {
   label?: ResolvedLabel;
   /** Issue #241: the rim cable slot for the outer end (`Design.rimSlots.cap`), cut straight through the plate. Omitted: none. */
   rimSlot?: RimSlot;
+  centreNotch?: XY[];
 }
 
 /**
@@ -621,7 +606,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, tolerance, label, rimSlot, bayonet, snap } = spec;
+    const { flange, joint, tolerance, label, rimSlot, bayonet, snap, centreNotch } = spec;
     // The plate: the same outer outline (and columns) as the bottom
     // flange's own ring. Issue #127: its middle is opened up below by the
     // through-hole (`holeOutline`), never by a blind pocket whose floor would
@@ -677,6 +662,11 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     } else if (holeOutline) {
       const hole = track(outlinePrismSolid(wasm, holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2, -JOINT_ENGAGE_DEPTH - 1, segments, flange.minCornerSegments));
       assembled = track(assembled.subtract(hole));
+    }
+    if (centreNotch) {
+      assembled = track(assembled.subtract(track(prismOf(wasm, centreNotch, -CAP_NOTCH_DEPTH, CAP_THICKNESS + 1))));
+      const pieces = assembled.decompose().map((piece) => track(piece));
+      if (pieces.length > 1) assembled = pieces.reduce((largest, piece) => (piece.volume() > largest.volume() ? piece : largest));
     }
     // Issue #241: the rim cable slot, straight through the plate.
     if (rimSlot) assembled = track(assembled.subtract(track(rimSlotCutter(wasm, rimSlot, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP))));

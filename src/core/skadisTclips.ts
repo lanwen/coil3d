@@ -63,7 +63,7 @@ import {
   WELD_OVERLAP,
 } from "./constants";
 import type { XY } from "./innerEnd";
-import { bestAxisDeg } from "./mount";
+import { bestAxisDeg, distanceToClosedPolygon } from "./mount";
 import { basisFor, boardSection, chamferCorners } from "./skadisClips";
 import { outlineOffsetAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -117,6 +117,7 @@ export interface SkadisTclipInput {
   /** The flange's (and the floor's) full thickness T. */
   thickness: number;
   tolerance: number;
+  avoid?: XY[][];
 }
 
 const W = SKADIS_TCLIP_WIDTH;
@@ -240,6 +241,7 @@ function cuttersFor(toXY: (u: number, s: number) => XY, side: number, axisUp: nu
 /** Is a clip axis at `p` inside the keep-in: its recess's sweep clear of the bore's wall, and (with a cap) a fingertip's reach inside the cap's hole? */
 function keptIn(input: SkadisTclipInput, p: XY, keep: number): boolean {
   if (outlineOffsetAt(input.boreOutline, p.x, p.y).offset > -keep) return false;
+  if (input.avoid?.some((polygon) => polygon.length >= 3 && distanceToClosedPolygon(p.x, p.y, polygon) < keep)) return false;
   if (input.capHole && outlineOffsetAt(input.capHole, p.x, p.y).offset > -SKADIS_TCLIP_REACH_MARGIN) return false;
   return true;
 }
@@ -284,7 +286,7 @@ export function layoutSkadisTclips(input: SkadisTclipInput): SkadisTclipLayout {
       (m) => [[-10, m - 10], [10, m + 10]],
     ];
     for (const pair of pairs) {
-      for (const m of ups) {
+      for (const m of ups.filter((u) => u > 0)) {
         const pos = pair(m);
         if (pos.every(([s, u]) => ok(s, u))) {
           chosen = pos;
@@ -297,7 +299,7 @@ export function layoutSkadisTclips(input: SkadisTclipInput): SkadisTclipLayout {
   }
   if (!chosen) {
     // 1: straight above the centre of mass, as high as it goes. The coil hangs below it like a pendulum.
-    const top = ups.find((u) => ok(0, u));
+    const top = ups.find((u) => u > 0 && ok(0, u));
     if (top !== undefined) {
       chosen = [[0, top]];
       note = "The bore only has room for 1 SKÅDIS T-clip: the coil hangs straight below it, and its weight keeps the clip seated in the slot, so neither turns unless you lift the coil.";

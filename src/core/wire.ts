@@ -43,7 +43,7 @@ import {
 } from "./constants";
 import { clamp01 } from "./capacity";
 import { bump, capCableZ, capTailPath } from "./innerEnd";
-import type { InnerEndLayout } from "./innerEnd";
+import type { CentreInnerEnd } from "./centreEnds";
 import { offsetPerimeter, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { createWallProfile, type WallSpec } from "./wall";
@@ -257,8 +257,8 @@ function searchBlend(build: (turns: number) => { points: Float32Array; check: nu
 }
 
 export interface CableEnds {
-  /** The inner-end layout (innerEnd.ts), whose `leadIn` starts the cable. */
-  innerEnd?: InnerEndLayout;
+  /** The centre-held inner end (centreEnds.ts), whose `path` starts the cable. */
+  innerEnd?: CentreInnerEnd;
   topCapEnabled: boolean;
   /** The wall's own height (the top cap's underside, assembled frame). */
   height: number;
@@ -345,7 +345,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
     return { wirePaths, innerEndLeadIn: new Float32Array(0), layerTransitions, outerEndLeadOut: new Float32Array(0), cablePath: new Float32Array(0), outerEndU: 0, warnings };
   }
 
-  const innerEndLeadIn = new Float32Array((ends.innerEnd?.leadIn ?? []).flatMap((p) => [p.x, p.y, p.z]));
+  const innerEndLeadIn = new Float32Array((ends.innerEnd?.path ?? []).flatMap((p) => [p.x, p.y, p.z]));
 
   const last = runs.at(-1)!;
   const lastPoints = wirePaths.at(-1)!.points;

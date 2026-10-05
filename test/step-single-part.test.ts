@@ -24,6 +24,7 @@ describe.sequential("STEP/OCCT export: single-part designs (issue #32)", () => {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
   };
@@ -90,6 +91,7 @@ describe.sequential("STEP/OCCT export: single-part designs (issue #32)", () => {
           joint: "press",
           tolerance: 0.2,
           print: { bedX: 256, bedY: 256, bedZ: 256 },
+          base: "on",
           mount: "none",
           plateJoint: "glue",
         };
@@ -202,6 +204,7 @@ describe.sequential("STEP/OCCT export: single-part designs (issue #32)", () => {
           joint: "press",
           tolerance: 0.2,
           print: { bedX: 256, bedY: 256, bedZ: 256 },
+          base: "on",
           mount: "none",
           plateJoint: "glue",
         };

@@ -11,7 +11,7 @@ import type { CoilSpec, Design } from "../src/core";
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {
-    wire: { length: 150, diameter: 3.6, type: "stiff" }, // 23.4 mm bend radius: a 46.1 mm round core at least
+    wire: { length: 150, diameter: 3.6, type: "stiff" }, // 23.4 mm bend radius: a core 64.5 mm across and 56 mm tall at least, for the inner end held in the bore
     shape: { kind: "round" },
     windingQuality: 0.7,
     coreSize: { locked: false },
@@ -29,7 +29,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 }
 
 const OUTER_80: Partial<CoilSpec> = { coreSize: { locked: true, dimension: "outer", value: 80 } };
-const HEIGHT_12: Partial<CoilSpec> = { height: { locked: true, value: 12 } }; // room for one turn only
+const HEIGHT_60: Partial<CoilSpec> = { height: { locked: true, value: 60 } };
 const ONE_LAYER: Partial<CoilSpec> = { layers: { locked: true, value: 1 } };
 
 function expectHoldsWithNote(d: Design, note: RegExp) {
@@ -44,12 +44,12 @@ function expectHoldsWithNote(d: Design, note: RegExp) {
 }
 
 describe("a forced overshoot gets the same status and note whatever the number of free dimensions (issue #199)", () => {
-  // One turn around the locked 80 mm core already holds 254 mm of the 150 mm
-  // cable; a smaller core would hold less.
+  // The inner end alone is over 100 mm of this stiff cable, and every turn around the locked 80 mm core is
+  // 250 mm more: a smaller core would hold less.
   const lockedCore: Array<[string, Partial<CoilSpec>]> = [
-    ["0 free", { ...OUTER_80, ...HEIGHT_12, ...ONE_LAYER }],
+    ["0 free", { ...OUTER_80, ...HEIGHT_60, ...ONE_LAYER }],
     ["1 free (height)", { ...OUTER_80, ...ONE_LAYER }],
-    ["1 free (layers)", { ...OUTER_80, ...HEIGHT_12 }],
+    ["1 free (layers)", { ...OUTER_80, ...HEIGHT_60 }],
     ["2 free (height, layers)", { ...OUTER_80 }],
   ];
   for (const [name, locks] of lockedCore) {
@@ -57,39 +57,38 @@ describe("a forced overshoot gets the same status and note whatever the number o
       const d = await design(baseSpec(locks), "draft");
       expect(d.solution.outerSize).toBe(80);
       expect(d.solution.lengthDeltaPct).toBeGreaterThan(50);
-      expectHoldsWithNote(d, /^Room for 69% more cable than you need, because of the locked core size \(80 mm\)\. Unlock it/);
+      expectHoldsWithNote(d, /^Room for \d+% more cable than you need, because of the locked core size \(80 mm\)/);
     });
   }
 
-  // The bend limit's 46.1 mm floor: one turn already holds 147 mm of the 100 mm cable.
+  // The floor for the inner end held in the bore: 64.5 mm across, which is where its quarter bend and its plan arc fit.
   const SHORT: Partial<CoilSpec> = { wire: { length: 100, diameter: 3.6, type: "stiff" } };
-  const bendFloor: Array<[string, Partial<CoilSpec>]> = [
-    ["0 free (core locked below the floor)", { ...SHORT, coreSize: { locked: true, dimension: "outer", value: 30 }, ...HEIGHT_12, ...ONE_LAYER }],
-    ["1 free (size)", { ...SHORT, ...HEIGHT_12, ...ONE_LAYER }],
+  const sizeFloor: Array<[string, Partial<CoilSpec>]> = [
+    ["core locked below the floor", { ...SHORT, coreSize: { locked: true, dimension: "outer", value: 30 }, ...ONE_LAYER }],
     ["2 free (size, height)", { ...SHORT, ...ONE_LAYER }],
-    ["2 free (size, layers)", { ...SHORT, ...HEIGHT_12 }],
     ["3 free", { ...SHORT }],
   ];
-  for (const [name, locks] of bendFloor) {
-    it(`bend-limit size floor, ${name}: holds the cable, the note names the bend limit`, async () => {
+  for (const [name, locks] of sizeFloor) {
+    it(`inner-end size floor, ${name}: holds the cable, the note names the inner end`, async () => {
       const d = await design(baseSpec(locks), "draft");
-      expect(d.solution.outerSize).toBeCloseTo(46.08, 1);
-      expectHoldsWithNote(d, /^Room for 47% more cable than you need: this cable's 23\.4 mm bend radius needs a core of at least 46\.1 mm.*smallest coil for this cable/);
+      expect(d.solution.outerSize).toBeCloseTo(d.solution.minOuterSizeForShape, 6);
+      expectHoldsWithNote(d, /^Room for \d+% more cable than you need: the bore has to let this cable's inner end through at its 23\.4 mm bend radius, which needs a core of at least \d+\.\d mm.*smallest coil for this cable/);
     });
   }
 
   it("names every lock that could shrink and still hold the cable", async () => {
-    // 3 layers on a 150 mm core, 40 mm tall: one layer at a lower height would do.
-    const d = await design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 150 }, height: { locked: true, value: 40 }, layers: { locked: true, value: 3 } }), "draft");
-    expectHoldsWithNote(d, /because of the locked core size \(150 mm\), height \(40 mm\) and 3 layers\. Unlock them/);
+    const d = await design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 150 }, height: { locked: true, value: 80 }, layers: { locked: true, value: 3 } }), "draft");
+    expectHoldsWithNote(d, /because of the locked core size \(150 mm\), height \(80 mm\) and 3 layers\. Unlock them/);
   });
 });
 
 describe("never ok when the capacity falls short of the target (AGENTS.md)", () => {
   it("a fully locked coil 1-2% short of the target is not ok", async () => {
-    // The locked 80 mm, one-turn coil holds 254 mm.
-    const d = await design(baseSpec({ wire: { length: 257, diameter: 3.6, type: "stiff" }, ...OUTER_80, ...HEIGHT_12, ...ONE_LAYER }), "draft");
-    expect(d.solution.totalWireLength).toBeLessThan(257);
+    const locked = { ...OUTER_80, ...HEIGHT_60, ...ONE_LAYER };
+    const held = (await design(baseSpec({ wire: { length: 100, diameter: 3.6, type: "stiff" }, ...locked }), "draft")).solution.totalWireLength;
+    const length = Math.ceil(held * 1.015);
+    const d = await design(baseSpec({ wire: { length, diameter: 3.6, type: "stiff" }, ...locked }), "draft");
+    expect(d.solution.totalWireLength).toBeLessThan(length);
     expect(d.solution.diagnosis.status).toBe("over-constrained");
   });
 });

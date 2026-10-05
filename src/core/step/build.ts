@@ -16,6 +16,8 @@ import type { OpenCascadeInstance } from "replicad-opencascadejs";
 import { fitPeriodicUClampedV, type Vec3 } from "./bspfit";
 import { createWallProfile } from "../wall";
 import {
+  CAP_NOTCH_DEPTH,
+  CENTRE_VARIANTS,
   CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
   JOINT_TRANSITION_HEIGHT,
@@ -32,7 +34,6 @@ import {
   SKADIS_CLIP_WIDTH,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
-  INNER_CHANNEL_WALL_GUARD,
 } from "../constants";
 import { chamferedRim, chamferWedgeRows, SLAB_BELOW_FACE } from "../edgeChamfer";
 import type { RimRow } from "../edgeChamfer";
@@ -40,8 +41,7 @@ import { jointGeometry, resolveCapJoint } from "../joints";
 import type { OutlineStack, RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
-import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
-import type { InnerEndLayout, SweepSolid } from "../innerEnd";
+import type { SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
 import { layoutKeyholeMount, throughHoleCountersink } from "../mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, offsetAtZ, padLevels, plateTopZ } from "../flangePads";
@@ -57,20 +57,11 @@ import { offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
 import type { Design } from "../types";
-import { bendMultiplierOf } from "../types";
 
-/** Recompute mountPlate.ts's layout from `design.flangeSpec`/`design.spec` (mirrors this file's own `layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin)` re-derivation for the keyhole mount): the STEP backend never stores its own copy, so it can't drift from the mesh backend's. */
+/** Recompute mountPlate.ts's layout from `design.flangeSpec` and the design's own centre-held end (mirrors this file's own `layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin)` re-derivation for the keyhole mount): the STEP backend never stores its own copy, so it can't drift from the mesh backend's. */
 function mountPlateLayoutFor(design: Design): MountPlateLayout {
-  const { flangeSpec, spec } = design;
-  const innerEnd = layoutInnerEnd(
-    flangeSpec.outline,
-    flangeSpec.margin,
-    spec.wire.diameter,
-    spec.tolerance,
-    bendMultiplierOf(spec.wire) * spec.wire.diameter,
-    resolveChannelDepth(spec.wire.diameter, flangeSpec.thickness),
-  );
-  return layoutFor(offsetOutline(flangeSpec.outline, flangeSpec.margin), flangeSpec.boreOutline, innerEnd);
+  const { flangeSpec, centreInnerEnd } = design;
+  return layoutFor(offsetOutline(flangeSpec.outline, flangeSpec.margin), flangeSpec.boreOutline, centreInnerEnd);
 }
 
 /**
@@ -254,6 +245,8 @@ const MIN_V_SAMPLES = 40;
 // issue and is left for its own ticket; the silent boolean failure this
 // check exists to catch is now also caught directly (`checkedCut`).
 const VOLUME_TOLERANCE = 0.015;
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+const STEP_WALL_ATTEMPTS: Array<[number, number]> = [[24, 0.5], [24, 0], [12, 0.5], [1, 0]];
 /** Fuzzy values (mm) `checkedCut` tries in turn: all far below print resolution, enough for OCCT to resolve the swept cutters' small facets. */
 const FUZZY_CUTS = [1e-4, 1e-3, 1e-2];
 
@@ -314,100 +307,131 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     false,
   );
 
-  const face = new kernel.BRepBuilderAPI_MakeFace(surface, 1e-6).Face();
-  const sewing = new kernel.BRepBuilderAPI_Sewing(1e-3, true, true, true, false);
-  sewing.Add(face);
-  const edges = new kernel.TopExp_Explorer(face, kernel.TopAbs_ShapeEnum.TopAbs_EDGE, kernel.TopAbs_ShapeEnum.TopAbs_SHAPE);
-  for (; edges.More(); edges.Next()) {
-    const edge = kernel.TopoDS.Edge(edges.Current());
-    if (kernel.BRep_Tool.IsClosed(edge, face)) continue;
-    const cap = new kernel.BRepBuilderAPI_MakeFace(new kernel.BRepBuilderAPI_MakeWire(edge).Wire(), true);
-    if (!cap.IsDone()) throw new Error("STEP export: planar cap face failed");
-    sewing.Add(cap.Face());
-  }
-  sewing.Perform(new kernel.Message_ProgressRange());
-  const outerFix = new kernel.ShapeFix_Solid(
-    new kernel.BRepBuilderAPI_MakeSolid(kernel.TopoDS.Shell(sewing.SewedShape())).Solid(),
-  );
-  outerFix.Perform(new kernel.Message_ProgressRange());
-
-  const outer = R.cast(outerFix.Solid()).asShape3D();
-  const bore = outlineSolid(boreOutline, height + 2, -1);
-  const tube = outer.cut(bore);
-
-  let coreSolid = tube;
-  let innerEndCutter: ReturnType<typeof buildInnerEndCutterSolid> | undefined;
-  if (flangeSpec.thickness > 0) {
-    const flangeOuter = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, -flangeSpec.thickness, 0));
-    const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
-    const flange = flangeSpec.skadisTclip ? flangeOuter : flangeOuter.cut(flangeInner);
-
-    innerEndCutter = buildInnerEndCutterSolid(
-      flangeSpec.outline,
-      flangeSpec.margin,
-      flangeSpec.thickness,
-      resolveChannelDepth(design.spec.wire.diameter, flangeSpec.thickness),
-      design.spec.wire.diameter,
-      design.spec.tolerance,
-      bendMultiplierOf(design.spec.wire) * design.spec.wire.diameter,
+  const uLo = fit.uKnots[0];
+  const uHi = fit.uKnots[fit.uKnots.length - 1];
+  const makeOuter = (sectors: number, offset: number): R.Shape3D => {
+    const face = new kernel.BRepBuilderAPI_MakeFace(surface, 1e-6).Face();
+    const sewing = new kernel.BRepBuilderAPI_Sewing(1e-3, true, true, true, false);
+    for (let k = 0; k < sectors; k++) {
+      const patch = new kernel.BRepBuilderAPI_MakeFace(surface, uLo + ((uHi - uLo) * (k + offset)) / sectors, uLo + ((uHi - uLo) * (k + 1 + offset)) / sectors, 0, 1, 1e-6);
+      sewing.Add(patch.Face());
+      patch.delete();
+    }
+    const edges = new kernel.TopExp_Explorer(face, kernel.TopAbs_ShapeEnum.TopAbs_EDGE, kernel.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    for (; edges.More(); edges.Next()) {
+      const edge = kernel.TopoDS.Edge(edges.Current());
+      if (kernel.BRep_Tool.IsClosed(edge, face)) continue;
+      const cap = new kernel.BRepBuilderAPI_MakeFace(new kernel.BRepBuilderAPI_MakeWire(edge).Wire(), true);
+      if (!cap.IsDone()) throw new Error("STEP export: planar cap face failed");
+      sewing.Add(cap.Face());
+    }
+    sewing.Perform(new kernel.Message_ProgressRange());
+    const outerFix = new kernel.ShapeFix_Solid(
+      new kernel.BRepBuilderAPI_MakeSolid(kernel.TopoDS.Shell(sewing.SewedShape())).Solid(),
     );
-    const anchors = design.parts.some((p) => p.role === "mountPlate") ? mountPlateLayoutFor(design).anchors : [];
-    const relieved = relieveFlangeSolid(kernel, flange, flangeSpec, innerEndCutter.layout, anchors, design.spec.tolerance);
-    let flangeSolid = checkedCut(kernel, relieved, innerEndCutter.cutter);
-    for (const notch of flangeSpec.skadis?.notches ?? []) {
-      const loop: [number, number][] = notch.map((p) => [p.x, p.y]);
-      flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
-    }
-    if (flangeSpec.rimSlot) {
-      const loop: [number, number][] = flangeSpec.rimSlot.outline.map((p) => [p.x, p.y]);
-      flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
-    }
-    for (const cutters of flangeSpec.skadisTclip?.cutters ?? []) {
-      const [first, ...rest] = cutters.map((cutter) => ruledLoft(cutter.levels.map((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z]))));
-      flangeSolid = checkedCut(kernel, flangeSolid, rest.reduce((acc, r) => acc.fuse(r), first));
-    }
-    coreSolid = tube.fuse(flangeSolid);
-  }
-
-  const capJoint = resolveCapJoint(design.spec, design.wallSpec);
-  if (design.solution.topCapEnabled && (capJoint.joint === "bayonet" || capJoint.joint === "snap")) {
-    coreSolid = applyCoreJointCutSolid(coreSolid, {
-      boreOutline,
-      height: design.solution.height,
-      joint: capJoint.joint,
-      tolerance: design.spec.tolerance,
-      bayonet: capJoint.bayonet,
-      snap: capJoint.snap,
-    });
-  }
-
-  if (design.flangeSpec.mount === "keyhole") {
-    const layout = layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin, flangeSpec.keyholeRotation);
-    for (const slot of layout.slots) {
-      const cutter = screwMountCutterSolid(slot, -flangeSpec.thickness);
-      coreSolid = coreSolid.cut(cutter);
-    }
-  }
-
-  if (design.flangeSpec.mount === "through") {
-    const layout = layoutFlangeThroughHoles(flangeSpec, innerEndCutter?.layout);
-    for (const hole of layout.holes) {
-      for (const cutter of throughHoleCutterSolid(hole, layout.holeRadius, flangeSpec.thickness, plateTopZ(flangeSpec) ?? 0, Math.min(flangeSpec.plateThickness ?? flangeSpec.thickness, flangeSpec.thickness))) coreSolid = coreSolid.cut(cutter);
-    }
-  }
-
-  if (design.parts.some((p) => p.role === "mountPlate")) {
-    const layout = mountPlateLayoutFor(design);
-    for (const anchor of layout.anchors) {
-      const cutter = pinHoleCutterSolid(anchor, design.spec.tolerance, -flangeSpec.thickness, 1);
-      coreSolid = coreSolid.cut(cutter);
-    }
-  }
-
+    outerFix.Perform(new kernel.Message_ProgressRange());
+    const made = R.cast(outerFix.Solid()).asShape3D();
+    outerFix.delete();
+    sewing.delete();
+    return made;
+  };
+  const bore = outlineSolid(boreOutline, height + 2, -1);
+  const centre = design.centreInnerEnd;
+  const makeTunnel = () => sweepSolidStep(centre.channelVariants[centre.variant]).translate(CENTRE_VARIANTS[centre.variant].shift);
+  const rib = loopSolid(centre.rib.map((p): [number, number] => [p.x, p.y]), centre.height - centre.floorZ).translate([0, 0, centre.floorZ]);
+  const neck = loopSolid(centre.neck.map((p): [number, number] => [p.x, p.y]), centre.height - centre.floorZ + 2).translate([0, 0, centre.floorZ - 1]);
+  const ribPlus = checkedCut(kernel, rib, neck);
   const corePart = design.parts.find((p) => p.role === "core")!;
-  validateSolid(kernel, coreSolid, corePart.mesh, corePart.name);
+  const buildCore = async (sectors: number, offset: number): Promise<R.Shape3D> => {
+    const outer = makeOuter(sectors, offset);
+    const wallTunnel = makeTunnel();
+    await yieldToEventLoop();
+    const wallCut = await checkedCutAsync(kernel, outer, wallTunnel);
+    outer.delete();
+    wallTunnel.delete();
+    const tube = checkedCut(kernel, wallCut, checkedCut(kernel, bore, ribPlus));
+    await yieldToEventLoop();
 
-  const shapes: { shape: R.Shape3D; name: string }[] = [{ shape: coreSolid, name: corePart.name }];
+    let coreSolid = tube;
+    if (flangeSpec.thickness > 0) {
+      const flangeOuter = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, -flangeSpec.thickness, 0));
+      const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
+      const flange = flangeSpec.skadisTclip ? flangeOuter : flangeOuter.cut(flangeInner);
+
+      const anchors = design.parts.some((p) => p.role === "mountPlate") ? mountPlateLayoutFor(design).anchors : [];
+      let flangeSolid = relieveFlangeSolid(kernel, flange, flangeSpec, anchors, design.spec.tolerance);
+      for (const notch of flangeSpec.skadis?.notches ?? []) {
+        const loop: [number, number][] = notch.map((p) => [p.x, p.y]);
+        flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
+      }
+      if (flangeSpec.rimSlot) {
+        const loop: [number, number][] = flangeSpec.rimSlot.outline.map((p) => [p.x, p.y]);
+        flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
+      }
+      for (const cutters of flangeSpec.skadisTclip?.cutters ?? []) {
+        const [first, ...rest] = cutters.map((cutter) => ruledLoft(cutter.levels.map((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z]))));
+        flangeSolid = checkedCut(kernel, flangeSolid, rest.reduce((acc, r) => acc.fuse(r), first));
+      }
+      const foot = centre.floorZ < 0 ? checkedCut(kernel, loopSolid(centre.rib.map((p): [number, number] => [p.x, p.y]), -centre.floorZ).translate([0, 0, centre.floorZ]), neck).cut(makeTunnel()) : undefined;
+      const flangeTunnel = makeTunnel();
+      coreSolid = tube.fuse(checkedCut(kernel, flangeSolid, flangeTunnel));
+      flangeTunnel.delete();
+      if (foot) coreSolid = coreSolid.fuse(foot);
+    }
+
+    const capJoint = resolveCapJoint(design.spec, design.wallSpec);
+    if (design.solution.topCapEnabled && (capJoint.joint === "bayonet" || capJoint.joint === "snap")) {
+      coreSolid = applyCoreJointCutSolid(coreSolid, {
+        boreOutline,
+        height: design.solution.height,
+        joint: capJoint.joint,
+        tolerance: design.spec.tolerance,
+        bayonet: capJoint.bayonet,
+        snap: capJoint.snap,
+      });
+    }
+
+    if (design.flangeSpec.mount === "keyhole") {
+      const layout = layoutKeyholeMount(flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin, flangeSpec.keyholeRotation);
+      for (const slot of layout.slots) {
+        const cutter = screwMountCutterSolid(slot, -flangeSpec.thickness);
+        coreSolid = coreSolid.cut(cutter);
+      }
+    }
+
+    if (design.flangeSpec.mount === "through") {
+      const layout = layoutFlangeThroughHoles(flangeSpec, centre);
+      for (const hole of layout.holes) {
+        for (const cutter of throughHoleCutterSolid(hole, layout.holeRadius, flangeSpec.thickness, plateTopZ(flangeSpec) ?? 0, Math.min(flangeSpec.plateThickness ?? flangeSpec.thickness, flangeSpec.thickness))) coreSolid = coreSolid.cut(cutter);
+      }
+    }
+
+    if (design.parts.some((p) => p.role === "mountPlate")) {
+      const layout = mountPlateLayoutFor(design);
+      for (const anchor of layout.anchors) {
+        const cutter = pinHoleCutterSolid(anchor, design.spec.tolerance, -flangeSpec.thickness, 1);
+        coreSolid = coreSolid.cut(cutter);
+      }
+    }
+    await yieldToEventLoop();
+    const unify = new kernel.ShapeUpgrade_UnifySameDomain(coreSolid.wrapped, false, true, false);
+    unify.Build();
+    coreSolid = R.cast(unify.Shape()).asShape3D();
+    unify.delete();
+    validateSolid(kernel, coreSolid, corePart.mesh, corePart.name);
+    return coreSolid;
+  };
+  let coreSolid: R.Shape3D | undefined;
+  for (const [attempt, [sectors, offset]] of STEP_WALL_ATTEMPTS.entries()) {
+    try {
+      coreSolid = await buildCore(sectors, offset);
+      break;
+    } catch (e) {
+      if (attempt === STEP_WALL_ATTEMPTS.length - 1) throw e;
+    }
+  }
+
+  const shapes: { shape: R.Shape3D; name: string }[] = [{ shape: coreSolid!, name: corePart.name }];
 
   const topCapPart = design.parts.find((p) => p.role === "topCap");
   if (topCapPart) {
@@ -469,8 +493,17 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
  * next), so the first result is checked against the next fuzzy value's, and
  * where the two disagree the cut that removes the most wins.
  */
-function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D | R.Shape3D[]): R.Shape3D {
-  const before = R.measureVolume(shape);
+function preciseVolume(kernel: OpenCascadeInstance, solid: R.Shape3D): number {
+  const gprops = new kernel.GProp_GProps();
+  kernel.BRepGProp.VolumeProperties(solid.wrapped, gprops, 1e-5, false, false);
+  const volume = gprops.Mass();
+  gprops.delete();
+  return volume;
+}
+
+function* checkedCutSteps(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D | R.Shape3D[]): Generator<void, R.Shape3D> {
+  const before = preciseVolume(kernel, shape);
+  const ceiling = [tool].flat().reduce((sum, t) => sum + preciseVolume(kernel, t), 0) * 1.05;
   const cut = (fuzzy: number): { result: R.Shape3D; removed: number } | undefined => {
     const args = new kernel.NCollection_List_TopoDS_Shape();
     args.Append(shape.wrapped);
@@ -484,7 +517,7 @@ function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape
       op.Build(new kernel.Message_ProgressRange());
       if (op.HasErrors()) return undefined;
       const result = R.cast(op.Shape()) as R.Shape3D;
-      return { result, removed: before - R.measureVolume(result) };
+      return { result, removed: before - preciseVolume(kernel, result) };
     } finally {
       op.delete();
       args.delete();
@@ -492,17 +525,40 @@ function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape
     }
   };
   const results: Array<{ result: R.Shape3D; removed: number }> = [];
+  const keep = (chosen: R.Shape3D): R.Shape3D => {
+    for (const r of results) if (r.result !== chosen) r.result.delete();
+    return chosen;
+  };
   for (const fuzzy of FUZZY_CUTS) {
     const r = cut(fuzzy);
-    if (r && r.removed > 1e-6) results.push(r);
+    if (r && r.removed > 1e-6 && r.removed < ceiling) results.push(r);
+    else r?.result.delete();
+    yield;
     // Two results that agree (within 1%) settle it.
     if (results.length === 2) {
       const [a, b] = results;
-      if (Math.abs(a.removed - b.removed) <= 0.01 * Math.max(a.removed, b.removed)) return a.result;
+      if (Math.abs(a.removed - b.removed) <= 0.01 * Math.max(a.removed, b.removed)) return keep(a.result);
     }
   }
   if (results.length === 0) throw new Error("STEP export: a boolean cut failed (it removed nothing)");
-  return results.reduce((m, r) => (r.removed > m.removed ? r : m)).result;
+  return keep(results.reduce((m, r) => (r.removed > m.removed ? r : m)).result);
+}
+
+function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D | R.Shape3D[]): R.Shape3D {
+  const steps = checkedCutSteps(kernel, shape, tool);
+  let next = steps.next();
+  while (!next.done) next = steps.next();
+  return next.value;
+}
+
+async function checkedCutAsync(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D | R.Shape3D[]): Promise<R.Shape3D> {
+  const steps = checkedCutSteps(kernel, shape, tool);
+  let next = steps.next();
+  while (!next.done) {
+    await yieldToEventLoop();
+    next = steps.next();
+  }
+  return next.value;
 }
 
 /** Validate one part's solid: manifold-valid, exactly one solid, and its volume matches the part's own mesh within tolerance. Throws with a descriptive message otherwise. */
@@ -578,32 +634,9 @@ function sweepSolidStep(sweep: SweepSolid): R.Shape3D {
       faces.push(R.makePolygon([pt(a), pt(b), pt(d)]), R.makePolygon([pt(a), pt(d), pt(c)]));
     }
   }
-  return R.makeSolid(faces);
-}
-
-/**
- * The bottom flange's own inner-end fixing (issues #8, #117): the channel +
- * clip swept along the cable, clipped to stay outside the wall's own outline
- * (see manifold.ts's `outlineBlocker` for why), mirroring manifold.ts's
- * `buildInnerEndCutter` from the SAME `layoutInnerEnd` call and rings.
- */
-function buildInnerEndCutterSolid(
-  outline: ShapeOutline,
-  margin: number,
-  flangeThickness: number,
-  channelDepth: number,
-  wireDiameter: number,
-  tolerance: number,
-  bendRadius: number,
-): { cutter: R.Shape3D; layout: InnerEndLayout } {
-  const layout: InnerEndLayout = layoutInnerEnd(outline, margin, wireDiameter, tolerance, bendRadius, channelDepth);
-  const raw = sweepSolidStep(layout.channel);
-  const top = Math.max(...layout.channel.rings.flat().map((p) => p.z)) + 1;
-  // Offset outward by INNER_CHANNEL_WALL_GUARD, exactly like manifold.ts's
-  // blocker: clipping against the wall's exact outline would risk a
-  // razor-thin, exactly-coincident seam.
-  const blocker = outlineSolid(offsetOutline(outline, INNER_CHANNEL_WALL_GUARD), top + flangeThickness + 1, -flangeThickness - 1);
-  return { cutter: raw.cut(blocker), layout };
+  const solid = R.makeSolid(faces);
+  for (const f of faces) f.delete();
+  return solid;
 }
 
 /** A stadium (a circle when `a` and `b` coincide) sketch at height z. */
@@ -678,11 +711,11 @@ function padSolidStep(pad: FlangePad, levels: number[], outline: ShapeOutline): 
 }
 
 /** Issue #122: the flange minus the slab above its plate's top face, less every pad -- mirrors manifold.ts's `relieveFlange`. `flange` unchanged when the plate is full thickness. */
-function relieveFlangeSolid(kernel: OpenCascadeInstance, flange: R.Shape3D, flangeSpec: Design["flangeSpec"], innerEnd: InnerEndLayout, anchors: AnchorPoint[], tolerance: number): R.Shape3D {
+function relieveFlangeSolid(kernel: OpenCascadeInstance, flange: R.Shape3D, flangeSpec: Design["flangeSpec"], anchors: AnchorPoint[], tolerance: number): R.Shape3D {
   const zPlate = plateTopZ(flangeSpec);
   if (zPlate === undefined) return flange;
   const levels = padLevels(zPlate);
-  const pads = layoutFlangePads(flangeSpec, innerEnd, anchors, tolerance).map((pad) => padSolidStep(pad, levels, flangeSpec.outline));
+  const pads = layoutFlangePads(flangeSpec, undefined, anchors, tolerance).map((pad) => padSolidStep(pad, levels, flangeSpec.outline));
   const padSolid = pads.slice(1).reduce((all, pad) => all.fuse(pad), pads[0]);
   // Issue #229: the slab's lower edge runs down the plate top's chamfer, around the frustum that stays.
   const slab = outlineSolid(offsetOutline(flangeSpec.outline, flangeSpec.margin + 1), 1 - zPlate + SLAB_BELOW_FACE, zPlate - SLAB_BELOW_FACE);
@@ -794,6 +827,8 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
     const labelCutter = await buildLabelCutterSolid(label);
     if (labelCutter) assembled = assembled.cut(labelCutter);
   }
+
+  assembled = checkedCut(getOCSync(), assembled, loopSolid(design.centreInnerEnd.capNotch.map((p): [number, number] => [p.x, p.y]), CAP_THICKNESS + CAP_NOTCH_DEPTH + 1).translate([0, 0, -CAP_NOTCH_DEPTH]));
 
   // Issue #241: the rim cable slot (mirrors manifold.ts's `buildTopCap`, from the same `Design.rimSlots.cap`).
   const slot = design.rimSlots.cap;

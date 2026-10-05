@@ -27,6 +27,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
@@ -109,7 +110,7 @@ describe("top cap label (issue #12)", () => {
   });
 
   describe("labelFit: how much of the label the cap can hold", () => {
-    const DEFAULT_CAP = { ...DEFAULT_SPEC, topCap: "on" as const };
+    const DEFAULT_CAP = { ...DEFAULT_SPEC, topCap: "on" as const, layers: { locked: true as const, value: 4 } };
     const maxChars = async (spec: CoilSpec, label: string) => (await design({ ...spec, label })).labelFit?.maxChars;
 
     it("is absent without a label, with a blank label, and without a top cap", async () => {
@@ -122,13 +123,13 @@ describe("top cap label (issue #12)", () => {
       expect((await design({ ...DEFAULT_CAP, label: "USB-C 2m" })).labelFit).toEqual({ fits: true, maxChars: 8 });
     });
 
-    it("on the default cap, ABCDEFGHIJK holds 8 characters and the fit warning stays", async () => {
+    it("on a four-layer cap, ABCDEFGHIJK holds 10 characters and the fit warning stays", async () => {
       const d = await design({ ...DEFAULT_CAP, label: "ABCDEFGHIJK" });
-      expect(d.labelFit).toEqual({ fits: false, maxChars: 8 });
+      expect(d.labelFit).toEqual({ fits: false, maxChars: 10 });
       expect(d.warnings.some((w) => w.toLowerCase().includes("doesn't fit"))).toBe(true);
       // The prefix it names really fits, and one more character does not.
-      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGH" })).labelFit?.fits).toBe(true);
-      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGHI" })).labelFit?.fits).toBe(false);
+      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGHIJ" })).labelFit?.fits).toBe(true);
+      expect((await design({ ...DEFAULT_CAP, label: "ABCDEFGHIJK" })).labelFit?.fits).toBe(false);
     });
 
     it("a roomier cap holds at least 11 characters", async () => {
@@ -137,7 +138,7 @@ describe("top cap label (issue #12)", () => {
     });
 
     it("counts a leading space in the raw text it measures", async () => {
-      expect(await maxChars(DEFAULT_CAP, " ABCDEFGHIJK")).toBe(9);
+      expect(await maxChars(DEFAULT_CAP, " ABCDEFGHIJKL")).toBe(11);
     });
 
     it("never shrinks as the cap grows (more layers, then a bigger core)", async () => {
@@ -209,8 +210,8 @@ describe("label letter floors bridge at most 2 mm (issue #176)", () => {
     return [...area.keys()].map((r) => (2 * area.get(r)!) / perimeter.get(r)!);
   }
 
-  const DEFAULT_CAP = { ...DEFAULT_SPEC, topCap: "on" as const };
-  const SMALL_CAP = baseSpec({ coreSize: { locked: true, dimension: "outer", value: 40 }, height: { locked: true, value: 40 }, layers: { locked: true, value: 2 }, wire: { length: 3000, diameter: 2.5, type: "usb" } });
+  const DEFAULT_CAP = { ...DEFAULT_SPEC, topCap: "on" as const, layers: { locked: true as const, value: 4 } };
+  const SMALL_CAP = baseSpec({ coreSize: { locked: true, dimension: "outer", value: 40 }, height: { locked: true, value: 40 }, layers: { locked: true, value: 4 }, wire: { length: 3000, diameter: 2.5, type: "usb" } });
   const LARGE_CAP = baseSpec({ coreSize: { locked: true, dimension: "outer", value: 90 }, height: { locked: true, value: 60 }, layers: { locked: true, value: 2 }, wire: { length: 5000, diameter: 5, type: "usb" } });
 
   it("an unlabelled cap has no faces in the floor band (the measure only sees letter floors)", async () => {
@@ -236,17 +237,17 @@ describe("label letter floors bridge at most 2 mm (issue #176)", () => {
     expect(Math.max(...widths)).toBeLessThanOrEqual(BRIDGE_MAX_SPAN);
   });
 
-  // Issue #255: the default cap is smaller (the flange margin follows the cable's bend radius, now 2.6 x d), so the
-  // default and large caps hold 8, 13, 12 and 20 characters (were 9, 15, 13 and 22), the small cap 5 (was 6).
+  // Issue #254: the flange margin no longer grows to carry the inner end's lead-in across it, so the caps follow the
+  // wound cable alone: a four-layer default cap holds 10 and 15 characters, the large cap 11 and 18, the small cap 7.
   it("the stroke cap leaves how much text fits unchanged (labelFit.maxChars)", async () => {
     const maxChars = async (spec: CoilSpec, label: string) => (await design({ ...spec, label })).labelFit?.maxChars;
-    expect(await maxChars(DEFAULT_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(8);
-    expect(await maxChars(DEFAULT_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(13);
+    expect(await maxChars(DEFAULT_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(10);
+    expect(await maxChars(DEFAULT_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(15);
     // Issue #241: this two-layer cap now covers the outer end's climb outside the second layer instead of the clips.
-    expect(await maxChars(LARGE_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(12);
-    expect(await maxChars(LARGE_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(20);
+    expect(await maxChars(LARGE_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(11);
+    expect(await maxChars(LARGE_CAP, "abcdefghijklmnopqrstuvwxyz")).toBe(18);
     // Issue #239: a 1.5 mm lip past the wound cable; the small cap's width follows the winding, and it gained a letter.
-    expect(await maxChars(SMALL_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(5);
+    expect(await maxChars(SMALL_CAP, "ABCDEFGHIJKLMNOPQRSTU")).toBe(7);
   });
 });
 

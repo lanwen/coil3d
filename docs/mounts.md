@@ -184,8 +184,10 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
     straight channel with no ledge. The recess's mouth, where the T bar goes
     in, has a 0.5 mm x 45° lead-in. Below it the walls stay vertical: they
     are the stops and carry the weight.
-  - Nothing sticks out past the flange, and the inner-end channel and the
-    cable path are outside the wall, clear of the floor.
+  - Nothing sticks out past the flange. The cable's inner end stands in the
+    bore on a rib and crosses the floor in a tunnel open to the bed (see
+    design.md, Cable ends): a clip's axis keeps its turning radius clear of
+    the rib and of the tunnel's strip across the bore.
 - **How many, and where.** Every slot is on one of the board's two 40 mm
   grids, with its axis at least the fin's turning radius plus 1.5 mm from
   the bore's wall, and (with a cap) 8 mm inside the cap's hole.
@@ -199,8 +201,9 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
   - If no slot fits, the clips are left out with a warning that suggests the
     rim clips.
 
-  For 2 m of 3.8 mm cable: round 40-50 mm gets 1 clip, 60 mm gets 2, and
-  70 mm and up gets 3; square 60 mm gets 2; triangle 50 mm gets 1.
+  For 2 m of 3.8 mm cable the rib and the tunnel take room from the bore:
+  round 50-60 mm gets none (use the rim clips), 64-68 mm gets 1, 72-90 mm gets
+  2, and 100 mm and up gets 3; square 60 mm gets 1; triangle 70 mm gets 1.
 - **Reaching the fins.** You reach through the core (and the cap's hole) and
   pinch the fin's top.
   - A fin rises to 1 mm below the wall's top (with a cap, below the cap's

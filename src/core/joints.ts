@@ -255,8 +255,7 @@ export function resolveCapJoint(
     return snap ? { joint: "snap", snap } : { joint: "press", warning: "This core is too small for the snap clips, so the top cap uses a press-fit collar." };
   }
   if (spec.joint !== "bayonet") return { joint: spec.joint };
-  const plan = bayonetLayout(spec.shape.kind, wallSpec, spec.tolerance);
-  return plan.layout ? { joint: "bayonet", bayonet: plan.layout } : { joint: "press", warning: plan.warning };
+  return { joint: "press", warning: "The cable's centre-held end stands in the bore, so a twist lock can't turn there; the top cap uses a press-fit collar." };
 }
 
 /** One cross-section of an `OutlineStack`: `outline`'s own boundary at height `z`. */

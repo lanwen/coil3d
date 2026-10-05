@@ -40,13 +40,13 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
 
     expect(d.solution.outerSize).toBe(60);
     expect(d.solution.innerBore).toBeCloseTo(53.96, 9);
-    expect(d.solution.height).toBeCloseTo(55.894438344487675, 9);
+    expect(d.solution.height).toBeCloseTo(54.2766403322083, 9);
     expect(d.solution.layers).toBe(1);
-    expect(d.solution.layerResults[0].turns).toBe(11);
+    expect(d.solution.layerResults[0].turns).toBe(10);
     expect(d.solution.layerResults[0].perimeter).toBeCloseTo(190.88316963211582, 9);
-    expect(d.solution.layerResults[0].length).toBeCloseTo(2100.339882796659, 6);
-    expect(d.solution.totalWoundLength).toBeCloseTo(2100.339882796659, 6);
-    expect(d.solution.totalWireLength).toBeCloseTo(2100.339882796659, 6);
+    expect(d.solution.layerResults[0].length).toBeCloseTo(1909.399893451508, 6);
+    expect(d.solution.totalWoundLength).toBeCloseTo(1909.399893451508, 6);
+    expect(d.solution.totalWireLength).toBeCloseTo(2010.9507096831153, 6);
     expect(d.solution.envelopeDiameter).toBeCloseTo(64.56, 9);
     expect(d.solution.flangeSize).toBeCloseTo(67.56, 9); // issue #239: the envelope plus a 1.5 mm lip each side (was 4)
     expect(d.solution.minOuterSizeForBend).toBeCloseTo(19, 9); // 2 x (2.6 x 3.8 - 3.8 / 2 + 0.4 x 3.8)
@@ -126,6 +126,11 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     //
     // Issue #255 bumped it DOWN from 35099.827662282645 (by 1612.31 mm^3): the USB cable's bend radius is 9.9 mm now
     // (2.6 x d, was 4 x d = 15.2 mm), so the inner end's lead-in needs less flange margin, and the flange is smaller all round.
-    expect(meshVolume(d.mesh)).toBeCloseTo(33487.518719260865, 3);
+    //
+    // Issue #254 (parts 1 and 2) bumped it DOWN from 33487.518719260865 and moved the solver numbers above: the default
+    // is a bare core now (no flange; 54.3 mm of height holds 10 turns, the groove starting a little above the bed so the
+    // inner end can curve into it), the inner end runs down the bore and under the
+    // core (102 mm of the 2011 mm), and the rib stands in the bore.
+    expect(meshVolume(d.mesh)).toBeCloseTo(21716.291267932058, 3);
   });
 });

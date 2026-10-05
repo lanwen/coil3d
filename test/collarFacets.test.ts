@@ -1,6 +1,7 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
+import { ribNotchDegs } from "./support/ribNotch";
 import type { CoilSpec } from "../src/core";
 
 // Issue #200: the cap's collar is a cylinder built from straight facets. The
@@ -24,36 +25,35 @@ function spec(overrides: Partial<CoilSpec>): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
   };
 }
 
-/** The largest angle (degrees) between neighbouring corners on the collar's outer rim at its tip. */
-function widestFacet(positions: Float32Array): number {
+/** The largest angle (degrees) between neighbouring corners on the collar's outer rim at its tip, apart from the notch for the inner end's rib. */
+function widestFacet(positions: Float32Array, notch: { centre: number; half: number }): number {
   let tip = Infinity;
   for (let i = 2; i < positions.length; i += 3) tip = Math.min(tip, positions[i]);
   const rim: [number, number][] = [];
   for (let i = 0; i < positions.length; i += 3) if (Math.abs(positions[i + 2] - tip) < 1e-3) rim.push([positions[i], positions[i + 1]]);
   const outer = Math.max(...rim.map(([x, y]) => Math.hypot(x, y)));
-  const angles = rim
+  const aroundNotch = rim
     .filter(([x, y]) => Math.hypot(x, y) > outer - 0.05)
-    .map(([x, y]) => (Math.atan2(y, x) * 180) / Math.PI)
+    .map(([x, y]) => ((((Math.atan2(y, x) * 180) / Math.PI - notch.centre) % 360) + 540) % 360 - 180)
+    .filter((a) => Math.abs(a) > notch.half)
     .sort((a, b) => a - b);
   let widest = 0;
-  for (let i = 0; i < angles.length; i++) {
-    const gap = i + 1 < angles.length ? angles[i + 1] - angles[i] : angles[0] + 360 - angles[i];
-    widest = Math.max(widest, gap);
-  }
-  return widest;
+  for (let i = 0; i + 1 < aroundNotch.length; i++) if (!(aroundNotch[i] < 0 && aroundNotch[i + 1] > 0)) widest = Math.max(widest, aroundNotch[i + 1] - aroundNotch[i]);
+  return Math.max(widest, aroundNotch[0] + 360 - aroundNotch[aroundNotch.length - 1]);
 }
 
 describe("the cap's collar wall (issue #200)", () => {
   it.each([60, 90])("a %i mm round core: no facet is wider than 3 degrees", async (size) => {
     const d = await design(spec({ coreSize: { locked: true, dimension: "outer", value: size } }));
     const cap = d.parts.find((p) => p.role === "topCap")!;
-    expect(widestFacet(cap.mesh.positions)).toBeLessThanOrEqual(MAX_FACET_DEG);
+    expect(widestFacet(cap.mesh.positions, ribNotchDegs(d, 3))).toBeLessThanOrEqual(MAX_FACET_DEG);
   });
 
   // Finer columns change where the L-slot cutters cross the wall, and a cap

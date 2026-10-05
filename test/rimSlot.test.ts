@@ -5,11 +5,10 @@ import { design, parseHash } from "../src/core";
 import type { CoilSpec, Design, ShapeSpec } from "../src/core";
 import { CAP_LEAD_OUT_WALL_GAP, EDGE_CHAMFER, FLANGE_MARGIN, RIM_SLOT_KEEP_OUT, RIM_SLOT_LABEL_KEEP_OUT, RIM_SLOT_NECK, THROUGH_MOUNT_EDGE_MARGIN } from "../src/core/constants";
 import { layoutFlangeThroughHoles } from "../src/core/flangePads";
-import { layoutInnerEnd, resolveChannelDepth, rimSlotWidths } from "../src/core/innerEnd";
+import { requiredRimSlotMargin, rimSlotWidths } from "../src/core/innerEnd";
 import type { XY } from "../src/core/innerEnd";
 import { getLabelFont, labelLoops, resolveLabel } from "../src/core/label";
 import { outlineOffsetAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
 
 // Issue #241: the top cap's clips are gone; the cap and the base each get a
 // rim slot the cable is pressed into from the edge. The slot's own shape is
@@ -39,6 +38,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
@@ -59,7 +59,7 @@ function pieces(mesh: { positions: Float32Array; indices: Uint32Array }): number
 
 describe("rim cable slots (issue #241)", () => {
   it("the cap no longer sets the margin: on the feedback design only the outer end's run up to the cap does", async () => {
-    const { spec } = parseHash(FEEDBACK);
+    const spec = { ...parseHash(FEEDBACK).spec, base: "on" as const };
     const on = await design(spec, "draft");
     const off = await design({ ...spec, topCap: "off" }, "draft");
     // The cap clips set it at 9.8 mm. Now the plate covers the drawn cable plus the lip: with the cap on, the single
@@ -67,11 +67,12 @@ describe("rim cable slots (issue #241)", () => {
     const d = spec.wire.diameter;
     expect(on.flangeSpec.margin).toBeCloseTo(Math.max(off.flangeSpec.margin, d + CAP_LEAD_OUT_WALL_GAP + FLANGE_MARGIN), 6);
     expect(on.flangeSpec.margin).toBeLessThan(9.8 - 2);
+    expect(off.flangeSpec.margin).toBeCloseTo(requiredRimSlotMargin(d, spec.tolerance), 6);
     expect(on.warnings.some((w) => /cap's cable clip/.test(w))).toBe(false);
   });
 
   it("the base slot sits right below the cap slot when nothing on the base is in the way", async () => {
-    const d = await design(parseHash(FEEDBACK).spec, "draft");
+    const d = await design({ ...parseHash(FEEDBACK).spec, base: "on" }, "draft");
     const { base, cap } = d.rimSlots;
     expect(base).toBeDefined();
     expect(cap).toBeDefined();
@@ -106,9 +107,7 @@ describe("rim cable slots (issue #241)", () => {
   it("the base slot keeps clear of the through-hole mount's screw heads", async () => {
     for (const shape of SHAPES) {
       const d = await design(baseSpec({ shape, mount: "through" }), "draft");
-      const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-      const innerEnd = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness));
-      const { holes, holeRadius } = layoutFlangeThroughHoles(d.flangeSpec, innerEnd);
+      const { holes, holeRadius } = layoutFlangeThroughHoles(d.flangeSpec, d.centreInnerEnd);
       expect(holes.length).toBeGreaterThan(0);
       for (const hole of holes) {
         for (const q of cutInside(d, d.rimSlots.base!)) {

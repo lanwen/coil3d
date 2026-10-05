@@ -27,6 +27,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
@@ -116,15 +117,15 @@ describe.each(JOINTS)("top cap joint = %s (issue #9)", (joint) => {
     for (const part of d.parts) {
       await assertManifold(part.mesh, `${joint}/${shape.kind}/${part.name}`);
     }
-    // The core part is always the tube+flange torus (genus 1), regardless of
+    // The core part is always the tube+flange torus with the inner end's tunnel under it (genus 2), regardless of
     // joint: press engages the bore's own surface with no core-side cut;
     // bayonet/snap cut a groove/relief near the top rim, but never open a
-    // second hole through the wall (see manifold.ts's applyCoreJointCut).
+    // further hole through the wall (see manifold.ts's applyCoreJointCut).
     const wasm = await Module();
     wasm.setup();
     const core = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: d.parts[0].mesh.positions, triVerts: d.parts[0].mesh.indices }));
     try {
-      expect(core.genus()).toBe(1);
+      expect(core.genus()).toBe(2);
     } finally {
       core.delete();
     }

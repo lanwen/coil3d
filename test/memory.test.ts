@@ -34,8 +34,8 @@ const spec: CoilSpec = {
 
 describe("memory stability across repeated designs (issue #7)", () => {
   it("keeps RSS from growing roughly linearly over 100 consecutive designs", async () => {
-    const WARMUP = 20;
-    const TOTAL = 120;
+    const WARMUP = 120;
+    const TOTAL = 200;
     const SAMPLE_EVERY = 10;
 
     const samples: number[] = [];

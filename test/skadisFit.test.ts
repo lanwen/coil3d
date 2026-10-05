@@ -436,16 +436,16 @@ function printPosed(part: Part): CoilMesh {
 const tclip = (o: Partial<CoilSpec>): Partial<CoilSpec> => ({ mount: "skadis-tclip", ...o });
 const size = (value: number) => ({ coreSize: { locked: true as const, dimension: "outer" as const, value } });
 const TCLIP_CASES: Array<{ label: string; overrides: Partial<CoilSpec>; clips: number }> = [
-  { label: "round 40", overrides: tclip(size(40)), clips: 1 },
-  { label: "round 60", overrides: tclip(size(60)), clips: 2 },
-  { label: "round 85", overrides: tclip({}), clips: 3 },
+  { label: "round 64", overrides: tclip(size(64)), clips: 1 },
+  { label: "round 76", overrides: tclip(size(76)), clips: 2 },
+  { label: "round 85", overrides: tclip({}), clips: 2 },
   { label: "round 120", overrides: tclip(size(120)), clips: 3 },
-  { label: "round 85, with a cap", overrides: tclip({ topCap: "on" }), clips: 3 },
-  { label: "square 60", overrides: tclip({ shape: { kind: "sq", cornerRadius: 10 }, ...size(60) }), clips: 2 },
-  { label: "square 85", overrides: tclip({ shape: { kind: "sq", cornerRadius: 10 } }), clips: 3 },
-  { label: "triangle 50", overrides: tclip({ shape: { kind: "tri", cornerRadius: 10 }, ...size(50) }), clips: 1 },
+  { label: "round 85, with a cap", overrides: tclip({ topCap: "on" }), clips: 2 },
+  { label: "square 60", overrides: tclip({ shape: { kind: "sq", cornerRadius: 10 }, ...size(60) }), clips: 1 },
+  { label: "square 85", overrides: tclip({ shape: { kind: "sq", cornerRadius: 10 } }), clips: 2 },
+  { label: "triangle 70", overrides: tclip({ shape: { kind: "tri", cornerRadius: 10 }, ...size(70) }), clips: 1 },
   { label: "triangle 85", overrides: tclip({ shape: { kind: "tri", cornerRadius: 10 } }), clips: 3 },
-  { label: "round 85, heavy cable (still 3)", overrides: tclip({ wire: { length: 10000, diameter: 8, type: "flex" }, layers: { locked: true, value: 4 } }), clips: 3 },
+  { label: "round 85, heavy cable (still 2)", overrides: tclip({ wire: { length: 10000, diameter: 8, type: "flex" }, layers: { locked: true, value: 4 } }), clips: 2 },
 ];
 
 /** A T-clip's stem, sliced through the board: its axis (the middle of its extent) and its outline round that axis, in (side, up). */
@@ -622,11 +622,11 @@ describe("the SKÅDIS T-clips lock onto a real SKÅDIS board from inside the bor
   }, 120_000);
 
   it("a bore with room for fewer than 3 clips says how the coil hangs; one with none leaves them out and suggests the rim clips", async () => {
-    const two = await design(baseSpec(tclip(size(60))));
+    const two = await design(baseSpec(tclip({})));
     expect(two.notices.some((n) => n.severity === "note" && /room for 2 SKÅDIS T-clips/.test(n.message))).toBe(true);
-    const one = await design(baseSpec(tclip(size(40))));
+    const one = await design(baseSpec(tclip(size(64))));
     expect(one.notices.some((n) => n.severity === "note" && /room for 1 SKÅDIS T-clip.*lift the coil/.test(n.message))).toBe(true);
-    const three = await design(baseSpec(tclip({})));
+    const three = await design(baseSpec(tclip(size(120))));
     expect(three.notices.some((n) => /room for [12] SKÅDIS/.test(n.message))).toBe(false);
     const none = await design(baseSpec(tclip({ wire: { length: 1000, diameter: 2, type: "usb" }, ...size(20) })));
     expect(clipsOf(none)).toHaveLength(0);

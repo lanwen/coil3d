@@ -15,6 +15,7 @@ export const GROOVE_LIP_ANGLE = 70;
 export const RIDGE_LAND = 0.3; // mm
 /** Height of the groove's lower edge above the flange face at layer 1's start, mm: small, so the first turn sits on the face (its bottom about 0.3 mm above it). */
 export const MARGIN_BOTTOM = 0.2; // mm
+export const MARGIN_BOTTOM_PER_DIAMETER = 0.8;
 /** The top of the wound cable stays this fraction of the cable's radius below the core's top face (so the drawn cable never grazes it). */
 export const MARGIN_TOP_FACTOR = 0.3;
 /** The groove fades out over this many turns at its top end. */
@@ -461,6 +462,7 @@ export const DEFAULT_THROUGH_HOLE_DIAMETER = 4.5; // mm: shank clearance for a c
 export const THROUGH_MOUNT_EDGE_MARGIN = 2; // mm
 /** Issue #229: the screw head's bearing ring keeps to the flat top of the plate, so the hole sits this far in from the flange's outer edge: the edge margin, past the rim's chamfer. */
 export const THROUGH_MOUNT_RIM_MARGIN = THROUGH_MOUNT_EDGE_MARGIN + EDGE_CHAMFER; // mm
+export const THROUGH_MOUNT_RIM_HAIR = 0.05;
 /** Issue #239: a square's or triangle's corner hole may turn this far round its corner (degrees) to clear the inner-end channel's pad. */
 export const THROUGH_MOUNT_CORNER_NUDGE_DEG = 20;
 /** Issue #239: a through-hole that doesn't clear the inner-end channel or a pad as close to the core as it could sit moves outward in steps this long, mm. */
@@ -689,6 +691,43 @@ export const MOUNT_PLATE_ANCHOR_MIN_SHELF = 1.5; // mm
 /** design.ts bumps FLANGE_THICKNESS up to (at least) this, and warns, whenever mount is "skadis"/"opengrid" -- mirrors MIN_FLANGE_THICKNESS_FOR_SCREW_MOUNT. */
 export const MIN_FLANGE_THICKNESS_FOR_PLATE = MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_ANCHOR_MIN_SHELF;
 
-export const DEFAULT_BASE = "on" as const;
+export const DEFAULT_BASE = "off" as const;
 export const CENTRE_GRIP_LENGTH = 30;
 export const CENTRE_CONNECTOR_PASSAGE = 22.4;
+export const CENTRE_RIB_WALL = 1.5;
+export const CENTRE_SEAT_GAP = 0.5;
+export const CENTRE_PLAN_SHARE = 0.98;
+export const CENTRE_Z_SHARE = 0.2;
+export const CENTRE_CHORD_MIN = 0.5;
+export const CENTRE_BORE_CLEARANCE = 0.3;
+export const CENTRE_ALPHA_STEP_DEG = 4;
+export const CENTRE_FLAT_MARGIN = 0.5;
+export const CENTRE_TAIL_ABOVE = 10;
+export const CENTRE_NECK_RAMP = 2;
+export const CENTRE_RIB_EMBED = 1;
+export const CENTRE_CUT_BELOW_BED = 1;
+export const CENTRE_GROOVE_CLEARANCE = 0.1;
+export interface CentreVariant {
+  leanDeg: number;
+  roofDeg: number;
+  shift: [number, number, number];
+}
+export const CENTRE_VARIANTS: CentreVariant[] = [
+  { leanDeg: 0, roofDeg: 0, shift: [0, 0, 0] },
+  { leanDeg: 2, roofDeg: 3, shift: [0.013, 0.007, 0.011] },
+  { leanDeg: -2, roofDeg: 5, shift: [-0.011, 0.015, -0.009] },
+  { leanDeg: 4, roofDeg: 7, shift: [0.017, -0.012, 0.006] },
+  { leanDeg: -4, roofDeg: 8, shift: [-0.015, -0.01, 0.014] },
+  { leanDeg: 6, roofDeg: 2, shift: [0.006, 0.019, -0.013] },
+  { leanDeg: -6, roofDeg: 4, shift: [-0.018, 0.004, 0.017] },
+  { leanDeg: 8, roofDeg: 10, shift: [0.009, -0.02, -0.007] },
+];
+export const CENTRE_ROOF_ANGLE_DEG = 60;
+export const CENTRE_ROOF_TAIL_DEG = 50;
+export const CENTRE_ROOF_FADE = 8;
+export const CENTRE_MIN_CROSSING_DEG = 40;
+export const CENTRE_SLOT_LEAN_DEG = 20;
+export const CENTRE_EXIT_OVERLAP = 3;
+export const CENTRE_SLACK_FRACTION = 0.3;
+export const CENTRE_CAP_NOTCH_CLEARANCE = 0.4;
+export const CAP_NOTCH_DEPTH = SNAP_FINGER_LENGTH + 2;

@@ -101,26 +101,28 @@ test("the size slider's own minimum follows the shape's floor: the flats for sq/
     expect(triangleMin).toBeGreaterThan(20);
   }).toPass();
 
-  // Switching to round drops the extra flat-sides floor, down to the bend
-  // limit's own (issue #195): 2 x (2.6 x 3.8 - 3.8/2 + 0.4 x 3.8) = 19 mm.
-  // The link's locked 20 mm is above it now, so the raised note goes away.
+  // Switching to round drops the extra flat-sides floor, down to the round
+  // floor (issue #195, #254): the bore has to pass a 22.4 mm connector past
+  // the cable's rib and let the inner end bend at its bend radius, 34.4 mm
+  // for this 3.8 mm cable. The link's locked 20 mm is below it, so the field
+  // shows the raised size.
   await page.getByTestId("shape-option-round").check();
-  await expect(page.getByTestId("input-outer")).toHaveAttribute("min", "19");
-  expect(19).toBeLessThan(triangleMin);
-  await expect(page.getByTestId("input-outer")).toHaveValue("20");
-  await expect(page.getByTestId("core-size-raised-note")).toHaveCount(0);
+  await expect(page.getByTestId("input-outer")).toHaveAttribute("min", "34");
+  expect(34).toBeLessThanOrEqual(triangleMin);
+  await expect(page.getByTestId("input-outer")).toHaveValue("34");
 });
 
 // Issue #195: a round core locked below the bend limit's floor (the default
 // 30 mm core with a stiff 3.6 mm cable, whose 23.4 mm bend radius needs a
-// 46.1 mm core) shows the raised size in the field, exactly like sq/tri.
+// 70 mm core for the inner end's curve) shows the raised size in the field,
+// exactly like sq/tri.
 test("a locked round core below the bend limit shows the EFFECTIVE (raised) size in the field, matching the note", async ({ page }) => {
   await page.goto(`/${encodeHashDoc({ d: 3.6, wt: "stiff", size: 30, ly: 2 })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
   const outerInput = page.getByTestId("input-outer");
-  await expect(outerInput).toHaveValue("46");
-  await expect(outerInput).toHaveAttribute("min", "46");
-  await expect(page.getByTestId("core-size-raised-note")).toContainText("Minimum for this round shape and cable: 46 mm");
+  await expect(outerInput).toHaveValue("70");
+  await expect(outerInput).toHaveAttribute("min", "70");
+  await expect(page.getByTestId("core-size-raised-note")).toContainText("Minimum for this round shape and cable: 70 mm");
   // Only a note: the design is valid, the core was just enlarged.
   await expect(page.getByTestId("warnings").locator("li", { hasText: /core size raised.*bend radius/i })).toHaveAttribute("data-severity", "note");
 });

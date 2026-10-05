@@ -44,6 +44,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
@@ -456,7 +457,7 @@ describe("through-hole mount mesh (issue #70): manifold, single-piece, across sh
       const manifold = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: d.mesh.positions, triVerts: d.mesh.indices }));
       try {
         expect(manifold.status()).toBe("NoError");
-        expect(manifold.genus()).toBe(1 + layout.holes.length); // the bore's own tunnel (1) plus one independent tunnel per through-hole
+        expect(manifold.genus()).toBe(2 + layout.holes.length); // the bore (1), the inner end's tunnel under the core (1) and one independent tunnel per through-hole
         const pieces = manifold.decompose();
         try {
           expect(pieces.length).toBe(1); // no disconnected slivers

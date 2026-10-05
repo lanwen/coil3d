@@ -94,15 +94,19 @@ function StepPrintParts({ design }: { design: Design }) {
   );
 }
 
-function StepThreadInnerEnd({ design, n, clip }: { design: Design; n: number; clip: NonNullable<Design["innerEndClip"]> }) {
+function StepThreadInnerEnd({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
-  const anchor = new THREE.Vector3((clip.from.x + clip.to.x) / 2, (clip.from.y + clip.to.y) / 2, (clip.from.z + clip.to.z) / 2);
+  const { seat } = design.centreInnerEnd;
+  const anchor = new THREE.Vector3(seat.x, seat.y, design.solution.height);
+  const innerEnd: WireLayerPath = { layer: 0, turns: 0, points: design.innerEndLeadIn };
   return (
-    <StepCard n={n} title="Clip in the inner cable end">
+    <StepCard n={n} title="Hold the inner cable end">
       <div className="guide-figure-row guide-figure-row--solo">
-        <Figure parts={[core]} testId="guide-thread-inner" zoomInsetAt={anchor} />
+        <Figure parts={[core]} wirePaths={[innerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-thread-inner" zoomInsetAt={anchor} />
       </div>
-      <Callout icons={<KeyholeIcon label="Press the cable into the clip at the base's rim" />}>Press the inner end into the clip at the rim, then lay it along the channel to the groove's start.</Callout>
+      <Callout icons={<KeyholeIcon label="Press the cable into the grip on the bore wall" />}>
+        Feed the connector up through the bore. Press the cable into the grip on the bore wall, then lay it across the bottom and under the wall to the groove's start.
+      </Callout>
     </StepCard>
   );
 }
@@ -523,9 +527,8 @@ function StepUnwind({ design, n }: { design: Design; n: number }) {
 export function Guide({ design, onBack }: { design: Design; onBack: () => void }) {
   const { topCapEnabled } = design.solution;
   const hasPlate = !!platePart(design) && !!design.pegboard;
-  const clip = design.innerEndClip;
-  const hasBase = clip !== undefined;
-  const windN = hasBase ? 3 : 2;
+  const hasBase = design.flangeSpec.thickness > 0;
+  const windN = 3;
   const capN = windN + 1;
   const capStepCount = topCapEnabled ? 2 : 0;
   const plateN = capN + capStepCount;
@@ -546,7 +549,7 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
         <p>Print, thread, wind, fit the cap, mount it.</p>
       </header>
       <StepPrintParts design={design} />
-      {clip && <StepThreadInnerEnd design={design} n={2} clip={clip} />}
+      <StepThreadInnerEnd design={design} n={2} />
       <StepWind design={design} n={windN} />
       {topCapEnabled && <StepFitCap design={design} n={capN} />}
       {topCapEnabled && <StepSecureOuterEnd design={design} n={capN + 1} />}

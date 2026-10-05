@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilSpec, Objective, ShapeSpec, Solution } from "../src/core";
+import { CENTRE_GRIP_LENGTH } from "../src/core/constants";
+import { bendMultiplierOf } from "../src/core/types";
 
 // Issue #195: with free dimensions, every candidate the solver offers (the
 // pick and its alternates, for either objective) is "tight": no free
@@ -36,10 +38,16 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 /** The solver's smallest core size (src/core/constants.ts SIZE_LO_FLOOR), or the shape's own bend/flat floor if larger. */
 const SIZE_LO_FLOOR = 5;
 
+/** The shortest core that holds the inner end: the grip, the quarter bend at the cable's bend radius (MBR over its 0.97 curvature budget) and the cable's seat. */
+function heightFloor(spec: CoilSpec): number {
+  const mbr = bendMultiplierOf(spec.wire) * spec.wire.diameter;
+  return CENTRE_GRIP_LENGTH + mbr / 0.97 + (spec.wire.diameter + spec.tolerance) / 2;
+}
+
 function overshootLimit(spec: CoilSpec, c: Solution): { limit: number; why: string } | undefined {
   const wound = c.layerResults.filter((l) => l.turns > 0);
   if (!spec.coreSize.locked && c.outerSize > Math.max(SIZE_LO_FLOOR, c.minOuterSizeForShape) + 1e-6) return { limit: 1e-3 * c.targetWireLength, why: "a free size above its floor" };
-  if (!spec.height.locked) return { limit: wound.reduce((s, l) => s + l.length / l.turns, 0), why: "one turn on every layer" };
+  if (!spec.height.locked && c.height > heightFloor(spec) + 1e-6) return { limit: wound.reduce((s, l) => s + l.length / l.turns, 0), why: "one turn on every layer" };
   if (!spec.layers.locked) return { limit: wound.at(-1)!.length, why: "the outermost layer" };
   return undefined;
 }

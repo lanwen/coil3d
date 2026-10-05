@@ -11,7 +11,7 @@ import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 // outer=60, height=60 (both locked), layers=2 locked -> layers > 1, so the
 // top cap is auto-on and every joint has room for its features (>= the
 // JOINT_ENGAGE_DEPTH + margin floor in src/core/constants.ts).
-const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 });
+const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" });
 const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 }); // layers=1 (default): no top cap
 
 async function gotoDesign(page: Page, hash: string) {
@@ -213,31 +213,31 @@ test.describe("exploded-view animation (issue #9)", () => {
   });
 });
 
-// Issue #167: the twist lock needs a round core.
-test.describe("bayonet is for round cores only (issue #167)", () => {
+// Issue #167: the twist lock needs a round core. Issue #254: and a bore with nothing standing in it, so the cap
+// gets the press-fit collar for every core while the cable's inner end stands in the bore.
+test.describe("bayonet is for round cores only, and not with the inner end in the bore (issues #167, #254)", () => {
   test("on a square core the bayonet option is greyed out, with the reason in the hint", async ({ page }) => {
     await gotoDesign(page, withHashDoc(TWO_LAYER, { shape: "sq" }));
     await expect(page.getByTestId("select-joint").locator('option[value="bayonet"]')).toBeDisabled();
     await expect(page.getByTestId("select-joint").locator('option[value="bayonet"]')).toContainText("round core only");
     await expect(page.getByTestId("select-joint").locator('option[value="press"]')).toBeEnabled();
-    await expect(page.getByTestId("warnings").filter({ hasText: "Twist lock" })).toHaveCount(0);
+    await expect(page.getByTestId("warnings").filter({ hasText: "twist lock" })).toHaveCount(0);
   });
 
-  test("switching a bayonet design to a square core keeps joint=bayonet, builds press fit and says so", async ({ page }) => {
+  test("a bayonet design keeps joint=bayonet, builds press fit and says so, on a round or a square core", async ({ page }) => {
     await gotoDesign(page, withHashDoc(TWO_LAYER, { joint: "bayonet" }));
     await expect(page.getByTestId("select-joint").locator('option[value="bayonet"]')).toBeEnabled();
+    await expect(page.getByTestId("warnings")).toContainText("a twist lock can't turn there");
     await page.getByTestId("shape-option-sq").check();
-    await expect(page.getByTestId("warnings")).toContainText("Twist lock needs a round core");
+    await expect(page.getByTestId("warnings")).toContainText("a twist lock can't turn there");
     await expect(page.getByTestId("select-joint")).toHaveValue("bayonet");
     await expect(async () => expect(decodeHashDoc(page.url())).toMatchObject({ shape: "sq", joint: "bayonet" })).toPass();
-    await page.getByTestId("shape-option-round").check();
-    await expect(page.getByTestId("warnings").filter({ hasText: "Twist lock" })).toHaveCount(0);
   });
 
   test("a link with joint=bayonet on a square core still loads, unchanged, with the warning", async ({ page }) => {
     await gotoDesign(page, withHashDoc(TWO_LAYER, { shape: "sq", joint: "bayonet" }));
     await expect(page.getByTestId("select-joint")).toHaveValue("bayonet");
-    await expect(page.getByTestId("warnings")).toContainText("Twist lock needs a round core");
+    await expect(page.getByTestId("warnings")).toContainText("a twist lock can't turn there");
     expect(decodeHashDoc(page.url())).toMatchObject({ shape: "sq", joint: "bayonet" });
   });
 });

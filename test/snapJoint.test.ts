@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { design, JOINT_TRANSITION_HEIGHT } from "../src/core";
 import type { CoilMesh, CoilSpec, ShapeSpec } from "../src/core";
 import { SNAP_FINGER_LENGTH, SNAP_PRELOAD } from "../src/core/constants";
+import { inRibNotch } from "./support/ribNotch";
 
 // Issue #168: the snap joint still snaps once its overhangs are chamfered
 // for printing. The cap and the core are checked against each other, as
@@ -24,6 +25,7 @@ function spec(shape: ShapeSpec): CoilSpec {
     joint: "snap",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
   };
@@ -88,7 +90,8 @@ describe.each(SHAPES)("issue #168: the snap joint still engages, shape=$kind", (
       // The cap rests on the core's rim. Seated, the fingers stay bent by the
       // preload: each barb's back face sits SNAP_PRELOAD (axially) into the
       // ridge's underside, and that is the only overlap.
-      expect(pieces.length, "overlapping pieces (one per finger)").toBe(fingersOf(shape).length);
+      expect(pieces.length, "overlapping pieces (one per finger, two for the one the rib's notch splits)").toBeGreaterThanOrEqual(fingersOf(shape).length);
+      expect(pieces.length).toBeLessThanOrEqual(fingersOf(shape).length + 1);
       for (const p of pieces) {
         const { min, max } = p.boundingBox();
         expect(min[2], "overlap's bottom, mm above the finger tips").toBeGreaterThan(h - SNAP_FINGER_LENGTH);
@@ -147,10 +150,12 @@ describe.each(SHAPES)("issue #168: the snap joint still engages, shape=$kind", (
       };
       for (const centre of fingers) {
         // Square to the outline at the finger's middle (a flat's middle on sq/tri): 1.0 mm - tolerance.
-        expect(overlapAt(centre), `finger at ${centre} deg: barb over ridge at its middle, mm`).toBeGreaterThan(0.75);
-        expect(overlapAt(centre), `finger at ${centre} deg: barb over ridge at its middle, mm`).toBeLessThan(0.85);
+        if (!inRibNotch(d, centre)) {
+          expect(overlapAt(centre), `finger at ${centre} deg: barb over ridge at its middle, mm`).toBeGreaterThan(0.75);
+          expect(overlapAt(centre), `finger at ${centre} deg: barb over ridge at its middle, mm`).toBeLessThan(0.85);
+        }
         // And all along the finger, up to the slots at the corners (a ray off square only measures more).
-        const along = Array.from({ length: 2 * halfWidth + 1 }, (_, i) => overlapAt(centre - halfWidth + i));
+        const along = Array.from({ length: 2 * halfWidth + 1 }, (_, i) => centre - halfWidth + i).filter((deg) => !inRibNotch(d, deg)).map(overlapAt);
         expect(Math.min(...along), `finger at ${centre} deg: least barb over ridge along the finger, mm`).toBeGreaterThan(0.75);
       }
 

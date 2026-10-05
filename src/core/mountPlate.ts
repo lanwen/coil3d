@@ -376,7 +376,10 @@ export function mountPlateLayoutFor(flangeOutline: ShapeOutline, boreOutline: Sh
  * `MOUNT_PLATE_MIN_CLIPS`" are the same bisection target.
  */
 export function requiredMountPlateMargin(outline: ShapeOutline, boreOutline: ShapeOutline): number {
-  const fits = (margin: number): boolean => mountPlateLayoutFor(offsetOutline(outline, margin), boreOutline).clips.length > 0;
+  const fits = (margin: number): boolean => {
+    const layout = mountPlateLayoutFor(offsetOutline(outline, margin), boreOutline);
+    return layout.clips.length > 0 && layout.anchors.length === 2;
+  };
   let lo = 0;
   let hi = 1;
   while (!fits(hi)) hi *= 2;

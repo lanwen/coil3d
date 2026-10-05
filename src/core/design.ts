@@ -23,7 +23,6 @@
 import {
   CAP_THICKNESS,
   DEFAULT_BASE,
-  MARGIN_BOTTOM,
   MARGIN_TOP_FACTOR,
   FINAL_ROWS_PER_PITCH,
   FINAL_COLUMNS,
@@ -33,7 +32,6 @@ import {
   DRAFT_MIN_CORNER_SEGMENTS_PER_90,
   RUN_IN_TURNS,
   TAPER_TURNS,
-  INNER_CHANNEL_MIN_SHELF,
   RIM_SLOT_KEEP_OUT,
   RIM_SLOT_LABEL_KEEP_OUT,
   SCREW_MOUNT_HEAD_RADIUS,
@@ -41,27 +39,28 @@ import {
   THROUGH_MOUNT_EDGE_MARGIN,
 } from "./constants";
 import { buildMountPlate, buildPeg, buildSkadisClip, buildSkadisTclip, buildTopCap, fuseFlange } from "./manifold";
-import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
+import type { CoreJointCut, MountPlateFlangeCut } from "./manifold";
 import { jointGeometry, resolveCapJoint } from "./joints";
-import { layoutInnerEnd, layoutRimSlot, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
+import { layoutRimSlot } from "./innerEnd";
+import { layoutCentreInnerEnd } from "./centreEnds";
 import type { RimSlot, XY } from "./innerEnd";
 import { printBBox } from "./plate";
-import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
-import { channelPadFootprints, layoutFlangePads, layoutFlangeThroughHoles } from "./flangePads";
+import { layoutKeyholeMount } from "./mount";
+import { layoutFlangePads, layoutFlangeThroughHoles } from "./flangePads";
 import type { MountLayout, ThroughMountLayout } from "./mount";
 import { mountPlateLayoutFor } from "./mountPlate";
 import { clipFrame, clipPrintRotateZ, isHeavyCable, layoutSkadisClips, lipKeepOffset, skadisBoardSection } from "./skadisClips";
 import type { SkadisClipLayout } from "./skadisClips";
 import { layoutSkadisTclips, skadisTclipBoardSection, tclipPrintRotateZ } from "./skadisTclips";
 import type { SkadisTclipLayout } from "./skadisTclips";
-import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing, stackedKeyholeThickness } from "./flange";
+import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
 import { circumscribedRadius, makeOutline, minCornerSegments, offsetOutline } from "./shapes";
 import { getLabelFont, labelLoops, resolveLabel } from "./label";
 import { solve } from "./solve";
 import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
 import type { CoilMesh, CoilSpec, Design, Part, Resolution, Solution } from "./types";
-import { buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
+import { bottomMargin, buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
 import { buildCable } from "./wire";
 
 function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, boreOutline: ShapeOutline) {
@@ -82,28 +81,12 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
     spec.throughHoleDiameter,
     baseOn,
   );
-  let thickness = sizing.thickness;
-  const channelDepth = resolveChannelDepth(wireDiameter, thickness);
+  const thickness = sizing.thickness;
+  const centre = layoutCentreInnerEnd(outline, boreOutline, wireDiameter, spec.tolerance, bendRadius, solution.height, baseOn ? -thickness : 0);
 
-  const innerEndLayout = baseOn ? layoutInnerEnd(outline, sizing.margin, wireDiameter, spec.tolerance, bendRadius, channelDepth) : undefined;
-
-  let mountLayout: MountLayout | undefined;
-  if (spec.mount === "keyhole") {
-    const layout = layoutKeyholeMount(outline, boreOutline, sizing.margin, spec.keyholeRotation);
-    mountLayout = layout;
-    const clearance = SCREW_MOUNT_HEAD_RADIUS + INNER_CHANNEL_MIN_SHELF;
-    const onChannel = layout.slots.some((slot) =>
-      Array.from({ length: 9 }, (_, i) => i / 8).some(
-        (k) =>
-          innerEndLayout !== undefined &&
-          innerEndLayout.channelRibbon.length >= 3 &&
-          distanceToClosedPolygon(slot.head.x + (slot.shankEnd.x - slot.head.x) * k, slot.head.y + (slot.shankEnd.y - slot.head.y) * k, innerEndLayout.channelRibbon) < clearance,
-      ),
-    );
-    if (onChannel) thickness = stackedKeyholeThickness(wireDiameter, thickness);
-  }
+  const mountLayout: MountLayout | undefined = spec.mount === "keyhole" ? layoutKeyholeMount(outline, boreOutline, sizing.margin, spec.keyholeRotation) : undefined;
   const skadisLayout: SkadisClipLayout | undefined =
-    spec.mount === "skadis" && innerEndLayout
+    spec.mount === "skadis"
       ? layoutSkadisClips({
           flangeOutline: offsetOutline(outline, sizing.margin),
           boreOutline,
@@ -113,11 +96,11 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
           tolerance: spec.tolerance,
           latch: spec.skadisLatch ?? true,
           heavy: heavyCable,
-          avoid: innerEndLayout.channelRibbon,
-          padFootprints: channelPadFootprints(outline, innerEndLayout, thickness, sizing.plateThickness),
+          avoid: centre.channelRibbon,
+          padFootprints: [],
         })
       : undefined;
-  return { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness };
+  return { mountKindForPlate, bendRadius, sizing, centre, mountLayout, skadisLayout, thickness };
 }
 
 /** An alternate candidate with its real flange width and overall height filled in (issue #192), from the same `planFlange` design() builds the parts from. */
@@ -158,7 +141,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     pitch: groove.pitch,
     grooveRadius: groove.radius,
     grooveDepth: groove.depth,
-    marginBottom: MARGIN_BOTTOM,
+    marginBottom: bottomMargin(wireDiameter),
     marginTop: (MARGIN_TOP_FACTOR * wireDiameter) / 2,
     taperTurns: TAPER_TURNS,
     runInTurns: RUN_IN_TURNS,
@@ -169,7 +152,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   };
   const wantsKeyhole = spec.mount === "keyhole";
   const wantsThrough = spec.mount === "through";
-  const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness } = planFlange(spec, solution, outline, boreOutline);
+  const { mountKindForPlate, bendRadius, sizing, centre, mountLayout, skadisLayout, thickness } = planFlange(spec, solution, outline, boreOutline);
   const capJointForTclips = resolveCapJoint(spec, wallSpec);
   const tclipLayout: SkadisTclipLayout | undefined =
     spec.mount === "skadis-tclip"
@@ -179,17 +162,15 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
           wallTop: solution.height,
           thickness,
           tolerance: spec.tolerance,
+          avoid: [centre.rib, centre.floorRibbon],
         })
       : undefined;
-  const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, rimSlotMargin, channelOnlyThickness } = sizing;
+  const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, rimSlotMargin, channelOnlyThickness } = sizing;
   const baseOn = baseEnabled(spec);
   if (spec.mount !== "none" && (spec.base ?? DEFAULT_BASE) === "off") {
     note("A wall mount needs the base plate, so the base stays on.");
   }
-  if (baseOn && innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= rimSlotMargin) {
-    note(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
-  }
-  if (baseOn && rimSlotMargin > Math.max(mountMargin, innerEndMargin) + 1e-9) {
+  if (baseOn && rimSlotMargin > mountMargin + 1e-9) {
     note(`Flange margin increased to ${margin.toFixed(1)} mm so the rim cable slot fits beside the core.`);
   }
   if (wantsKeyhole && mountMargin > baseMargin) {
@@ -213,12 +194,9 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (mountKindForPlate && sizedThickness > channelOnlyThickness + 1e-9) {
     note(`Flange thickness increased to ${sizedThickness.toFixed(1)} mm to fit the mount plate's alignment features.`);
   }
-  if (baseOn && channelDepth < idealChannelDepth(wireDiameter) - 1e-6) {
-    problem(
-      `The inner-end channel is only ${channelDepth.toFixed(1)} mm deep, limited by the flange's own thickness; the first turn may sit slightly proud of the surrounding flange face.`,
-    );
+  if (!centre.feasible) {
+    problem(`The core is too small for the inner cable end to leave the bore within its ${bendRadius.toFixed(1)} mm bend radius and clear of the wall; make the core bigger.`);
   }
-  if (innerEndLayout?.warning) problem(innerEndLayout.warning);
   if (mountLayout?.warning) problem(mountLayout.warning);
   if (wantsKeyhole && thickness > channelOnlyThickness + 1e-9) {
     note(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
@@ -238,13 +216,13 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     skadisTclip: tclipLayout && tclipLayout.clips.length > 0 ? tclipLayout : undefined,
   };
   if (wantsThrough) {
-    const throughLayout = layoutFlangeThroughHoles(flangeSpec, innerEndLayout);
+    const throughLayout = layoutFlangeThroughHoles(flangeSpec, centre);
     if (throughLayout.warning) problem(throughLayout.warning);
   }
 
   let mountPlateLayout: ReturnType<typeof mountPlateLayoutFor> | undefined;
   if (mountKindForPlate) {
-    mountPlateLayout = mountPlateLayoutFor(offsetOutline(outline, margin), boreOutline, innerEndLayout);
+    mountPlateLayout = mountPlateLayoutFor(offsetOutline(outline, margin), boreOutline, centre);
     if (mountPlateLayout.warning) problem(mountPlateLayout.warning);
     if (spec.plateJoint === "snap") note("Snap tabs can't print without supports, so the mount plate uses two printed pegs and glue instead.");
   }
@@ -261,8 +239,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       ? { boreOutline, height: solution.height, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap }
       : undefined;
 
-  const innerEndCut: InnerEndCut | undefined = baseOn ? { wireDiameter, tolerance: spec.tolerance, bendRadius, channelDepth, flangeThickness: thickness } : undefined;
-
   const flangeExtent = flangeExtentOf(outline, margin);
   const overallHeight = overallHeightOf(thickness, solution.height, topCapEnabled);
 
@@ -273,7 +249,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   }
 
   const cable = buildCable(solution.layerResults, wallSpec, spec.windingQuality, resolution, {
-    innerEnd: innerEndLayout,
+    innerEnd: centre,
     topCapEnabled,
     height: solution.height,
     margin,
@@ -283,12 +259,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   for (const warning of cable.warnings) problem(warning);
 
   const baseKeepOut: XY[][] = baseOn ? [
-    ...(innerEndLayout ? [innerEndLayout.channelRibbon] : []),
-    ...layoutFlangePads(flangeSpec, innerEndLayout, mountPlateCut?.anchors, spec.tolerance)
+    centre.channelRibbon,
+    ...layoutFlangePads(flangeSpec, undefined, mountPlateCut?.anchors, spec.tolerance)
       .filter((pad) => pad.shape.kind !== "collar")
       .map((pad) => pad.footprint),
     ...(mountLayout?.slots ?? []).map((slot) => stadiumPolygon(slot.head, slot.shankEnd, SCREW_MOUNT_HEAD_RADIUS)),
-    ...(wantsThrough ? throughHoleKeepOut(layoutFlangeThroughHoles(flangeSpec, innerEndLayout)) : []),
+    ...(wantsThrough ? throughHoleKeepOut(layoutFlangeThroughHoles(flangeSpec, centre)) : []),
     ...(flangeSpec.skadis ? skadisClipFootprints(flangeSpec.skadis) : []),
   ].filter((poly) => poly.length >= 3) : [];
   const baseSlot = baseOn ? layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, baseKeepOut, RIM_SLOT_KEEP_OUT) : undefined;
@@ -296,7 +272,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot };
 
   const wall = buildWall(wallSpec);
-  const coreMesh = await fuseFlange(wall, coreFlangeSpec, coreJoint, innerEndCut, mountPlateCut);
+  const coreMesh = await fuseFlange(wall, coreFlangeSpec, coreJoint, centre, mountPlateCut);
   coreMesh.fadeTriangles = grooveFadeTriangles(coreMesh, wallSpec);
 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
@@ -309,7 +285,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     const labelKeepOut = label ? labelLoops(await getLabelFont(), label).map((loop) => loop.map(([x, y]) => ({ x, y }))) : [];
     capSlot = layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, labelKeepOut, RIM_SLOT_LABEL_KEEP_OUT);
     if (!capSlot) note("The top cap's rim cable slot doesn't fit anywhere round the rim beside the label, so it's left out.");
-    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot });
+    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot, centreNotch: centre.capNotch });
     const assembled = translateMesh(capMesh, [0, 0, solution.height]);
     parts.push({
       name: "top-cap",
@@ -393,7 +369,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
         ? skadisTclipBoardSection(flangeSpec.skadisTclip, circumscribedRadius(outline, margin) + 45)
         : undefined,
     innerEndLeadIn: cable.innerEndLeadIn,
-    innerEndClip: innerEndLayout?.clip,
+    centreInnerEnd: centre,
     layerTransitions: cable.layerTransitions,
     outerEndLeadOut: cable.outerEndLeadOut,
     cablePath: cable.cablePath,

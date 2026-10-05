@@ -29,7 +29,7 @@ function expectSameBuild(built: Solution, card: Solution) {
   expect(built.overallHeight!).toBeCloseTo(card.overallHeight!, 9);
 }
 
-const TWO_FREE = spec({ height: { locked: false }, layers: { locked: false } });
+const TWO_FREE = spec({ coreSize: { locked: true, dimension: "outer", value: 60 }, height: { locked: false }, layers: { locked: false } });
 const THREE_FREE = spec({ coreSize: { locked: false }, height: { locked: false }, layers: { locked: false } });
 
 describe("solver alternatives can be picked through the spec (issue #192)", () => {
@@ -63,7 +63,7 @@ describe("solver alternatives can be picked through the spec (issue #192)", () =
 
 describe("design() notices (issue #192)", () => {
   it("tags every message as a problem or a note, and `warnings` lists the same messages in order", async () => {
-    const d = await design(spec({ print: { bedX: 256, bedY: 256, bedZ: 20 }, label: "a label far too long for this small top cap" , layers: { locked: true, value: 2 } }));
+    const d = await design(spec({ base: "on", print: { bedX: 256, bedY: 256, bedZ: 20 }, label: "a label far too long for this small top cap" , layers: { locked: true, value: 2 } }));
     expect(d.notices.length).toBeGreaterThan(0);
     expect(d.warnings).toEqual(d.notices.map((n) => n.message));
     for (const n of d.notices) expect(["problem", "note"]).toContain(n.severity);
@@ -71,8 +71,8 @@ describe("design() notices (issue #192)", () => {
     expect(d.notices.filter((n) => n.severity === "problem").map((n) => n.message)).toEqual(
       expect.arrayContaining([expect.stringMatching(/tall; your printer fits 2 cm/), expect.stringMatching(/doesn't fit on the top cap/)]),
     );
-    // An automatic flange adjustment is only a note.
-    expect(d.notices.some((n) => n.severity === "note" && /^Flange margin increased/.test(n.message))).toBe(true);
+    // An automatic adjustment is only a note.
+    expect(d.notices.some((n) => n.severity === "note" && /^Core size raised/.test(n.message))).toBe(true);
     expect(d.fitsBed).toBe(false);
   });
 

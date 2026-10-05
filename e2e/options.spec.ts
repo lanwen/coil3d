@@ -8,7 +8,7 @@ import { decodeHashDoc } from "./hashDoc";
 const link = (doc: Record<string, unknown>) => `/#s=${Buffer.from(JSON.stringify({ v: 2, ...doc })).toString("base64url")}`;
 
 /** Core size locked, height and layers free: two options, one per objective. */
-const TWO_FREE = link({ lock: ["outer"] });
+const TWO_FREE = link({ lock: ["outer"], size: 60 });
 /** Nothing locked: one option per layer count. */
 const THREE_FREE = link({ lock: [] });
 
@@ -151,8 +151,8 @@ test.describe("the summary shows only what matters before printing", () => {
     await expect(page.getByTestId("outer-size")).toBeHidden();
     await expect(page.getByTestId("warnings")).toBeHidden();
     await page.getByTestId("all-numbers").locator("summary").click();
-    await expect(page.getByTestId("outer-size")).toHaveText("30.0 mm");
-    await expect(page.getByTestId("warnings")).toContainText("Flange margin increased");
+    await expect(page.getByTestId("outer-size")).toHaveText("34.4 mm");
+    await expect(page.getByTestId("warnings")).toContainText("Core size raised from 30.0 mm to 34.4 mm");
   });
 
   test("problems are listed in plain words, in cm, and the bed chip says it's too big", async ({ page }) => {
@@ -174,14 +174,14 @@ test.describe("the summary shows only what matters before printing", () => {
   });
 
   // Issue #199: a 15 cm stiff cable on a locked 80 mm core, one layer, height
-  // free. One turn already holds 25 cm. The cable fits, so the headline says
+  // free. One turn already holds 25 cm (and the inner end in the bore, the rest). The cable fits, so the headline says
   // so, and a note under All numbers names the lock that forces the extra room.
   test("a coil the locks make bigger than needed still holds the cable", async ({ page }) => {
     await page.goto(link({ L: 150, d: 3.6, wt: "stiff", lock: ["outer", "ly"], size: 80, ly: 1 }));
     await settled(page);
     await expect(page.getByTestId("verdict")).toHaveAttribute("data-tone", "good");
     await expect(page.getByTestId("verdict-title")).toHaveText("Holds your 15 cm cable");
-    await expect(page.getByTestId("verdict")).toContainText("69% more than you need");
+    await expect(page.getByTestId("verdict")).toContainText(/\d+% more than you need/);
     await expect(page.getByTestId("problems")).toHaveCount(0);
     await page.getByTestId("all-numbers").locator("summary").click();
     await expect(page.getByTestId("diagnosis-status")).toHaveText("ok");

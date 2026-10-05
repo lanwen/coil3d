@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, exportDesign, parseHash } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
-import { CAP_THICKNESS, EDGE_CHAMFER, FLANGE_PAD_WALL } from "../src/core/constants";
+import { CAP_THICKNESS, EDGE_CHAMFER } from "../src/core/constants";
 import { plateTopZ } from "../src/core/flangePads";
 import { pointAt } from "../src/core/shapes";
 import { STEP_TIMEOUT_MS, insideAt, stepContains, verticalCrossings } from "./support/step";
@@ -27,7 +27,7 @@ function rayHits(mesh: { positions: Float32Array; indices: Uint32Array }, x: num
 }
 
 function spec(overrides: Partial<CoilSpec>): CoilSpec {
-  return { ...parseHash("").spec, topCap: "on", ...overrides };
+  return { ...parseHash("").spec, base: "on", topCap: "on", ...overrides };
 }
 
 const DESIGNS: Array<{ label: string; spec: CoilSpec }> = [
@@ -39,17 +39,23 @@ const DESIGNS: Array<{ label: string; spec: CoilSpec }> = [
 
 /**
  * The vertical extent of the material on the vertical line `depth` mm inside the flange's outer edge, wherever it is
- * one solid interval. Rays over the inner end's channel pad are left out: the pad reaches the rim there (along a
- * square's flat side, for several centimetres of it).
+ * one solid interval. Rays beside the inner end's slot are left out.
  */
 function rimSpans(mesh: { positions: Float32Array; indices: Uint32Array }, d: Design, depth: number): Array<[number, number]> {
   const { outline, margin, thickness, plateThickness } = d.flangeSpec;
-  const lead = d.innerEndLeadIn;
-  // The channel pad's footprint on the plate: its wall past the bore, then its 45 degree chamfer down to the plate.
-  const keepOut = d.spec.wire.diameter / 2 + FLANGE_PAD_WALL + (thickness - (plateThickness ?? thickness)) + EDGE_CHAMFER;
+  const slot = d.centreInnerEnd.channelRibbon;
   const nearLead = (x: number, y: number) => {
-    for (let i = 0; i < lead.length; i += 3) if (lead[i + 2] < 0.5 && Math.hypot(lead[i] - x, lead[i + 1] - y) < keepOut) return true;
-    return false;
+    let inside = false;
+    let best = Infinity;
+    for (let i = 0, j = slot.length - 1; i < slot.length; j = i++) {
+      const [a, b] = [slot[j], slot[i]];
+      if (a.y > y !== b.y > y && x < a.x + ((y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
+      const ex = b.x - a.x;
+      const ey = b.y - a.y;
+      const u = Math.max(0, Math.min(1, ((x - a.x) * ex + (y - a.y) * ey) / (ex * ex + ey * ey || 1)));
+      best = Math.min(best, Math.hypot(x - a.x - u * ex, y - a.y - u * ey));
+    }
+    return inside || best < EDGE_CHAMFER + 0.5;
   };
   const spans: Array<[number, number]> = [];
   for (let i = 0; i < 90; i++) {

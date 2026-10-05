@@ -27,6 +27,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
@@ -53,12 +54,12 @@ function woundOffset(d: Design): number {
 }
 
 describe("slim base and cap (issue #239)", () => {
-  it("the feedback design: the margin is set by the inner end's lead-in, no longer by a 4 mm pad or the cap", async () => {
-    const d = await design(parseHash(FEEDBACK).spec, "draft");
+  it("the feedback design: the margin is set by the rim slot, no longer by a 4 mm pad, the cap or the inner end's lead-in", async () => {
+    const d = await design({ ...parseHash(FEEDBACK).spec, base: "on" }, "draft");
     // 9.8 mm with the cap clips, 6.1 mm with a 4 mm lip; the wound cable reaches 2.1 mm.
     expect(d.flangeSpec.margin).toBeLessThan(5.5);
-    expect(d.flangeSpec.margin).toBeGreaterThan(requiredRimSlotMargin(3, d.spec.tolerance));
-    expect(d.warnings.some((w) => /margin increased to .* inner cable end/i.test(w))).toBe(true);
+    expect(d.flangeSpec.margin).toBeCloseTo(requiredRimSlotMargin(3, d.spec.tolerance), 6);
+    expect(d.warnings.some((w) => /margin increased to .* rim cable slot/i.test(w))).toBe(true);
   });
 
   // Fractional sizes, so a fit that only works at whole millimetres shows up.

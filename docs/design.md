@@ -20,7 +20,7 @@ This file records why the app works the way it does. The mount geometry is in
 | Shapes | Round, rounded square, rounded triangle. Round is a diameter, square is across flats, triangle is the inscribed-circle diameter. |
 | Cable | Round cross-section only. Bend limit: USB/audio 2.6x the diameter, flexible cord 2.6x, stiff or solid 6.5x, or a custom multiplier (2.6x by default). |
 | Parts | A core with the bottom flange printed as one piece. A separate top cap, on by default when there is more than one layer. Separate rim clips or T-clips for SKÅDIS (3 or 4), or a separate mount plate with two alignment pegs for the hidden openGrid placeholder. |
-| Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core; elsewhere the cap gets the press-fit collar, with a warning. The snap cap has one 12 mm finger per side of the bore (slots at the corners: four on round and square cores, three on triangles), each with a barb along its whole width that clicks under a ridge ring inside the core's bore: a 30° lead-in, so it goes on with about half the pull-off force, and a 45° retaining face (the print overhang limit). Seated, the barbs sit 0.2 mm into the ridge, so the fingers stay a little bent, pull the cap onto the rim and centre it: no radial or tilt play. Under the finger tips a seat ring narrows the bore to the cap's hole, so there is no step inside the seated cap. Nothing is cut into the core's wall. A core too small for the clips gets the press-fit collar, with a warning; see [Snap joint](#snap-joint). |
+| Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core and a bore with nothing standing in it; the cable's inner end now stands in every bore, so the cap gets the press-fit collar, with a warning. The snap cap has one 12 mm finger per side of the bore (slots at the corners: four on round and square cores, three on triangles), each with a barb along its whole width that clicks under a ridge ring inside the core's bore: a 30° lead-in, so it goes on with about half the pull-off force, and a 45° retaining face (the print overhang limit). Seated, the barbs sit 0.2 mm into the ridge, so the fingers stay a little bent, pull the cap onto the rim and centre it: no radial or tilt play. Under the finger tips a seat ring narrows the bore to the cap's hole, so there is no step inside the seated cap. Nothing is cut into the core's wall. A core too small for the clips gets the press-fit collar, with a warning; see [Snap joint](#snap-joint). |
 | Label | Text engraved into the top cap's room-facing face. It is hidden, with a warning, when it does not fit. |
 | Printer | A bed-size setting. It only produces warnings. The app never rearranges parts to fit. |
 | Units | Metric only. English only. |
@@ -38,20 +38,37 @@ adds one twist per turn, and the guide tells the user to rotate the coil.
 
 Neither end of the cable has a connector pocket. Both connectors hang outside.
 
-- Inner end: a channel recessed into the bottom flange's inner face. It is
-  swept along the straight line the cable takes when it leaves the groove
-  start, so the cable never bends tighter than its bend radius. The first turn
-  starts on the flange face, so the cable first shifts sideways along the face
-  until the channel is clear of the wall, and only then drops into it. It is round,
-  one cable diameter plus tolerance across, and it follows the cable's own
-  drop so that layers do not wind over a bump. It ends in a snap-in clip near
-  the rim. The clip opening is 8% of the cable's diameter narrower than the
-  cable, so the cable presses in from the top and leaves the rim sideways,
-  along its own direction. The lips are stubs on a thick wall and PLA does
-  not flex, so the cable's own jacket takes the interference (0.24 mm at
-  3 mm). The mouth is a 45-degree funnel above a 0.3 mm land, which centres
-  the cable. The opening never goes below 0.75 of the bore, which keeps the
-  lip underside within 45 degrees (41 degrees at the floor).
+- Inner end (#254): held in the bore, in every design (base on or off, cap on
+  or off). The connector hangs free out of the top of the bore. From there the
+  cable runs straight down along a rib on the bore wall, at least 30 mm (the
+  grip, so the cable is held by its length, not by one clip), bends to level on
+  the bed in a quarter bend at its bend radius, crosses the open bottom of the
+  bore, passes under the wall in a tunnel that is open to the bed, and curves
+  in plan, at its bend radius, into the groove start, tangent to layer 1. The
+  rib is a boss round the seat (1.5 mm of material round the cable's seat),
+  standing in the bore with its seat 0.5 mm clear of the wall, so it never meets
+  the groove behind the wall. The seat is one cable diameter plus tolerance
+  across and its neck, which faces the way the cable leaves the seat, is 8%
+  narrower than the cable (the same squeeze as the rim slots): the cable is
+  pressed in sideways from the bore, and the neck lets the quarter bend run out
+  of the seat. The vertical seat is a full-height cut, so the walls of the
+  rib are vertical and need no support. The tunnel is a circle round the cable
+  with a steep roof on top (60 degrees from the bed, well inside the 45-degree
+  overhang limit, easing to 50 degrees over the last stretch before the groove
+  so it does not slit the wall above the first turns) and sides that lean
+  outward below the cable, open at the bed so the cable is pressed in from
+  below. The steep roof and the leaning sides keep every wall the tunnel leaves
+  away from a knife edge where the cut meets the bore, the outer wall and the
+  next turn's groove (a roof at the groove's own 45 degrees, or vertical sides,
+  left slivers at those meetings). With the base on, the tunnel runs on down
+  through the flange to the bed, so the cable passes through the base plate.
+  Where a design's meeting of surfaces still leaves a razor-thin edge, a fold
+  or a loose speck (the booleans are float32), the core is rebuilt with the
+  tunnel's lean angle, its roof angle (never below the tail's 50 degrees) and its position nudged by a few hundredths of
+  a millimetre (`CENTRE_VARIANTS`), until the part is one clean solid. The
+  inner end's length in the core is exact: the solver counts the vertical run,
+  the quarter bend, the level run and the plan arc
+  (`centreInnerEndLength`), and the drawn cable is the same path.
 - Outer end (#241): a rim slot in the top cap, and the same slot in the base
   flange right below it. Each is a keyhole cut straight through the plate:
   a round seat one cable diameter plus tolerance across, a 1 mm neck out to
@@ -62,7 +79,7 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   connector behind it stops it pulling through. The walls are vertical, so
   both parts still print without supports. The cap's slot sits where the
   cable's lead-out arrives under the cap. Each slot moves along the rim if
-  something is in the way: on the base the inner-end channel and its pad,
+  something is in the way: on the base the inner end's tunnel,
   the mount's holes, slots and pads, the SKÅDIS notches; on the cap the
   label. The drawn cable runs level under the cap and curves out past the
   rim, under the cap's slot, within its bend radius. The top turn sits flush
@@ -72,9 +89,10 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   needed 6 to 8 mm of margin beside the wound cable, so they were removed.)
   With no top cap, the cable leaves the last turn as a straight tangential
   tail.
-- The flange and cap margins grow when the inner end's lead-in or the base
-  slot needs more room (the slot's seat stays 0.4 mm clear of the wall, and
-  may cut through the collar pad beside it).
+- The flange and cap margins grow when the base slot needs more room (the
+  slot's seat stays 0.4 mm clear of the wall, and may cut through the collar
+  pad beside it). The inner end no longer sets the margin: it is held in the
+  bore.
 - The flange and cap cover the drawn cable as it really runs, not just the
   wound envelope (`woundReachOffset`): with the cap on, an outer end that
   climbs the whole height outside a last layer ending at the bottom (an even
@@ -83,34 +101,41 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   0.3 mm clear of the wall (a single layer sits half in the groove, which has
   faded out at the top). Only the free ends leave the plate.
 
-### Bare core (#254, part 1)
+### Bare core and the inner end in the bore (#254)
 
-The base plate is an option (`base`: on or off). A wall mount needs it, so a
-mount keeps the base on (a notice says so; the spec keeps the user's value).
-With the base off the core is the only part: a grooved tube that stands on its
-own bottom face, with no flange, no inner-end channel and no base rim slot.
-The top cap stays optional, and `auto` means off on a bare core. An explicit
-cap is still built, sized to the wound cable.
+The base plate is an option (`base`: on or off), and off is the default. A wall
+mount needs it, so a mount keeps the base on (a notice says so; the spec keeps
+the user's value). With the base off the core is the only part: a grooved tube
+that stands on its own bottom face, with no flange and no base rim slot. The
+top cap stays optional, and `auto` means off on a bare core. An explicit cap is
+still built, sized to the wound cable.
 
-The cable ends move into the core in the next parts of #254, so the solver
-already sizes a bare core for them:
+Every design holds the cable's inner end in the bore (see Cable ends), so the
+solver sizes every core for it:
 
-- The bore always passes a 22.4 mm free circle (an HDMI plug's diagonal), so a
-  connector can be fed up through it.
-- The inner end drops down the bore, bends to level and runs tangent into the
-  groove start. A path tangent to the layer-1 circle (radius `rho`) that bends
-  no tighter than the bend radius `m` (the MBR over the lead-in's curvature
-  budget) reaches `|2m - rho|` from the axis. The bore's chord on that line
-  must hold `m` of level run plus the cable's seat. `minCentreEndsOuterSize`
-  finds the smallest core size for this by bisection, on the inscribed circle
-  (a square or a triangle only has more room).
+- The bore always passes a 22.4 mm free circle (an HDMI plug's diagonal) with
+  the rib in it: the rib stands out from the bore wall by two seat widths plus
+  1.5 mm, so the bore is that much wider than 22.4 mm.
+- The plan arc into the groove start has the bend radius `m` (the MBR over the
+  lead-in's curvature budget, a little more for the plan share, because the
+  rise to the groove start spends some curvature too). A path tangent to the
+  layer-1 circle that bends no tighter than `m` can reach a long way into the
+  core, and the planner (`centreEnds.ts`) searches its arc angle: the bend must
+  finish before the arc starts, inside the bore, with 30% of `m` to spare;
+  where it can, the rib lands on a flat of a square or triangle, and the path
+  crosses the bore wall as steeply as it can. `minCentreEndsOuterSize` finds the
+  smallest core for this by bisection, on the shape's own outline.
 - The height is at least the 30 mm grip, the quarter bend and the seat.
-- The cable length counts the vertical run and the quarter bend. The level
-  chord and the plan arc are real cable too and are not counted yet, so the
-  count can only fall short of the real length.
+- The cable length counts the exact path from the top of the core: the vertical
+  run, the quarter bend, the level run and the plan arc.
 
-With the 2.6 x d bend radius (#255), the default 3.8 mm USB cable needs a
-28.4 mm core, set by the passage, so the 30 mm default still fits.
+With the 2.6 x d bend radius (#255), the default 3.8 mm USB cable needs a 34.4 mm
+core, set by the passage and the rib, so the 30 mm default grows to it.
+
+With a top cap, the cap's collar and plate carry a notch round the rib and the
+cable's column up through the cap; the twist-lock joint turns the whole collar
+about the bore, which the rib in the bore blocks, so a requested twist lock
+builds the press-fit collar and says so (a notice).
 
 ### Parts and printing
 
@@ -322,9 +347,14 @@ features: flange, joints, clips, mounts and label.
   from the axis (nearly flat), it runs on as a straight chamfer instead. A
   near-flat shelf is a knife-edge corner, and the STEP export's B-spline wall
   can't fit it (it folded into an invalid solid on thick cables).
-- The first turn starts on the flange face: at layer 1's start the groove's
-  lower edge is 0.2 mm above the face, so the cable's bottom sits about
-  0.3 mm above it. Nothing is left below the first turn to slide down into.
+- The first turn starts 0.8 d above the bottom face (0.2 mm plus 0.8 cable
+  diameters, `bottomMargin`), where the inner end's tunnel arrives. The tunnel
+  lies on the bed under the wall, and its roof reaches up to 2.9 mm to 6 mm for
+  a 2 to 4 mm cable; the groove's next turn, a pitch above the first, would meet
+  that roof at a hair's angle all along the tunnel's last part, and the boolean
+  left needles of wall there (a zero-thickness fold in 2 to 3 designs of every
+  100 sampled). Starting the groove higher puts the next turn clear of the roof.
+  The cable rises to the groove start through the plan arc.
 - The groove covers layer 1 only.
 - The helix phase follows the arc length of the groove floor, not of the
   un-grooved surface, so the pitch does not bunch up at corners.
@@ -473,7 +503,11 @@ wide) as isolated pixels, which show as a dotted line on a flat face. The
 booleans leave such triangles in the flat faces of the top cap and of the
 core's flange, so those meshes have every edge cut to 10 mm and the edges
 inside each horizontal flat face flipped to the triangulation with the best
-smallest angle (`src/core/flatFaces.ts`).
+smallest angle (`src/core/flatFaces.ts`). Where two cuts meet at a hair's angle
+a boolean also leaves a wedge of wall with no thickness at its tip: two
+triangles on one edge, facing opposite ways. `weldShortEdges` collapses the
+edge at such a tip when it is shorter than 0.12 mm and the collapse keeps the
+mesh a closed manifold (`FOLD_TIP_LIMIT`).
 
 The camera is refitted to the projected bounds when the geometry changes.
 The wound cable is drawn as one merged tube per layer, with smooth normals so

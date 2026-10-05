@@ -9,7 +9,7 @@
 // outer wall, the bore, and the flat annuli at z=0 and z=height are all
 // connected. Fusing the bottom flange (see manifold.ts) only extends it.
 
-import { GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
+import { GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_BOTTOM_PER_DIAMETER, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
 import { chamferedRim } from "./edgeChamfer";
 import { arcLengthFractionAt, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -60,8 +60,12 @@ export function grooveShape(wireDiameter: number): GrooveShape {
  * at MARGIN_BOTTOM) until the cable's top is MARGIN_TOP_FACTOR of its radius
  * below the wall's top face.
  */
+export function bottomMargin(wireDiameter: number): number {
+  return MARGIN_BOTTOM + MARGIN_BOTTOM_PER_DIAMETER * wireDiameter;
+}
+
 export function windingSpan(height: number, wireDiameter: number): number {
-  return height - grooveStartHeight(grooveShape(wireDiameter), MARGIN_BOTTOM) - (1 + MARGIN_TOP_FACTOR) * (wireDiameter / 2);
+  return height - grooveStartHeight(grooveShape(wireDiameter), bottomMargin(wireDiameter)) - (1 + MARGIN_TOP_FACTOR) * (wireDiameter / 2);
 }
 
 /** The core's wall thickness for a cable of this diameter: WALL_THICKNESS, or more where the groove needs it. */

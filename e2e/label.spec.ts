@@ -12,7 +12,7 @@ import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 // own ROOMY_CAP fixture): the flange -- and so the top cap's own annulus --
 // grows well past the core's own outline, leaving plenty of room for a
 // short label at a legible height.
-const ROOMY_ROUND = encodeHashDoc({ L: 10000, d: 3.8, lock: ["outer", "h"], size: 30, h: 60 });
+const ROOMY_ROUND = encodeHashDoc({ L: 10000, d: 3.8, lock: ["outer", "h"], size: 34, h: 60, cap: "on" });
 // A bigger core (70mm, vs. round's 30mm) so a requested corner radius of 16
 // clears the bend-limit floor for the default "usb" wire type at 3.8mm
 // (MBR = 2.6 x 3.8 = 9.9mm) instead of being silently clamped UP to it --
@@ -89,7 +89,7 @@ test.describe("top cap label controls (issue #12)", () => {
     // target cable length on purpose, which is its own unrelated warning
     // (solve.ts) -- assert the LABEL fit warning specifically is absent,
     // not that the panel has no warnings at all.
-    await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
+    await expect(page.getByTestId("warnings").filter({ hasText: "doesn't fit" })).toHaveCount(0);
   });
 
   test("a label too wide for the annulus shows a fit warning and hides the text", async ({ page }) => {
@@ -157,9 +157,10 @@ test.describe("too-long-text warning (issue #12)", () => {
   });
 });
 
-// Default cable and core with the top cap forced on: ABCDEFGH is the longest
-// all-caps prefix of ABCDEFGHIJKLMNOP that fits this cap (test/label.test.ts).
-const DEFAULT_CAP_ON = encodeHashDoc({ cap: "on" });
+// A 70 mm core with 6 m of cable and the top cap on: ABCDEFG is the longest
+// all-caps prefix of ABCDEFGHIJKLMNOP that fits this cap. (A short cable's cap
+// has almost no margin round the bare core, so no text fits there.)
+const DEFAULT_CAP_ON = encodeHashDoc({ cap: "on", base: "on", size: 70, L: 6000, lock: ["outer"] });
 
 test.describe("the label field stops at what the cap can hold", () => {
   async function openLabelField(page: Page, hash: string) {
@@ -172,46 +173,46 @@ test.describe("the label field stops at what the cap can hold", () => {
     const input = await openLabelField(page, DEFAULT_CAP_ON);
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
     await input.pressSequentially("ABCDEFGHIJKLMNOP");
-    await expect(input).toHaveValue("ABCDEFGH");
+    await expect(input).toHaveValue("ABCDEFG");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
+    await expect(page.getByTestId("warnings").filter({ hasText: "doesn't fit" })).toHaveCount(0);
   });
 
   test("pasting a long string is cut the same way", async ({ page }) => {
     const input = await openLabelField(page, DEFAULT_CAP_ON);
     await input.fill("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-    await expect(input).toHaveValue("ABCDEFGH");
+    await expect(input).toHaveValue("ABCDEFG");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
   });
 
   test("text that fits is kept and shows no note; deleting clears the note", async ({ page }) => {
     const input = await openLabelField(page, DEFAULT_CAP_ON);
-    await input.fill("USB-C 2m");
+    await input.fill("USB-C");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(input).toHaveValue("USB-C 2m");
+    await expect(input).toHaveValue("USB-C");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
 
     await input.fill("ABCDEFGHIJK");
-    await expect(input).toHaveValue("ABCDEFGH");
+    await expect(input).toHaveValue("ABCDEFG");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
     await input.press("Backspace");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
   });
 
   test("shrinking the core after typing keeps the text and shows the fit warning", async ({ page }) => {
-    // 50 mm core, 6 m of cable: a 5-layer cap holds 11 letters; at 30 mm it holds 9.
-    const input = await openLabelField(page, encodeHashDoc({ cap: "on", size: 50, L: 6000, lock: ["outer"] }));
-    await input.fill("ABCDEFGHIJK");
+    // 70 mm core, 6 m of cable: the cap holds 7 letters; at 50 mm it holds 6.
+    const input = await openLabelField(page, DEFAULT_CAP_ON);
+    await input.fill("ABCDEFG");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(input).toHaveValue("ABCDEFGHIJK");
-    await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
+    await expect(input).toHaveValue("ABCDEFG");
+    await expect(page.getByTestId("warnings").filter({ hasText: "doesn't fit" })).toHaveCount(0);
 
-    await page.getByTestId("input-outer").fill("30");
+    await page.getByTestId("input-outer").fill("50");
     await page.getByTestId("input-outer").blur();
     await expect(page.getByTestId("warnings")).toContainText("doesn't fit");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(input).toHaveValue("ABCDEFGHIJK");
+    await expect(input).toHaveValue("ABCDEFG");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
   });
 

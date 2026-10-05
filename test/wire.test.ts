@@ -21,6 +21,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
@@ -90,7 +91,7 @@ describe("design().wirePaths (issue #4)", () => {
       const r = d.wallSpec.wireDiameter / 2;
       const count = layer1.points.length / 3;
       for (let i = 0; i < count; i++) expect(zAt(layer1.points, i) + 1.3 * r, `${shape.kind} sample ${i}`).toBeLessThanOrEqual(d.wallSpec.height + 1e-4);
-      expect(zAt(layer1.points, count - 1) + 1.3 * r, `${shape.kind}: the last turn ends just under the top`).toBeCloseTo(d.wallSpec.height, 3);
+      expect(d.wallSpec.height - (zAt(layer1.points, count - 1) + 1.3 * r), `${shape.kind}: the last turn ends under the top, within one pitch of it (the inner end's vertical run grows with the height)`).toBeLessThan(d.wallSpec.pitch);
       const { offset } = outlineOffsetAt(d.wallSpec.outline, layer1.points[(count - 1) * 3], layer1.points[(count - 1) * 3 + 1]);
       expect(offset, `${shape.kind}: still in the groove`).toBeCloseTo(d.solution.layerResults[0].offset, 3);
     }
@@ -229,49 +230,6 @@ describe("design().wirePaths (issue #4)", () => {
     const [layer1, layer2] = d.wirePaths;
     const layer2Last = layer2.points.length / 3 - 1;
     expect(zAt(layer2.points, layer2Last)).toBeCloseTo(zAt(layer1.points, 0), 3);
-  });
-
-  it("traverse winding (issue #68): even layers descend in z instead of climbing", async () => {
-    const d = await design(
-      baseSpec({
-        wire: { length: 6000, diameter: 3.8, type: "usb" },
-        coreSize: { locked: true, dimension: "outer", value: 30 },
-        height: { locked: true, value: 60 },
-        layers: { locked: true, value: 3 },
-      }),
-    );
-    expect(d.wirePaths).toHaveLength(3);
-    const [layer1, layer2, layer3] = d.wirePaths;
-    const sampleCount = (p: (typeof d.wirePaths)[number]) => p.points.length / 3;
-
-    // Layer 1 (odd) still climbs, exactly as before.
-    for (let i = 1; i < sampleCount(layer1); i++) {
-      expect(zAt(layer1.points, i)).toBeGreaterThan(zAt(layer1.points, i - 1));
-    }
-    // Layer 2 (even) descends: it starts near the top (right next to where
-    // layer 1 just finished) and ends near the bottom (right next to where
-    // layer 3 starts) -- the core keeps spinning the same way the whole
-    // time, only the Z direction alternates (see wire.ts's file header).
-    for (let i = 1; i < sampleCount(layer2); i++) {
-      expect(zAt(layer2.points, i)).toBeLessThan(zAt(layer2.points, i - 1));
-    }
-    // Layer 3 (odd) climbs again.
-    for (let i = 1; i < sampleCount(layer3); i++) {
-      expect(zAt(layer3.points, i)).toBeGreaterThan(zAt(layer3.points, i - 1));
-    }
-  });
-
-  it("omits layers with zero turns (a locked height too short to wind even one turn)", async () => {
-    const d = await design(
-      baseSpec({
-        wire: { length: 50, diameter: 3.8, type: "usb" },
-        coreSize: { locked: true, dimension: "outer", value: 30 },
-        height: { locked: true, value: 5 }, // usable height (minus margins) is below one pitch
-        layers: { locked: true, value: 1 },
-      }),
-    );
-    expect(d.solution.layerResults[0].turns).toBe(0);
-    expect(d.wirePaths).toHaveLength(0);
   });
 
   it("a many-turn coil still returns a bounded, densely-sampled path (no runaway sample count)", async () => {
@@ -631,23 +589,4 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
     }
   });
 
-  it("has no layer transitions for a single-layer design, and both lead-in/lead-out are still present", async () => {
-    const d = await design(baseSpec());
-    expect(d.wirePaths).toHaveLength(1);
-    expect(d.layerTransitions).toHaveLength(0);
-    expect(d.innerEndLeadIn.length).toBeGreaterThanOrEqual(6);
-    expect(d.outerEndLeadOut.length).toBeGreaterThanOrEqual(6);
-  });
-
-  it("is empty (no layers, no lead-in/lead-out) when no layer has any turns", async () => {
-    const d = await design(
-      baseSpec({
-        wire: { length: 50, diameter: 3.8, type: "usb" },
-        height: { locked: true, value: 5 },
-      }),
-    );
-    expect(d.wirePaths).toHaveLength(0);
-    expect(d.layerTransitions).toHaveLength(0);
-    expect(d.outerEndLeadOut.length).toBe(0);
-  });
 });

@@ -2,9 +2,8 @@ import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilSpec, Design, MountKind, ShapeSpec, WireTypeId } from "../src/core";
 import { bendMultiplierOf } from "../src/core/types";
-import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
 import { outlineOffsetAt } from "../src/core/shapes";
-import { CABLE_CLIP_DEPTH_SLACK } from "../src/core/constants";
+import { CENTRE_GRIP_LENGTH } from "../src/core/constants";
 import { expectWithinBendLimit } from "./support/cableBend";
 
 // Issue #115: the WHOLE drawn cable -- inner-end lead-in, every wound layer,
@@ -87,36 +86,31 @@ function expectEveryBendWithinLimit(d: Design, mbr: number) {
 }
 
 /**
- * Issue #117: the fix points. The cable is clipped along its own direction
- * and leaves the part through the rim with no extra bend: from the clip to
- * its free end past the rim it runs level (no turn up or down into a hole)
- * and within the bend radius -- at the inner end through the flange clip,
- * at the outer end (cap on) through the cap's clip.
+ * Issue #254: the inner end is held in the bore. From its free end it runs
+ * straight down the grip, bends to level on the bed (a quarter bend at the
+ * cable's bend radius), runs level under the core and curves into the groove
+ * start, all within the bend radius and joined to layer 1 without a kink. At
+ * the outer end (cap on) the cable runs level under the cap and curves out
+ * past the rim.
  */
 function expectFixPointsWithinBendLimit(d: Design, mbr: number, label: string) {
-  const bendRadius = mbr;
-  const layout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness));
   const lead = d.innerEndLeadIn;
-  // From the free end up to the clip's far end (the one nearer the groove).
-  const tail = layout.leadIn[0];
-  const reach = Math.hypot(layout.clip.from.x - tail.x, layout.clip.from.y - tail.y);
-  const segment: number[] = [];
-  for (let i = 0; i < lead.length; i += 3) {
-    if (Math.hypot(lead[i] - tail.x, lead[i + 1] - tail.y) > reach) break;
-    segment.push(lead[i], lead[i + 1], lead[i + 2]);
-  }
-  const fix = new Float32Array(segment);
-  expect(fix.length / 3, `${label}: inner fix-point segment samples`).toBeGreaterThanOrEqual(4);
-  // Level from the clip's rim end out (the lips may start while the cable
-  // settles the last CABLE_CLIP_DEPTH_SLACK into the channel).
-  const level = Math.hypot(layout.clip.to.x - tail.x, layout.clip.to.y - tail.y);
-  for (let i = 2; i < fix.length; i += 3) {
-    const along = Math.hypot(fix[i - 2] - tail.x, fix[i - 1] - tail.y);
-    if (along <= level) expect(fix[i], `${label}: the inner end leaves level through the clip and the rim`).toBeCloseTo(fix[2], 6);
-    else expect(fix[i] - fix[2], `${label}: nearly level through the rest of the clip`).toBeLessThanOrEqual(CABLE_CLIP_DEPTH_SLACK + 1e-6);
-  }
-  expect(outlineOffsetAt(d.flangeSpec.outline, fix[0], fix[1]).offset, `${label}: the inner end leaves past the rim`).toBeGreaterThan(d.flangeSpec.margin);
-  expectWithinBendLimit(fix, mbr, `${label}: inner fix point`);
+  const n = lead.length / 3;
+  expect(n, `${label}: inner end samples`).toBeGreaterThanOrEqual(20);
+  const seat = d.centreInnerEnd.seat;
+  let straight = 0;
+  while (straight < n && Math.hypot(lead[straight * 3] - seat.x, lead[straight * 3 + 1] - seat.y) < 1e-3) straight++;
+  expect(lead[2] - lead[(straight - 1) * 3 + 2], `${label}: the inner end drops straight down the grip`).toBeGreaterThanOrEqual(CENTRE_GRIP_LENGTH);
+  const first = d.wirePaths[0].points;
+  expect(lead[n * 3 - 3], `${label}: the inner end ends on layer 1's first sample`).toBeCloseTo(first[0], 3);
+  expect(lead[n * 3 - 2]).toBeCloseTo(first[1], 3);
+  expect(lead[n * 3 - 1]).toBeCloseTo(first[2], 3);
+  const crossing = new Float32Array([...lead, ...first.slice(0, 12)]);
+  expectWithinBendLimit(crossing, mbr, `${label}: inner end into layer 1`);
+  const level = d.spec.wire.diameter / 2 + d.spec.tolerance / 2;
+  const lowest = Math.min(...Array.from({ length: n }, (_, i) => lead[i * 3 + 2]));
+  expect(lowest, `${label}: the inner end lies on the bed under the core`).toBeCloseTo(Math.min(level, first[2]), 1);
+  expect(d.cablePath[0], `${label}: the whole path starts with the inner end`).toBeCloseTo(lead[0], 6);
 
   // Issue #241: with the cap on, the outer end runs level just under the cap
   // and curves out past the rim (under the cap's rim slot), within the bend
@@ -173,7 +167,7 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
     expect(d.solution.diagnosis.status).toBe("ok");
     expectEveryBendWithinLimit(d, bendMultiplierOf(spec.wire) * spec.wire.diameter);
     expect(d.warnings.filter((w) => /bends tighter/i.test(w))).toEqual([]);
-    expect(d.solution.outerSize, "the locked size is raised to the bend-limit floor").toBeCloseTo(d.solution.minOuterSizeForBend, 6);
+    expect(d.solution.outerSize, "the locked size is raised to the floor").toBeCloseTo(d.solution.minOuterSizeForShape, 6);
     expect(d.warnings.some((w) => /core size raised/i.test(w))).toBe(true);
   });
 
@@ -236,4 +230,24 @@ describe("an ok design never bends the cable tighter than its bend radius (issue
   it("checked enough ok designs to mean something", () => {
     expect(ok).toBeGreaterThanOrEqual(40);
   });
+});
+
+describe("the centre-held inner end bends within the bend radius at every cable size (issue #254)", () => {
+  const DIAMETERS = Array.from({ length: 11 }, (_, i) => Math.round((2 + 0.6 * i) * 10) / 10);
+  const WIRE_TYPES: WireTypeId[] = ["usb", "flex", "stiff"];
+  const FORMS: ShapeSpec[] = [{ kind: "round" }, { kind: "sq", cornerRadius: 10 }, { kind: "tri", cornerRadius: 10 }];
+  for (const type of WIRE_TYPES) {
+    it.each(FORMS)(`${type}, 2 to 8 mm in 0.6 mm steps: the whole drawn cable, shape=$kind`, async (shape) => {
+      for (const diameter of DIAMETERS) {
+        const spec = baseSpec({ shape, wire: { length: 2500, diameter, type }, coreSize: { locked: false }, height: { locked: false } });
+        const d = await design(spec, "draft");
+        const mbr = bendMultiplierOf(spec.wire) * diameter;
+        const label = `${type} ${diameter} mm ${shape.kind}`;
+        expect(d.centreInnerEnd.feasible, label).toBe(true);
+        expect(d.solution.diagnosis.status, label).toBe("ok");
+        expectFixPointsWithinBendLimit(d, mbr, label);
+        expectWithinBendLimit(d.cablePath, mbr, `${label}: cablePath`);
+      }
+    }, 120_000);
+  }
 });

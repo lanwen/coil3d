@@ -29,7 +29,7 @@
 
 import { computeCapacity, envelopeDiameter } from "./capacity";
 import type { CapacityResult } from "./capacity";
-import { centreInEndLength, minCentreEndsHeight, minCentreEndsOuterSize } from "./centreEnds";
+import { centreInnerEndLength, minCentreEndsHeight, minCentreEndsOuterSize } from "./centreEnds";
 import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
 import { isHeavyCable } from "./skadisClips";
 import {
@@ -255,8 +255,10 @@ function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
 }
 
 function endsLengthFor(spec: CoilSpec, g: Resolved): number {
-  if (baseEnabled(spec)) return 0;
-  return centreInEndLength(g.height, spec.wire.diameter, spec.tolerance, bendMultiplierOf(spec.wire) * spec.wire.diameter);
+  const d = spec.wire.diameter;
+  const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
+  const { boreOutline } = resolveBoreOutline(outline, d);
+  return centreInnerEndLength(outline, boreOutline, d, spec.tolerance, bendMultiplierOf(spec.wire) * d, g.height);
 }
 
 function lengthFor(spec: CoilSpec, g: Resolved): number {
@@ -268,10 +270,11 @@ function resolveTopCap(spec: CoilSpec, layers: number): boolean {
 }
 
 function centreFloors(spec: CoilSpec): { size: number; height: number } {
-  if (baseEnabled(spec)) return { size: 0, height: 0 };
   const d = spec.wire.diameter;
   const mbr = bendMultiplierOf(spec.wire) * d;
-  return { size: minCentreEndsOuterSize(d, spec.tolerance, mbr), height: minCentreEndsHeight(d, spec.tolerance, mbr) };
+  const rcMin = bendCornerRadiusFloor(spec.wire);
+  const size = minCentreEndsOuterSize((outerSize) => resolveOutline(spec.shape, outerSize, rcMin, spec.wire), (outline) => resolveBoreOutline(outline, d).boreOutline, d, spec.tolerance, mbr);
+  return { size, height: minCentreEndsHeight(d, spec.tolerance, mbr) };
 }
 
 /**
@@ -526,7 +529,7 @@ function overshootNote(
       sizeLo <= SIZE_LO_FLOOR
         ? `the core can't be smaller than ${mm(sizeLo)}`
         : centreFloors(spec).size >= sizeLo - 1e-6
-          ? `a bare core has to let this cable's inner end through at its ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius, which needs a core of at least ${mm(sizeLo)}`
+          ? `the bore has to let this cable's inner end through at its ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius, which needs a core of at least ${mm(sizeLo)}`
         : spec.shape.kind === "round"
           ? `this cable's ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius needs a core of at least ${mm(sizeLo)}`
           : `this cable's bend limit needs a ${shapePlugin(spec.shape.kind).label.toLowerCase()} core of at least ${mm(sizeLo)}`;
@@ -576,7 +579,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   let lockedOuterSize = spec.coreSize.locked ? toOuterSize(spec.coreSize, spec.wire.diameter) : undefined;
   if (lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - 1e-9) {
     const why = centreBinds
-      ? `a bare core's bore has to let the cable's inner end through at its ${mbr.toFixed(1)} mm bend radius, and pass a ${CENTRE_CONNECTOR_PASSAGE} mm connector`
+      ? `the bore has to let the cable's inner end through at its ${mbr.toFixed(1)} mm bend radius, and pass a ${CENTRE_CONNECTOR_PASSAGE} mm connector past the grip`
       : spec.shape.kind === "round"
         ? `this cable's ${mbr.toFixed(1)} mm bend radius needs at least that much`
         : `this cable's bend limit needs at least that much to keep the ${shapePlugin(spec.shape.kind).label.toLowerCase()} core's straight sides meaningful, or the shape would be indistinguishable from round`;
@@ -585,7 +588,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   }
   let lockedHeight = spec.height.locked ? spec.height.value : undefined;
   if (lockedHeight !== undefined && lockedHeight < centre.height - 1e-9) {
-    note(`Height raised from ${lockedHeight.toFixed(1)} mm to ${centre.height.toFixed(1)} mm: a bare core holds the cable's inner end in a ${CENTRE_GRIP_LENGTH} mm grip, then bends it to level at its ${mbr.toFixed(1)} mm bend radius.`);
+    note(`Height raised from ${lockedHeight.toFixed(1)} mm to ${centre.height.toFixed(1)} mm: the core holds the cable's inner end in a ${CENTRE_GRIP_LENGTH} mm grip, then bends it to level at its ${mbr.toFixed(1)} mm bend radius.`);
     lockedHeight = centre.height;
   }
   const lockedLayers = spec.layers.locked ? spec.layers.value : undefined;

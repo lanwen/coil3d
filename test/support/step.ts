@@ -30,7 +30,7 @@ beforeEach(() => new Promise((resolve) => setTimeout(resolve, 500)));
 // Issue #32: every OCCT build/re-import is the slowest operation in the
 // suite, and gets much slower under CPU contention -- so every test using it
 // gets this generous explicit timeout instead of vitest's 5s default.
-export const STEP_TIMEOUT_MS = 60_000;
+export const STEP_TIMEOUT_MS = 120_000;
 
 /** Volume of a closed, consistently-oriented triangle mesh, by the divergence theorem -- an independent check, not core/meshVolume.ts. */
 export function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): number {

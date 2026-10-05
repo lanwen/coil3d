@@ -29,6 +29,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
+    base: "on",
     mount: "none",
     plateJoint: "glue",
     ...overrides,
@@ -146,7 +147,7 @@ describe("design() clip mount plate (issue #14)", () => {
     const skadis = await design(baseSpec({ mount: "opengrid", wire: thinWire }));
     expect(skadis.flangeSpec.thickness).toBeGreaterThan(none.flangeSpec.thickness);
     expect(skadis.warnings.some((w) => /flange thickness increased/i.test(w))).toBe(true);
-  });
+  }, 30_000);
 
   it("a snap plate joint still builds, as the printable pin + glue joint, with a warning (issue #106)", async () => {
     const snap = await design(baseSpec({ mount: "opengrid", plateJoint: "snap" }));
@@ -205,13 +206,13 @@ describe("design() clip mount plate (issue #14)", () => {
     }
   });
 
-  it.each(["opengrid", "skadis"] as const)("keeps the core part's own genus at 1 (still a single tunnel through the solid) with the %s mount's cuts", async (mount) => {
+  it.each(["opengrid", "skadis"] as const)("keeps the core part one solid with the bore and at most the inner end's tunnel as holes, with the %s mount's cuts", async (mount) => {
     const d = await design(baseSpec({ mount }));
     const wasm = await Module();
     wasm.setup();
     const core = d.parts.find((p) => p.role === "core")!;
     const m = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: core.mesh.positions, triVerts: core.mesh.indices }));
-    expect(m.genus()).toBe(1);
+    expect([1, 2]).toContain(m.genus());
     expect(m.decompose().length).toBe(1);
     m.delete();
   });

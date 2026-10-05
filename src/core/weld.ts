@@ -39,6 +39,8 @@ export const NEEDLE_HEIGHT = 1e-3;
 /** Two triangles on an edge whose normals are this close to opposite (8 degrees) fold the surface back on itself there. */
 const FOLD_COS = Math.cos((8 * Math.PI) / 180);
 
+export const FOLD_TIP_LIMIT = 0.12;
+
 /** A triangle (not a needle) that turns by less than this (cosine; a degree) when its corner moves can't newly fold. */
 const TURN_COS = Math.cos(Math.PI / 180);
 
@@ -58,14 +60,42 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
   const squared = (a: number, b: number) => (pos[3 * a] - pos[3 * b]) ** 2 + (pos[3 * a + 1] - pos[3 * b + 1]) ** 2 + (pos[3 * a + 2] - pos[3 * b + 2]) ** 2;
   const limit = epsilon * epsilon;
 
-  // The short edges, once each (a closed mesh runs every edge both ways), shortest first.
+  // Triangles per vertex. A collapse hands a vertex's triangles to the other end, listed in `gained`.
+  const start = new Uint32Array(vertexCount + 1);
+  for (let i = 0; i < tr.length; i++) start[tr[i] + 1]++;
+  for (let v = 0; v < vertexCount; v++) start[v + 1] += start[v];
+  const fill = start.slice(0, vertexCount);
+  const incident = new Uint32Array(tr.length);
+  for (let t = 0; t < triCount; t++) for (let e = 0; e < 3; e++) incident[fill[tr[3 * t + e]]++] = t;
+
   const queueU: number[] = [];
   const queueV: number[] = [];
+  const unitNormal = (t: number): [number, number, number] | undefined => {
+    const [a, b, c] = [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]];
+    const [ux, uy, uz] = [pos[3 * b] - pos[3 * a], pos[3 * b + 1] - pos[3 * a + 1], pos[3 * b + 2] - pos[3 * a + 2]];
+    const [vx, vy, vz] = [pos[3 * c] - pos[3 * a], pos[3 * c + 1] - pos[3 * a + 1], pos[3 * c + 2] - pos[3 * a + 2]];
+    const n: [number, number, number] = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+    const length = Math.hypot(...n);
+    const longest = Math.sqrt(Math.max(squared(a, b), squared(b, c), squared(c, a)));
+    return length > NEEDLE_HEIGHT * longest ? [n[0] / length, n[1] / length, n[2] / length] : undefined;
+  };
+  const foldTipLimit = FOLD_TIP_LIMIT * FOLD_TIP_LIMIT;
+  const isFoldTip = (a: number, b: number): boolean => {
+    const beside: number[] = [];
+    for (let i = start[a]; i < start[a + 1]; i++) {
+      const t = incident[i];
+      if (tr[3 * t] === b || tr[3 * t + 1] === b || tr[3 * t + 2] === b) beside.push(t);
+    }
+    if (beside.length !== 2) return false;
+    const [n, m] = [unitNormal(beside[0]), unitNormal(beside[1])];
+    return !!n && !!m && n[0] * m[0] + n[1] * m[1] + n[2] * m[2] < -FOLD_COS;
+  };
   for (let t = 0; t < triCount; t++) {
     for (let e = 0; e < 3; e++) {
       const a = tr[3 * t + e];
       const b = tr[3 * t + ((e + 1) % 3)];
-      if (a < b && squared(a, b) < limit) {
+      const length = a < b ? squared(a, b) : Infinity;
+      if (length < limit || (length < foldTipLimit && isFoldTip(a, b))) {
         queueU.push(a);
         queueV.push(b);
       }
@@ -79,13 +109,6 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
   queueU.push(...sortedU);
   queueV.push(...sortedV);
 
-  // Triangles per vertex. A collapse hands a vertex's triangles to the other end, listed in `gained`.
-  const start = new Uint32Array(vertexCount + 1);
-  for (let i = 0; i < tr.length; i++) start[tr[i] + 1]++;
-  for (let v = 0; v < vertexCount; v++) start[v + 1] += start[v];
-  const fill = start.slice(0, vertexCount);
-  const incident = new Uint32Array(tr.length);
-  for (let t = 0; t < triCount; t++) for (let e = 0; e < 3; e++) incident[fill[tr[3 * t + e]]++] = t;
   const gained = new Map<number, number[]>();
   const alive = new Uint8Array(triCount).fill(1);
   const has = (t: number, v: number) => tr[3 * t] === v || tr[3 * t + 1] === v || tr[3 * t + 2] === v;

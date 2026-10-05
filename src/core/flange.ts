@@ -30,7 +30,7 @@ import {
   MIN_FLANGE_THICKNESS_FOR_TCLIP,
   SCREW_MOUNT_RECESS_DEPTH,
 } from "./constants";
-import { idealChannelDepth, requiredInnerEndMargin, requiredRimSlotMargin, resolveChannelDepth } from "./innerEnd";
+import { idealChannelDepth, requiredRimSlotMargin } from "./innerEnd";
 import { collarFootprintOffset } from "./flangePads";
 import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
 import { woundReachOffset } from "./wire";
@@ -77,8 +77,6 @@ export interface FlangeSizing {
   baseMargin: number;
   /** The margin the requested mount alone needs (>= baseMargin). */
   mountMargin: number;
-  /** The margin the inner-end lead-in alone needs (issue #115). */
-  innerEndMargin: number;
   /** The margin the rim cable slot alone needs (issue #241): its seat clear of the base's collar pad. */
   rimSlotMargin: number;
   /** The drawn cable's outer surface, as an offset outside the core's outline: the wound envelope, or further out where a lifted single-layer turn or the outer end's climb to the cap reaches (wire.ts's `woundReachOffset`). */
@@ -123,15 +121,14 @@ export function resolveFlangeSizing(
         ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_TCLIP)
         : channelOnlyThickness;
 
-  const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness));
   const rimSlotMargin = requiredRimSlotMargin(wireDiameter, leadIn.tolerance);
   if (!baseOn) {
     const margin = leadIn.topCap ? Math.max(baseMargin, rimSlotMargin) : 0;
-    return { margin, thickness: 0, plateThickness: 0, baseMargin, mountMargin: baseMargin, innerEndMargin: 0, rimSlotMargin, envelopeOffset, channelOnlyThickness };
+    return { margin, thickness: 0, plateThickness: 0, baseMargin, mountMargin: baseMargin, rimSlotMargin, envelopeOffset, channelOnlyThickness };
   }
-  const margin = Math.max(mountMargin, innerEndMargin, rimSlotMargin);
+  const margin = Math.max(mountMargin, rimSlotMargin);
 
-  return { margin, thickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, thickness), baseMargin, mountMargin, innerEndMargin, rimSlotMargin, envelopeOffset, channelOnlyThickness };
+  return { margin, thickness, plateThickness: Math.min(FLANGE_PLATE_THICKNESS, thickness), baseMargin, mountMargin, rimSlotMargin, envelopeOffset, channelOnlyThickness };
 }
 
 /** Issue #122: the thickness when a keyhole slot's footprint overlaps the channel's, so the pocket (wall face) and the channel (winding face) stack in one spot -- the pre-#122 sizing. design.ts falls back to it; the layouts normally keep the two apart. */

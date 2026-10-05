@@ -6,6 +6,7 @@
 import type { WallSpec } from "./wall";
 import type { FlangeSpec } from "./manifold";
 import type { RimSlot } from "./innerEnd";
+import type { CentreInnerEnd } from "./centreEnds";
 
 export type { ShapeKind } from "./shapes";
 
@@ -474,6 +475,7 @@ export interface Design {
    * -- xyz per sample. Empty when layer 1 has no turns.
    */
   innerEndLeadIn: Float32Array;
+  centreInnerEnd: CentreInnerEnd;
   /** Issue #117: the inner end's clip in the bottom flange -- the cable centre where its gripping lips start (`from`) and end (`to`, nearer the rim). */
   innerEndClip?: { from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } };
   /**

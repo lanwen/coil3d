@@ -391,8 +391,8 @@ export function channelPadFootprints(outline: ShapeOutline, innerEnd: InnerEndLa
  * and tail -- so each screw head sits on the plain plate. design.ts and both
  * backends call this, so they cut the same holes.
  */
-export function layoutFlangeThroughHoles(flange: PaddedFlange, innerEnd: InnerEndLayout | undefined): ThroughMountLayout {
-  const pads = layoutFlangePads(flange, innerEnd).map((pad) => pad.footprint);
+export function layoutFlangeThroughHoles(flange: PaddedFlange, innerEnd: { channelRibbon: XY[] } | undefined): ThroughMountLayout {
+  const pads = layoutFlangePads(flange, undefined).map((pad) => pad.footprint);
   return layoutThroughHoleMount(
     flange.outline,
     flange.boreOutline,

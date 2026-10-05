@@ -72,6 +72,17 @@ CASES.push({ name: "round, press, mount opengrid, snap plate joint", spec: baseS
 CASES.push({ name: "round, press, mount skadis, heavy cable", spec: baseSpec({ mount: "skadis", wire: { length: 10000, diameter: 8, type: "flex" }, layers: { locked: true, value: 4 }, height: { locked: false } }) });
 CASES.push({ name: "round, press, mount skadis, no latch", spec: baseSpec({ mount: "skadis", skadisLatch: false }) });
 
+// Issue #254: the inner end held in the bore. The core stands on its bare bottom face (base off, the default) or on a flange
+// (base on): the rib, the keyhole and the tunnel under the wall must print without supports either way, for thin, thick and stiff cables.
+for (const shape of SHAPES) {
+  for (const base of ["off", "on"] as const) {
+    CASES.push({ name: `${shape.kind}, press, base ${base}, no cap`, spec: baseSpec({ shape, base, topCap: "off", layers: { locked: true, value: 1 } }) });
+  }
+  for (const [diameter, type] of [[2, "usb"], [5, "flex"], [7, "stiff"]] as const) {
+    CASES.push({ name: `${shape.kind}, press, cable ${diameter} mm ${type}, bare core`, spec: baseSpec({ shape, wire: { length: 3000, diameter, type }, base: "off", coreSize: { locked: false }, height: { locked: false }, layers: { locked: true, value: 1 } }) });
+  }
+}
+
 const designs = new Map<string, Promise<Design>>();
 const designOf = (c: Case) => {
   let d = designs.get(c.name);

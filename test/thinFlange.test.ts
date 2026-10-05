@@ -2,13 +2,11 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design, parseHash } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
-import { FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PEG_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core/constants";
+import { FLANGE_PLATE_THICKNESS, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PEG_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core/constants";
 import { layoutKeyholeMount, throughHoleCountersink } from "../src/core/mount";
 import { layoutFlangeThroughHoles } from "../src/core/flangePads";
 import { mountPlateLayoutFor, pegHoleRadius } from "../src/core/mountPlate";
-import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
 import { offsetOutline, outlineOffsetAt, pointAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
 import { encodeHashDoc } from "../e2e/hashDoc";
 
 // Issue #122: the bottom flange is a thin plate with its wall-facing face
@@ -46,10 +44,10 @@ function flangeSpans(d: Design, x: number, y: number): Array<[number, number]> {
   return spans;
 }
 
-/** Points halfway across the flange margin, all the way round. */
+/** Points 70% of the way across the flange margin (past the collar pad's foot, short of the rim chamfer), all the way round. */
 function midMarginPoints(d: Design, count = 72) {
   const { outline, margin } = d.flangeSpec;
-  return Array.from({ length: count }, (_, i) => pointAt(outline, (i + 0.5) / count, margin / 2));
+  return Array.from({ length: count }, (_, i) => pointAt(outline, (i + 0.5) / count, margin * 0.7));
 }
 
 function spec(overrides: Partial<CoilSpec>): CoilSpec {
@@ -58,7 +56,7 @@ function spec(overrides: Partial<CoilSpec>): CoilSpec {
 
 const DESIGNS: Array<{ label: string; spec: CoilSpec }> = [
   { label: "repro (tri, keyhole, 2.4 mm)", spec: parseHash(REPRO).spec },
-  { label: "round, no mount, 3.8 mm", spec: spec({ coreSize: { locked: true, dimension: "outer", value: 60 } }) },
+  { label: "round, no mount, 3.8 mm", spec: spec({ base: "on", coreSize: { locked: true, dimension: "outer", value: 60 } }) },
   { label: "sq, through-hole", spec: spec({ shape: { kind: "sq", cornerRadius: 10 }, coreSize: { locked: true, dimension: "outer", value: 60 }, mount: "through" }) },
   { label: "round, openGrid plate", spec: spec({ coreSize: { locked: true, dimension: "outer", value: 80 }, mount: "opengrid" }) },
   // Issue #120's SKADIS repro (small solver-picked core, 2.4 mm cable, cap on): rim clips since issue #207.
@@ -84,28 +82,6 @@ describe("thin bottom flange (issue #122)", () => {
       for (const s of spans.filter((s) => s.length > 0)) {
         expect(s[0][0]).toBeGreaterThanOrEqual(-T - 1e-3);
         expect(s[s.length - 1][1]).toBeLessThanOrEqual(1e-3);
-      }
-    });
-
-    it("keeps the channel flush with the face on a full-thickness pad, with its shelf below", async () => {
-      const d = await design(spec, "draft");
-      const T = d.flangeSpec.thickness;
-      const { from, to } = d.innerEndClip!;
-      const c = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
-      // Straight down the cable's centre: the bore floor, then the shelf to the wall face.
-      const below = flangeSpans(d, c.x, c.y);
-      expect(below).toHaveLength(1);
-      expect(below[0][0]).toBeCloseTo(-T, 3);
-      expect(below[0][1] - below[0][0]).toBeGreaterThanOrEqual(INNER_CHANNEL_MIN_SHELF - d.spec.tolerance / 2 - 1e-3);
-      // Beside the bore (in the clip's lips' root): solid up to the face, z = 0 (#43).
-      const ax = to.x - from.x;
-      const ay = to.y - from.y;
-      const l = Math.hypot(ax, ay);
-      const side = (d.spec.wire.diameter + d.spec.tolerance) / 2 + 0.8;
-      for (const sign of [1, -1]) {
-        const s = flangeSpans(d, c.x - (sign * ay * side) / l, c.y + (sign * ax * side) / l);
-        expect(s[s.length - 1][1]).toBeCloseTo(0, 3);
-        expect(s[0][0]).toBeCloseTo(-T, 3);
       }
     });
 
@@ -139,7 +115,7 @@ describe("thin bottom flange (issue #122)", () => {
     const d = await design(parseHash(REPRO).spec, "draft");
     expect(d.flangeSpec.plateThickness).toBeCloseTo(FLANGE_PLATE_THICKNESS, 9);
     expect(d.flangeSpec.thickness).toBeCloseTo(SCREW_MOUNT_RECESS_DEPTH + SCREW_MOUNT_MIN_SHELF, 9);
-    expect(d.solution.overallHeight!).toBeCloseTo(5 + 33 + 3, 6);
+    expect(d.solution.overallHeight!).toBeCloseTo(5 + d.solution.height + 3, 6);
   });
 
   it("keeps the keyhole's shelf on a pad", async () => {
@@ -167,15 +143,12 @@ describe("thin bottom flange (issue #122)", () => {
   // shelf near the wall face instead of being solid, plain-thickness plate.
   it("cuts a constant-radius through-hole with no counterbore, countersunk on the winding face (issue #239)", async () => {
     const through = await design(DESIGNS[2].spec, "draft");
-    const none = await design({ ...DESIGNS[2].spec, mount: "none" }, "draft");
+    const none = await design({ ...DESIGNS[2].spec, base: "on", mount: "none" }, "draft");
     // No thickness bump any more: exactly as thick as with no mount at all.
     expect(through.flangeSpec.thickness).toBeCloseTo(none.flangeSpec.thickness, 9);
 
     const f = through.flangeSpec;
-    const wireDiameter = through.spec.wire.diameter;
-    const bendRadius = bendMultiplierOf(through.spec.wire) * wireDiameter;
-    const innerEndLayout = layoutInnerEnd(f.outline, f.margin, wireDiameter, through.spec.tolerance, bendRadius);
-    const layout = layoutFlangeThroughHoles(f, innerEndLayout);
+    const layout = layoutFlangeThroughHoles(f, through.centreInnerEnd);
     expect(layout.holes.length).toBeGreaterThan(0);
 
     for (const hole of layout.holes) {
@@ -218,22 +191,19 @@ describe("thin bottom flange (issue #122)", () => {
       const skadis = await design(plateSpec, "draft");
       const f = skadis.flangeSpec;
       expect(skadis.parts.some((p) => p.role === "mountPlate")).toBe(true);
-      const d = skadis.spec.wire.diameter;
-      const innerEnd = layoutInnerEnd(f.outline, f.margin, d, skadis.spec.tolerance, bendMultiplierOf(skadis.spec.wire) * d, resolveChannelDepth(d, f.thickness));
-      const layout = mountPlateLayoutFor(offsetOutline(f.outline, f.margin), f.boreOutline, innerEnd);
+      const layout = mountPlateLayoutFor(offsetOutline(f.outline, f.margin), f.boreOutline, skadis.centreInnerEnd);
       expect(layout.anchors.length).toBeGreaterThan(0);
       for (const a of layout.anchors) {
-        // Just beside the peg hole: solid from the wall face up to the inner face.
+        // Just beside the peg hole: solid from the wall face on up (the hole sits under the wall, with the narrower
+        // flange margin, so the wall carries on above the flange's own face).
         // (Off the x axis: a ray exactly through the hole's and the ring's own vertices can miss a face.)
         const beside = pegHoleRadius(skadis.spec.tolerance) + 0.5;
-        const s = flangeSpans(skadis, a.x + beside * Math.cos(0.37), a.y + beside * Math.sin(0.37));
-        expect(s).toHaveLength(1);
-        expect(s[0][1] - s[0][0]).toBeGreaterThanOrEqual(MIN_FLANGE_THICKNESS_FOR_PLATE - 1e-3);
+        const solidFrom = rayHits(skadis.mesh, a.x + beside * Math.cos(0.37), a.y + beside * Math.sin(0.37)).filter((z) => z < 0.5);
+        expect(solidFrom[0]).toBeCloseTo(-f.thickness, 3);
         // In it: the peg hole, then at least the anchor shelf above it.
-        const inHole = flangeSpans(skadis, a.x, a.y);
-        expect(inHole).toHaveLength(1);
-        expect(inHole[0][0]).toBeCloseTo(-f.thickness + MOUNT_PLATE_PEG_HOLE_DEPTH, 3);
-        expect(inHole[0][1]).toBeCloseTo(0, 3);
+        const inHole = rayHits(skadis.mesh, a.x, a.y).filter((z) => z < 0.5);
+        expect(inHole[0]).toBeCloseTo(-f.thickness + MOUNT_PLATE_PEG_HOLE_DEPTH, 3);
+        expect(f.thickness - MOUNT_PLATE_PEG_HOLE_DEPTH).toBeGreaterThanOrEqual(MIN_FLANGE_THICKNESS_FOR_PLATE - MOUNT_PLATE_PEG_HOLE_DEPTH - 1e-3);
       }
     }
   });
@@ -284,15 +254,15 @@ describe("SKÅDIS rim clips on the thin flange (issue #207)", () => {
 // MAX_CREASE_DEG anywhere on the flange's chamfers -- between the plate's
 // top and the winding face, clear of the channel's own bore and the rim.
 // (On main: 86-90 degrees, at the pad's flat end face.)
-describe("the channel pad blends into the collar (issue #133)", () => {
+describe("the collar pad blends into the plate (issue #133)", () => {
   const MAX_CREASE_DEG = 25;
   const cases: Array<[string, string]> = [
-    ["round", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20 })],
-    ["round, cap on", encodeHashDoc({ L: 2000, d: 4, size: 60, h: 20, cap: "on" })],
-    ["square", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 20 })],
-    ["square, tight corners", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 3 })],
-    ["triangle", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "tri", rc: 20 })],
-    ["round, 8 mm cable", encodeHashDoc({ L: 300, d: 8, size: 60, h: 30 })],
+    ["round", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, base: "on" })],
+    ["round, cap on", encodeHashDoc({ L: 2000, d: 4, size: 60, h: 20, cap: "on", base: "on" })],
+    ["square", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 20, base: "on" })],
+    ["square, tight corners", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 3, base: "on" })],
+    ["triangle", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "tri", rc: 20, base: "on" })],
+    ["round, 8 mm cable", encodeHashDoc({ L: 300, d: 8, size: 60, h: 30, base: "on" })],
   ];
   it.each(cases)("%s: no sharp crease on the flange's chamfers", async (_, hash) => {
     const d = await design(parseHash(hash).spec, "draft");
@@ -302,28 +272,14 @@ describe("the channel pad blends into the collar (issue #133)", () => {
     const mesh = (d.parts.find((p) => p.role === "core") ?? d).mesh;
     const p = mesh.positions;
     const t = mesh.indices;
-    const R = (d.spec.wire.diameter + d.spec.tolerance) / 2;
-    const lead = d.innerEndLeadIn;
-    const nearBore = (x: number, y: number) => {
-      for (let i = 0; i + 5 < lead.length; i += 3) {
-        const ax = lead[i];
-        const ay = lead[i + 1];
-        const ex = lead[i + 3] - ax;
-        const ey = lead[i + 4] - ay;
-        const u = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey || 1)));
-        if (Math.hypot(x - ax - u * ex, y - ay - u * ey) < R + 0.1) return true;
-      }
-      return false;
-    };
     // Issue #241: the rim slot is cut straight through the flange, and its
     // inner end may cut into the collar's chamfer: its walls meet the chamfer
     // at an edge on purpose.
-    const slot = d.rimSlots.base?.outline ?? [];
-    const nearSlot = (x: number, y: number) => {
+    const nearPolygon = (poly: Array<{ x: number; y: number }>) => (x: number, y: number) => {
       let inside = false;
       let best = Infinity;
-      for (let i = 0, j = slot.length - 1; i < slot.length; j = i++) {
-        const [a, b] = [slot[j], slot[i]];
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const [a, b] = [poly[j], poly[i]];
         if (a.y > y !== b.y > y && x < a.x + ((y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
         const ex = b.x - a.x;
         const ey = b.y - a.y;
@@ -332,6 +288,8 @@ describe("the channel pad blends into the collar (issue #133)", () => {
       }
       return inside || best < 0.1;
     };
+    const nearSlot = nearPolygon(d.rimSlots.base?.outline ?? []);
+    const nearBore = nearPolygon(d.centreInnerEnd.channelRibbon);
     // An edge on the chamfers: running down them (from the face to the
     // plate at most), clear of the rim, the bore and the rim slot. (Where the channel pad
     // runs out over the rim, its chamfer meets the rim's in a crease up to

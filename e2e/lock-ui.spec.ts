@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { decodeHashDoc } from "./hashDoc";
+import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 
 // Issue #5 acceptance criteria: lock toggles update both the result panel
 // and the URL hash, and any subset of {outer/inner size, height, layers}
@@ -70,8 +70,8 @@ test("switching the locked core-size dimension to inner and reloading reproduces
 });
 
 test("unlocking layers (2 free: height + layers) shows an alternate candidate", async ({ page }) => {
-  await page.goto("/");
-  // Default state locks outer size + layers, leaving height free (1 free).
+  await page.goto(`/${encodeHashDoc({ size: 60 })}`);
+  // A 60 mm core locks outer size + layers, leaving height free (1 free).
   // Unlocking layers too leaves outer size locked and height + layers free.
   await page.getByTestId("lock-layers").uncheck();
 
