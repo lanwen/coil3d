@@ -83,7 +83,7 @@ the default. If Playwright's own Chromium isn't available, point
   A merge ships to production, so the merge gate matters.
 - The merge gate is the full local suite on the final head, rebased onto
   `origin/main`: `npx tsc -b`, `npm test`, `E2E_PORT=<port> npx playwright test --workers=2`.
-  Put the counts in the PR body.
+  Put the counts in the PR's evidence comment (see "Pull requests").
 - Before opening or updating a PR, rebase onto the latest `origin/main` and
   verify with `git merge-base --is-ancestor origin/main HEAD`.
 - Squash-merge. Delete a PR's branch only after GitHub reports the PR as
@@ -92,13 +92,18 @@ the default. If Playwright's own Chromium isn't available, point
 ## Pull requests
 
 - One issue per branch: `issue-<N>-<slug>`, created from the latest `origin/main`.
-- Body sections: Summary; `Closes #<N>`; acceptance criteria (ticked, or
-  explained); test evidence (counts); screenshots; manual checks still
-  needed; known issues.
-- Anything visible needs before/after screenshots, and you must look at them
-  yourself before publishing. Attach them to the PR (drag them into the body,
-  or use `gh pr create --attach` with `![desc](./shots/x.png)` references).
-  Keep screenshot files out of the commit.
+- The body is short and written for a reviewer: a links header (`Closes #<N>`,
+  or `Refs #<N>` for one part of a multi-PR issue); **Why the change** in one
+  sentence; **Special things to note** in 1-3 bullets (`None.` if empty); a
+  compact **Change outline** (diff blocks, a shallow file tree, or a data or
+  call flow, whichever explains the change best).
+- Right after opening the PR, post an evidence comment
+  (`gh pr comment <N> --body-file <file> --attach ./shots/x.png`): test counts
+  per suite, before/after screenshots for anything visible, changed baselines,
+  manual and real-print checks still needed, known issues.
+- Look at every screenshot yourself before attaching it. Keep screenshot files
+  out of the commit.
+- Commits, PR text and comments carry no AI-tool attribution.
 
 ## Process hygiene
 
