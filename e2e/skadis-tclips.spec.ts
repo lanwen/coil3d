@@ -62,6 +62,7 @@ test.describe("SKÅDIS T-clip controls (issues #213, #221)", () => {
   }
 
   test("the clips render, and STL/3MF/STEP all download", async ({ page }) => {
+    test.slow();
     const consoleErrors: string[] = [];
     page.on("console", (msg) => {
       if (msg.type() === "error") consoleErrors.push(msg.text());

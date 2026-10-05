@@ -43,7 +43,7 @@ npm run preview    # serve the production build on :5182
 ```sh
 npx tsc -b                                   # typecheck
 npm test                                     # vitest: the core's public interface
-E2E_PORT=5183 npx playwright test --workers=2 # end to end; builds and previews on E2E_PORT
+E2E_PORT=5183 npx playwright test # end to end; builds and previews on E2E_PORT
 ```
 
 The end-to-end tests need a Chromium (`npx playwright install chromium`, or
