@@ -1,18 +1,9 @@
 import type { PresetId } from "./lineArt/presets";
 
-// View-preset pictograms (issue #141): each one is a tiny drawing of the coil
-// core AS THAT VIEW SHOWS IT, in the same black line-art language as the
-// renderer and the guide's pictograms (guide/pictograms.tsx) -- round caps
-// and joins, no fill, a ~1.5px stroke at the rendered 24px size to match the
-// pill switch's own 1.5px track outline. `currentColor` throughout, so the
-// active button's inverted (paper-on-ink) state recolours them for free.
-
 const STROKE = { fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-/** Secondary detail (wraps, bore, wall hatch) a hair lighter, so the outline still reads first at 24px. */
 const THIN = { strokeWidth: 1.3 };
 
 const ICONS: Record<PresetId, React.ReactNode> = {
-  // Face-on: the core's body with two wrap lines, standing on its flange.
   front: (
     <g {...STROKE}>
       <path d="M2.5 19.5h19V17h-19z" />
@@ -20,7 +11,6 @@ const ICONS: Record<PresetId, React.ReactNode> = {
       <path d="M6 9h12M6 13h12" {...THIN} />
     </g>
   ),
-  // The default 3/4 look: an open ring (bore showing) on a wide flange.
   iso: (
     <g {...STROKE}>
       <ellipse cx="12" cy="6" rx="6" ry="2.4" />
@@ -30,8 +20,6 @@ const ICONS: Record<PresetId, React.ReactNode> = {
       <path d="M6 14.2c-2.8.5-4.5 1.3-4.5 2.3 0 1.8 4.7 3.2 10.5 3.2s10.5-1.4 10.5-3.2c0-1-1.7-1.8-4.5-2.3" />
     </g>
   ),
-  // Hung on the wall (room side): a hatched wall, the flange flat against
-  // it and the core sticking out towards the viewer.
   wallRoom: (
     <g {...STROKE}>
       <path d="M2.5 2.5v19" />
@@ -42,7 +30,6 @@ const ICONS: Record<PresetId, React.ReactNode> = {
       <path d="M9.5 6.5v11M13 6.5v11" {...THIN} />
     </g>
   ),
-  // What the wall sees: the round mount plate face-on with its clips.
   mountSide: (
     <>
       <circle cx="12" cy="12" r="9.5" {...STROKE} />
@@ -54,8 +41,6 @@ const ICONS: Record<PresetId, React.ReactNode> = {
       </g>
     </>
   ),
-  // Parts laid out on the print bed: a short core and a flat plate on an
-  // iso bed rectangle.
   printLayout: (
     <g {...STROKE}>
       <path d="M1.5 15.5 12 10l10.5 5.5L12 21z" />

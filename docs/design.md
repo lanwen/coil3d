@@ -467,6 +467,186 @@ from reading how it works. The draft-to-final swap and the view presets were
 inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfinity-layout-tool)
 (AGPL-3.0). No code from it was used either.
 
+### Line pass details
+
+- The depth-step test uses the second difference of linear depth. Its
+  threshold is 4 line-pass pixels, converted to world units from the camera
+  every frame, so it follows zoom in both projections.
+- The camera sits two radii from the model centre, with near at 0.5 r and far
+  at 3.5 r. The bounding sphere then lies strictly between the clip planes and
+  only empty pixels read depth 1, which the silhouette test needs.
+- The normal target is half-float, because 8-bit normals are too coarse for
+  the 30 degree crease test. Normals are split at 30 degrees. The groove arc
+  turns about 17 degrees per mesh row, below that. The ridges and rims turn 45
+  to 110 degrees, so they always draw.
+- The edge and thicken passes run at twice the CSS pixel ratio on a 1x screen
+  (native on 2x or better). The output pass averages them down, so thin lines
+  are smooth and not stair-stepped.
+- The pen weight is the on-screen diagonal of the model divided by 500,
+  clamped to 1.0 to 1.6 CSS px. The label outline pen is 0.8 px. The thicken
+  pass searches at most 4 px.
+- The edge shader gives each face kind its own alpha in the normal target:
+  0.5 for label pockets, 0.9 for the rim chamfer, 0.8 for the rim land, 0.97
+  for the groove fade, 1 for everything else. Where a groove fades out, its
+  edges turn gradually shallower, so a crease would draw as broken dashes and
+  depth steps would end as stubs. Neither is drawn inside the fade, and each
+  groove line ends where the full depth ends.
+- Dimension lines, slot outlines and labels are drawn on separate camera
+  layers after the model passes. The normal pass sees only layer 0, so the
+  edge detector never outlines them. Lines go in before FXAA, so they are
+  smoothed. Labels go straight onto the canvas after FXAA, so the text is not
+  blurred.
+
+### Camera and framing
+
+- The perspective fit solves the field of view so the same half-height fills
+  the frame at the fit distance, which keeps the pen weight valid for both
+  projections. It also pads for the vertex nearest the camera, which
+  foreshortening makes bigger than the flat box shows.
+- The projection toggle refits the incoming camera with the same `fill`
+  instead of copying the outgoing scale. A copy drifts on ortho, perspective
+  and back. Two fits with one `fill` keep the toggle exactly reversible.
+- Wheel and pinch zoom is limited to 0.3x to 4x of the fitted framing.
+- The orbit target and the zoom limits are set again every frame, because the
+  orbit controls swap in a fresh instance when the default camera changes, and
+  that can lag a frame.
+- While the camera is not animating, the stored view direction follows a
+  manual orbit drag. Without that, any refit (a parameter edit, a resize, the
+  exploded or print-layout view) would snap the camera back. The sync is
+  skipped during the tweens, because the orbit target has not reached the new
+  centre yet.
+- A preset change slerps the view in 500 ms. A parameter edit eases only the
+  fit in 400 ms. Reduced motion skips both.
+- A geometry change whose fit moved by less than 1% is applied at once.
+  Otherwise the draft-to-final swap (a slightly different bounding sphere)
+  starts a tiny tween, and screenshots taken after load are flaky.
+- After the first final mesh is framed, a later draft mesh never moves the
+  camera. Otherwise a slow build's fallback draft would tween to its own
+  bounds and again when the final arrived.
+- Every one-shot camera change asks for four extra animation frames. A single
+  isolated render is not reliably picked up by headless Chromium's compositor
+  under software GL, and element screenshots can return a stale frame.
+- The cameras are marked `manual`, so the canvas resize handler leaves them
+  alone. It would otherwise reset an ortho frustum to pixel units, for example
+  when a late webfont reflows the canvas.
+- The viewer turns the geometry itself for the wall views, never a wrapping
+  group. The renderer frames the camera from the geometry's own vertices and
+  would frame the unrotated shape. The cable is turned the same way, so it
+  never separates from the coil.
+- The e2e tests read `window.__framingTweenCount`, `__orbitAzimuthDeg` and
+  `__orbitByDeg` instead of simulating pointer paths. `OrbitControls` wraps
+  the azimuth, so the renderer adds up the unwrapped total to measure long
+  drags.
+- The debug close-up (`?debugFocusInnerEnd=1`, `?debugFocusOuterEnd=1`) is a
+  screenshot tool. It rotates the model so the cable end faces the Iso camera,
+  and fits with a loose fill of 0.4. It adds two far points 600 mm along the
+  view direction, past the largest solver size, so the near and far planes
+  still cover the whole model.
+
+### Exploded view and views of the mount
+
+- An exploded part lifts by its own height plus a gap, so it clears the core
+  at any design scale. The top cap's gap is its collar engagement, plus the
+  weld flare, plus 1.5 times the cap thickness, plus 15 mm. The guide lifts by
+  height plus 20 mm.
+- The mount plate, the pegs and the SKÅDIS clips sit on the other side of the
+  core and lift along the negative coil axis. The pegs lift by half the
+  plate's lift, so they float in line with their holes. While exploded, the
+  camera fits tighter (0.85 instead of 0.75).
+- A guide figure is one static render. It frames only the pose it shows, so an
+  assembled figure is not padded for a lift that never happens.
+- The wall rotations live in one module, so the viewer and the guide cannot
+  drift apart. They depend only on the fixed camera, never on a design.
+- The wall preset lays the coil on its side: axis horizontal, flange against
+  the wall, top cap facing the room. The mount's up (local +Y) maps to world
+  Z, because the camera is oblique with up = world +Z. An extra spin of about
+  24.2 degrees about world X cancels the tilt the oblique camera gives the
+  projected up direction. Without it the top-centre slot lands a quarter turn
+  off the ellipse apex.
+- The mount-face preset is built straight from the camera's basis, so the
+  flange shows as an undistorted circle. A shape with no mirror axis at local
+  +Y (a triangle) still hangs level: the geometry is pre-rotated about Z by
+  the mount's axis angle.
+- Choosing SKÅDIS as the mount jumps to the mount-side view once, because the
+  clips sit behind the flange where neither the Iso nor the wall camera looks.
+- The print-layout view places every part with `printPlacements`, the same
+  function the 3MF writer uses, so the view and the exported plate cannot
+  disagree. It hides the cable and the dimension axes, because the core
+  prints without a cable. Its part labels sit on one shared row just past the
+  bounds of the whole layout. The parts share about the same Y band, so a
+  label pushed out from its own part could land on a deeper neighbour. The row
+  is on the side the camera looks from, so it is never hidden.
+- A square or triangle core has a corner, not a flat side, toward the fixed
+  Front camera. The viewer rotates the presented geometry about the coil axis
+  so a flat side faces the camera. The Iso view uses the same rotation, so it
+  reads as 45 degrees off that flat. The dimension box is spun by the opposite
+  angle, so the two cancel and the box stays flush with the silhouette. The
+  box's own area search can prefer a corner-through-the-axis pose on a heavily
+  rounded triangle, so the spin is passed in. A round core is not rotated.
+- The slot outlines lie in the back plane of the board for the mount-side
+  view and in its front plane for the room-side wall view. They are hidden
+  wherever the model is nearer the camera, because the clip barbs hook behind
+  the board.
+
+### Wound cable
+
+- The tube has 24 sides, because the cable is thick next to the core and fewer
+  sides show as a faceted outline. Crease normals cannot fix that, because the
+  edge shader reads the real silhouette.
+- The envelope shell sits half a wire radius outside the centreline. The hint
+  tubes reach the centreline plus the hint radius, so they stay visibly proud
+  of the shell. On layer 1 the centreline is only 0.1 d above the groove
+  ridges, so a shell on the centreline would fight them for depth.
+- Each hint is a real slice of two turns, not a flat ring. A single-turn hint
+  looks like a flat ring when the pitch is large next to the diameter, and the
+  cable reads like bamboo.
+- Hints sit about every 6 turns, at least 3 and at most 40, as separate
+  islands with smooth shell between them. Too few read as a smooth pole with a
+  few rings. The first and last hints are pinned to the ends of the cable.
+- A hint is thicker than the real wire: 12% of the layer radius, never less
+  than the wire radius. A thin wire on a coil that fills the canvas would
+  protrude less than the depth-step threshold and never draw.
+- The cable's end paths are drawn as one-turn paths, so they always get the
+  full tube, whatever the layers themselves use.
+
+### Dimension axes
+
+- The axes live in the model's own frame, at the bottom corner furthest left
+  in the default Iso view, chosen once per design and pose, never per frame.
+  They are hidden while exploded, in the print layout, in the mount-side view
+  and in the debug close-up. The framing keeps room for them even when they
+  are off, so the toggle never zooms the model.
+- The gap to the box is 8% of the footprint (not of the height, which would
+  push a tall coil's axes far aside), and at least 4 mm. The camera fit
+  reserves 6% of the largest extent around the axes for ticks and labels, and
+  12% of the footprint above the height axis, so the viewer's toggles do not
+  cover it in Front view.
+- The box is the smallest-area footprint rectangle, so a square flange
+  measures across its flats and a triangle by its flat base and its height.
+  The mount plate, pegs and clips do not count toward the box height.
+- A stroke fragment behind the model is discarded, not drawn grey, checked
+  against the model's depth. A bias of 1e-5 stops a line lying on the surface
+  from flickering.
+- A sprite has no depth test, so a hidden label is found on the CPU by
+  raycasting its anchor. The ray is shortened by 1e-4 so a point flush on the
+  surface does not hide itself.
+- An axis seen almost end-on (under about 14 degrees to the view ray) or
+  shorter than 6 px is hidden, not drawn misleadingly short. A short axis
+  draws its arrowheads outside, pointing in.
+- Width and depth share the origin corner, so their labels can overlap on a
+  slim coil. A round core has the same number for both and draws one label.
+  Otherwise the depth label slides along its axis until it clears, within
+  three axis lengths.
+### Canvases
+
+- The frame loop of a guide canvas is switched from inside the canvas, never
+  with the `frameloop` prop. A new prop value reconfigures the canvas and
+  resizes it, and a resize clears the picture. The canvas ignores scroll when
+  it measures itself, for the same reason.
+- If WebGL fails (no support, a blocklisted GPU, a lost context), an error
+  boundary swaps only the canvas for a short note. The geometry is solved in a
+  worker, so the rest of the app keeps working.
+
 ## Roadmap
 
 - A clip on the cable that stops the coil from unwinding.

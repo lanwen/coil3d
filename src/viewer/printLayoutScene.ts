@@ -1,28 +1,7 @@
-// Print-layout view (issue #78): "every part in its print orientation ...
-// laid out on a drawn bed outline". Every part's placement comes from the
-// core's own `printPlacements` (plate.ts's `bedRestingTransform` +
-// `layoutParts`) -- the SAME function the 3MF writer (threeMf.ts) calls --
-// so this view and the exported plate can never disagree about where a part
-// actually sits (issue #78 AC). Pure geometry building, no React: CoilViewer.tsx
-// creases each returned mesh with its own `buildCreasedGeometry` (shared with
-// the assembled view) and disposes everything this module hands back. Part
-// NAME labels are a separate concern (PrintLayoutLabels.tsx, issue #78 PR
-// review), which reads this module's own `box` per part.
 
 import * as THREE from "three";
 import { printPlacements, type CoilMesh, type Part, type PrintSpec, type RigidTransform } from "../core";
 
-/**
- * `RigidTransform` applied directly to vertex positions (rotate about X,
- * then translate) -- the same trivial math `core/transform.ts`'s
- * `applyRigidTransform` does. Reimplemented here, not imported, because that
- * module is a core INTERNAL the UI may not reach into (architecture rule:
- * "the UI and renderer use only [the core's public] interface" -- see
- * `src/guide/printOrientation.ts`'s own copy, which this mirrors); only
- * `plate.ts`'s actual placement math (`printPlacements`, non-trivial enough
- * that reimplementing it risks drifting from the 3MF export) is worth a
- * shared, exported function.
- */
 function applyPrintTransform(mesh: CoilMesh, t: RigidTransform): CoilMesh {
   const { positions } = mesh;
   const cos = Math.cos(t.rotateX);
@@ -41,23 +20,16 @@ function applyPrintTransform(mesh: CoilMesh, t: RigidTransform): CoilMesh {
     out[i + 1] = y * cos - z * sin + dy;
     out[i + 2] = y * sin + z * cos + dz;
   }
-  // Issue #229: the rim's chamfer stays out of the drawing in the printed pose too.
   return { positions: out, indices: mesh.indices, rimTriangles: mesh.rimTriangles, fadeTriangles: mesh.fadeTriangles };
 }
 
 export interface PrintLayoutPart {
   part: Part;
-  /** Print-placed mesh (world = bed mm), ready for `buildCreasedGeometry`. */
   mesh: CoilMesh;
-  /** This part's own footprint + height box, world/bed mm -- PrintLayoutLabels' own callout anchor. */
   box: THREE.Box3;
-  /** The exact `printPlacements` transform this part was placed with -- mirrored as accessible text by CoilViewer (like DimensionAxes' own hidden list) so e2e coverage can confirm it against the 3MF export's own item transform, without re-deriving it from pixels (issue #78 AC: "view and 3MF agree"). */
   transform: RigidTransform;
 }
 
-/** Every part in its exact print-bed placement (issue #78), plus the whole
- * layout's own bounds (bed footprint union part heights) for framing and
- * for PrintLayoutLabels' own shared callout row. */
 export function buildPrintLayout(parts: Part[], bed: PrintSpec): { parts: PrintLayoutPart[]; bounds: THREE.Box3 } {
   const bounds = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(bed.bedX, bed.bedY, 0));
 
@@ -85,14 +57,10 @@ export function buildPrintLayout(parts: Part[], bed: PrintSpec): { parts: PrintL
   return { parts: placed, bounds };
 }
 
-// A thin drawn slab, never printed/exported -- just the "drawn bed outline"
-// the AC asks for, sized to the configured bed and level with every part's
-// own resting Z (0, see `printPlacements`/`bedRestingTransform`).
-const BED_THICKNESS = 1; // mm
+const BED_THICKNESS_MM = 1;
 
-/** A flat rectangle the size of the configured print bed, top face at z=0. */
 export function buildBedGeometry(bed: PrintSpec): THREE.BufferGeometry {
-  const geometry = new THREE.BoxGeometry(bed.bedX, bed.bedY, BED_THICKNESS);
-  geometry.translate(bed.bedX / 2, bed.bedY / 2, -BED_THICKNESS / 2);
+  const geometry = new THREE.BoxGeometry(bed.bedX, bed.bedY, BED_THICKNESS_MM);
+  geometry.translate(bed.bedX / 2, bed.bedY / 2, -BED_THICKNESS_MM / 2);
   return geometry;
 }

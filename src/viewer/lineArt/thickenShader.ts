@@ -1,21 +1,5 @@
 import { Vector2 } from "three";
 
-/**
- * "Thicken" (dilate) pass, docs/design.md, Rendering. Takes the edge pass's
- * one-pixel lines and turns every pixel within `thicknessPx` of a line pixel
- * black. Coverage falls off over the last pixel, so fractional weights work
- * and the lines come out anti-aliased before FXAA runs.
- *
- * The edge pass's fine lines (its b channel, the engraved label's outline)
- * are drawn the same way with the smaller `fineThicknessPx`.
- *
- * Output is premultiplied alpha for the transparent canvas: white fill
- * (1,1,1,1) on the model, black ink (0,0,0,coverage) where a line spreads
- * past the silhouette into the background, and (0,0,0,0) elsewhere.
- *
- * `MAX_THICKEN_RADIUS` caps the search radius, and the caller clamps
- * thicknessPx below it. The loops only visit the pixels the pens can reach.
- */
 export const MAX_THICKEN_RADIUS = 4;
 
 export const ThickenShader = {
@@ -28,7 +12,7 @@ export const ThickenShader = {
     fineThicknessPx: { value: 0.5 },
   },
 
-  vertexShader: /* glsl */ `
+  vertexShader: `
     varying vec2 vUv;
     void main() {
       vUv = uv;
@@ -36,7 +20,7 @@ export const ThickenShader = {
     }
   `,
 
-  fragmentShader: /* glsl */ `
+  fragmentShader: `
     precision highp float;
     uniform sampler2D tDiffuse;
     uniform vec2 texel;
