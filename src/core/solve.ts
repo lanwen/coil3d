@@ -2,7 +2,7 @@
 // (docs/design.md, Decisions and Capacity math).
 // Adapted from an early prototype: connector-pocket sizing is dropped (out
 // of scope, see docs/design.md, Roadmap); the flexible-cord bend multiplier
-// is fixed to 4x (the prototype used 6x); the
+// is fixed to 2.6x (the prototype used 6x); the
 // bound-hit check only looks at the actual free variable, not all three;
 // and the freeCount===2/3 alternate candidates are picked from an
 // already-computed candidate pool instead of a second `solve()` call,

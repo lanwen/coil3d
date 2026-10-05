@@ -9,7 +9,8 @@ import { encodeHashDoc } from "./hashDoc";
 // only let a drag starting on the model orbit, is gone) is covered below.
 
 const SQUAT = encodeHashDoc({ L: 1000, d: 4, size: 40 });
-const LONG = encodeHashDoc({ L: 6000, d: 4, size: 30 });
+// 31 mm, not 30: at 30 mm the turn pitch beats against the pixel grid at this zoom and the rings band up (a renderer aliasing, not geometry).
+const LONG = encodeHashDoc({ L: 6000, d: 4, size: 31 });
 // Layers locked at 2: the solver sizes the flange to clear both wound layers.
 const TWO_LAYER = encodeHashDoc({ L: 3000, d: 4, size: 40, ly: 2 });
 

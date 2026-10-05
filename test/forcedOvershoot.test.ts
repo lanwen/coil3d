@@ -11,7 +11,7 @@ import type { CoilSpec, Design } from "../src/core";
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {
-    wire: { length: 150, diameter: 3.6, type: "stiff" }, // 36 mm bend radius: a 71.3 mm round core at least
+    wire: { length: 150, diameter: 3.6, type: "stiff" }, // 23.4 mm bend radius: a 46.1 mm round core at least
     shape: { kind: "round" },
     windingQuality: 0.7,
     coreSize: { locked: false },
@@ -45,7 +45,7 @@ function expectHoldsWithNote(d: Design, note: RegExp) {
 
 describe("a forced overshoot gets the same status and note whatever the number of free dimensions (issue #199)", () => {
   // One turn around the locked 80 mm core already holds 254 mm of the 150 mm
-  // cable; a 71.3 mm core would hold less.
+  // cable; a smaller core would hold less.
   const lockedCore: Array<[string, Partial<CoilSpec>]> = [
     ["0 free", { ...OUTER_80, ...HEIGHT_12, ...ONE_LAYER }],
     ["1 free (height)", { ...OUTER_80, ...ONE_LAYER }],
@@ -61,19 +61,20 @@ describe("a forced overshoot gets the same status and note whatever the number o
     });
   }
 
-  // The bend limit's 71.3 mm floor: one turn already holds 226 mm.
+  // The bend limit's 46.1 mm floor: one turn already holds 147 mm of the 100 mm cable.
+  const SHORT: Partial<CoilSpec> = { wire: { length: 100, diameter: 3.6, type: "stiff" } };
   const bendFloor: Array<[string, Partial<CoilSpec>]> = [
-    ["0 free (core locked below the floor)", { coreSize: { locked: true, dimension: "outer", value: 30 }, ...HEIGHT_12, ...ONE_LAYER }],
-    ["1 free (size)", { ...HEIGHT_12, ...ONE_LAYER }],
-    ["2 free (size, height)", { ...ONE_LAYER }],
-    ["2 free (size, layers)", { ...HEIGHT_12 }],
-    ["3 free", {}],
+    ["0 free (core locked below the floor)", { ...SHORT, coreSize: { locked: true, dimension: "outer", value: 30 }, ...HEIGHT_12, ...ONE_LAYER }],
+    ["1 free (size)", { ...SHORT, ...HEIGHT_12, ...ONE_LAYER }],
+    ["2 free (size, height)", { ...SHORT, ...ONE_LAYER }],
+    ["2 free (size, layers)", { ...SHORT, ...HEIGHT_12 }],
+    ["3 free", { ...SHORT }],
   ];
   for (const [name, locks] of bendFloor) {
     it(`bend-limit size floor, ${name}: holds the cable, the note names the bend limit`, async () => {
       const d = await design(baseSpec(locks), "draft");
-      expect(d.solution.outerSize).toBeCloseTo(71.28, 1);
-      expectHoldsWithNote(d, /^Room for 51% more cable than you need: this cable's 36 mm bend radius needs a core of at least 71\.3 mm.*smallest coil for this cable/);
+      expect(d.solution.outerSize).toBeCloseTo(46.08, 1);
+      expectHoldsWithNote(d, /^Room for 47% more cable than you need: this cable's 23\.4 mm bend radius needs a core of at least 46\.1 mm.*smallest coil for this cable/);
     });
   }
 

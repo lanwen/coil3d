@@ -310,7 +310,7 @@ export function ControlsForm({
             unit="x diameter"
             min={0.5}
             max={50}
-            step={0.5}
+            step={0.1}
             value={spec.wire.customBendMultiplier ?? DEFAULT_CUSTOM_BEND_MULTIPLIER}
             hint={HINTS.customMultiplier}
             onChange={(v) => setWire({ customBendMultiplier: v })}

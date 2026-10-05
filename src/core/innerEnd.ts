@@ -65,6 +65,7 @@ import {
   CABLE_CLIPPED_TAIL_FACTOR,
   CABLE_CLIPPED_TAIL_MIN,
   CABLE_SWEEP_ARC_SEGMENTS,
+  CABLE_SWEEP_MAX_SAG,
   CABLE_SWEEP_STEP,
   CAP_CABLE_DROP,
   EDGE_CHAMFER,
@@ -640,7 +641,8 @@ export function layoutInnerEnd(
   // whole bore past the rim.
   const from = route.dropStart;
   const sStart = bottom(from) <= 0.3 ? from : invert((s) => -bottom(s), -0.3, from, route.dropLength);
-  const stations = stationsOver(sStart, sEnd, CABLE_SWEEP_STEP, [clipFrom, clipFrom + CABLE_CLIP_ENTRY, clipEnd - CABLE_CLIP_ENTRY, clipEnd]);
+  const sweepStep = Math.min(CABLE_SWEEP_STEP, Math.sqrt(8 * CABLE_SWEEP_MAX_SAG * bendRadius));
+  const stations = stationsOver(sStart, sEnd, sweepStep, [clipFrom, clipFrom + CABLE_CLIP_ENTRY, clipEnd - CABLE_CLIP_ENTRY, clipEnd]);
   // The lips' mouth is a 45 degree funnel: from CABLE_BASE_CLIP_LAND above
   // the edge where the opening meets the bore, the wall flares out until it
   // meets the plain channel's wall (half-width R), and runs up from there.
@@ -714,7 +716,14 @@ export function capTailPath(outline: ShapeOutline, margin: number, offset: numbe
   }, margin, 0);
   const sOut = sRim + clippedTailLength(wireDiameter);
   const steps = Math.max(2, Math.ceil(sOut / CABLE_BRIDGE_STEP));
-  return Array.from({ length: steps + 1 }, (_, i) => exit((sOut * i) / steps));
+  // Past the rim the free tail runs straight on (the curve never keeps turning
+  // until the tail points back round the axis, which a small bend radius allows).
+  const atRim = exit(sRim);
+  const heading = { x: tan.x + p.nx * curve * sRim, y: tan.y + p.ny * curve * sRim };
+  const along = Math.hypot(heading.x, heading.y);
+  const tailPoint = (s: number): XY =>
+    s <= sRim ? exit(s) : { x: atRim.x + (heading.x / along) * (s - sRim), y: atRim.y + (heading.y / along) * (s - sRim) };
+  return Array.from({ length: steps + 1 }, (_, i) => tailPoint((sOut * i) / steps));
 }
 
 /**

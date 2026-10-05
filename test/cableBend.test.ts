@@ -185,15 +185,16 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
         mount: "keyhole",
       }),
     );
-    expectWithinBendLimit(joinedPieces(d), 36, "repro joined pieces");
-    expectWithinBendLimit(d.cablePath, 36, "repro cablePath");
-    expectFixPointsWithinBendLimit(d, 36, "repro");
+    const mbr = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
+    expectWithinBendLimit(joinedPieces(d), mbr, "repro joined pieces");
+    expectWithinBendLimit(d.cablePath, mbr, "repro cablePath");
+    expectFixPointsWithinBendLimit(d, mbr, "repro");
   });
 
   // Issue #195: the solver reported "ok" for a round core locked below the
   // bend limit's size floor. Minimal repro: the default design (round, outer
   // 30 mm locked) with a stiff cable and 2 layers -- layer 1 and the step to
-  // layer 2 bent at ~15 mm against a 36 mm bend radius.
+  // layer 2 bent at ~15 mm against a stiff cable's bend radius (then 36 mm).
   it("the default round 30 mm core with a stiff cable and 2 layers (issue #195)", async () => {
     const spec = baseSpec({
       wire: { length: 2000, diameter: 3.6, type: "stiff" },
@@ -202,7 +203,7 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
     });
     const d = await design(spec);
     expect(d.solution.diagnosis.status).toBe("ok");
-    expectEveryBendWithinLimit(d, 36);
+    expectEveryBendWithinLimit(d, bendMultiplierOf(spec.wire) * spec.wire.diameter);
     expect(d.warnings.filter((w) => /bends tighter/i.test(w))).toEqual([]);
     expect(d.solution.outerSize, "the locked size is raised to the bend-limit floor").toBeCloseTo(d.solution.minOuterSizeForBend, 6);
     expect(d.warnings.some((w) => /core size raised/i.test(w))).toBe(true);

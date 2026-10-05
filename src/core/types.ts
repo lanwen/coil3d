@@ -33,14 +33,14 @@ export interface WireTypePreset {
   bendMultiplier: number;
 }
 
-/** docs/design.md, Decisions: USB/audio 4x, flexible cord 4x, stiff/solid 10x. */
+/** docs/design.md, Decisions: USB/audio 2.6x, flexible cord 2.6x, stiff/solid 6.5x. */
 export const WIRE_TYPE_PRESETS: Record<Exclude<WireTypeId, "custom">, WireTypePreset> = {
-  usb: { id: "usb", label: "USB / audio cable", bendMultiplier: 4 },
-  flex: { id: "flex", label: "Flexible cord", bendMultiplier: 4 },
-  stiff: { id: "stiff", label: "Stiff / solid cord", bendMultiplier: 10 },
+  usb: { id: "usb", label: "USB / audio cable", bendMultiplier: 2.6 },
+  flex: { id: "flex", label: "Flexible cord", bendMultiplier: 2.6 },
+  stiff: { id: "stiff", label: "Stiff / solid cord", bendMultiplier: 6.5 },
 };
 
-export const DEFAULT_CUSTOM_BEND_MULTIPLIER = 4;
+export const DEFAULT_CUSTOM_BEND_MULTIPLIER = 2.6;
 
 export interface WireSpec {
   /** Total cable length to store, mm. Above 15 m is rejected (docs/design.md, Decisions). */

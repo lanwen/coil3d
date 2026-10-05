@@ -82,7 +82,8 @@ function partsOf(d: Design): { core: Manifold; cap: Manifold } {
 
 const ROUND_CASES: Array<{ label: string; overrides: Partial<CoilSpec> }> = [
   { label: "60 mm core, 2 layers", overrides: {} },
-  { label: "the issue's repro (everything free)", overrides: { coreSize: { locked: false }, height: { locked: false }, layers: { locked: false }, wire: { length: 2000, diameter: 3.8, type: "usb" }, topCap: "auto" } },
+  // A USB cable's free core is the 19 mm minimum now (2.6x bend radius), too small for the twist lock (press-fit fallback, with a warning), so the free repro uses a stiff cable.
+  { label: "the issue's repro (everything free)", overrides: { coreSize: { locked: false }, height: { locked: false }, layers: { locked: false }, wire: { length: 2000, diameter: 3.8, type: "stiff" }, topCap: "auto" } },
   { label: "tight tolerance 0.05", overrides: { tolerance: 0.05 } },
   { label: "loose tolerance 0.4", overrides: { tolerance: 0.4 } },
   { label: "loosest tolerance 0.8", overrides: { tolerance: 0.8 } },
