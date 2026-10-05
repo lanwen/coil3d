@@ -43,7 +43,7 @@ import type { LabelLoop, ResolvedLabel } from "../label";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
 import type { InnerEndLayout, SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
-import { layoutKeyholeMount } from "../mount";
+import { layoutKeyholeMount, throughHoleCountersink } from "../mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, offsetAtZ, padLevels, plateTopZ } from "../flangePads";
 import type { FlangePad } from "../flangePads";
 import type { KeyholeSlot, ThroughHole } from "../mount";
@@ -199,12 +199,19 @@ function screwMountCutterSolid(slot: KeyholeSlot, zBase: number): R.Shape3D {
  * clearance), the SAME radius through the flange's full depth -- mirrors
  * manifold.ts's `throughHoleCutter` primitive-for-primitive, and
  * `buildInnerEndCutterSolid`'s own through-cut convention (poking 1mm past
- * both faces). Issue #129: no counterbore any more.
+ * both faces). Issue #129: no counterbore. Issue #239: the countersink on
+ * the winding face (the plate's top, `zTop`), a cone lofted between two
+ * circles, carried on 1 mm above that face; cut as a separate tool.
  */
-function throughHoleCutterSolid(hole: ThroughHole, holeRadius: number, flangeThickness: number): R.Shape3D {
+function throughHoleCutterSolid(hole: ThroughHole, holeRadius: number, flangeThickness: number, zTop: number, plateThickness: number): R.Shape3D[] {
   const throughH = flangeThickness + 2;
   const throughZLo = -flangeThickness - 1;
-  return R.makeCylinder(holeRadius, throughH, [hole.x, hole.y, throughZLo]);
+  const bore = R.makeCylinder(holeRadius, throughH, [hole.x, hole.y, throughZLo]);
+  const sink = throughHoleCountersink(holeRadius, plateThickness);
+  if (sink.depth <= 1e-6) return [bore];
+  // The same 45 degree cone as the mesh's, carried on half a millimetre down inside the bore.
+  const cone = R.sketchCircle(holeRadius - 0.5, { plane: "XY", origin: [hole.x, hole.y, zTop - sink.depth - 0.5] }).loftWith(R.sketchCircle(sink.radius + 1, { plane: "XY", origin: [hole.x, hole.y, zTop + 1] }));
+  return [bore, cone];
 }
 
 // docs/step-notes.md: ~20 V-samples per helical pitch keeps the max fitting
@@ -440,8 +447,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   if (design.flangeSpec.mount === "through") {
     const layout = layoutFlangeThroughHoles(flangeSpec, innerEndCutter.layout);
     for (const hole of layout.holes) {
-      const cutter = throughHoleCutterSolid(hole, layout.holeRadius, flangeSpec.thickness);
-      coreSolid = coreSolid.cut(cutter);
+      for (const cutter of throughHoleCutterSolid(hole, layout.holeRadius, flangeSpec.thickness, plateTopZ(flangeSpec) ?? 0, Math.min(flangeSpec.plateThickness ?? flangeSpec.thickness, flangeSpec.thickness))) coreSolid = coreSolid.cut(cutter);
     }
   }
 
@@ -533,11 +539,15 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
  * silently returning `shape` unchanged. Issue #117's swept cutters (hundreds
  * of small planar faces): without a fuzzy value OCCT sometimes cut nothing
  * at all, reporting no error (replicad's own `cut` would pass that straight
- * on) -- so a cut that removes no volume counts as a failure too.
+ * on) -- so a cut that removes no volume counts as a failure too. Issue
+ * #239: it can also cut only a sliver (the inner-end channel on one wide
+ * flange: 7 mm^3 of its 2958 at the smallest fuzzy value, all of it at the
+ * next), so the first result is checked against the next fuzzy value's, and
+ * where the two disagree the cut that removes the most wins.
  */
 function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape3D | R.Shape3D[]): R.Shape3D {
   const before = R.measureVolume(shape);
-  for (const fuzzy of FUZZY_CUTS) {
+  const cut = (fuzzy: number): { result: R.Shape3D; removed: number } | undefined => {
     const args = new kernel.NCollection_List_TopoDS_Shape();
     args.Append(shape.wrapped);
     const tools = new kernel.NCollection_List_TopoDS_Shape();
@@ -548,16 +558,27 @@ function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape
       op.SetTools(tools);
       op.SetFuzzyValue(fuzzy);
       op.Build(new kernel.Message_ProgressRange());
-      if (op.HasErrors()) continue;
+      if (op.HasErrors()) return undefined;
       const result = R.cast(op.Shape()) as R.Shape3D;
-      if (R.measureVolume(result) < before - 1e-6) return result;
+      return { result, removed: before - R.measureVolume(result) };
     } finally {
       op.delete();
       args.delete();
       tools.delete();
     }
+  };
+  const results: Array<{ result: R.Shape3D; removed: number }> = [];
+  for (const fuzzy of FUZZY_CUTS) {
+    const r = cut(fuzzy);
+    if (r && r.removed > 1e-6) results.push(r);
+    // Two results that agree (within 1%) settle it.
+    if (results.length === 2) {
+      const [a, b] = results;
+      if (Math.abs(a.removed - b.removed) <= 0.01 * Math.max(a.removed, b.removed)) return a.result;
+    }
   }
-  throw new Error("STEP export: a boolean cut failed (it removed nothing)");
+  if (results.length === 0) throw new Error("STEP export: a boolean cut failed (it removed nothing)");
+  return results.reduce((m, r) => (r.removed > m.removed ? r : m)).result;
 }
 
 /** Validate one part's solid: manifold-valid, exactly one solid, and its volume matches the part's own mesh within tolerance. Throws with a descriptive message otherwise. */

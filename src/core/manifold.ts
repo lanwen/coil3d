@@ -55,7 +55,7 @@ import type { RimRow } from "./edgeChamfer";
 import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd, sweepMesh } from "./innerEnd";
 import type { InnerEndLayout, RimSlot, SweepSolid } from "./innerEnd";
-import { layoutKeyholeMount } from "./mount";
+import { layoutKeyholeMount, throughHoleCountersink } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
 import { weldShortEdges } from "./weld";
@@ -103,8 +103,6 @@ export interface FlangeSpec {
   keyholeRotation?: number;
   /** Issue #70: through-hole (screw-shank clearance) diameter, mm; defaults to `DEFAULT_THROUGH_HOLE_DIAMETER` when omitted. Ignored when `mount !== "through"`. */
   throughHoleDiameter?: number;
-  /** Issue #70 PR review: the wound cable's own outer radius (mirrors flange.ts's own `flangeSizeEnvelope / 2` reasoning) -- every through-hole is kept clear of it too, not just the wall's own surface, so it stays reachable with a screwdriver. 0/omitted when not relevant (no mount, or not yet known). */
-  envelopeRadius?: number;
   /** Issue #207: the SKÅDIS rim clips' layout (skadisClips.ts) -- its notches are cut through the rim (the jaws grip the flange's plain plate, no pad). Present only when `mount` is "skadis" and the clips fit. */
   skadis?: SkadisClipLayout;
   /** Issues #213, #221: the SKÅDIS T-clips' layout (skadisTclips.ts) -- a floor fills the bore, with a slot through it per clip and the fin's recess in its top. Present only when `mount` is "skadis-tclip" and the clips fit. */
@@ -353,12 +351,19 @@ function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, zBase: numb
  * `layoutThroughHoleMount`): a plain cylinder (the screw-shank clearance),
  * the SAME radius through the flange's full depth -- poking WELD_OVERLAP
  * past BOTH faces, the same "never a coincident target face" reasoning as
- * every other through-cut here. Issue #129: no counterbore any more -- the
- * screw head bears directly on the flange's own winding-side face.
+ * every other through-cut here. Issue #129: no counterbore. Issue #239: a
+ * 90 degree countersink on the winding face (the plate's top, `zTop`), its
+ * cone carried on WELD_OVERLAP above that face and half a millimetre down
+ * into the bore.
  */
-function throughHoleCutter(wasm: ManifoldToplevel, hole: ThroughHole, holeRadius: number, flangeThickness: number): Manifold {
+function throughHoleCutter(wasm: ManifoldToplevel, hole: ThroughHole, holeRadius: number, flangeThickness: number, zTop: number, plateThickness: number): Manifold {
   const { Manifold } = wasm;
-  return Manifold.cylinder(flangeThickness + 2 * WELD_OVERLAP, holeRadius, holeRadius, 32).translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP);
+  const bore = Manifold.cylinder(flangeThickness + 2 * WELD_OVERLAP, holeRadius, holeRadius, 32).translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP);
+  const sink = throughHoleCountersink(holeRadius, plateThickness);
+  if (sink.depth <= 1e-6) return bore;
+  // The same 45 degree cone, carried on half a millimetre down inside the bore (so its edge never lies on the bore's surface).
+  const cone = Manifold.cylinder(sink.depth + WELD_OVERLAP + 0.5, holeRadius - 0.5, sink.radius + WELD_OVERLAP, 32).translate(hole.x, hole.y, zTop - sink.depth - 0.5);
+  return Manifold.union([bore, cone]);
 }
 
 /** What `fuseFlange` needs to cut the clip mount plate's own peg holes into the flange's outer (wall-facing) face (issue #14, #106) -- mirrors `CoreJointCut`'s "one shared description, cut by whichever backend needs it" role. Omitted entirely when the plate has no anchors to cut for (see mountPlate.ts's `MountPlateLayout.anchors`). */
@@ -527,7 +532,7 @@ export async function fuseFlange(
       // channel pad to keep clear of, just the collar.
       const layout = layoutFlangeThroughHoles(flange, innerEndLayout);
       for (const hole of layout.holes) {
-        const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, flange.thickness));
+        const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, flange.thickness, plateTopZ(flange) ?? 0, Math.min(flange.plateThickness ?? flange.thickness, flange.thickness)));
         fused = track(fused.subtract(cutter));
         status = fused.status();
         if (status !== "NoError") {

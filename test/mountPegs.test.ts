@@ -137,7 +137,8 @@ describe("mount plate alignment pegs (issue #132)", () => {
   const SHAPES: Array<{ label: string; tolerance: number; overrides: Partial<CoilSpec> }> = [
     { label: "round", tolerance: 0.2, overrides: {} },
     { label: "round", tolerance: 0.5, overrides: {} },
-    { label: "square", tolerance: 0.2, overrides: { shape: { kind: "sq", cornerRadius: 15 } } },
+    // Two layers: issue #239's slim single-layer square flange has no room for the pegs beside the inner-end channel.
+    { label: "square", tolerance: 0.2, overrides: { shape: { kind: "sq", cornerRadius: 15 }, layers: { locked: true, value: 2 } } },
     // The triangle's holes sit on its up axis, where the flat is much nearer the centre than the opposite corner: both must still land in the plate.
     { label: "triangle", tolerance: 0.2, overrides: { shape: { kind: "tri", cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 120 } } },
   ];

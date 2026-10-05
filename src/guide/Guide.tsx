@@ -267,7 +267,7 @@ function mountLine(mount: MountKind): string {
     case "keyhole":
       return "Hang the keyhole slot on a screw, then slide down to seat.";
     case "through":
-      return "Drive a screw straight through each hole, into the wall -- reachable through the open bore or around the winding, no sliding needed.";
+      return "Drive a countersunk screw through each hole into the wall, before winding if the cable will cover the holes. The heads sit flush, under the cable.";
     case "skadis-tclip":
       return "Hold the coil flat on the board, each slot in the core's floor over a board slot. Reach through the core and push each T-clip through with its fin upright, then pinch the fin and turn it a quarter turn clockwise until it stops. Let go: the coil drops about 5 mm onto the clips. To take it down, lift the coil back up and turn the clips back.";
     case "skadis":

@@ -73,8 +73,8 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   With no top cap, the cable leaves the last turn as a straight tangential
   tail.
 - The flange and cap margins grow when the inner end's lead-in or the base
-  slot needs more room (the slot's seat stays clear of the collar pad under
-  the wall).
+  slot needs more room (the slot's seat stays 0.4 mm clear of the wall, and
+  may cut through the collar pad beside it).
 - The flange and cap cover the drawn cable as it really runs, not just the
   wound envelope (`woundReachOffset`): with the cap on, an outer end that
   climbs the whole height outside a last layer ending at the bottom (an even
@@ -96,7 +96,13 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
 - One accepted exception (#175): the keyhole mount's undercut roof is a flat
   bridge as wide as the screw head (8 mm). Most printers bridge it, and a
   45 degree roof would need a 3.5 mm thicker pad. The tests cap it at 8.5 mm.
-- The flange is the final outer envelope of the wound cable plus a margin.
+- The flange (and the cap) reaches 1.5 mm past the wound cable's outer
+  surface (#239, `FLANGE_MARGIN`; it was 4 mm). With the 1 mm rim chamfer
+  that keeps half a millimetre of flat face beyond the outermost turn, so the
+  cable rests on the face, not on the chamfer. The inner end's lead-in, the
+  base rim slot and the mounts can need more: the keyhole slots, the SKÅDIS
+  clips' lips (they keep clear of the wound cable) and the through-holes
+  (wall, collar pad, hole and rim).
 - The flange and the top cap have a 1 mm x 45 degree chamfer on their outer
   edge, on both faces (#229, #237, `EDGE_CHAMFER`, `src/core/edgeChamfer.ts`).
   The rim slots' necks end at the foot of the chamfer. A 3 mm

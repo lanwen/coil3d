@@ -161,7 +161,7 @@ test.describe("printable assembly guide (issue #17)", () => {
   test("the wall-mount step gives real instructions once the through-hole mount is selected", async ({ page }) => {
     const doc = { L: 1000, d: 4, size: 40 };
     await gotoGuide(page, encodeHashDoc({ ...doc, mount: "through" }));
-    await expect(page.getByTestId("guide-step-4")).toContainText(/screw straight through/i);
+    await expect(page.getByTestId("guide-step-4")).toContainText(/countersunk screw through each hole/i);
     await expect(page.getByTestId("guide-step-4")).not.toContainText("coming soon");
   });
 

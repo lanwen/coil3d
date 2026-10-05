@@ -102,14 +102,16 @@ import {
   SCREW_MOUNT_SLOT_TRAVEL,
   SCREW_MOUNT_TWO_SLOT_ANGLE,
   SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD,
+  THROUGH_MOUNT_CORNER_NUDGE_DEG,
+  THROUGH_MOUNT_COUNTERSINK_LAND,
   THROUGH_MOUNT_EDGE_MARGIN,
   THROUGH_MOUNT_RIM_MARGIN,
-  THROUGH_MOUNT_ENVELOPE_MARGIN,
+  THROUGH_MOUNT_SLIDE_STEP,
   THROUGH_MOUNT_PAD_CLEARANCE,
   THROUGH_MOUNT_ROUND_HOLE_COUNTS,
 } from "./constants";
 import type { XY } from "./innerEnd";
-import { circumscribedRadius, inscribedRadius, offsetOutline, radiusAtAngle } from "./shapes";
+import { circumscribedRadius, inscribedRadius, offsetOutline, outlineOffsetAt, radiusAtAngle } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 
 /**
@@ -405,8 +407,11 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
 // Issue #129: the hole has no counterbore and no pad -- just a straight
 // cylinder, the same radius through the flange's full depth, with the
 // flange staying its ordinary plate thickness right up to the hole's own
-// edge (flange.ts, flangePads.ts). The screw head bears directly on the
-// flange's winding-side face.
+// edge (flange.ts, flangePads.ts). Issue #239: the hole sits as close to the
+// core as it fits, under the winding if need be, so it is countersunk on the
+// winding face (`throughHoleCountersink`): a 90 degree cone, which faces up
+// in the core's print orientation (wall face on the bed), so it needs no
+// support.
 //
 // Because every candidate angle here is exactly where `radiusAtAngle` is
 // additive in offset (round: `radiusAtAngle` is constant, any angle; sq/tri:
@@ -432,37 +437,47 @@ export interface ThroughMountLayout {
 /**
  * The minimum flange margin that lets `layoutThroughHoleMount` place every
  * hole (mirrors mount.ts's own `requiredFlangeMargin`, but as a closed form
- * -- see the file header above). `envelopeRadius` (issue #70 AC: holes must
- * be reachable with a screwdriver, "outside the winding envelope") is the
- * wound cable's own outer radius (`Solution.envelopeDiameter / 2`, 0 if not
- * yet known/relevant) -- when it reaches further out than the wall's own
- * surface does, it becomes the REAL inner bound instead.
+ * -- see the file header above). Issue #239: the holes may sit under the
+ * winding (countersunk, so the screw heads lie flush under the cable), so
+ * the wound cable no longer pushes them out; only the wall does, and the
+ * collar pad under it (`collarOffset`: how far its footprint reaches past
+ * the wall's outline on the plate, 0 for a plain flange), which the screw
+ * head keeps THROUGH_MOUNT_PAD_CLEARANCE from.
  */
 export function requiredThroughMountMargin(
   outline: ShapeOutline,
   _boreOutline: ShapeOutline,
   holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
-  envelopeRadius = 0,
   collarOffset = 0,
 ): number {
   const holeRadius = holeDiameter / 2;
   const isRound = outline.cornerRadius === outline.apothem;
   const outlineR0 = isRound ? outline.apothem : circumscribedRadius(outline, 0);
-  // The wall's own outer (winding) surface -- NOT the bore (issue #71 PR
-  // review's same fix, mirrored here: see `layoutKeyholeMount`'s `slotAt`
-  // doc comment for why the bore alone isn't the right inner bound) -- or
-  // the wound envelope, whichever reaches further out.
-  // And the collar pad's footprint under the wall (`collarOffset` past the
-  // outline, flangePads.ts), which the screw head must keep clear of.
-  const innerBound0 = Math.max(outlineR0 + THROUGH_MOUNT_EDGE_MARGIN, envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN, outlineR0 + collarOffset + THROUGH_MOUNT_PAD_CLEARANCE + THROUGH_MOUNT_EDGE_MARGIN);
   // A hairline (1e-6 mm) safety margin past the bare-minimum requirement --
   // mirrors `requiredFlangeMargin`'s own epsilon: without it, floating-point
   // rounding can occasionally leave `layoutThroughHoleMount`'s later,
   // independent recomputation of this SAME "does it fit" check a few ULPs
   // short of the target it was solved against.
-  const target = innerBound0 + 2 * holeRadius + THROUGH_MOUNT_RIM_MARGIN + 1e-6;
-  const required = target - outlineR0;
-  return Math.max(0, required);
+  const target = outlineR0 + throughHoleInset(collarOffset) + 2 * holeRadius + THROUGH_MOUNT_RIM_MARGIN + 1e-6;
+  return Math.max(0, target - outlineR0);
+}
+
+/**
+ * Issue #239: the countersink on the winding face of a through-hole of
+ * radius `holeRadius` in a plate `plateThickness` thick: its radius at the
+ * face (twice the hole's, as a countersunk wood screw's head is, but within
+ * the head's bearing ring and keeping THROUGH_MOUNT_COUNTERSINK_LAND of plain
+ * bore below it) and its depth (90 degrees: as deep as it is wide beyond the
+ * hole).
+ */
+export function throughHoleCountersink(holeRadius: number, plateThickness: number): { radius: number; depth: number } {
+  const radius = Math.max(holeRadius, Math.min(2 * holeRadius, holeRadius + THROUGH_MOUNT_EDGE_MARGIN, holeRadius + plateThickness - THROUGH_MOUNT_COUNTERSINK_LAND));
+  return { radius, depth: radius - holeRadius };
+}
+
+/** How far a through-hole's edge keeps from the wall's outline: the screw head's bearing ring (THROUGH_MOUNT_EDGE_MARGIN) clear of the wall, and of the collar pad's footprint by THROUGH_MOUNT_PAD_CLEARANCE (plus a hair, so the pad check never reads a few ULPs short). */
+function throughHoleInset(collarOffset: number): number {
+  return THROUGH_MOUNT_EDGE_MARGIN + (collarOffset > 0 ? collarOffset + THROUGH_MOUNT_PAD_CLEARANCE + 1e-3 : 0);
 }
 
 /** Point-to-closed-polygon minimum distance (mm) -- used to keep a through-hole clear of the inner-end cable channel's own cut footprint (issue #70 AC: "clear of ... the inner-end channel"). */
@@ -504,14 +519,14 @@ export function distanceToClosedPolygon(px: number, py: number, points: XY[]): n
  * every other corner's hole rather than giving up the whole mount over one
  * conflict.
  *
- * `envelopeRadius` (issue #70 AC, PR review: holes must be reachable with a
- * screwdriver, "outside the winding envelope") is the wound cable's own
- * outer radius (`Solution.envelopeDiameter / 2`) -- every hole is also kept
- * at least `THROUGH_MOUNT_ENVELOPE_MARGIN` beyond it, not just beyond the
- * wall's own surface (`_boreOutline` is unused here for the SAME reason
- * `layoutKeyholeMount`'s `slotAt` no longer uses it: the flange's own inner
- * annulus, bore to `outline`, sits directly below the solid wall and is
- * NOT a safe place to cut, regardless of the hollow bore).
+ * Issue #239: each hole sits as close to the core as the wall and the
+ * collar pad allow (`collarOffset`, see `requiredThroughMountMargin`), under
+ * the winding if that's where it falls: it is countersunk on the winding
+ * face, so a countersunk screw's head lies flush under the cable.
+ * (`_boreOutline` is unused here for the SAME reason `layoutKeyholeMount`'s
+ * `slotAt` no longer uses it: the flange's own inner annulus, bore to
+ * `outline`, sits directly below the solid wall and is NOT a safe place to
+ * cut, regardless of the hollow bore.)
  */
 export function layoutThroughHoleMount(
   outline: ShapeOutline,
@@ -519,7 +534,6 @@ export function layoutThroughHoleMount(
   margin: number,
   holeDiameter: number = DEFAULT_THROUGH_HOLE_DIAMETER,
   keepOut: { channelRibbon: XY[]; pads?: XY[][] },
-  envelopeRadius = 0,
   collarOffset = 0,
 ): ThroughMountLayout {
   const holeRadius = holeDiameter / 2;
@@ -534,16 +548,26 @@ export function layoutThroughHoleMount(
     return clearOfRibbon && (keepOut.pads ?? []).every((pad) => distanceToClosedPolygon(x, y, pad) >= headRadius + THROUGH_MOUNT_PAD_CLEARANCE);
   };
 
-  /** A hole centred on standard angle `phi` (shapes.ts convention), or null if it doesn't fit there. */
+  /**
+   * A hole centred on standard angle `phi` (shapes.ts convention), or null if
+   * it doesn't fit there. Issue #239: as close to the core as it fits and
+   * clears the channel and the pads, moving out along `phi` (in steps of
+   * THROUGH_MOUNT_SLIDE_STEP) only as far as it must.
+   */
   const holeAt = (phi: number): ThroughHole | null => {
-    const wallBound = radiusAtAngle(outline, phi) + THROUGH_MOUNT_EDGE_MARGIN;
-    const envelopeBound = envelopeRadius + THROUGH_MOUNT_ENVELOPE_MARGIN;
-    const collarBound = radiusAtAngle(outline, phi) + collarOffset + THROUGH_MOUNT_PAD_CLEARANCE + THROUGH_MOUNT_EDGE_MARGIN;
-    const innerLimit = Math.max(wallBound, envelopeBound, collarBound) + holeRadius;
+    const innerLimit = radiusAtAngle(outline, phi) + throughHoleInset(collarOffset) + holeRadius;
     const outerLimit = radiusAtAngle(flangeOutline, phi) - THROUGH_MOUNT_RIM_MARGIN - holeRadius;
-    if (outerLimit < innerLimit) return null;
-    const R = (innerLimit + outerLimit) / 2;
-    return { x: R * Math.cos(phi), y: R * Math.sin(phi) };
+    // Off a corner's bisector the wall and the rim are nearer than along the
+    // radius: check the hole's true offset too.
+    const fits = (x: number, y: number) => {
+      const o = outlineOffsetAt(outline, x, y).offset;
+      return o >= throughHoleInset(collarOffset) + holeRadius - 1e-6 && o + holeRadius + THROUGH_MOUNT_RIM_MARGIN <= margin + 1e-6;
+    };
+    for (let R = innerLimit; R <= outerLimit + 1e-9; R += THROUGH_MOUNT_SLIDE_STEP) {
+      const h = { x: R * Math.cos(phi), y: R * Math.sin(phi) };
+      if (fits(h.x, h.y) && clearOfChannel(h.x, h.y)) return h;
+    }
+    return null;
   };
 
   if (isRound) {
@@ -553,7 +577,7 @@ export function layoutThroughHoleMount(
         const holes: ThroughHole[] = [];
         for (let i = 0; i < count; i++) {
           const h = holeAt((2 * Math.PI * i) / count + (offsetDeg * Math.PI) / 180);
-          if (!h || !clearOfChannel(h.x, h.y)) return null;
+          if (!h) return null;
           holes.push(h);
         }
         return holes;
@@ -582,8 +606,11 @@ export function layoutThroughHoleMount(
   let skipped = 0;
   for (let i = 0; i < outline.n; i++) {
     const phi = (2 * Math.PI * i) / outline.n;
-    const h = holeAt(phi);
-    if (h && clearOfChannel(h.x, h.y)) holes.push(h);
+    // Issue #239: on its corner's bisector if it clears there, else turned a
+    // little either way round the corner (whole degrees, nearest first).
+    let h: ThroughHole | null = null;
+    for (let k = 0; !h && k <= THROUGH_MOUNT_CORNER_NUDGE_DEG; k++) h = holeAt(phi + (k * Math.PI) / 180) ?? holeAt(phi - (k * Math.PI) / 180);
+    if (h) holes.push(h);
     else skipped++;
   }
   if (holes.length === 0) return { ...base, holes: [], warning: tooNarrowWarning };
