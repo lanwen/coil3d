@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 import { design, parseHash } from "../src/core";
+import { outlineOffsetAt } from "../src/core/shapes";
 import { dimensionAxesGeometry, measureDimensionFrame } from "../src/viewer/dimensionGeometry";
 import { frontFacingDimensionSpin } from "../src/viewer/frontFacing";
 import { encodeHashDoc } from "../e2e/hashDoc";
@@ -46,13 +47,17 @@ describe("dimension axes geometry (issue #93)", () => {
       expect(height.from.toArray()).toEqual([box.min.x - g, box.min.y - g, box.min.z]);
       // Flats-aligned: the square's width and depth are its across-flats flange width.
       const flats = d.solution.flangeExtent!.acrossFlats;
+      // Issue #248: the flange extent is the plate's own; the rim slot's ear (two or more layers) sticks out past it on one side.
+      const ear = (d.flangeSpec.ears ?? []).reduce((far, e) => Math.max(far, ...e.discs.map((disc) => outlineOffsetAt(d.flangeSpec.outline, disc.x, disc.y).offset + disc.r - d.flangeSpec.margin)), 0);
       if (kind !== "tri") {
-        expect(size.x).toBeCloseTo(flats, 1);
-        expect(size.y).toBeCloseTo(flats, 1);
+        expect(size.x).toBeGreaterThan(flats - 0.05);
+        expect(size.x).toBeLessThan(flats + ear + 0.05);
+        expect(size.y).toBeGreaterThan(flats - 0.05);
+        expect(size.y).toBeLessThan(flats + ear + 0.05);
       } else {
         // A triangle standing on a flat: its box is the flat's width by base-to-apex height.
         expect(Math.min(size.x, size.y)).toBeGreaterThan(flats - 0.5);
-        expect(Math.max(size.x, size.y)).toBeLessThan(d.solution.flangeExtent!.acrossCorners + 0.5);
+        expect(Math.max(size.x, size.y)).toBeLessThan(d.solution.flangeExtent!.acrossCorners + ear + 0.5);
       }
     });
   }

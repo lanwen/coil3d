@@ -67,6 +67,7 @@ import {
   CABLE_SWEEP_ARC_SEGMENTS,
   CABLE_SWEEP_STEP,
   CAP_CABLE_DROP,
+  EAR_SEAT_WALL,
   EDGE_CHAMFER,
   INNER_CHANNEL_DEPTH_FACTOR,
   INNER_CHANNEL_MIN_SHELF,
@@ -76,6 +77,7 @@ import {
   RIM_SLOT_WALL_GAP,
   RIM_SLOT_SEAT_SEGMENTS,
 } from "./constants";
+import type { Ear } from "./plateContour";
 import { offsetPerimeter, outlineOffsetAt, pointAt, sideLength } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { grooveShape, grooveStartHeight } from "./wall";
@@ -737,6 +739,8 @@ export interface RimSlot {
   seat: XY;
   /** The unit vector along the slot, from the seat out through the mouth. */
   axis: XY;
+  /** The seat's outline parameter (shapes.ts's `pointAt`). */
+  u: number;
 }
 
 /** The seat's radius, the neck's half-width, and where (along the slot, from the seat's centre) the neck starts and ends. */
@@ -756,6 +760,30 @@ export function rimSlotWidths(wireDiameter: number, tolerance: number): { seat: 
 /** The seat centre's offset outside the core's outline: as far out as the rim allows, the neck ending at the foot of the rim chamfer (so it keeps the plate's full thickness). */
 export function rimSlotSeatOffset(margin: number, wireDiameter: number, tolerance: number): number {
   return margin - EDGE_CHAMFER - rimSlotSection(wireDiameter, tolerance).neckEnd;
+}
+
+/**
+ * Issue #248: the margin of the plate's ear at a base slot that would sit under the wound cable. The seat's inner
+ * edge is flush with the drawn cable's outer surface (`envelopeOffset`), and the neck ends at the chamfer's foot as
+ * usual, so the slot is laid out at this margin (`layoutRimSlot`) and its ear reaches this far out.
+ */
+export function rimSlotEarMargin(envelopeOffset: number, wireDiameter: number, tolerance: number): number {
+  const { R, neckEnd } = rimSlotSection(wireDiameter, tolerance);
+  return envelopeOffset + R + neckEnd + EDGE_CHAMFER;
+}
+
+/**
+ * Issue #248: the lobe round a slot laid out at `rimSlotEarMargin`. Its land runs out to that margin along the slot (a
+ * disc of radius `neckEnd + EDGE_CHAMFER` on the seat). The seat is a round hole, though, and a thick cable's is as wide as
+ * that disc: to keep EAR_SEAT_WALL of flat face beside it, inside the chamfer's foot, the disc is drawn out sideways
+ * into a stadium, two discs of that radius along the rim (a thin cable's lobe is round enough already).
+ */
+export function rimSlotEar(slot: RimSlot, wireDiameter: number, tolerance: number): Ear {
+  const { R, neckEnd } = rimSlotSection(wireDiameter, tolerance);
+  const r = neckEnd + EDGE_CHAMFER;
+  const along = R + EAR_SEAT_WALL - neckEnd;
+  const disc = (shift: number) => ({ x: slot.seat.x - slot.axis.y * shift, y: slot.seat.y + slot.axis.x * shift, r });
+  return { discs: along > 0.05 ? [disc(-along), disc(along)] : [disc(0)] };
 }
 
 /** The narrowest margin whose base slot keeps RIM_SLOT_WALL_GAP of flange between its seat and the wall. */
@@ -779,11 +807,11 @@ function rimSlotAt(outline: ShapeOutline, margin: number, wireDiameter: number, 
     return at(R * Math.cos(phi), R * Math.sin(phi));
   });
   const flare = neck + far - neckEnd;
-  return { outline: [at(far, flare), at(neckEnd, neck), ...arc, at(neckEnd, -neck), at(far, -flare)], seat: { x: c.x, y: c.y }, axis: a };
+  return { outline: [at(far, flare), at(neckEnd, neck), ...arc, at(neckEnd, -neck), at(far, -flare)], seat: { x: c.x, y: c.y }, axis: a, u };
 }
 
 /** Whether `p` lies inside the closed polygon `poly`. */
-function inside(p: XY, poly: XY[]): boolean {
+export function inside(p: XY, poly: XY[]): boolean {
   let odd = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [a, b] = [poly[i], poly[j]];
@@ -793,7 +821,7 @@ function inside(p: XY, poly: XY[]): boolean {
 }
 
 /** Distance from `p` to the closed polygon `poly`'s edges. */
-function edgeDistance(p: XY, poly: XY[]): number {
+export function edgeDistance(p: XY, poly: XY[]): number {
   let best = Infinity;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [a, b] = [poly[j], poly[i]];
@@ -814,7 +842,17 @@ function edgeDistance(p: XY, poly: XY[]): number {
  * fits. `outline`/`margin` are the plate's (the flange's) own, so every
  * backend cuts the same slot.
  */
-export function layoutRimSlot(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, u0: number, keepOut: XY[][] = [], clearance = 0): RimSlot | undefined {
+export function layoutRimSlot(
+  outline: ShapeOutline,
+  margin: number,
+  wireDiameter: number,
+  tolerance: number,
+  u0: number,
+  keepOut: XY[][] = [],
+  clearance = 0,
+  /** Issue #248: `accept` has the last word on a position that fits (the ear round it keeps clear too), and `maxShift` caps how far round the rim it may move from `u0`, as a fraction of the rim (0: only `u0` itself). */
+  options: { accept?: (slot: RimSlot) => boolean; maxShift?: number } = {},
+): RimSlot | undefined {
   const du = 0.5 / offsetPerimeter(outline, Math.max(0, rimSlotSeatOffset(margin, wireDiameter, tolerance)));
   const fits = (slot: RimSlot) => {
     // The cut's edges, sampled finely, where they're inside the plate.
@@ -826,10 +864,10 @@ export function layoutRimSlot(outline: ShapeOutline, margin: number, wireDiamete
     const cut = samples.filter((p) => outlineOffsetAt(outline, p.x, p.y).offset <= margin);
     return keepOut.every((poly) => cut.every((p) => !inside(p, poly) && edgeDistance(p, poly) >= clearance) && poly.every((q) => outlineOffsetAt(outline, q.x, q.y).offset > margin || !inside(q, slot.outline)));
   };
-  for (let k = 0; k * du <= 0.5; k++) {
+  for (let k = 0; k * du <= (options.maxShift ?? 0.5); k++) {
     for (const u of k === 0 ? [u0] : [u0 + k * du, u0 - k * du]) {
       const slot = rimSlotAt(outline, margin, wireDiameter, tolerance, u);
-      if (fits(slot)) return slot;
+      if (fits(slot) && (options.accept?.(slot) ?? true)) return slot;
     }
   }
   return undefined;

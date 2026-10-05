@@ -280,6 +280,9 @@ export interface Solution {
    * corner-arc extent -- together they bound whatever direction the
    * viewer's own width/depth dimension axes (`DimensionAxes.tsx`,
    * measured along the model's own X/Y) read off the SAME flange.
+   * Issue #248: this is the plate's own extent; the ear that carries the rim
+   * slot on a coil of two or more layers (plateContour.ts) sticks out past it
+   * on one side, and only the built mesh's bounds include it.
    * Set on `alternates` too (see `overallHeight`).
    */
   flangeExtent?: FlangeExtent;

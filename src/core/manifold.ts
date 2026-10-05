@@ -28,6 +28,7 @@
 import Module, { type ManifoldToplevel } from "manifold-3d";
 import {
   CAP_THICKNESS,
+  EDGE_CHAMFER,
   JOINT_ENGAGE_DEPTH,
   JOINT_TRANSITION_HEIGHT,
   LABEL_DEPTH,
@@ -52,6 +53,8 @@ import { getLabelFont, labelLoops } from "./label";
 import type { ResolvedLabel } from "./label";
 import { chamferedRim, chamferWedgeRows, rimTriangles } from "./edgeChamfer";
 import type { RimRow } from "./edgeChamfer";
+import { contourPoints, plateContourOf } from "./plateContour";
+import type { ContourRow, Ear, PlateContour } from "./plateContour";
 import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd, sweepMesh } from "./innerEnd";
 import type { InnerEndLayout, RimSlot, SweepSolid } from "./innerEnd";
@@ -109,6 +112,8 @@ export interface FlangeSpec {
   skadisTclip?: SkadisTclipLayout;
   /** Issue #241: the rim cable slot (innerEnd.ts's `layoutRimSlot`), cut straight through the flange. Omitted: none fits. */
   rimSlot?: RimSlot;
+  /** Issue #248: the local lobes on the plate's rim (plateContour.ts), on the base flange and the top cap alike. Omitted or empty: the plain offset outline. */
+  ears?: Ear[];
 }
 
 /** What `fuseFlange` needs to cut a bayonet/snap joint's mating feature into the core's own top rim. Press needs no core-side cut, so it's omitted entirely by the caller. */
@@ -454,7 +459,12 @@ function relieveFlange(
   const padSolid = track(wasm.Manifold.union(pads.map((pad) => track(sweepSolid(wasm, pad.sweep)))));
   // Issue #229: the plate's top edge is chamfered too: what stays is the flange inside the frustum under the plate
   // top (edgeChamfer.ts's `chamferWedgeRows`, reaching below the flange) and the pads.
-  const kept = track(rimHull(wasm, flange.outline, chamferWedgeRows(flange.margin, zPlate, -flange.thickness - 1), flange.columns, flange.minCornerSegments));
+  const kept = track(
+    flange.ears?.length
+      ? // The wedge stops one millimetre out, where a fillet's radius is still real; a straight prism carries it down.
+        contourLoft(wasm, plateContourOf(flange), [{ offset: flange.margin + 1, z: -flange.thickness - 1 }, ...chamferWedgeRows(flange.margin, zPlate, zPlate - EDGE_CHAMFER - 1)], flange)
+      : rimHull(wasm, flange.outline, chamferWedgeRows(flange.margin, zPlate, -flange.thickness - 1), flange.columns, flange.minCornerSegments),
+  );
   return track(ring.intersect(track(kept.add(padSolid))));
 }
 
@@ -482,9 +492,7 @@ export async function fuseFlange(
 
     // Issue #221: with T-clips the flange is a solid plate, its floor filling the bottom of the bore (full
     // thickness -- the collar pad keeps it so through the relief), as the STEP backend builds it.
-    const ringManifold = flange.skadisTclip
-      ? track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, -flange.thickness, 0), flange.columns, flange.minCornerSegments))
-      : outlineRingManifold(wasm, track, flange);
+    const ringManifold = flange.skadisTclip ? track(rimSolid(wasm, flange, chamferedRim(flange.margin, -flange.thickness, 0))) : outlineRingManifold(wasm, track, flange);
 
     // Laid out up front: the flange's pads (issue #122) follow the channel
     // too, not just its cutter below.
@@ -604,7 +612,7 @@ export async function fuseFlange(
     );
     // Issue #229: the rim's chamfer, for the viewer to leave out of the drawing.
     const zPlate = plateTopZ(flange);
-    const rim = rimTriangles(mesh, flange.outline, flange.margin, zPlate === undefined ? [[-flange.thickness, 0]] : [[-flange.thickness, 0], [-flange.thickness, zPlate]]);
+    const rim = rimTriangles(mesh, plateContourOf(flange), zPlate === undefined ? [[-flange.thickness, 0]] : [[-flange.thickness, 0], [-flange.thickness, zPlate]]);
     return rim ? { ...mesh, rimTriangles: rim } : mesh;
   } finally {
     for (const m of trash) m.delete();
@@ -651,7 +659,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     // through-hole (`holeOutline`), never by a blind pocket whose floor would
     // print as a bridge (the pre-#121 annulus over a solid collar plug).
     // Issues #229, #237: the outer edge is chamfered on both faces (edgeChamfer.ts's `chamferedRim`).
-    const plate = track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, 0, CAP_THICKNESS), flange.columns, flange.minCornerSegments));
+    const plate = track(rimSolid(wasm, flange, chamferedRim(flange.margin, 0, CAP_THICKNESS)));
     if (plate.status() !== "NoError") {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
     }
@@ -730,7 +738,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     const welded = weldShortEdges(raw);
     const mesh: CoilMesh = improveFlatFaces(welded.mesh);
     // Issue #229: the rim's chamfer, for the viewer to leave out of the drawing.
-    mesh.rimTriangles = rimTriangles(mesh, flange.outline, flange.margin, [[0, CAP_THICKNESS]]);
+    mesh.rimTriangles = rimTriangles(mesh, plateContourOf(flange), [[0, CAP_THICKNESS]]);
     if (labelId !== undefined) {
       const isLabel = new Uint8Array(raw.indices.length / 3);
       const runIndex = outMesh.runIndex!;
@@ -828,8 +836,77 @@ function rimHull(wasm: ManifoldToplevel, outline: ShapeOutline, rows: RimRow[], 
   return wasm.Manifold.hull(pts);
 }
 
+/**
+ * Issue #248: the solid whose cross-section is the plate's contour (plateContour.ts) moved out by each row's offset
+ * (minus the margin), at the row's `z`: a ruled loft through the rows, each of the same points, with both ends
+ * triangulated. The twin of `rimHull` for a contour that is no longer convex (it has ears and concave fillets).
+ */
+function contourLoft(wasm: ManifoldToplevel, pc: PlateContour, rows: RimRow[], flange: Pick<FlangeSpec, "columns" | "minCornerSegments">): Manifold {
+  const contours = rows.map(({ offset }) => contourPoints(pc, offset - pc.margin, flange));
+  const n = contours[0].points.length;
+  const apex = rows.length * n; // the first cap's centre vertex, the second's follows
+  const positions = new Float32Array((rows.length * n + 2) * 3);
+  rows.forEach(({ z }, r) => contours[r].points.forEach(([x, y], i) => positions.set([x, y, z], (r * n + i) * 3)));
+  positions.set([0, 0, rows[0].z], apex * 3);
+  positions.set([0, 0, rows[rows.length - 1].z], (apex + 1) * 3);
+  const indices: number[] = [];
+  for (let r = 0; r + 1 < rows.length; r++) {
+    for (let i = 0; i < n; i++) {
+      const j = (i + 1) % n;
+      const [a, b, c, d] = [r * n + i, r * n + j, (r + 1) * n + i, (r + 1) * n + j];
+      indices.push(a, b, c, c, b, d);
+    }
+  }
+  // The caps: the first row faces down, the last up.
+  for (const [r, centre, up] of [[0, apex, false], [rows.length - 1, apex + 1, true]] as const) {
+    for (const tri of capTriangles(wasm, contours[r])) {
+      const [a, b, c] = tri.map((v) => (v < 0 ? centre : r * n + v));
+      indices.push(a, up ? b : c, up ? c : b);
+    }
+  }
+  const solid = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: positions, triVerts: new Uint32Array(indices) }));
+  if (solid.status() !== "NoError") throw new Error(`Plate loft is not a valid manifold: ${solid.status()}`);
+  return solid;
+}
+
+/**
+ * The triangles of one cap of a contour loft, as indices into its row (-1 stands for the vertex at the plate's
+ * centre). A fan of fat triangles from the centre over the plain plate's rim; each ear's window (its own part of the
+ * rim, closed by the chord between the points where it leaves the plain plate) is triangulated on its own, small.
+ * The booleans that follow cut these faces (the bore, the label) and a triangulation of the whole contour in one
+ * piece has slivers hugging its long straight sides, which they left as folded triangles in the face.
+ */
+function capTriangles(wasm: ManifoldToplevel, { points, ears }: ContourRow): Array<[number, number, number]> {
+  const n = points.length;
+  const out: Array<[number, number, number]> = [];
+  const inside = new Uint8Array(n);
+  for (const [from, to] of ears) {
+    const end = to <= from ? to + n : to;
+    const window = Array.from({ length: end - from + 1 }, (_, k) => (from + k) % n);
+    for (const [a, b, c] of wasm.triangulate([window.map((i) => points[i])], 1e-7)) out.push([window[a], window[b], window[c]]);
+    for (let k = from + 1; k < end; k++) inside[k % n] = 1;
+  }
+  const rim = Array.from({ length: n }, (_, i) => i).filter((i) => !inside[i]);
+  rim.forEach((a, k) => out.push([-1, a, rim[(k + 1) % rim.length]]));
+  return out;
+}
+
+/** The solid of a plate's rim rows (edgeChamfer.ts): the convex hull for a plain plate, the contour loft when it has ears. */
+function rimSolid(wasm: ManifoldToplevel, flange: FlangeSpec, rows: RimRow[]): Manifold {
+  return flange.ears?.length ? contourLoft(wasm, plateContourOf(flange), rows, flange) : rimHull(wasm, flange.outline, rows, flange.columns, flange.minCornerSegments);
+}
+
 /** The plain flange: the ring between its outline (out by its margin) and the bore. */
 function outlineRingManifold(wasm: ManifoldToplevel, track: <T extends { delete(): void }>(m: T) => T, flange: FlangeSpec): Manifold {
+  if (flange.ears?.length) {
+    // The bore is sampled at the wall's own columns (the ring above pairs them), so the flange and the wall meet along identical edges.
+    const bore: [number, number][] = outlineColumnParams(flange.outline, flange.columns, flange.minCornerSegments).map((t) => {
+      const p = pointAt(flange.boreOutline, t, 0);
+      return [p.x, p.y];
+    });
+    const hole = track(new wasm.CrossSection([bore], "NonZero").extrude(flange.thickness + 2).translate([0, 0, -flange.thickness - 1]));
+    return track(track(rimSolid(wasm, flange, chamferedRim(flange.margin, -flange.thickness, 0))).subtract(hole));
+  }
   const ringMesh = buildOutlineRing(flange.outline, flange.margin, flange.boreOutline, -flange.thickness, 0, flange.columns, flange.minCornerSegments);
   const ring = track(new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: ringMesh.positions, triVerts: ringMesh.indices })));
   if (ring.status() !== "NoError") {

@@ -5,8 +5,8 @@
 // outline, z), and a backend turns the rows into its own surfaces.
 
 import { EDGE_CHAMFER } from "./constants";
-import { outlineOffsetAt } from "./shapes";
-import type { ShapeOutline } from "./shapes";
+import { contourOffsetAt } from "./plateContour";
+import type { PlateContour } from "./plateContour";
 import type { CoilMesh } from "./types";
 
 /** One row of a rim profile: the outline offset outward by `offset` (mm), at height `z`. */
@@ -58,12 +58,14 @@ const RIM_Z_TOLERANCE = 0.02;
 
 /**
  * The rim triangles of a finished mesh (types.ts's `CoilMesh.rimTriangles`): those lying on the chamfer bands and on
- * the land between them, of every plate z = [zLo, zHi] in `bands` whose outer edge is `outline` offset by `margin`
- * (a flange thinned to its plate has two: the plate and the pads). Found by position, since the booleans and the
- * clean-up passes that follow them don't track faces. Undefined when the mesh has no rim.
+ * the land between them, of every plate z = [zLo, zHi] in `bands` whose outer edge is the contour `pc`: the outline
+ * offset by its margin, with the plate's ears (a flange thinned to its plate has two bands: the plate and the pads).
+ * Found by position, since the booleans and the clean-up passes that follow them don't track faces. Undefined when
+ * the mesh has no rim.
  */
-export function rimTriangles(mesh: CoilMesh, outline: ShapeOutline, margin: number, bands: Array<[number, number]>): CoilMesh["rimTriangles"] {
+export function rimTriangles(mesh: CoilMesh, pc: PlateContour, bands: Array<[number, number]>): CoilMesh["rimTriangles"] {
   const c = EDGE_CHAMFER;
+  const margin = pc.margin;
   const p = mesh.positions;
   const t = mesh.indices;
   const chamfer: number[] = [];
@@ -71,7 +73,7 @@ export function rimTriangles(mesh: CoilMesh, outline: ShapeOutline, margin: numb
   const offsets = new Map<number, number>();
   const offsetOf = (v: number): number => {
     let d = offsets.get(v);
-    if (d === undefined) offsets.set(v, (d = outlineOffsetAt(outline, p[v * 3], p[v * 3 + 1]).offset));
+    if (d === undefined) offsets.set(v, (d = contourOffsetAt(pc, p[v * 3], p[v * 3 + 1])));
     return d;
   };
   const zMin = Math.min(...bands.map(([lo]) => lo)) - RIM_Z_TOLERANCE;

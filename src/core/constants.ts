@@ -220,6 +220,14 @@ export const RIM_SLOT_KEEP_OUT = 1; // mm
 export const RIM_SLOT_LABEL_KEEP_OUT = 1; // mm
 /** Facets round a whole circle of the rim slot's seat. */
 export const RIM_SLOT_SEAT_SEGMENTS = 32;
+/** Plate ears (plateContour.ts): the radius of the concave fillets that blend an ear into the plate's rim, mm. At least 2, so the fillet stays a real arc on the offset rows of the rim's chamfer. */
+export const EAR_FILLET = 3; // mm
+/** A rim slot's ear keeps this much flat face between the seat and the rim chamfer's foot on its flanks, mm. */
+export const EAR_SEAT_WALL = 0.8; // mm
+/** Plate ears: the longest facet of an ear's or a fillet's arc in the mesh, degrees. */
+export const EAR_ARC_STEP_DEG = 5;
+/** Plate ears: the longest facet of an ear's flat side in the mesh, mm. */
+export const EAR_LINE_STEP = 3; // mm
 /** A clipped cable end's free tail past the rim, as a multiple of the wire diameter (at least CABLE_CLIPPED_TAIL_MIN). */
 export const CABLE_CLIPPED_TAIL_FACTOR = 3;
 export const CABLE_CLIPPED_TAIL_MIN = 10; // mm

@@ -8,6 +8,7 @@ import { layoutFlangeThroughHoles } from "../src/core/flangePads";
 import { layoutInnerEnd, resolveChannelDepth, rimSlotWidths } from "../src/core/innerEnd";
 import type { XY } from "../src/core/innerEnd";
 import { getLabelFont, labelLoops, resolveLabel } from "../src/core/label";
+import { contourOffsetAt, plateContourOf } from "../src/core/plateContour";
 import { outlineOffsetAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 
@@ -89,10 +90,12 @@ describe("rim cable slots (issue #241)", () => {
           for (const slot of [d.rimSlots.base, d.rimSlots.cap]) {
             expect(slot).toBeDefined();
             const seat = outlineOffsetAt(d.flangeSpec.outline, slot!.seat.x, slot!.seat.y).offset;
-            // Its neck ends at the rim chamfer's foot, and the seat is clear of the wall.
+            // Its neck ends at the rim chamfer's foot (on an ear, the ear's), and the seat is clear of the wall.
             const R = (diameter + d.spec.tolerance) / 2;
             const { neck } = rimSlotWidths(diameter, d.spec.tolerance);
-            expect(seat + Math.sqrt(R * R - (neck / 2) ** 2) + RIM_SLOT_NECK).toBeCloseTo(d.flangeSpec.margin - EDGE_CHAMFER, 6);
+            const neckEnd = Math.sqrt(R * R - (neck / 2) ** 2) + RIM_SLOT_NECK;
+            const end = { x: slot!.seat.x + slot!.axis.x * neckEnd, y: slot!.seat.y + slot!.axis.y * neckEnd };
+            expect(contourOffsetAt(plateContourOf(d.flangeSpec), end.x, end.y)).toBeCloseTo(d.flangeSpec.margin - EDGE_CHAMFER, 6);
             expect(seat - R).toBeGreaterThan(1);
             // Open at the rim.
             expect(Math.max(...slot!.outline.map((q) => outlineOffsetAt(d.flangeSpec.outline, q.x, q.y).offset))).toBeGreaterThan(d.flangeSpec.margin);

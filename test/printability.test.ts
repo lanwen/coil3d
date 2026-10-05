@@ -264,6 +264,12 @@ for (const shape of SHAPES) {
 for (const [diameter, tolerance] of [[2, 0.2], [2, TOLERANCE_MAX], [5, 0.2], [8, 0.4]]) {
   CASES.push({ name: `round, press, cable ${diameter} mm, tolerance ${tolerance}`, spec: baseSpec({ wire: { length: 3000, diameter, type: "flex" }, tolerance, height: { locked: false } }) });
 }
+// Issue #248: the rim slot's ear (two or more layers) on each shape, with a thin and a thick cable.
+for (const shape of SHAPES) {
+  for (const [diameter, layers] of [[3, 2], [6, 3]]) {
+    CASES.push({ name: `${shape.kind}, press, rim slot ear, cable ${diameter} mm, ${layers} layers`, spec: baseSpec({ shape, wire: { length: 1000 * layers * diameter, diameter, type: "usb" }, layers: { locked: true, value: layers }, height: { locked: false } }) });
+  }
+}
 CASES.push({ name: "sq, press, mount keyhole rotated 45", spec: baseSpec({ shape: SHAPES[1], mount: "keyhole", keyholeRotation: 45 }) });
 CASES.push({ name: "round, press, mount opengrid, snap plate joint", spec: baseSpec({ mount: "opengrid", plateJoint: "snap" }) });
 // Issue #207: the heavy-cable SKÅDIS layout (two top clips) and the latch off.

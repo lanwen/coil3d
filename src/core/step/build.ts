@@ -41,6 +41,7 @@ import type { OutlineStack, RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
+import { contourSegments, plateContourOf } from "../plateContour";
 import type { InnerEndLayout, SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
 import { layoutKeyholeMount, throughHoleCountersink } from "../mount";
@@ -119,10 +120,38 @@ function outlineLoftSolid(bottomOutline: ShapeOutline, topOutline: ShapeOutline,
   return outlineSketch(bottomOutline, zBottom).loftWith(outlineSketch(topOutline, zTop));
 }
 
-/** Issue #229: the solid whose outline is `outline` offset by each row's `offset`, at the row's `z`, lofted (ruled) through the rows -- the STEP twin of manifold.ts's `rimHull`. */
-function rimLoftSolid(outline: ShapeOutline, rows: RimRow[]): R.Shape3D {
-  const [first, ...rest] = rows.map(({ offset, z }) => outlineSketch(offsetOutline(outline, offset), z));
+/**
+ * Issue #229: the solid whose outline is the plate's offset by each row's `offset`, at the row's `z`, lofted (ruled)
+ * through the rows -- the STEP twin of manifold.ts's `rimHull`. Issue #248: with ears the rows are the plate's
+ * contour (plateContour.ts) moved by the row's offset, the twin of its `contourLoft`.
+ */
+function rimLoftSolid(plate: Pick<Design["flangeSpec"], "outline" | "margin" | "ears">, rows: RimRow[]): R.Shape3D {
+  const pc = plateContourOf(plate);
+  const sketch = ({ offset, z }: RimRow) => (pc.ears.length > 0 ? contourSketch(pc, offset - pc.margin, z) : outlineSketch(offsetOutline(pc.outline, offset), z));
+  const [first, ...rest] = rows.map(sketch);
   return first.loftWith(rest, { ruled: true });
+}
+
+/** The plate's contour moved out by `delta`, as a sketch at height z: lines and true arcs, in the order `contourSegments` gives them (the same topology for every `delta`). */
+function contourSketch(pc: ReturnType<typeof plateContourOf>, delta: number, z: number): R.Sketch {
+  const segments = contourSegments(pc, delta);
+  const point = (seg: (typeof segments)[number], end: 0 | 1): [number, number] => {
+    if (seg.kind === "line") return end === 0 ? [seg.x0, seg.y0] : [seg.x1, seg.y1];
+    const a = end === 0 ? seg.a0 : seg.a1;
+    return [seg.cx + seg.r * Math.cos(a), seg.cy + seg.r * Math.sin(a)];
+  };
+  const start = point(segments[0], 0);
+  let pen = R.draw(start);
+  segments.forEach((seg, i) => {
+    // The last one ends exactly where the first began.
+    const end = i === segments.length - 1 ? start : point(seg, 1);
+    if (seg.kind === "line") pen = pen.lineTo(end);
+    else {
+      const mid = (seg.a0 + seg.a1) / 2;
+      pen = pen.threePointsArcTo(end, [seg.cx + seg.r * Math.cos(mid), seg.cy + seg.r * Math.sin(mid)]);
+    }
+  });
+  return pen.close().sketchOnPlane("XY", z) as R.Sketch;
 }
 
 /** `o`'s own boundary as a sketch at height z (a plain circle when round). */
@@ -361,7 +390,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const tube = outer.cut(bore);
 
   // Issue #229: the outer edge is chamfered on both faces (edgeChamfer.ts).
-  const flangeOuter = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, -flangeSpec.thickness, 0));
+  const flangeOuter = rimLoftSolid(flangeSpec, chamferedRim(flangeSpec.margin, -flangeSpec.thickness, 0));
   const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
   // Issue #221: with T-clips, a floor fills the bottom of the bore (manifold.ts's `fuseFlange`): the flange stays a full disc.
   const flange = flangeSpec.skadisTclip ? flangeOuter : flangeOuter.cut(flangeInner);
@@ -761,8 +790,9 @@ function relieveFlangeSolid(kernel: OpenCascadeInstance, flange: R.Shape3D, flan
   const pads = layoutFlangePads(flangeSpec, innerEnd, anchors, tolerance).map((pad) => padSolidStep(pad, levels, flangeSpec.outline));
   const padSolid = pads.slice(1).reduce((all, pad) => all.fuse(pad), pads[0]);
   // Issue #229: the slab's lower edge runs down the plate top's chamfer, around the frustum that stays.
-  const slab = outlineSolid(offsetOutline(flangeSpec.outline, flangeSpec.margin + 1), 1 - zPlate + SLAB_BELOW_FACE, zPlate - SLAB_BELOW_FACE);
-  const kept = rimLoftSolid(flangeSpec.outline, chamferWedgeRows(flangeSpec.margin, zPlate));
+  const slabRows = [{ offset: flangeSpec.margin + 1, z: zPlate - SLAB_BELOW_FACE }, { offset: flangeSpec.margin + 1, z: 1 }];
+  const slab = flangeSpec.ears?.length ? rimLoftSolid(flangeSpec, slabRows) : outlineSolid(offsetOutline(flangeSpec.outline, flangeSpec.margin + 1), 1 - zPlate + SLAB_BELOW_FACE, zPlate - SLAB_BELOW_FACE);
+  const kept = rimLoftSolid(flangeSpec, chamferWedgeRows(flangeSpec.margin, zPlate));
   return checkedCut(kernel, flange, checkedCut(kernel, checkedCut(kernel, slab, kept), padSolid));
 }
 
@@ -832,7 +862,7 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
   // Issue #127: the plate's middle is opened by the through-hole below (mirrors manifold.ts).
   // Issues #229, #237: the outer edge is chamfered on both faces (edgeChamfer.ts's `chamferedRim`).
-  const plate = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, 0, CAP_THICKNESS));
+  const plate = rimLoftSolid(flangeSpec, chamferedRim(flangeSpec.margin, 0, CAP_THICKNESS));
 
   // Issue #167: the joint design.ts built (a bayonet may fall back to press fit).
   const capJoint = resolveCapJoint(spec, design.wallSpec);

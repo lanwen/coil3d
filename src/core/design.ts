@@ -42,8 +42,10 @@ import {
 import { buildMountPlate, buildPeg, buildSkadisClip, buildSkadisTclip, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { jointGeometry, resolveCapJoint } from "./joints";
-import { layoutInnerEnd, layoutRimSlot, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
+import { idealChannelDepth, layoutInnerEnd, layoutRimSlot, resolveChannelDepth, rimSlotEar, rimSlotEarMargin } from "./innerEnd";
 import type { RimSlot, XY } from "./innerEnd";
+import { earKeepsClear } from "./plateContour";
+import type { Ear } from "./plateContour";
 import { printBBox } from "./plate";
 import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
 import { channelPadFootprints, layoutFlangePads, layoutFlangeThroughHoles } from "./flangePads";
@@ -370,11 +372,17 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   // the cable's outer end leaves the coil (issue #241). The lead-in is
   // `innerEndLayout`'s own, the same layout the flange's channel and clip are
   // cut from.
+  // Issue #248: with two or more layers the slot at the plain rim would sit under the outer layers, so the base
+  // grows a small ear to carry it, outside the drawn cable (its margin: `rimSlotEarMargin`). The cap gets the same ear.
+  const woundLayers = solution.layerResults.filter((r) => r.turns > 0).length;
+  const earMargin = rimSlotEarMargin(sizing.envelopeOffset, wireDiameter, spec.tolerance);
+  const wantsEar = woundLayers >= 2 && margin < earMargin - 1e-9;
   const cable = buildCable(solution.layerResults, wallSpec, spec.windingQuality, resolution, {
     innerEnd: innerEndLayout,
     topCapEnabled,
     height: solution.height,
-    margin,
+    // The outer end's free tail runs out past the slot's own rim.
+    margin: wantsEar ? earMargin : margin,
     tolerance: spec.tolerance,
     bendRadius,
   });
@@ -392,9 +400,14 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     ...(wantsThrough ? throughHoleKeepOut(layoutFlangeThroughHoles(flangeSpec, innerEndLayout)) : []),
     ...(flangeSpec.skadis ? skadisClipFootprints(flangeSpec.skadis) : []),
   ].filter((poly) => poly.length >= 3);
-  const baseSlot = layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, baseKeepOut, RIM_SLOT_KEEP_OUT);
+  const baseSlot = wantsEar
+    ? layoutRimSlot(outline, earMargin, wireDiameter, spec.tolerance, cable.outerEndU, baseKeepOut, RIM_SLOT_KEEP_OUT, {
+        accept: (slot) => earKeepsClear({ outline, margin, ears: [rimSlotEar(slot, wireDiameter, spec.tolerance)] }, baseKeepOut, RIM_SLOT_KEEP_OUT),
+      })
+    : layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, baseKeepOut, RIM_SLOT_KEEP_OUT);
   if (!baseSlot) note("The base's rim cable slot doesn't fit anywhere round the rim beside the mount, so it's left out.");
-  const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot };
+  const ears: Ear[] = wantsEar && baseSlot ? [rimSlotEar(baseSlot, wireDiameter, spec.tolerance)] : [];
+  const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot, ears };
 
   const wall = buildWall(wallSpec);
   const coreMesh = await fuseFlange(wall, coreFlangeSpec, coreJoint, innerEndCut, mountPlateCut);
@@ -415,7 +428,10 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   let capSlot: RimSlot | undefined;
   if (topCapEnabled) {
     const labelKeepOut = label ? labelLoops(await getLabelFont(), label).map((loop) => loop.map(([x, y]) => ({ x, y }))) : [];
-    capSlot = layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, labelKeepOut, RIM_SLOT_LABEL_KEEP_OUT);
+    // With an ear, the cap's slot sits on the same ear as the base's: at its position, or not at all.
+    capSlot = wantsEar
+      ? baseSlot && layoutRimSlot(outline, earMargin, wireDiameter, spec.tolerance, baseSlot.u, labelKeepOut, RIM_SLOT_LABEL_KEEP_OUT, { maxShift: 0 })
+      : layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, labelKeepOut, RIM_SLOT_LABEL_KEEP_OUT);
     if (!capSlot) note("The top cap's rim cable slot doesn't fit anywhere round the rim beside the label, so it's left out.");
     const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot });
     // `capMesh` is built in a LOCAL frame (plate z=[0, CAP_THICKNESS], collar

@@ -103,6 +103,20 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   base rim slot and the mounts can need more: the keyhole slots, the SKÅDIS
   clips' lips (they keep clear of the wound cable) and the through-holes
   (wall, collar pad, hole and rim).
+- Plate ears (#248, `src/core/plateContour.ts`): with two or more layers the
+  base's rim slot, at the plain rim, would sit under the outer layers, where the
+  wound cable covers it. The base then grows a small local ear that carries the
+  slot, so its seat sits just outside the drawn cable (its inner edge flush with
+  the cable's outer surface). The cap gets the same ear, so the two slots line
+  up. A single layer needs none: its slot already sits outside the winding. The
+  rest of the plate stays slim. An ear is a lobe of one or two discs blended into
+  the rim by concave fillets of 3 mm radius. The lobe reaches the margin that
+  ends the slot's neck at its own chamfer foot, and where a thick cable's round
+  seat would otherwise break through its flanks it is drawn out sideways into a
+  stadium, keeping 0.8 mm of flat face beside the seat. The chamfer follows the
+  ear and its fillets as exact offsets of one contour (convex arcs grow, concave
+  arcs shrink, lines move), so the mesh and STEP backends loft the same rows.
+  The result panel's flange size is the plate's own, without the ear.
 - The flange and the top cap have a 1 mm x 45 degree chamfer on their outer
   edge, on both faces (#229, #237, `EDGE_CHAMFER`, `src/core/edgeChamfer.ts`).
   The rim slots' necks end at the foot of the chamfer. A 3 mm

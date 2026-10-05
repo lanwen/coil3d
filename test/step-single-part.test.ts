@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
 import type { CoilSpec } from "../src/core";
-import { STEP_TIMEOUT_MS, meshVolume, reimportStep } from "./support/step";
+import { STEP_TIMEOUT_MS, meshVolume, perPartVolumeErrors, reimportStep } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the five single-part
 // (one-solid) STEP designs, kept in their own file so this file's OCCT
@@ -84,6 +84,37 @@ describe.sequential("STEP/OCCT export: single-part designs (issue #32)", () => {
         const expectedVolume = meshVolume(d.mesh);
         expect(reimportedVolume).toBeGreaterThan(0);
         expect(Math.abs(reimportedVolume - expectedVolume) / expectedVolume).toBeLessThan(0.02);
+      },
+      STEP_TIMEOUT_MS,
+    );
+  });
+
+  describe("exportDesign(design, 'step') with the rim slot's ear (issue #248)", () => {
+    it(
+      "re-imports a two-layer rounded square (base and cap, each with its ear) as one valid solid per part, volumes matching the meshes",
+      async () => {
+        const spec: CoilSpec = {
+          wire: { length: 2500, diameter: 3.8, type: "usb" },
+          shape: { kind: "sq", cornerRadius: 15 },
+          windingQuality: 0.7,
+          coreSize: { locked: true, dimension: "outer", value: 60 },
+          height: { locked: true, value: 30 }, // short: the wall's STEP build time grows with its turns
+          layers: { locked: true, value: 2 },
+          objective: "minVolume",
+          topCap: "on",
+          joint: "press",
+          tolerance: 0.2,
+          print: { bedX: 256, bedY: 256, bedZ: 256 },
+          mount: "none",
+          plateJoint: "glue",
+        };
+        const d = await design(spec);
+        expect(d.flangeSpec.ears).toHaveLength(1);
+        const stepBytes = await exportDesign(d, "step");
+        const { valid, solidVolumes } = await reimportStep(stepBytes, "reimport-sq-ear");
+        expect(valid).toBe(true);
+        expect(solidVolumes.length).toBe(2); // core + top-cap
+        for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
       },
       STEP_TIMEOUT_MS,
     );

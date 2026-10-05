@@ -9,6 +9,7 @@ import type { CoilSpec, Design, ShapeSpec, WireTypeId } from "../src/core";
 import { baseClipOpeningFraction, layoutInnerEnd, resolveChannelDepth, rimSlotWidths } from "../src/core/innerEnd";
 import type { RimSlot } from "../src/core/innerEnd";
 import { CABLE_BASE_CLIP_LAND, CABLE_CLIP_WALL, EDGE_CHAMFER, RIM_SLOT_KEEP_OUT } from "../src/core/constants";
+import { contourOffsetAt, plateContourOf } from "../src/core/plateContour";
 import { outlineOffsetAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 
@@ -267,7 +268,9 @@ function sliceAt(part: Manifold, z: number): Section {
 function checkRimSlot(mesh: { positions: Float32Array; indices: Uint32Array }, slot: RimSlot, z: number, d: Design, tag: string) {
   const wd = d.spec.wire.diameter;
   const R = (wd + d.spec.tolerance) / 2;
-  const { outline, margin } = d.flangeSpec;
+  // Issue #248: a slot on an ear ends its neck at the ear's own chamfer foot, so distances are to the plate's contour.
+  const contour = plateContourOf(d.flangeSpec);
+  const { margin } = d.flangeSpec;
   const a = slot.axis;
   const b = { x: -a.y, y: a.x };
   const at = (s: number) => ({ x: slot.seat.x + a.x * s, y: slot.seat.y + a.y * s });
@@ -288,13 +291,13 @@ function checkRimSlot(mesh: { positions: Float32Array; indices: Uint32Array }, s
     for (const s of [neckStart + 0.2, neckStart + 0.8]) {
       const g = gapAlong(slice, at(s), b);
       expectNear(g.right - g.left, neck, `${tag}: neck ${s.toFixed(2)} mm out`);
-      expectNear(outlineOffsetAt(outline, at(s).x, at(s).y).offset, margin - EDGE_CHAMFER - (neckStart + 1 - s), `${tag}: the neck ends at the rim chamfer's foot`);
+      expectNear(contourOffsetAt(contour, at(s).x, at(s).y), margin - EDGE_CHAMFER - (neckStart + 1 - s), `${tag}: the neck ends at the rim chamfer's foot`);
     }
     // The lead-in: wider at the rim.
     const mouth = gapAlong(slice, at(neckStart + 1 + 0.5), b);
     expectNear(mouth.right - mouth.left, neck + 1, `${tag}: the 45 degree lead-in`);
     // Open from the seat out past the rim, along the slot's middle.
-    for (let s = -R + 0.05; outlineOffsetAt(outline, at(s).x, at(s).y).offset < margin + 0.5; s += 0.1) {
+    for (let s = -R + 0.05; contourOffsetAt(contour, at(s).x, at(s).y) < margin + 0.5; s += 0.1) {
       expect(insideSlice(slice, at(s).x, at(s).y), `${tag}: open along the slot, ${s.toFixed(2)} mm out`).toBe(false);
     }
     // Plate behind the seat.

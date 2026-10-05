@@ -230,8 +230,12 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
         expect(cm, which).toBeGreaterThan(acrossFlatsCm - 0.15);
         expect(cm, which).toBeLessThan(acrossCornersCm + 0.15);
         // The axes sit flush with the flats, so a square reads the panel's
-        // across-flats flange width on both (to the label's 0.1 cm: 101.5 mm reads 10.1 or 10.2 cm).
-        if (label === "square") expect(Math.abs(cm - acrossFlatsCm), which).toBeLessThanOrEqual(0.05 + 1e-9);
+        // across-flats flange width on both (to the label's 0.1 cm: 101.5 mm reads 10.1 or 10.2 cm), plus,
+        // on the side that carries it, the rim slot's ear (issue #248, a few mm: two layers or more).
+        if (label === "square") {
+          expect(cm - acrossFlatsCm, which).toBeGreaterThanOrEqual(-0.05 - 1e-9);
+          expect(cm - acrossFlatsCm, which).toBeLessThanOrEqual(0.5);
+        }
       }
     });
   }
