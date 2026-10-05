@@ -74,6 +74,19 @@ function usePrefersReducedMotion(): boolean {
   return reduced;
 }
 
+function useElementHeight(ref: React.RefObject<HTMLElement | null>): number {
+  const [height, setHeight] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    setHeight(el.clientHeight);
+    const observer = new ResizeObserver(() => setHeight(el.clientHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [ref]);
+  return height;
+}
+
 function zExtent(mesh: CoilMesh): number {
   let minZ = Infinity;
   let maxZ = -Infinity;
@@ -220,6 +233,7 @@ export function CoilViewer({
   const frameRef = useRef<HTMLDivElement | null>(null);
   const prevResolution = useRef<Resolution>(resolution);
   const reducedMotion = usePrefersReducedMotion();
+  const frameHeight = useElementHeight(frameRef);
   const [viewMode, setViewMode] = useState<ViewMode>("standing");
   const debugFocusEnd = useDebugFocusEnd();
   const { fromBelow: debugFocusFromBelow, radius: debugFocusRadius } = useDebugFocusOptions();
@@ -282,9 +296,10 @@ export function CoilViewer({
     return offsets;
   }, [parts]);
 
+  const envelope = useMemo(() => needsEnvelope(wirePaths ?? [], (wireDiameter ?? 0) / 2, frameHeight), [wirePaths, wireDiameter, frameHeight]);
   const wireGeometries = useMemo(() => {
     if (!showWire || !wireDiameter) return [];
-    if (cablePath && cablePath.length >= 6 && !needsEnvelope(wirePaths ?? [])) return [buildCableTube(cablePath, wireDiameter / 2)];
+    if (cablePath && cablePath.length >= 6 && !envelope) return [buildCableTube(cablePath, wireDiameter / 2)];
     const paths = wirePaths ? [...wirePaths] : [];
     if (innerEndLeadIn && innerEndLeadIn.length >= 6) paths.push(singleTurnPath(innerEndLeadIn));
     for (const t of layerTransitions ?? []) {
@@ -292,8 +307,8 @@ export function CoilViewer({
     }
     if (outerEndLeadOut && outerEndLeadOut.length >= 6) paths.push(singleTurnPath(outerEndLeadOut));
     if (!paths.length) return [];
-    return buildWireGeometries(paths, wireDiameter / 2);
-  }, [showWire, wirePaths, innerEndLeadIn, layerTransitions, outerEndLeadOut, cablePath, wireDiameter]);
+    return buildWireGeometries(paths, wireDiameter / 2, envelope);
+  }, [showWire, wirePaths, innerEndLeadIn, layerTransitions, outerEndLeadOut, cablePath, wireDiameter, envelope]);
   useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
 
   const viewRotation = useMemo(() => focusRotation ?? viewRotations[viewMode], [viewRotations, viewMode, focusRotation]);

@@ -477,10 +477,12 @@ smallest angle (`src/core/flatFaces.ts`).
 
 The camera is refitted to the projected bounds when the geometry changes.
 The wound cable is drawn as one merged tube per layer, with smooth normals so
-the tube's facets do not draw lines. A layer with many turns (over 60) is
-drawn as a plain envelope shell plus a few real turns, because the occlusion
-lines between hundreds of adjacent turns would merge into a black band. When
-the final mesh replaces the draft, it fades in over a quarter of a second.
+the tube's facets do not draw lines. When the wire's on-screen diameter falls
+below 4.8 px, the layers (of more than 12 turns) are drawn as a plain envelope
+shell plus a few real turns, because the lines of adjacent turns would merge
+into a black band. The on-screen diameter is the canvas height times the wire
+diameter, divided by the cable's height plus its outer diameter. When the
+final mesh replaces the draft, it fades in over a quarter of a second.
 
 Every canvas renders on demand. The assembly guide has about a dozen figures,
 and each one runs this whole pipeline, so a guide figure only renders while it
@@ -637,6 +639,16 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
   protrude less than the depth-step threshold and never draw.
 - The cable's end paths are drawn as one-turn paths, so they always get the
   full tube, whatever the layers themselves use.
+- The switch is the tube's screen diameter, not the turn count or the turn
+  pitch. The crease shader inks any two neighbouring pixels whose normals
+  differ by more than 30°. A tube 4 px across turns round by more than 30° per
+  pixel everywhere, so it is solid black. At about 5 px a white strip is left
+  between its two outlines. Measured at a 920 x 613 px canvas, a 4 mm cable
+  keeps white rings at 80 turns (5.9 px), a 2 mm cable at 80 turns (5.2 px) but
+  only grey ones at 91 (4.5 px), and a 1 mm cable is already black at 72 turns
+  (4.0 px). No single turn count fits all three. The 4.8 px threshold sits just
+  above where white starts to vanish. The estimate is rough: it ignores the
+  camera angle and the cable's gap between turns.
 
 ### Dimension axes
 
