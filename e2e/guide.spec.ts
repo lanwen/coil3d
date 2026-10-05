@@ -47,32 +47,34 @@ async function gotoGuide(page: Page, hash: string, { reveal = false } = {}) {
   if (reveal) await revealFigures(page);
 }
 
-// Counts the dark line pixels in the middle of a step's zoom inset (the half of the visible circle's radius), read straight from the inset's canvas.
-async function insetInkPixels(page: Page, stepTestId: string): Promise<number> {
-  return page.getByTestId(stepTestId).evaluate((step) => {
-    const wrap = step.querySelector(".guide-zoom-inset") as HTMLElement;
-    const canvas = wrap.querySelector("canvas") as HTMLCanvasElement;
-    const visible = wrap.getBoundingClientRect();
-    const frame = canvas.getBoundingClientRect();
-    const scale = canvas.width / frame.width;
-    const copy = document.createElement("canvas");
-    copy.width = canvas.width;
-    copy.height = canvas.height;
-    const context = copy.getContext("2d")!;
-    context.drawImage(canvas, 0, 0);
-    const pixels = context.getImageData(0, 0, copy.width, copy.height).data;
-    const cx = (visible.left + visible.width / 2 - frame.left) * scale;
-    const cy = (visible.top + visible.height / 2 - frame.top) * scale;
-    const radius = (visible.width / 2) * 0.5 * scale;
-    let ink = 0;
-    for (let y = Math.floor(cy - radius); y < cy + radius; y++) {
-      for (let x = Math.floor(cx - radius); x < cx + radius; x++) {
-        if ((x - cx) ** 2 + (y - cy) ** 2 > radius * radius) continue;
-        const at = (y * copy.width + x) * 4;
-        if (pixels[at + 3] > 0 && pixels[at] < 100) ink++;
+// Counts the dark line pixels in the middle of every zoom inset in the guide (the half of each visible circle's radius), read straight from the inset's canvas, labelled by the step it belongs to.
+async function insetInkPixels(page: Page): Promise<Array<{ inset: string; ink: number }>> {
+  return page.getByTestId("guide-view").evaluate((view) => {
+    return Array.from(view.querySelectorAll<HTMLElement>(".guide-zoom-inset")).map((wrap, index) => {
+      const canvas = wrap.querySelector("canvas") as HTMLCanvasElement;
+      const step = wrap.closest("[data-testid^='guide-step-']")?.getAttribute("data-testid") ?? "no step";
+      const visible = wrap.getBoundingClientRect();
+      const frame = canvas.getBoundingClientRect();
+      const scale = canvas.width / frame.width;
+      const copy = document.createElement("canvas");
+      copy.width = canvas.width;
+      copy.height = canvas.height;
+      const context = copy.getContext("2d")!;
+      context.drawImage(canvas, 0, 0);
+      const pixels = context.getImageData(0, 0, copy.width, copy.height).data;
+      const cx = (visible.left + visible.width / 2 - frame.left) * scale;
+      const cy = (visible.top + visible.height / 2 - frame.top) * scale;
+      const radius = (visible.width / 2) * 0.5 * scale;
+      let ink = 0;
+      for (let y = Math.floor(cy - radius); y < cy + radius; y++) {
+        for (let x = Math.floor(cx - radius); x < cx + radius; x++) {
+          if ((x - cx) ** 2 + (y - cy) ** 2 > radius * radius) continue;
+          const at = (y * copy.width + x) * 4;
+          if (pixels[at + 3] > 0 && pixels[at] < 100) ink++;
+        }
       }
-    }
-    return ink;
+      return { inset: `${step} inset ${index + 1}`, ink };
+    });
   });
 }
 
@@ -264,20 +266,27 @@ test.describe("printable assembly guide (issue #17)", () => {
   });
 
   // Issue #253: a figure that has drawn and then resizes while off screen (a full-page capture or the print layout does this) lost its
-  // pixels, and the zoom inset showed an empty circle. The full-guide screenshot below is that resize.
-  test.describe("zoom insets show their close-up (issue #253)", () => {
+  // pixels, and the zoom inset showed an empty circle. The full-guide screenshot below is that resize. Issue #274: every inset of
+  // every design below, not only step 2's, and the guide must show at least the insets that design has.
+  test.describe("every zoom inset shows its close-up (issues #253, #274)", () => {
     const MIN_INK_PIXELS = 50;
     const DESIGNS = [
-      { name: "1-layer design", hash: ONE_LAYER, insets: ["guide-step-2"] },
-      { name: "2-layer design with a top cap", hash: withHashDoc(TWO_LAYER_CAP, { joint: "bayonet" }), insets: ["guide-step-2", "guide-step-5"] },
+      { name: "1-layer round, no cap", hash: ONE_LAYER, minInsets: 1 },
+      { name: "2-layer round with a bayonet top cap", hash: withHashDoc(TWO_LAYER_CAP, { joint: "bayonet" }), minInsets: 2 },
+      { name: "square core with a top cap and the screw-keyhole mount", hash: encodeHashDoc({ shape: "sq", rc: 15, L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, mount: "keyhole" }), minInsets: 3 },
+      { name: "triangle core, 3 layers, through-hole mount", hash: encodeHashDoc({ shape: "tri", rc: 12, L: 5000, d: 3, lock: ["outer", "ly"], size: 70, ly: 3, mount: "through" }), minInsets: 3 },
+      { name: "1-layer SKÅDIS rim clips", hash: withHashDoc(ONE_LAYER, { size: 85, mount: "skadis" }), minInsets: 2 },
+      { name: "1-layer SKÅDIS T-clips", hash: withHashDoc(ONE_LAYER, { size: 85, mount: "skadis-tclip" }), minInsets: 2 },
     ];
-    for (const { name, hash, insets } of DESIGNS) {
-      test(`${name}: the inset circles have line pixels, also after a full-guide capture`, async ({ page }) => {
+    for (const { name, hash, minInsets } of DESIGNS) {
+      test(`${name}: every inset circle has line pixels, also after a full-guide capture`, async ({ page }) => {
         test.slow();
         await gotoGuide(page, hash, { reveal: true });
-        for (const step of insets) await expect.poll(() => insetInkPixels(page, step), { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toBeGreaterThan(MIN_INK_PIXELS);
+        const blank = async () => (await insetInkPixels(page)).filter((i) => i.ink <= MIN_INK_PIXELS).map((i) => `${i.inset}: ${i.ink} ink pixels`);
+        expect((await insetInkPixels(page)).length, "the insets the guide draws").toBeGreaterThanOrEqual(minInsets);
+        await expect.poll(blank, { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toEqual([]);
         await page.getByTestId("guide-view").screenshot();
-        for (const step of insets) await expect.poll(() => insetInkPixels(page, step), { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toBeGreaterThan(MIN_INK_PIXELS);
+        await expect.poll(blank, { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toEqual([]);
       });
     }
   });
