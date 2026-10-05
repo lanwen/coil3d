@@ -5,15 +5,15 @@ Thanks for helping. This file covers the practical steps. The project rules
 
 ## Prerequisites
 
-- Node.js 22 and npm.
-- A Chromium for the end-to-end tests: `npx playwright install chromium`.
+- Node.js 22 and pnpm 10 (`corepack enable` picks the version pinned in `package.json`).
+- A Chromium for the end-to-end tests: `pnpm exec playwright install chromium`.
   To use a different Chromium executable, set `PLAYWRIGHT_CHROMIUM_PATH`.
 
 ## Setup and dev server
 
 ```sh
-npm install
-npm run dev        # http://localhost:5182
+pnpm install
+pnpm dev        # http://localhost:5182
 ```
 
 ## The merge gate
@@ -21,9 +21,9 @@ npm run dev        # http://localhost:5182
 Run the full suite locally on your final commit:
 
 ```sh
-npx tsc -b
-npm test
-E2E_PORT=5182 npx playwright test
+pnpm exec tsc -b
+pnpm test
+E2E_PORT=5182 pnpm exec playwright test
 ```
 
 The e2e run builds the app and previews it on `E2E_PORT` (default 5182), so
@@ -38,12 +38,12 @@ joints, mounts, fractional sizes, heights and cables, and other collar facet
 counts) and checks every part: it must be one connected solid, with no edge
 under the weld's limit and no zero-thickness fold (two triangles on an edge
 whose normals are within 8 degrees of opposite, so the surface doubles back
-on itself). `npm test` runs a small sample. After changing the geometry or
+on itself). `pnpm test` runs a small sample. After changing the geometry or
 the mesh clean-up (`src/core/weld.ts`, `src/core/flatFaces.ts`), run the long
 mode as well:
 
 ```sh
-COIL3D_FUZZ=5000 npx vitest run test/meshFuzz.test.ts
+COIL3D_FUZZ=5000 pnpm exec vitest run test/meshFuzz.test.ts
 ```
 
 `COIL3D_FUZZ` is the number of cases. `COIL3D_FUZZ_FROM` is the first case's
@@ -67,6 +67,6 @@ about 10 minutes on one core.
 GitHub CI is manual-only. It runs on manual dispatch, or on a PR that carries
 the `run-ci` label. It does not run on pushes to `main`.
 
-Every push to `main` deploys to Cloudflare Pages, which runs `npm run build`
+Every push to `main` deploys to Cloudflare Pages, which runs `pnpm build`
 and serves `dist/`. A merge goes live, so the local merge gate is the check
 that counts.

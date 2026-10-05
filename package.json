@@ -33,8 +33,15 @@
     "@types/react-dom": "^19.2.2",
     "@types/three": "^0.180.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "three-stdlib": "^2.36.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",
     "vitest": "^3.2.4"
-  }
+  },
+  "pnpm": {
+    "ignoredBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "packageManager": "pnpm@10.34.6"
 }

@@ -29,24 +29,24 @@ a design by sharing the link.
 
 ## Run it
 
-You need Node.js 22 or newer.
+You need Node.js 22 or newer and pnpm 10 (`corepack enable` picks the version pinned in `package.json`).
 
 ```sh
-npm install
-npm run dev        # dev server on http://localhost:5182
-npm run build      # typecheck and production build
-npm run preview    # serve the production build on :5182
+pnpm install
+pnpm dev        # dev server on http://localhost:5182
+pnpm build      # typecheck and production build
+pnpm preview    # serve the production build on :5182
 ```
 
 ## Test it
 
 ```sh
-npx tsc -b                                   # typecheck
-npm test                                     # vitest: the core's public interface
-E2E_PORT=5183 npx playwright test # end to end; builds and previews on E2E_PORT
+pnpm exec tsc -b                         # typecheck
+pnpm test                                # vitest: the core's public interface
+E2E_PORT=5183 pnpm exec playwright test  # end to end; builds and previews on E2E_PORT
 ```
 
-The end-to-end tests need a Chromium (`npx playwright install chromium`, or
+The end-to-end tests need a Chromium (`pnpm exec playwright install chromium`, or
 set `PLAYWRIGHT_CHROMIUM_PATH`). They build and preview the app themselves, so
 no dev server needs to run first. See [CONTRIBUTING.md](CONTRIBUTING.md) for
 the full merge gate.
