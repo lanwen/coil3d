@@ -9,8 +9,7 @@ import { encodeHashDoc } from "./hashDoc";
 // only let a drag starting on the model orbit, is gone) is covered below.
 
 const SQUAT = encodeHashDoc({ L: 1000, d: 4, size: 40 });
-// 31 mm, not 30: at 30 mm the turn pitch beats against the pixel grid at this zoom and the rings band up (a renderer aliasing, not geometry).
-const LONG = encodeHashDoc({ L: 6000, d: 4, size: 31 });
+const LONG = encodeHashDoc({ L: 6000, d: 4, size: 30 });
 // Layers locked at 2: the solver sizes the flange to clear both wound layers.
 const TWO_LAYER = encodeHashDoc({ L: 3000, d: 4, size: 40, ly: 2 });
 
@@ -50,6 +49,23 @@ async function readRows(page: Page, png: Buffer, rowFractions: number[]): Promis
     for (let i = 0; i < data.length; i += 4) px.push([data[i], data[i + 1], data[i + 2]]);
     return px;
   });
+}
+
+/** Decode a PNG screenshot in the page and return the pixels of one column. */
+async function readColumn(page: Page, png: Buffer, x: number): Promise<Rgb[]> {
+  const data = await page.evaluate(
+    async ({ b64, column }) => {
+      const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+      const img = await createImageBitmap(blob, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+      const ctx = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
+      ctx.drawImage(img, 0, 0);
+      return Array.from(ctx.getImageData(column, 0, 1, img.height).data);
+    },
+    { b64: png.toString("base64"), column: x },
+  );
+  const px: Rgb[] = [];
+  for (let i = 0; i < data.length; i += 4) px.push([data[i], data[i + 1], data[i + 2]]);
+  return px;
 }
 
 const differs = (a: Rgb, b: Rgb) => a.some((v, i) => Math.abs(v - b[i]) > 8);
@@ -130,6 +146,31 @@ test.describe("IKEA line-art renderer", () => {
       expect(Math.max(sil!.left, sil!.right), `silhouette gap at row ${fractions[i].toFixed(3)}`).toBeLessThan(110);
     }
   });
+
+  for (const size of [25, 30, 30.5]) {
+    test(`the ${size} mm long coil draws one ring per turn, not hint bands (issue #258)`, async ({ page }) => {
+      await gotoDesign(page, encodeHashDoc({ L: 6000, d: 4, size }));
+      await page.getByTestId("toggle-dimensions").uncheck();
+      await page.waitForTimeout(300);
+      const png = await page.getByTestId("coil-viewer").locator("canvas").screenshot();
+      const [middle] = await readRows(page, png, [0.5]);
+      const sil = silhouette(middle);
+      expect(sil, "the middle row must cross the model").not.toBeNull();
+      const column = await readColumn(page, png, Math.round((sil!.first + sil!.last) / 2));
+
+      let ringsSeen = 0;
+      let inInk = false;
+      for (const p of column) {
+        if (luma(p) < 80) inInk = true;
+        else if (luma(p) > 170 && inInk) {
+          ringsSeen++;
+          inInk = false;
+        }
+      }
+      // The hint-band envelope gives 32 to 35 dark-to-white transitions here; a ring per turn gives 66 to 75.
+      expect(ringsSeen).toBeGreaterThanOrEqual(50);
+    });
+  }
 
   test("a drag starting on the transparent background orbits the camera (issue #84)", async ({ page }) => {
     await gotoDesign(page, SQUAT);

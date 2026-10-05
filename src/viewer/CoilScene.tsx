@@ -6,7 +6,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CoilMesh, Part, WireLayerPath } from "../core";
 import { LineArtRenderer, markFaceKinds, type Projection } from "./lineArt/LineArtRenderer";
 import type { PresetId } from "./lineArt/presets";
-import { buildWireGeometries } from "./wireGeometry";
+import { buildWireGeometries, needsEnvelope } from "./wireGeometry";
 
 const CREASE_ANGLE = (30 * Math.PI) / 180;
 
@@ -65,10 +65,12 @@ export function CoilScene({ parts, wirePaths, wireDiameter, showWire = true, exp
 
   const explodeOffsets = useMemo(() => new Map(parts.filter((p) => p.role !== "core").map((p) => [p.name, zExtent(p.mesh) + EXPLODE_GAP])), [parts]);
 
+  const canvasHeight = useThree((s) => s.size.height);
+  const envelope = useMemo(() => needsEnvelope(wirePaths ?? [], (wireDiameter ?? 0) / 2, canvasHeight), [wirePaths, wireDiameter, canvasHeight]);
   const wireGeometries = useMemo(() => {
     if (!showWire || !wirePaths?.length || !wireDiameter) return [];
-    return buildWireGeometries(wirePaths, wireDiameter / 2);
-  }, [showWire, wirePaths, wireDiameter]);
+    return buildWireGeometries(wirePaths, wireDiameter / 2, envelope);
+  }, [showWire, wirePaths, wireDiameter, envelope]);
   useEffect(() => () => wireGeometries.forEach((g) => g.dispose()), [wireGeometries]);
 
   const framingGeometry = useMemo(() => {

@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { WireLayerPath } from "../core";
 
-const TURNS_FOR_ENVELOPE = 60;
+const MIN_TURNS_FOR_ENVELOPE = 12;
+const MIN_TUBE_DIAMETER_PX = 4.8;
 const TUBE_RADIAL_SEGMENTS = 24;
 const ENVELOPE_RADIAL_SEGMENTS = 64;
 const HINT_SPAN_TURNS = 2;
@@ -75,17 +76,33 @@ function hintTubes(path: WireLayerPath, hintRadius: number): THREE.BufferGeometr
   return tubes;
 }
 
-export function needsEnvelope(wirePaths: WireLayerPath[]): boolean {
-  return wirePaths.some((p) => p.turns > TURNS_FOR_ENVELOPE);
+function screenExtentMm(wirePaths: WireLayerPath[], wireRadius: number): number {
+  let zLo = Infinity;
+  let zHi = -Infinity;
+  let reach = 0;
+  for (const { points } of wirePaths) {
+    for (let i = 0; i < points.length; i += 3) {
+      reach = Math.max(reach, Math.hypot(points[i], points[i + 1]));
+      zLo = Math.min(zLo, points[i + 2]);
+      zHi = Math.max(zHi, points[i + 2]);
+    }
+  }
+  return zHi - zLo + 2 * (reach + wireRadius);
+}
+
+export function needsEnvelope(wirePaths: WireLayerPath[], wireRadius: number, canvasHeightPx: number): boolean {
+  if (!wirePaths.some((p) => p.turns > MIN_TURNS_FOR_ENVELOPE)) return false;
+  const tubeDiameterPx = (canvasHeightPx * 2 * wireRadius) / screenExtentMm(wirePaths, wireRadius);
+  return tubeDiameterPx < MIN_TUBE_DIAMETER_PX;
 }
 
 export function buildCableTube(cablePath: Float32Array, wireRadius: number): THREE.BufferGeometry {
   return fullTube({ layer: 0, turns: 1, points: cablePath }, wireRadius);
 }
 
-export function buildWireGeometries(wirePaths: WireLayerPath[], wireRadius: number): THREE.BufferGeometry[] {
+export function buildWireGeometries(wirePaths: WireLayerPath[], wireRadius: number, envelope: boolean): THREE.BufferGeometry[] {
   return wirePaths.map((path) => {
-    if (path.turns <= TURNS_FOR_ENVELOPE) return fullTube(path, wireRadius);
+    if (!envelope || path.turns <= MIN_TURNS_FOR_ENVELOPE) return fullTube(path, wireRadius);
 
     const layerRadius = Math.hypot(path.points[0], path.points[1]);
     const hintRadius = Math.max(wireRadius, layerRadius * HINT_RADIUS_FRACTION);
