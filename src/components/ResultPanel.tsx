@@ -34,31 +34,12 @@ function Row({ testId, label, value, hint }: { testId: string; label: string; va
   );
 }
 
-/**
- * The flange's real outer extent (issue #63), formatted for the row below:
- * `solution.flangeExtent` is set once `design()` has resolved the real
- * flange margin (see design.ts/flange.ts), on the design and (issue #192)
- * on its alternates; the solver's own (less accurate) envelope estimate is
- * only a fallback.
- */
 function flangeWidthValue(solution: Solution, shapeKind: Design["spec"]["shape"]["kind"]): string {
   const extent = solution.flangeExtent;
   if (!extent) return `${solution.flangeSize.toFixed(1)} mm`;
   return shapeKind === "round" ? `Ø ${extent.acrossFlats.toFixed(1)} mm` : `${extent.acrossFlats.toFixed(1)} mm`;
 }
 
-/**
- * The wound cable's own outer size (issue #65), formatted the SAME way as
- * `flangeWidthValue` above: `solution.envelopeDiameter` is already a true
- * circumscribed (across-corners) extent (`capacity.ts`'s `envelopeDiameter`
- * -- for round, across-corners === across-flats, so this still reads as a
- * plain diameter there). Before this issue the row next to it just said
- * "Envelope", which reads as an unrelated, wider number than "Flange
- * width" -- it's actually the SAME across-corners measurement `flangeExtent
- * .acrossCorners` reports below, just for the cable instead of the flange;
- * renamed so the two are directly comparable, with a hint on each row
- * spelling out which of the flange's two rows to compare against.
- */
 function cableOuterSizeLabel(shapeKind: Design["spec"]["shape"]["kind"]): string {
   return shapeKind === "round" ? "Cable outer size" : "Cable outer size (across corners)";
 }
@@ -74,21 +55,12 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
       {shapeKind !== "round" && <Row testId={`${prefix}corner-radius`} label="Corner radius" value={`${solution.cornerRadius.toFixed(1)} mm`} />}
       <Row testId={`${prefix}inner-bore`} label="Inner bore" value={`${solution.innerBore.toFixed(1)} mm`} />
       <Row testId={`${prefix}height`} label="Core height" value={`${solution.height.toFixed(1)} mm`} />
-      {/* Issue #63: the assembled part's REAL overall height (flange bottom
-          to cap top), matching the viewer's own "height" dimension line --
-          "Core height" above is the wall's own WINDING height only (it
-          excludes the bottom flange's thickness and any top cap), kept
-          unchanged for anyone relying on that narrower number. */}
       <Row
         testId={`${prefix}overall-height`}
         label="Overall height"
         value={`${(solution.overallHeight ?? solution.height).toFixed(1)} mm`}
       />
       <Row testId={`${prefix}layers`} label="Layers" value={String(solution.layers)} />
-      {/* Cable-length results, shown in centimetres for consistency with the
-          cm-based length input (issue #51 AC) -- everything else in this
-          summary stays in mm (it describes the printed core, not the wound
-          cable). */}
       <Row testId={`${prefix}wound-length`} label="Wound length" value={`${mmToCm(solution.totalWoundLength).toFixed(1)} cm`} />
       <Row
         testId={`${prefix}capacity-vs-target`}
@@ -106,11 +78,6 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
         value={cableOuterSizeValue(solution, shapeKind)}
         hint={HINTS.envelope}
       />
-      {/* Issue #63: the flange's REAL outer extent (matching the built
-          flange mesh, not the solver's own envelope-based estimate) --
-          round shows a single true diameter; square/triangle additionally
-          show the wider "across corners" extent, since the two together
-          are what actually has to clear a bed/enclosure. */}
       <Row testId={`${prefix}flange`} label="Flange width" value={flangeWidthValue(solution, shapeKind)} hint={HINTS.flange} />
       {shapeKind !== "round" && solution.flangeExtent && (
         <Row
@@ -149,26 +116,20 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
   );
 }
 
-/** Cable lengths in the summary: whole centimetres, matching the cm cable-length control (issue #51). */
 const cmWhole = (mm: number) => `${Math.round(mmToCm(mm))} cm`;
-/** Part sizes in the summary: cm to one decimal, matching the viewer's dimension labels. */
 const cm1 = (mm: number) => mmToCm(mm).toFixed(1);
 
-/** The flange's real width: `flangeExtent` is set on the design and (issue #192) on every alternate. */
 const widthOf = (s: Solution) => s.flangeExtent?.acrossFlats ?? s.flangeSize;
 const tallOf = (s: Solution) => s.overallHeight ?? s.height;
 
-/** "Ø 6.8 cm, 4.0 cm tall" -- the assembled coil's outer size, in the same words everywhere it's shown. */
 function sizeText(s: Solution, shape: ShapeKind): string {
   return `${shape === "round" ? "Ø " : ""}${cm1(widthOf(s))} cm${shape === "round" ? "" : " wide"}, ${cm1(tallOf(s))} cm tall`;
 }
 
 const layersText = (n: number) => `${n} layer${n === 1 ? "" : "s"}`;
 
-/** Within this ratio two sizes read as "about the same" on an option card. */
 const SAME_SIZE = 0.08;
 
-/** What an option changes compared with the design on screen, in a few plain words. */
 function differenceText(option: Solution, current: Solution): string {
   const words: string[] = [];
   const tall = tallOf(option) / tallOf(current);
@@ -182,25 +143,16 @@ function differenceText(option: Solution, current: Solution): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** Two free dimensions: the options are the two objectives' picks. Three free: one per layer count. */
 function optionTitle(s: Solution, freeCount: number): string {
   if (freeCount >= 3) return layersText(s.layers);
   return s.objectiveUsed === "aspectRatio" ? "Even proportions" : "Smallest";
 }
 
-/**
- * The spec change that renders an option, using only existing spec (and
- * hash) fields. Two free dimensions: the other objective -- its pick comes
- * from the same candidate pool, so the two options just swap. Three free:
- * lock that candidate's layers AND height, which leaves only the core size
- * free; the solver then finds exactly the size it gave the candidate.
- */
 function specFor(option: Solution, spec: CoilSpec, freeCount: number): CoilSpec {
   if (freeCount >= 3) return { ...spec, layers: { locked: true, value: option.layers }, height: { locked: true, value: option.height } };
   return { ...spec, objective: option.objectiveUsed ?? spec.objective };
 }
 
-/** Side-view line art of one option (flange, core wall, wound cable, cap), drawn to a scale every card shares. */
 function OptionArt({ s, scale }: { s: Solution; scale: number }) {
   const size = 56;
   const bottom = size - 2;
@@ -228,8 +180,6 @@ function Verdict({ design, problemCount }: { design: Design; problemCount: numbe
   const { solution } = design;
   const target = solution.targetWireLength;
   const holds = solution.totalWireLength;
-  // Issue #199: a design that holds the cable is "ok" however much room the
-  // locks force on it, so only a shortfall changes the headline.
   const short = solution.diagnosis.status === "infeasible" || holds < target * (1 - 1e-6);
   const tone = short ? "bad" : problemCount > 0 ? "warn" : "good";
   let detail: string;
@@ -253,16 +203,12 @@ function Verdict({ design, problemCount }: { design: Design; problemCount: numbe
   );
 }
 
-/** One card per option, a radio group: picking a card renders it (issue #192). */
 function Options({ design, spec, onChange }: { design: Design; spec: CoilSpec; onChange: (next: CoilSpec) => void }) {
   const { solution } = design;
   const shape = design.spec.shape.kind;
   const freeCount = solution.diagnosis.freeCount;
   const groupName = useId();
   const introId = useId();
-  // Three free: picking locks height and layers, so the cards go away and a
-  // link leads back to them. Session-only (plain React state): a reload
-  // shows the picked design, which is what the link stores.
   const [back, setBack] = useState<{ spec: CoilSpec; to: string; title: string } | null>(null);
   const hash = toHash(spec, true, "design");
   const canGoBack = back !== null && back.to === hash;
@@ -287,15 +233,11 @@ function Options({ design, spec, onChange }: { design: Design; spec: CoilSpec; o
     );
   }
 
-  // A fixed order, so the picked card never jumps: by layers (three free), Smallest first (two free).
-  const rank = (o: Solution) => (freeCount >= 3 ? o.layers : o.objectiveUsed === "aspectRatio" ? 1 : 0);
-  const options = [solution, ...solution.alternates].sort((a, b) => rank(a) - rank(b));
+  const fixedOrderRank = (o: Solution) => (freeCount >= 3 ? o.layers : o.objectiveUsed === "aspectRatio" ? 1 : 0);
+  const options = [solution, ...solution.alternates].sort((a, b) => fixedOrderRank(a) - fixedOrderRank(b));
   const scale = 52 / Math.max(...options.map((o) => Math.max(widthOf(o), tallOf(o))));
-  // The picked card shows as checked straight away, before its design has
-  // been solved: once the spec runs ahead of the design on screen, the
-  // checked card is the one whose spec it now is.
-  const specChanged = hash !== toHash(design.spec, true, "design");
-  const isChecked = (option: Solution) => (specChanged ? toHash(specFor(option, design.spec, freeCount), true, "design") === hash : option === solution);
+  const specAheadOfDesign = hash !== toHash(design.spec, true, "design");
+  const isChecked = (option: Solution) => (specAheadOfDesign ? toHash(specFor(option, design.spec, freeCount), true, "design") === hash : option === solution);
   const pick = (option: Solution) => {
     if (isChecked(option)) return;
     const next = specFor(option, spec, freeCount);
@@ -360,12 +302,8 @@ export function ResultPanel({
   stepBusy,
 }: {
   design: Design;
-  /** The current spec (may be ahead of `design` while it re-solves): picking an option changes this. */
   spec: CoilSpec;
   onChange: (next: CoilSpec) => void;
-  /** True once `design` is final-resolution and matches the current spec
-   * (issue #7): downloads are disabled otherwise, so exports always use the
-   * final resolution. */
   finalReady: boolean;
   onDownloadStl: () => void;
   onDownloadThreeMf: () => void;
@@ -380,9 +318,6 @@ export function ResultPanel({
 
   return (
     <>
-      {/* Issue #192: only what matters before printing -- does the cable
-          fit, does the coil fit the bed, what gets printed, and anything
-          that needs attention. Everything else is under "All numbers". */}
       <Section title="Result">
         <Verdict design={design} problemCount={problems.length} />
         <dl className="facts">
@@ -414,7 +349,6 @@ export function ResultPanel({
         )}
       </Section>
       <Options design={design} spec={spec} onChange={onChange} />
-      {/* Always collapsed on load, like "Advanced settings": plain DOM state, never in the hash. */}
       <details className="disclosure all-numbers" data-testid="all-numbers">
         <summary className="advanced-summary">All numbers</summary>
         <div className="advanced-body all-numbers-body">

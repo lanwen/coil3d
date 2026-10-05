@@ -17,7 +17,6 @@ function readInitialState() {
   return parseHash(window.location.hash);
 }
 
-/** The deployed build: the short commit SHA (linked to the commit), muted, next to the credits. A "dev" build has no commit to link to. */
 function BuildLabel() {
   const { commit, short, builtAt, branch } = __BUILD__;
   const text = branch && branch !== "main" ? `${short} (${branch})` : short;
@@ -47,45 +46,17 @@ function BuildLabel() {
 export default function App() {
   const [{ spec, notice, showWire: initialShowWire, view: initialView }] = useState(readInitialState);
   const [currentSpec, setCurrentSpec] = useState<CoilSpec>(spec);
-  // Wire visibility (issue #4) is a view-only setting, not a CoilSpec field
-  // (design() always computes wirePaths regardless), so it's tracked
-  // alongside the spec here rather than inside it.
   const [showWire, setShowWire] = useState(initialShowWire);
-  // Exploded view (issue #9) is a view-only toggle, not part of the shared
-  // hash (only cap/joint/tol are, per the ticket) -- it resets on reload,
-  // same as the wire toggle's initial value would if it weren't persisted.
   const [exploded, setExploded] = useState(false);
-  // Dimension axes (issue #69): view-only too, on by default.
   const [showDimensions, setShowDimensions] = useState(true);
-  // Isometric/perspective camera (issue #15): view-only, resets on reload.
-  // Lifted here from CoilViewer by issue #145 so its switch sits with the
-  // three toggles above (one strip under the canvas on a phone).
   const [projection, setProjection] = useState<Projection>("ortho");
-  // Print layout (issue #78 PR review): while that view is active, the
-  // wire/dimensions toggles below have no effect (the view force-hides both
-  // itself -- there's nothing to show), so they're hidden rather than left
-  // sitting there, checked, doing nothing. `showWire`/`showDimensions`
-  // themselves are untouched, so leaving the view "restores" them for free.
   const [isPrintLayout, setIsPrintLayout] = useState(false);
-  // Design/guide view switch (issue #17): a plain UI-routing concern, not
-  // part of `CoilSpec` -- it changes nothing about the solved design, only
-  // which component App renders. It round-trips through the SAME `#s=`
-  // document as the spec and the wire toggle (issue #56: `core/hash.ts`'s
-  // own `ParsedHash.view`/`toHash`'s own `view` parameter), so a shared
-  // guide link still opens straight into the guide.
   const [view, setView] = useState<ViewMode>(initialView);
 
-  // The hash reflects the spec, the wire toggle and the view (all inside
-  // the one document now, see hash.ts), but none of toggling the wire,
-  // exploding the view or switching views ever needs a re-solve, so this is
-  // independent of useDesignPreview below.
   useEffect(() => {
     window.history.replaceState(null, "", toHash(currentSpec, showWire, view));
   }, [currentSpec, showWire, view]);
 
-  // Issue #7: design() runs off the main thread in a worker, debounced, with
-  // a fast draft while editing and the final (FDM-tuned) mesh once input
-  // settles. See src/geometry/useDesignPreview.ts.
   const { result, error, finalReady } = useDesignPreview(currentSpec);
 
   const [stepError, setStepError] = useState<string | null>(null);
@@ -104,13 +75,8 @@ export default function App() {
   };
 
   const handleDownloadStl = async () => {
-    // finalReady already gates the button, but never trust disabled-ness
-    // alone: exports must always use the final resolution (issue #7).
     if (!result || !finalReady) return;
     const bytes = await exportDesign(result, "stl");
-    // One part -> a plain STL; two or more (issue #9: a top cap) -> a zip of
-    // one STL per part, each already in its own print-bed orientation (see
-    // core/export.ts).
     const multiPart = result.parts.length > 1;
     downloadBytes(bytes, multiPart ? "coil-parts.zip" : "coil.stl", multiPart ? "application/zip" : "model/stl");
   };
@@ -135,12 +101,6 @@ export default function App() {
     }
   };
 
-  // The guide (issue #17) is generated straight from the current solved
-  // Design -- same hash, same spec -- so a shared link with `ui.view` = "guide" opens
-  // it directly. Before the first design resolves (a brand-new page load),
-  // show a plain placeholder rather than nothing: `result` starts null even
-  // for the very first draft (useDesignPreview.ts), and the guide has no
-  // meaningful content without at least one solved design to draw.
   if (view === "guide") {
     return result ? (
       <Guide design={result} onBack={() => setView("design")} />
@@ -220,11 +180,6 @@ export default function App() {
                   projection={projection}
                 />
               </ViewerBoundary>
-              {/* The viewport toggles (issue #145): overlaid on the canvas's
-                  corners on desktop (the wrapper is `display: contents`
-                  there), one strip under the canvas on a phone -- see
-                  App.css's `.viewport-toggles`. After the canvas in the DOM
-                  so the phone's tab order follows what's on screen. */}
               <div className="viewport-toggles" data-testid="viewport-toggles">
                 {!isPrintLayout && (
                   <div className="wire-toggle">
@@ -245,9 +200,6 @@ export default function App() {
               </div>
             </>
           )}
-          {/* Bottom-right credits: the author link and the third-party
-              notices (public/THIRD_PARTY_NOTICES.txt, served from the app's
-              base path so it also works under a sub-path deploy). */}
           <div className="credits">
             <a className="author-link" data-testid="author-link" href="https://github.com/lanwen" target="_blank" rel="noopener noreferrer">
               <svg className="author-link-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">

@@ -647,6 +647,163 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
   boundary swaps only the canvas for a short note. The geometry is solved in a
   worker, so the rest of the app keeps working.
 
+## UI notes
+
+### Geometry worker and live preview
+
+- One persistent worker (`src/geometry/worker.ts`) lives for the whole page, because
+  every edit needs a new design. The STEP worker is different: it starts lazily,
+  once, when the user asks for a STEP file.
+- The worker imports `design()` from its own module, not the `core` barrel, so its
+  bundle does not pull in the lazy STEP (replicad) path.
+- Requests carry an id and the client matches responses by id, so a caller can drop
+  a stale result instead of trusting whichever response comes last. Results are
+  moved, not copied, as typed-array buffers. `design.mesh` is the same buffer as
+  `design.parts[0].mesh`, so only the parts are listed (moving a buffer twice throws).
+- A synchronous WASM build cannot be cancelled, so "cancel a stale job" means "drop
+  its result": a generation counter is bumped on every spec change and a result is
+  only applied if its generation is still the latest.
+- The first design after a page load has nothing to keep on screen, so it asks for a
+  draft after 60 ms and the final after 400 ms. Later edits wait 300 ms (a slider
+  fires a new spec on every pointer-move frame, so this merges a whole drag into one
+  build) and go straight for the final mesh. The previous final stays on screen the
+  whole time. A draft is only shown if the final is still not ready after another
+  600 ms. Showing a draft on every edit made the model flash and "grow" as the camera
+  refitted to the draft's bounds, and then to the final's.
+- The worker client is created and terminated by one effect, held in a ref, not made
+  with `useMemo`: React may discard and recompute a memo (StrictMode mounts twice in
+  development), and the cleanup of that effect would then end the one live worker.
+
+### Assembly guide
+
+- The guide is built from the current `Design`, so a shared link opens the same
+  guide. Every figure uses the viewer's own line-art pipeline (`GuideFigure`).
+  A step is left out when it does not apply (no cap, no "fit the cap" step) and the
+  numbers after it close up. Each step has one short line of text: the pictogram and
+  the arrow carry the meaning.
+- Arrows and call-outs are SVG drawn over a figure, placed from 3D points projected
+  with the same camera fit the figure uses (`src/guide/projection.ts`). The fit is a
+  pure function of parts, preset, fill and aspect, so the overlay and the render
+  cannot disagree. The aspect is fixed at 4:3 (the same value as the CSS box), so
+  the fit can run at render time, before any canvas exists. Figures are wider than
+  tall because the printed page is portrait, and this leaves room for the next step.
+  Figures fill 85% of their frame, tighter than the viewer's 75%.
+- The guide uses only the public core interface. Small helpers such as applying the
+  print transform or reading mesh bounds are written again in `src/guide` instead of
+  importing core internals. Positions of features the guide cannot read exactly
+  (the wall screw, the groove start) are schematic: the mesh vertex furthest along
+  an axis, near a given height.
+- Pictograms are plain, generic symbols, not renders: several steps have no model
+  geometry to show, and the guide must not read core internals to find an exact
+  position. All pictograms share a 64x64 box and a 3.5 px stroke.
+- The keyhole step shows the real hung pose, with the same rotation matrices as the
+  viewer's wall presets (`src/viewer/wallRotations.ts`). The rotation is baked into
+  the vertex positions, not put on a wrapping group, because the camera fit reads
+  vertex positions. In that pose the coil axis is +X and sliding down to seat means
+  lower Z. The wall is a quad drawn beside the coil, not behind it: an SVG layer
+  cannot be hidden by the WebGL picture under it. The screw mark in the inset is
+  approximate for the same reason as above.
+- A zoom inset is a second, larger copy of the same figure inside a round mask. The
+  host figure has a fixed CSS width, so "N times bigger" is a known ratio, and a
+  point at a given fraction of the host lands at the same fraction of the bigger box.
+- Parts under the flange (mount plate, pegs, SKÅDIS clips) are not lifted with the
+  cap in the exploded view: the guide lifts non-core parts up, which would push these
+  through the core, so the plate step lowers them instead.
+- The guide root carries `data-resolution` (the design's resolution), so a test can
+  wait for the final mesh before a screenshot, as the design view waits for
+  `download-stl`.
+
+### Result panel
+
+- The verdict headline only changes when the cable does not fit. A design that holds
+  the cable is "ok" however much room the locks force on it.
+- The cable's outer size is measured across corners, like the flange's "across
+  corners" row, so those two rows can be compared directly. The flange's own width
+  comes from `flangeExtent`, the real built extent; the solver's estimate is only a
+  fallback.
+- Cable lengths are in centimetres, like the length input. Sizes of printed parts
+  stay in millimetres.
+- Option cards: with three free dimensions, picking a card locks its height and
+  layers, so the cards go away and a "Back to all options" link replaces them. That
+  link is plain React state and does not survive a reload; a reload shows the picked
+  design, which is what the link stores. A picked card shows as checked at once,
+  before its design is solved. Cards keep a fixed order so the picked one never
+  jumps. "All numbers" is always collapsed on load and never goes in the hash.
+
+### Controls
+
+- The (i) hint opens on hover, focus and tap. Those are three separate reasons to be
+  open, not one toggle: a tap is delivered as a mouseenter followed by a click, so a
+  single toggle would flip straight back to closed. Esc closes it and returns focus
+  to the button. The bubble is always in the DOM, only collapsed visually, so
+  `aria-describedby` points at real text. The button is a sibling of the label and
+  never inside it, so a tap cannot also toggle the control. A bubble that would run
+  off the right edge of the window opens leftwards instead (measured before paint).
+- The shape picker has one real radio input per shape, so arrow keys and screen
+  readers work as in a `<select>`. It is built from the shape registry, so a new
+  shape plugin gets a button without a change here; an unknown kind gets a generic
+  polygon icon.
+- The label input cuts text only when the user inserts characters and the final
+  design for exactly that text and geometry says fewer fit. Text that stops fitting
+  because the coil changed, or that came from the URL, is never cut: the design's
+  warning covers it.
+- Core size and height round to 1 mm, or 0.5 mm below 20 mm (the solver's smallest
+  cores are 5 mm, where 1 mm is too coarse). The paired number input rounds too, so
+  a typed long decimal never reaches the spec. A locked value is never below the
+  field's minimum (the shape's bend limit), also for an old link that stored a smaller one.
+- Cable length is entered in centimetres. The spec keeps millimetres, like every
+  other dimension: the core, the hash and the solver never see the unit change.
+- Every on/off control is one `Switch`: a real checkbox with `role="switch"`, so keyboard and
+  test tools work, drawn as a black and white pill. The state mark ("0" or "I") sits
+  in the free part of the track, not on the knob. The knob is centred with
+  `top: 50%`, because a fixed 1 px inset left it off centre. The hit area is larger
+  than the pill (at least 44 px on phones). The slide is a CSS transition that is
+  skipped under `prefers-reduced-motion`. A padlock sits before the value of a locked
+  dimension. A free dimension hides its slider, except the corner radius when there is
+  no useful range, which keeps a greyed slider.
+- At most two of core size, height and layers can be locked, so the third lock is
+  disabled (never one that is already locked) and a note says why: something must
+  stay free to fit the cable length.
+- The viewport toggles sit over the canvas on desktop and in one strip under it on
+  a phone. In print layout the wire and dimension toggles are hidden, because the
+  view hides both anyway; their values are kept, so leaving the view restores them.
+- View-only state (wire, dimensions, exploded, projection) is not part of the
+  design. Only the wire toggle and the view (design or guide) go in the hash.
+  Exploded and projection reset on reload. The page shows a placeholder until the
+  first design resolves, so a guide link has something to draw.
+- Exports always use the final mesh: the buttons are disabled until it is ready and
+  the handlers check again. More than one part downloads as a zip of one STL per part,
+  each in its print orientation.
+
+### Core, shape and mount controls
+
+- Sliders never show a number the solver would change. The corner radius field's
+  minimum is the cable's bend-limit floor (`Solution.cornerRadiusRange`), so the UI
+  does not keep its own copy of that math, rounded up to its 0.5 mm step. Its maximum
+  is the largest radius that still reads as a square or triangle rather than a
+  circle, rounded down. If the two land in the same step, the maximum is raised to
+  the minimum, so the range is never upside down and a value never sits below the
+  bend limit. When no range is left, the slider stays visible but greyed (the hint
+  says to grow the core).
+- The core size minimum follows the solver's minimum for this shape and cable, rounded
+  like every other core size. A locked size below it can only come from an old link; the
+  field shows the raised value and a note explains it.
+- Locked dimension, joint, tolerance and label controls appear only when they apply:
+  the dimension picker only while the core size is locked, and the joint, tolerance
+  and label only while a top cap exists. Hiding a control never resets its value.
+- The top cap switch is "auto" while `spec.topCap` is `"auto"` and then shows the
+  automatic choice (on from two layers). Touching it stores an explicit on or off; the
+  "reset" link goes back to auto. The "auto" tag sits before the switch so the row reads
+  as "mode, then state".
+- The wall mount switch off is `mount: "none"`. Turning it on again restores the last
+  chosen kind. openGrid is not offered in the list (and the hash rejects it), because
+  its connector is a placeholder that would print a plate that does not fit.
+- The label switch means "the user turned it on", not "there is text". An empty label
+  with the switch on stays visible. Turning it off clears the label, which the hash
+  leaves out. The twist lock needs a round core: on other shapes its option is greyed,
+  and a spec that already has it keeps it and gets a warning from `design()`.
+- "Advanced settings" is always collapsed on load, and its state is not in the hash.
+
 ## Roadmap
 
 - A clip on the cable that stops the coil from unwinding.
