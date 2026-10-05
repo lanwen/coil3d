@@ -1,70 +1,17 @@
-// Builds the schematic wound-cable geometry for the viewer (issue #4,
-// docs/design.md, Rendering). Consumes
-// only `Design.wirePaths` (the core's public output) and the wire's radius --
-// no core internals.
-//
-// Legibility: a full tube with one silhouette ring
-// per turn reads fine up to a few dozen turns, but at hundreds of turns the
-// per-turn occlusion lines the line-art edge pass draws between adjacent
-// windings sit closer together than the dilated line weight and merge into a
-// solid black band -- the "black mass" the ticket warns about. Past
-// TURNS_FOR_ENVELOPE, this switches to a smooth
-// envelope (one plain cylindrical shell spanning the layer's occupied
-// radius/height, contributing exactly one pair of silhouette lines no matter
-// how many turns it represents) plus a handful of short full-fidelity "hint"
-// tubes sampled from the real path, so the winding direction still reads.
-//
-// Either way the result is ONE merged BufferGeometry per layer (never
-// per-turn), per the ticket's "merged tube geometry" wording, and it keeps
-// TubeGeometry's own smooth (non-creased) normals -- creasing a tube's radial facets draws a spurious line at every facet
-// ridge, hatching the whole coil.
-
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { WireLayerPath } from "../core";
 
-/** Above this many turns, a layer switches from a full tube to envelope + hints. */
 const TURNS_FOR_ENVELOPE = 60;
-// Radial segments for the wire's circular cross-section (tube and hints).
-// The wire is thick relative to the core (a few mm on a few-cm core), so a
-// low-poly cross-section shows up as an actual faceted silhouette -- not a
-// shading artifact toCreasedNormals would fix, since the edge shader's
-// silhouette test reads real geometry, not normals. Round enough that the
-// facets read as a smooth pen line, matching the IKEA reference.
 const TUBE_RADIAL_SEGMENTS = 24;
-/** Segments around the envelope's circumference. */
 const ENVELOPE_RADIAL_SEGMENTS = 64;
-// Hint turns (a few helical hint lines): each hint
-// is a real, multi-turn slice of the actual centerline -- not a flat ring --
-// so it visibly spirals (the review's "reads like bamboo" complaint was a
-// single-turn hint, which for a fat pitch relative to diameter is nearly
-// indistinguishable from a flat ring at a glance). Two turns is enough that
-// the wire visibly crosses over itself in projection from most angles.
 const HINT_SPAN_TURNS = 2;
-/**
- * Roughly one hint center every this many real turns of winding. Kept short
- * on purpose: hints are widely separated clusters of at most HINT_SPAN_TURNS
- * adjacent turns each, so raising their overall count doesn't reintroduce
- * the black-mass risk (that came from EVERY turn touching its neighbour;
- * these are isolated islands with plenty of smooth envelope between them) --
- * but too few of them reads as a smooth pole with a handful of decorative
- * rings ("bamboo joints") rather than a continuously wound cable.
- */
 const HINT_SPACING_TURNS = 6;
 const MIN_HINTS = 3;
 const MAX_HINTS = 40;
-/**
- * A hint must protrude past the envelope by enough world-space distance to
- * clear the line-art edge pass's depth-step threshold (a few pixels' worth
- * of the model's on-screen size) -- otherwise it's
- * geometrically real but never actually detected as an edge. The real wire
- * radius is often far too thin for this at typical framing (a fine 0.5 mm
- * cable on a coil filling most of the canvas), so the protrusion is a
- * fraction of the layer's own radius (scale-invariant under reframing)
- * rather than the true wire radius, floored at the true radius so a
- * genuinely thick wire is never shrunk.
- */
 const HINT_RADIUS_FRACTION = 0.12;
+const ENVELOPE_OUTSET_IN_WIRE_RADII = 0.5;
+const Y_AXIS_TO_Z_AXIS_ANGLE = Math.PI / 2;
 
 function pointAt(points: Float32Array, i: number): THREE.Vector3 {
   return new THREE.Vector3(points[i * 3], points[i * 3 + 1], points[i * 3 + 2]);
@@ -83,50 +30,32 @@ function fullTube(path: WireLayerPath, wireRadius: number): THREE.BufferGeometry
   return new THREE.TubeGeometry(curve, tubularSegments, wireRadius, TUBE_RADIAL_SEGMENTS, false);
 }
 
-/**
- * A plain cylindrical shell spanning the layer's occupied radius and height.
- * Sits half a wire radius outside the wire's CENTERLINE, not at its outer
- * surface: the hint tubes below reach centerline + hintRadius (at least the
- * wire radius), so this leaves them visibly proud of the smooth shell (a
- * flush shell would make them coincide with its own surface and disappear).
- * Not on the centreline itself: layer 1's centreline sits only 0.1 d above
- * the groove's ridges, and a shell there would fight them for depth.
- */
 function envelopeShell(path: WireLayerPath, wireRadius: number): THREE.BufferGeometry {
   const sampleCount = path.points.length / 3;
   const first = pointAt(path.points, 0);
   const last = pointAt(path.points, sampleCount - 1);
-  const radius = Math.hypot(first.x, first.y) + wireRadius / 2;
+  const radius = Math.hypot(first.x, first.y) + wireRadius * ENVELOPE_OUTSET_IN_WIRE_RADII;
   const zLo = Math.min(first.z, last.z);
   const zHi = Math.max(first.z, last.z);
   const height = Math.max(1e-3, zHi - zLo);
 
   const cyl = new THREE.CylinderGeometry(radius, radius, height, ENVELOPE_RADIAL_SEGMENTS, 1, true);
-  // CylinderGeometry is Y-up around its own axis; the coil's axis is Z.
-  cyl.rotateX(Math.PI / 2);
+  cyl.rotateX(Y_AXIS_TO_Z_AXIS_ANGLE);
   cyl.translate(0, 0, (zLo + zHi) / 2);
   return cyl;
 }
 
-/**
- * How many hint turns to place, and where (in real turn-count units, `phi`)
- * their centers sit. The first and last hints are pinned so their span
- * reaches exactly `phi=0` and `phi=turns` -- the cable's start and end, per
- * the ticket review -- and the rest are evenly spaced between them (which,
- * since z is linear in phi, is also evenly spaced along the height).
- */
 function hintCenters(turns: number): number[] {
   const span = Math.min(HINT_SPAN_TURNS, turns);
   if (turns <= span) return [turns / 2];
 
-  const usableRun = turns - span; // distance between the first and last hint's centers
-  const count = Math.min(MAX_HINTS, Math.max(MIN_HINTS, Math.round(usableRun / HINT_SPACING_TURNS) + 1));
+  const firstToLastCenterDistance = turns - span;
+  const count = Math.min(MAX_HINTS, Math.max(MIN_HINTS, Math.round(firstToLastCenterDistance / HINT_SPACING_TURNS) + 1));
   if (count === 1) return [turns / 2];
 
-  return Array.from({ length: count }, (_, i) => span / 2 + (i * usableRun) / (count - 1));
+  return Array.from({ length: count }, (_, i) => span / 2 + (i * firstToLastCenterDistance) / (count - 1));
 }
 
-/** A handful of short, full-fidelity helical tube segments sampled across the run, each a real multi-turn spiral (see HINT_SPAN_TURNS). */
 function hintTubes(path: WireLayerPath, hintRadius: number): THREE.BufferGeometry[] {
   const sampleCount = path.points.length / 3;
   if (sampleCount < 2 || path.turns <= 0) return [];
@@ -146,21 +75,14 @@ function hintTubes(path: WireLayerPath, hintRadius: number): THREE.BufferGeometr
   return tubes;
 }
 
-/** True when some layer has too many turns for a full tube (see TURNS_FOR_ENVELOPE). */
 export function needsEnvelope(wirePaths: WireLayerPath[]): boolean {
   return wirePaths.some((p) => p.turns > TURNS_FOR_ENVELOPE);
 }
 
-/** The whole cable (`Design.cablePath`, issue #115) as one continuous tube. */
 export function buildCableTube(cablePath: Float32Array, wireRadius: number): THREE.BufferGeometry {
   return fullTube({ layer: 0, turns: 1, points: cablePath }, wireRadius);
 }
 
-/**
- * Build one merged BufferGeometry per layer. Below TURNS_FOR_ENVELOPE turns
- * this is the full wound tube; above it, an envelope shell plus a few hint
- * tubes (see file header).
- */
 export function buildWireGeometries(wirePaths: WireLayerPath[], wireRadius: number): THREE.BufferGeometry[] {
   return wirePaths.map((path) => {
     if (path.turns <= TURNS_FOR_ENVELOPE) return fullTube(path, wireRadius);

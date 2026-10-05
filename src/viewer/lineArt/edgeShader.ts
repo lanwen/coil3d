@@ -1,50 +1,5 @@
 import { Vector2 } from "three";
 
-/**
- * Fullscreen edge-detection shader (docs/design.md, Rendering: the "skapa"
- * technique, reimplemented).
- *
- * Reads one normal+depth render of the scene and marks three kinds of line,
- * each exactly one pixel wide (the thicken pass sets the final weight):
- *
- * - Silhouette: a model pixel with an empty (depth = 1, cleared) neighbour.
- *   This is the outer contour against the transparent background.
- * - Occlusion: a pixel on the near side of a depth step. Uses the signed
- *   second difference of linear depth, not the first difference. A surface
- *   seen at a grazing angle has a steep but smooth depth ramp, so a
- *   first-difference test fires across a wide band there (the black
- *   "crescent" artifacts). A real step breaks the ramp, and only then does the
- *   second difference get large. The threshold is in world units, a few
- *   screen pixels' worth, so it tracks zoom.
- * - Crease: the view-space normal turns by more than a set angle between this
- *   pixel and its right or upper neighbour. The viewer splits vertex normals at
- *   hard edges (toCreasedNormals), so a crease is a clean jump in the normal
- *   buffer at any zoom, and smooth curves never reach the threshold.
- *
- * The engraved label (issue #176) is the exception: its letters are a few
- * millimetres tall, so the pocket walls and floors would fuse the usual lines
- * into solid blobs. The normal+depth pass marks the label's pocket faces with
- * alpha 0.5 (see LineArtRenderer's `FACE_KIND_ATTRIBUTE`). Around them only the
- * pocket's outline is marked, in its own channel, and the thicken pass draws
- * it with a finer pen.
- *
- * The chamfers on the rim of the flange and the cap (issue #229) are small
- * enough that an IKEA drawing leaves them out. The same pass marks a chamfer
- * with alpha 0.9 and the vertical land between a rim's two chamfers with 0.8,
- * and the crease between the two is not drawn. What remains is the line where
- * the plate's face meets its rim, as on a plate with square edges, and the
- * silhouette.
- *
- * Where the core's groove fades out (alpha 0.97), its edges turn gradually
- * shallower and would cross the crease angle in broken dashes, and its depth
- * steps die out half way as stubs. Neither the creases nor the depth steps
- * within the fade are drawn, so each groove line ends where the groove's full
- * depth ends. Silhouettes and occlusions by other parts still are.
- *
- * Output: r = ink (1 on a line pixel), g = model coverage, b = fine ink (the
- * label's outline), a = 1. The thicken pass turns that into the final white
- * fill, black line and alpha.
- */
 export const EdgeShader = {
   name: "EdgeShader",
 
@@ -52,15 +7,12 @@ export const EdgeShader = {
     tNormal: { value: null },
     tDepth: { value: null },
     texel: { value: new Vector2(1 / 1024, 1 / 1024) },
-    /** far - near of the orthographic camera: converts [0,1] depth to world units. */
     depthRange: { value: 1 },
-    /** Minimum depth second difference (world units) that counts as a step. */
     depthThreshold: { value: 1 },
-    /** Cosine of the minimum normal turn that counts as a crease. */
     normalThreshold: { value: Math.cos((30 * Math.PI) / 180) },
   },
 
-  vertexShader: /* glsl */ `
+  vertexShader: `
     varying vec2 vUv;
     void main() {
       vUv = uv;
@@ -68,7 +20,7 @@ export const EdgeShader = {
     }
   `,
 
-  fragmentShader: /* glsl */ `
+  fragmentShader: `
     precision highp float;
     uniform sampler2D tNormal;
     uniform sampler2D tDepth;
