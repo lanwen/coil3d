@@ -23,7 +23,7 @@ Run the full suite locally on your final commit:
 ```sh
 npx tsc -b
 npm test
-E2E_PORT=5182 npx playwright test --workers=2
+E2E_PORT=5182 npx playwright test
 ```
 
 The e2e run builds the app and previews it on `E2E_PORT` (default 5182), so

@@ -44,7 +44,7 @@ npm run build                # tsc -b + comment check + vite build
 npx tsc -b                   # typecheck
 npm run lint:comments        # no comments in src/ (see Code style)
 npm test                     # vitest: the core's public interface
-E2E_PORT=<port> npx playwright test --workers=2   # e2e; builds and previews on E2E_PORT (default 5182)
+E2E_PORT=<port> npx playwright test   # e2e (4 workers); builds and previews on E2E_PORT (default 5182)
 ```
 
 Use a free `E2E_PORT` when another dev server or test run is already using
@@ -82,7 +82,7 @@ the default. If Playwright's own Chromium isn't available, point
   (https://coil3d.lanwen.dev), which runs `npm run build` and serves `dist/`.
   A merge ships to production, so the merge gate matters.
 - The merge gate is the full local suite on the final head, rebased onto
-  `origin/main`: `npx tsc -b`, `npm test`, `E2E_PORT=<port> npx playwright test --workers=2`.
+  `origin/main`: `npx tsc -b`, `npm test`, `E2E_PORT=<port> npx playwright test`.
   Put the counts in the PR's evidence comment (see "Pull requests").
 - Before opening or updating a PR, rebase onto the latest `origin/main` and
   verify with `git merge-base --is-ancestor origin/main HEAD`.

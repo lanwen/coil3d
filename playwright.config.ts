@@ -24,16 +24,18 @@ export default defineConfig({
   // zoomed-in engraved-label screenshots -- a real CPU cost from render
   // complexity, not an animation). A real CI run confirmed both still need
   // this same generous headroom, so it stays global rather than tightened.
-  timeout: process.env.CI ? 180_000 : 30_000,
+  timeout: process.env.CI ? 180_000 : 60_000,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   // One worker in CI: two parallel software-rendered WebGL/WASM-heavy pages
   // fighting over a 2-vCPU runner was slower overall (contention) than
   // running them one at a time, and caused widespread screenshot-stability
-  // timeouts. Left unset locally so `npm run e2e` keeps using this
-  // machine's own default worker count.
-  workers: process.env.CI ? 1 : undefined,
+  // timeouts. Locally four: a test spends most of its time waiting (the
+  // design solving in its worker, settle sleeps), not using CPU, so four
+  // workers finish a full run about a quarter faster than two on a
+  // 9-CPU share without making it flaky (issue #275).
+  workers: process.env.CI ? 1 : 4,
   // CI shards the suite across parallel runner jobs (.github/workflows/
   // ci.yml), each with its own worker=1 process, so no single report from
   // any one shard covers the whole run. "blob" is Playwright's own format
@@ -61,7 +63,7 @@ export default defineConfig({
   // (see `timeout`'s comment above), so this stays at the proven-green 60s
   // rather than a number the data doesn't actually support yet.
   expect: {
-    timeout: process.env.CI ? 60_000 : 5_000,
+    timeout: process.env.CI ? 60_000 : 15_000,
     // Software-rendered WebGL (SwiftShader) is deterministic per machine but
     // not bit-identical across machines and runs, so screenshots get a small
     // pixel-ratio allowance instead of an exact match. The allowance is for

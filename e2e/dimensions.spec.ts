@@ -79,6 +79,15 @@ async function showPreset(page: Page, preset: (typeof PRESETS)[number]) {
   await page.waitForTimeout(600);
 }
 
+/** The axes' probe, once it exists: it is dropped while the axes are rebuilt and comes back on the next frame. */
+async function readProbe(page: Page) {
+  let probe: ProbeWindow["__dimensionAxes"];
+  await expect
+    .poll(async () => (probe = await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes)), { message: "the axes are drawn" })
+    .toBeDefined();
+  return probe!;
+}
+
 async function readText(locator: Locator): Promise<string> {
   return (await locator.textContent()) ?? "";
 }
@@ -258,7 +267,7 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
         // (Ink hidden under a control doesn't show in the diff above: check
         // the axes' own spans, tick bars included, against every control.)
         const rects = await controlRects(page, [".dimensions-toggle"]);
-        const probe = (await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes))!;
+        const probe = await readProbe(page);
         const TICK_HALF = 7;
         for (const arm of probe.arms) {
           for (let t = 0; t <= 1; t += 0.01) {
@@ -381,8 +390,7 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
             STEP_DEG,
           );
         }
-        const probe = await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes);
-        expect(probe, "the axes are drawn").toBeTruthy();
+        const probe = await readProbe(page);
         const { min, max } = probe!.box;
         const g = probe!.gap;
         const oz = probe!.origin[2];
@@ -479,7 +487,7 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
       let sawOne = false;
       for (const preset of PRESETS) {
         await showPreset(page, preset);
-        const probe = (await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes))!;
+        const probe = await readProbe(page);
         // Foreshortened past MIN_AXIS_PX (DimensionAxes.tsx), an axis isn't
         // drawn AT ALL (no entry in `arms`), same as an occluded/merged
         // label -- both just mean "nothing to see here".
@@ -499,7 +507,7 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
         await gotoDesign(page, hash);
         for (const preset of PRESETS) {
           await showPreset(page, preset);
-          const probe = (await page.evaluate(() => (window as unknown as ProbeWindow).__dimensionAxes))!;
+          const probe = await readProbe(page);
           const width = probe.arms.find((a) => a.id === "width")?.labelRect ?? null;
           const depth = probe.arms.find((a) => a.id === "depth")?.labelRect ?? null;
           if (!width || !depth) continue; // one is hidden (occluded/foreshortened/not drawn) -- nothing to collide
