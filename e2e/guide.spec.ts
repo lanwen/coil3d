@@ -79,6 +79,38 @@ async function insetInkPixels(page: Page): Promise<Array<{ inset: string; ink: n
   });
 }
 
+// Reads the zoom inset of a step, with the ink around each point it marks as its focus (the inset publishes those as fractions of its own box in `data-focus`): the dark line pixels within `radiusFraction` of the point, and whether the point lies inside the visible circle.
+async function insetFocusInk(page: Page, stepTestId: string, radiusFraction: number): Promise<Array<{ inside: boolean; ink: number }>> {
+  return page.getByTestId(stepTestId).evaluate((step, radiusFraction) => {
+    const wrap = step.querySelector<HTMLElement>(".guide-zoom-inset");
+    const focus: Array<{ x: number; y: number }> = JSON.parse(wrap?.dataset.focus ?? "[]");
+    const canvas = wrap?.querySelector("canvas") as HTMLCanvasElement;
+    const visible = wrap!.getBoundingClientRect();
+    const frame = canvas.getBoundingClientRect();
+    const scale = canvas.width / frame.width;
+    const copy = document.createElement("canvas");
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    const context = copy.getContext("2d")!;
+    context.drawImage(canvas, 0, 0);
+    const pixels = context.getImageData(0, 0, copy.width, copy.height).data;
+    return focus.map((p) => {
+      const cx = (visible.left + p.x * visible.width - frame.left) * scale;
+      const cy = (visible.top + p.y * visible.height - frame.top) * scale;
+      const radius = visible.width * radiusFraction * scale;
+      let ink = 0;
+      for (let y = Math.floor(cy - radius); y < cy + radius; y++) {
+        for (let x = Math.floor(cx - radius); x < cx + radius; x++) {
+          if (x < 0 || y < 0 || x >= copy.width || y >= copy.height || (x - cx) ** 2 + (y - cy) ** 2 > radius * radius) continue;
+          const at = (y * copy.width + x) * 4;
+          if (pixels[at + 3] > 0 && pixels[at] < 100) ink++;
+        }
+      }
+      return { inside: (p.x - 0.5) ** 2 + (p.y - 0.5) ** 2 < 0.45 ** 2, ink };
+    });
+  }, radiusFraction);
+}
+
 test.describe("printable assembly guide (issue #17)", () => {
   // Also covers: a shared link with ui.view=guide opens the guide directly,
   // generated from that design (gotoGuide's own goto IS that direct
@@ -305,6 +337,27 @@ test.describe("printable assembly guide (issue #17)", () => {
         await expect.poll(blank, { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toEqual([]);
         await page.getByTestId("guide-view").screenshot();
         await expect.poll(blank, { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toEqual([]);
+      });
+    }
+  });
+
+  // Issue #289: step 2's inset looks at the bottom face from below, so the channel and the hole it ends in are drawn, not hidden behind the wall.
+  test.describe("step 2's inset shows the bottom-face channel and the hole (issue #289)", () => {
+    const MIN_INK_AT_FOCUS = 60; // the view from below draws 89 or more pixels at each point; the old iso view drew 31 or fewer at the hole entrance, or had it outside the circle
+    const FOCUS_RADIUS = 0.1;
+    const SHAPES = [
+      { name: "round", doc: { L: 1000, d: 4, size: 40 } },
+      { name: "square", doc: { shape: "sq", rc: 15, L: 1000, d: 4, size: 60 } },
+      { name: "triangle", doc: { shape: "tri", rc: 12, L: 1000, d: 4, size: 70 } },
+    ];
+    for (const { name, doc } of SHAPES) {
+      test(`${name}: the groove's start and the hole entrance are inside the circle, with line work around each`, async ({ page }) => {
+        test.slow();
+        await gotoGuide(page, encodeHashDoc(doc), { reveal: true });
+        await expect(page.getByTestId("guide-step-2").locator(".guide-zoom-inset")).toHaveAttribute("data-focus", /.+/);
+        const probe = async () => (await insetFocusInk(page, "guide-step-2", FOCUS_RADIUS)).map((f) => (f.inside ? f.ink : -1));
+        await expect.poll(async () => (await probe()).length, { timeout: GUIDE_SCREENSHOT_TIMEOUT }).toBe(2);
+        await expect.poll(async () => (await probe()).every((ink) => ink >= MIN_INK_AT_FOCUS), { timeout: GUIDE_SCREENSHOT_TIMEOUT, message: `ink around the groove's start and the hole entrance: ${await probe()}` }).toBe(true);
       });
     }
   });

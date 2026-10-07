@@ -5,6 +5,7 @@ import type { PresetId } from "../viewer/lineArt/presets";
 import * as THREE from "three";
 import { computeGuideFit, explodedParts, FIGURE_ASPECT, projectToFigure, type GuideFit } from "./projection";
 import { EXPLODE_GAP } from "../viewer/CoilScene";
+import { rotateParts, rotatePoint, rotateWirePaths } from "./wallView";
 
 export interface Pt {
   x: number;
@@ -117,6 +118,7 @@ export function ZoomInset({
   corner = "bottom-right",
   zoom = INSET_ZOOM,
   size = INSET_DIAMETER_PX,
+  focus,
 }: {
   parts: Part[];
   wirePaths?: WireLayerPath[];
@@ -128,10 +130,15 @@ export function ZoomInset({
   corner?: "bottom-right" | "bottom-left" | "top-right";
   zoom?: number;
   size?: number;
+  focus?: Pt[];
 }) {
   const { wrapStyle, innerStyle } = zoomInsetStyle(size, zoom, at);
+  const focusInInset = focus?.map((p) => ({
+    x: ((p.x - at.x) * HOST_FIGURE_WIDTH_PX * zoom) / size + 0.5,
+    y: ((p.y - at.y) * HOST_FIGURE_WIDTH_PX * zoom) / FIGURE_ASPECT / size + 0.5,
+  }));
   return (
-    <div className={`guide-zoom-inset guide-zoom-inset-${corner}`} style={wrapStyle}>
+    <div className={`guide-zoom-inset guide-zoom-inset-${corner}`} style={wrapStyle} data-focus={focusInInset && JSON.stringify(focusInInset)}>
       <div className="guide-zoom-inset-inner" style={innerStyle}>
         <GuideFigure parts={parts} wirePaths={wirePaths} wireDiameter={wireDiameter} showWire={showWire} preset={preset} fill={fill} className="guide-zoom-inset-figure" />
       </div>
@@ -154,30 +161,43 @@ export interface FigureProps {
   zoomInsetAt?: THREE.Vector3;
   zoomInsetCorner?: "bottom-right" | "bottom-left";
   zoomInsetWindowMm?: number;
+  zoomInsetView?: { pose: THREE.Matrix4; at: THREE.Vector3; focus: THREE.Vector3[] };
 }
 
-export function Figure({ parts, wirePaths, wireDiameter, showWire, exploded, preset = "iso", fill = DEFAULT_FIGURE_FILL, testId, renderOverlay, zoomInsetAt, zoomInsetCorner, zoomInsetWindowMm }: FigureProps) {
+export function Figure({ parts, wirePaths, wireDiameter, showWire, exploded, preset = "iso", fill = DEFAULT_FIGURE_FILL, testId, renderOverlay, zoomInsetAt, zoomInsetCorner, zoomInsetWindowMm, zoomInsetView }: FigureProps) {
   const posedParts = useMemo(() => explodedParts(parts, exploded ?? false, EXPLODE_GAP), [parts, exploded]);
   const fit = useMemo(() => computeGuideFit(posedParts, preset, fill), [posedParts, preset, fill]);
+  const inset = useMemo(() => {
+    if (!fit || !zoomInsetAt) return null;
+    const insetParts = zoomInsetView ? rotateParts(posedParts, zoomInsetView.pose) : posedParts;
+    const insetWires = zoomInsetView && wirePaths ? rotateWirePaths(wirePaths, zoomInsetView.pose) : wirePaths;
+    const insetFit = zoomInsetView ? computeGuideFit(insetParts, preset, fill) : fit;
+    if (!insetFit) return null;
+    const anchor = zoomInsetView ? rotatePoint(zoomInsetView.at, zoomInsetView.pose) : zoomInsetAt;
+    const zoom = zoomInsetWindowMm ? zoomForWindowMm(insetFit, INSET_DIAMETER_PX, zoomInsetWindowMm) : undefined;
+    const focus = zoomInsetView?.focus.map((p) => projectToFigure(insetFit, rotatePoint(p, zoomInsetView.pose)));
+    return { parts: insetParts, wirePaths: insetWires, at: projectToFigure(insetFit, anchor), zoom, focus };
+  }, [fit, zoomInsetAt, zoomInsetView, zoomInsetWindowMm, posedParts, wirePaths, preset, fill]);
   return (
     <div className="guide-figure-stage">
       <GuideFigure parts={parts} wirePaths={wirePaths} wireDiameter={wireDiameter} showWire={showWire} exploded={exploded} preset={preset} fill={fill} testId={testId} />
       {fit && renderOverlay && <FigureOverlay>{renderOverlay(fit)}</FigureOverlay>}
-      {fit && zoomInsetAt && (
+      {fit && zoomInsetAt && inset && (
         <>
           <FigureOverlay>
             <ZoomLeader at={projectToFigure(fit, zoomInsetAt)} corner={zoomInsetCorner} />
           </FigureOverlay>
           <ZoomInset
-            parts={posedParts}
-            wirePaths={wirePaths}
+            parts={inset.parts}
+            wirePaths={inset.wirePaths}
             wireDiameter={wireDiameter}
             showWire={showWire}
             preset={preset}
             fill={fill}
-            at={projectToFigure(fit, zoomInsetAt)}
+            at={inset.at}
             corner={zoomInsetCorner}
-            zoom={zoomInsetWindowMm ? zoomForWindowMm(fit, INSET_DIAMETER_PX, zoomInsetWindowMm) : undefined}
+            zoom={inset.zoom}
+            focus={inset.focus}
           />
         </>
       )}
