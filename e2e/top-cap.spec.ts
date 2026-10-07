@@ -9,10 +9,11 @@ import { expectSettled } from "./settled";
 // viewer seam: the cap/joint/tolerance controls, the auto-cap decision
 // showing/hiding the exploded-view toggle, and the exploded animation itself.
 
-// outer=60, height=60 (both locked), layers=2 locked -> layers > 1, so the
-// top cap is auto-on and every joint has room for its features (>= the
-// JOINT_ENGAGE_DEPTH + margin floor in src/core/constants.ts).
-const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" });
+// outer=60, height=60 (both locked), layers=2 locked, the cap switched on:
+// every joint has room for its features (>= the JOINT_ENGAGE_DEPTH + margin
+// floor in src/core/constants.ts). Auto is off whatever the layers (#292).
+const TWO_LAYER_AUTO = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" });
+const TWO_LAYER = withHashDoc(TWO_LAYER_AUTO, { cap: "on" });
 const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40, base: "on" }); // layers=1 (default): no top cap
 
 async function gotoDesign(page: Page, hash: string) {
@@ -40,15 +41,22 @@ test.describe("top cap controls and auto-decision (issue #9)", () => {
     await expect(page.getByTestId("topCap-reset-auto")).toHaveCount(0);
   });
 
-  test("layers=2 (auto): a top cap is added, and the exploded-view toggle appears", async ({ page }) => {
+  test("layers=2 (auto): still no top cap, with or without the base (#292), and the cap switched on adds it with the exploded-view toggle", async ({ page }) => {
+    await gotoDesign(page, TWO_LAYER_AUTO);
+    await expect(page.getByTestId("caps")).toContainText("off");
+    await expect(page.getByTestId("toggle-exploded")).toHaveCount(0);
+    await expect(page.getByTestId("mesh-detail")).toContainText("1 part");
+    await expect(page.getByTestId("topCap")).not.toBeChecked();
+    await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
+
+    await page.goto("about:blank");
     await gotoDesign(page, TWO_LAYER);
     await expect(page.getByTestId("caps")).toContainText("on");
     await expect(page.getByTestId("toggle-exploded")).toBeVisible();
     await expect(page.getByTestId("mesh-detail")).toContainText("2 parts");
-    // Issue #119: still auto, but now showing "on" (layers > 1).
     await expect(page.getByTestId("topCap")).toBeChecked();
-    await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
-    await expect(page.getByTestId("topCap-reset-auto")).toHaveCount(0);
+    await expect(page.getByTestId("topCap-auto-tag")).toHaveCount(0);
+    await expect(page.getByTestId("topCap-reset-auto")).toBeVisible();
   });
 
   test("overriding the top cap off removes it even with layers=2", async ({ page }) => {
@@ -63,26 +71,26 @@ test.describe("top cap controls and auto-decision (issue #9)", () => {
   });
 
   test("touching the top-cap switch makes it explicit (stored in the hash), and 'reset to auto' restores auto (issue #119)", async ({ page }) => {
-    await gotoDesign(page, TWO_LAYER); // auto -> currently "on" (layers=2)
+    await gotoDesign(page, TWO_LAYER_AUTO); // auto -> currently "off"
     await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
     expect(decodeHashDoc(page.url()).cap).toBeUndefined(); // auto is never written to the hash
 
-    // Touching it while it already reads "on" flips it OFF (a real state
-    // change), and that becomes an explicit, hash-stored override.
-    await page.getByTestId("topCap").uncheck();
+    // Touching it while it reads "off" flips it ON (a real state change),
+    // and that becomes an explicit, hash-stored override.
+    await page.getByTestId("topCap").check();
     await expect(page.getByTestId("topCap-auto-tag")).toHaveCount(0);
-    await expect(page.getByTestId("caps")).toContainText("off");
-    await expect(async () => expect(decodeHashDoc(page.url()).cap).toBe("off")).toPass();
+    await expect(page.getByTestId("caps")).toContainText("on");
+    await expect(async () => expect(decodeHashDoc(page.url()).cap).toBe("on")).toPass();
 
     await page.getByTestId("topCap-reset-auto").click();
     await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
     await expect(page.getByTestId("topCap-reset-auto")).toHaveCount(0);
-    await expect(page.getByTestId("caps")).toContainText("on"); // back to the automatic layers>1 decision
+    await expect(page.getByTestId("caps")).toContainText("off");
     await expect(async () => expect(decodeHashDoc(page.url()).cap).toBeUndefined()).toPass();
 
     await page.reload();
     await expect(page.getByTestId("topCap-auto-tag")).toBeVisible();
-    await expect(page.getByTestId("topCap")).toBeChecked();
+    await expect(page.getByTestId("topCap")).not.toBeChecked();
   });
 
   test("changing the joint and tolerance controls updates the hash, and reloading reproduces them", async ({ page }) => {

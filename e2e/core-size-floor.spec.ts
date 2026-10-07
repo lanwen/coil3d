@@ -14,7 +14,7 @@ import { encodeHashDoc } from "./hashDoc";
 // 2000mm, diameter 3.8mm) needs a bigger minimum than 20mm for a triangle
 // (see test/design.test.ts's "raises a too-small locked size" case, same
 // fixture).
-const TOO_SMALL_TRIANGLE = `/${encodeHashDoc({ shape: "tri", rc: 5, size: 20, h: 40, base: "on" })}`;
+const TOO_SMALL_TRIANGLE = `/${encodeHashDoc({ shape: "tri", rc: 5, size: 20, h: 40, base: "on", cap: "on" })}`;
 
 // Issue #140: TOO_SMALL_TRIANGLE above sits exactly on the boundary where
 // the bend-limit floor and the useful max (`Solution.cornerRadiusRange`)
@@ -115,7 +115,7 @@ test("the size slider's own minimum follows the shape's floor: the flats for sq/
 // 30 mm core with a stiff 3.6 mm cable, whose 23.4 mm bend radius needs a
 // 46.1 mm core) shows the raised size in the field, exactly like sq/tri.
 test("a locked round core below the bend limit shows the EFFECTIVE (raised) size in the field, matching the note", async ({ page }) => {
-  await page.goto(`/${encodeHashDoc({ d: 3.6, wt: "stiff", size: 30, ly: 2, base: "on" })}`);
+  await page.goto(`/${encodeHashDoc({ d: 3.6, wt: "stiff", size: 30, ly: 2, base: "on", cap: "on" })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
   const outerInput = page.getByTestId("input-outer");
   await expect(outerInput).toHaveValue("46");

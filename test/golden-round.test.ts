@@ -46,7 +46,9 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     expect(d.solution.layerResults[0].perimeter).toBeCloseTo(190.88316963211582, 9);
     expect(d.solution.layerResults[0].length).toBeCloseTo(2100.339882796659, 6);
     expect(d.solution.totalWoundLength).toBeCloseTo(2100.339882796659, 6);
-    expect(d.solution.totalWireLength).toBeCloseTo(2100.339882796659, 6);
+    // Issue #292: plus the top channel the outer end takes to the centre hole (a one-layer core with no cap).
+    expect(d.solution.totalWireLength).toBeCloseTo(2100.339882796659 + d.faceChannels!.outer!.length, 6);
+    expect(d.faceChannels!.outer!.length).toBeCloseTo(44.5167, 3);
     expect(d.solution.envelopeDiameter).toBeCloseTo(64.56, 9);
     expect(d.solution.flangeSize).toBeCloseTo(67.56, 9); // issue #239: the envelope plus a 1.5 mm lip each side (was 4)
     expect(d.solution.minOuterSizeForBend).toBeCloseTo(19, 9); // 2 x (2.6 x 3.8 - 3.8 / 2 + 0.4 x 3.8)
@@ -126,6 +128,9 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     //
     // Issue #255 bumped it DOWN from 35099.827662282645 (by 1612.31 mm^3): the USB cable's bend radius is 9.9 mm now
     // (2.6 x d, was 4 x d = 15.2 mm), so the inner end's lead-in needs less flange margin, and the flange is smaller all round.
-    expect(meshVolume(d.mesh)).toBeCloseTo(33487.518719260865, 3);
+    //
+    // Issue #292 bumped it UP from 33487.518719260865 (by 14175.28 mm^3): a one-layer core with no cap has the bare core's
+    // top ring now, with its centre hole, funnel and the outer end's channel, whichever the base.
+    expect(meshVolume(d.mesh)).toBeCloseTo(47662.79405807795, 3);
   });
 });

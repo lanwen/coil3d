@@ -62,7 +62,7 @@ import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
 import type { CoilMesh, CoilSpec, Design, Part, Resolution, Solution } from "./types";
 import { buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
-import { planFaceChannels } from "./faceChannel";
+import { faceTopFloor, planFaceChannels } from "./faceChannel";
 import { buildCable } from "./wire";
 
 function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, boreOutline: ShapeOutline) {
@@ -152,7 +152,9 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const layer1Turns = solution.layerResults[0]?.turns ?? 0;
 
   const woundLayers = solution.layerResults.filter((r) => r.turns > 0).length;
-  const faceChannels = baseEnabled(spec) || woundLayers === 0
+  const topFace = woundLayers === 1 && !solution.topCapEnabled;
+  const bottomFace = !baseEnabled(spec);
+  const faceChannels = woundLayers === 0
     ? undefined
     : planFaceChannels({
         outline,
@@ -161,12 +163,13 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
         wireDiameter,
         tolerance: spec.tolerance,
         bendRadius: bendMultiplierOf(spec.wire) * wireDiameter,
-        topFace: woundLayers === 1 && !solution.topCapEnabled,
+        topFace,
+        bottomFace,
       });
-  if (faceChannels && 2 * faceChannels.channelRadius > FACE_BRIDGE_NOTE_WIDTH) {
+  if (faceChannels?.inner && 2 * faceChannels.channelRadius > FACE_BRIDGE_NOTE_WIDTH) {
     note(`The channel on the bottom face is ${(2 * faceChannels.channelRadius).toFixed(1)} mm wide, so its roof bridges more than 8 mm; check that your printer manages it.`);
   }
-  if (!baseEnabled(spec) && woundLayers > 0 && !faceChannels) {
+  if ((bottomFace || topFace) && woundLayers > 0 && !faceChannels) {
     problem("The cable's ends have no room to leave the core's centre at this size and height; the core needs to be bigger.");
   }
 
@@ -186,7 +189,13 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     columns,
     minCornerSegments: cornerSegs,
     rowsPerPitch,
-    rings: faceChannels && { holeOutline: faceChannels.holeOutline, width: faceChannels.ringWidth, bottomThickness: faceChannels.bottomThickness, topThickness: faceChannels.topThickness },
+    rings: faceChannels && {
+      holeOutline: faceChannels.holeOutline,
+      width: faceChannels.ringWidth,
+      bottomThickness: faceChannels.bottomThickness,
+      bottomRing: faceChannels.inner !== undefined,
+      topThickness: faceChannels.topThickness,
+    },
   };
   const wantsKeyhole = spec.mount === "keyhole";
   const wantsThrough = spec.mount === "through";
@@ -197,6 +206,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       ? layoutSkadisTclips({
           boreOutline,
           capHole: solution.topCapEnabled ? jointGeometry(boreOutline, capJointForTclips.joint, spec.tolerance).holeOutline : undefined,
+          ring: faceChannels?.topThickness !== undefined ? { holeOutline: faceChannels.holeOutline, funnelFloor: faceTopFloor(faceChannels) } : undefined,
           wallTop: solution.height,
           thickness,
           tolerance: spec.tolerance,

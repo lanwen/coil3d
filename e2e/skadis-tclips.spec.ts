@@ -52,7 +52,8 @@ test.describe("SKÅDIS T-clip controls (issues #213, #221)", () => {
   });
 
   for (const { label, hash, parts, message } of [
-    { label: "round-60", hash: ROUND_60, parts: "3 parts", message: /room for 2 SK.DIS T-clips/i },
+    { label: "round-75", hash: tclips({ size: 75 }), parts: "3 parts", message: /room for 2 SK.DIS T-clips/i },
+    { label: "round-60", hash: ROUND_60, parts: "2 parts", message: /room for 1 SK.DIS T-clip.*lift the coil/i },
     { label: "round-40", hash: ROUND_40, parts: "2 parts", message: /room for 1 SK.DIS T-clip.*lift the coil/i },
   ]) {
     test(`${label}: a smaller bore gets fewer clips, and says how the coil hangs`, async ({ page }) => {

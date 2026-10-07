@@ -348,7 +348,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
     return { wirePaths, innerEndLeadIn: new Float32Array(0), layerTransitions, outerEndLeadOut: new Float32Array(0), cablePath: new Float32Array(0), outerEndU: 0, warnings };
   }
 
-  const innerEndLeadIn = new Float32Array((ends.faceChannels ? faceEndPath(ends.faceChannels.inner).reverse() : (ends.innerEnd?.leadIn ?? [])).flatMap((p) => [p.x, p.y, p.z]));
+  const innerEndLeadIn = new Float32Array((ends.faceChannels?.inner ? faceEndPath(ends.faceChannels.inner).reverse() : (ends.innerEnd?.leadIn ?? [])).flatMap((p) => [p.x, p.y, p.z]));
 
   const last = runs.at(-1)!;
   const lastPoints = wirePaths.at(-1)!.points;

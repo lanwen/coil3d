@@ -121,7 +121,7 @@ describe("design().mesh is a valid, expected manifold", () => {
     const twoLayers = await design(twoLayerSpec);
     expect(twoLayers.solution.envelopeDiameter).toBeGreaterThan(oneLayer.solution.envelopeDiameter);
     expect(twoLayers.solution.flangeSize).toBeGreaterThan(oneLayer.solution.flangeSize);
-    expect(twoLayers.solution.capsAuto).toBe(true);
+    expect(twoLayers.solution.capsAuto).toBe(false);
     expect(oneLayer.solution.capsAuto).toBe(false);
   });
 });
@@ -291,7 +291,7 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
     height: { locked: true, value: 40 },
     layers: { locked: true, value: 1 },
     objective: "minVolume",
-    topCap: "auto",
+    topCap: "on",
     base: "on",
     joint: "press",
     tolerance: 0.2,

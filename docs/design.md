@@ -90,10 +90,10 @@ an option (`base`: on or off, written to the link only when on). A wall mount
 needs it, so a mount keeps the base on whatever `base` says; the spec keeps the
 user's value. With the base off the core is the only part: a grooved tube that
 stands on its own bottom face, with no flange, no inner-end channel and no base
-rim slot. The top cap stays optional, and `auto` means on only when there is a
-base and more than one layer, so a bare core has no cap until the user switches
-it on. An explicit cap is still built, sized to the wound cable. A link that
-sets `base` or `cap` keeps its choice. Multi-layer outer ends on a bare core
+rim slot. The top cap stays optional, and `auto` means off, with or without a
+base, so a core has no cap until the user switches it on. An explicit cap is
+still built, sized to the wound cable. A link that sets `base` or `cap` keeps
+its choice. Multi-layer outer ends on a bare core
 continue in #286.
 
 Both cable ends leave the winding onto an end face (`faceChannel.ts`). Layer 1
@@ -131,6 +131,12 @@ odd last layer finishes on the top turn; an even one on the bottom turn.
   runs straight on, bends 90 degrees up (inner end) or down (outer end) at
   `rho_min` in the vertical plane, and stands in the hole. The cut is a
   revolved section (an arc, no sweep), so STEP gets exact tori.
+- **With the base on (#292).** Only the bottom differs. The top of the core
+  (the top ring, the hole, the top-face channel and the outer end's drawn path)
+  is planned by the same code with the same dimensions, so the plan reserves the
+  bottom ring's thickness and the inner end's seat in both cases. With the base
+  on there is no bottom ring and no bottom channel: the inner end keeps the
+  flange's channel and clip.
 - **One layer, no cap.** Only then does the outer end use the top face. With
   more layers the outer end cannot reach the centre: it would cross the lower
   layers' turns at the same height. It keeps its straight tail, or the cap's
@@ -144,7 +150,9 @@ odd last layer finishes on the top turn; an even one on the bottom turn.
   the bend radius (`minFaceChannelOuterSize`, by bisection on `planFaceChannels`
   at an unlimited height), and the height so the rings, the funnel and the
   bend fit. The cable length counts the arcs, the straight run, the quarter
-  bend and (for the inner end) the climb to the top face.
+  bend and (for the inner end) the climb to the top face. With the base on the
+  same size floor applies, and the height floor leaves out only the inner end's
+  climb; the length counts the outer end's channel alone.
 - **Mesh.** The ring surfaces are part of the wall's own mesh (`buildWall`:
   the bore's profile per column), so no boolean builds a ring. One boolean cuts
   the channels from the finished wall.

@@ -254,7 +254,9 @@ function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
 }
 
 function endsLengthFor(spec: CoilSpec, g: Resolved, cap: CapacityResult): number {
-  if (baseEnabled(spec)) return 0;
+  const topFace = cap.layerResults.filter((r) => r.turns > 0).length === 1 && !resolveTopCap(spec);
+  const bottomFace = !baseEnabled(spec);
+  if (!bottomFace && !topFace) return 0;
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
   return faceEndsLength({
     outline,
@@ -263,7 +265,8 @@ function endsLengthFor(spec: CoilSpec, g: Resolved, cap: CapacityResult): number
     wireDiameter: spec.wire.diameter,
     tolerance: spec.tolerance,
     bendRadius: bendMultiplierOf(spec.wire) * spec.wire.diameter,
-    topFace: cap.layerResults.filter((r) => r.turns > 0).length === 1 && !resolveTopCap(spec, g.layers),
+    topFace,
+    bottomFace,
   });
 }
 
@@ -272,18 +275,19 @@ function lengthFor(spec: CoilSpec, g: Resolved): number {
   return cap.totalWoundLength + endsLengthFor(spec, g, cap);
 }
 
-function resolveTopCap(spec: CoilSpec, layers: number): boolean {
-  return spec.topCap === "on" ? true : spec.topCap === "off" ? false : layers > 1 && baseEnabled(spec);
+function resolveTopCap(spec: CoilSpec): boolean {
+  return spec.topCap === "on";
 }
 
 function centreFloors(spec: CoilSpec): { size: number; height: number } {
-  if (baseEnabled(spec)) return { size: 0, height: 0 };
+  const bottomFace = !baseEnabled(spec);
+  if (!bottomFace && resolveTopCap(spec)) return { size: 0, height: 0 };
   const d = spec.wire.diameter;
   const mbr = bendMultiplierOf(spec.wire) * d;
   const rcMin = bendCornerRadiusFloor(spec.wire);
   return {
     size: minFaceChannelOuterSize((outerSize) => resolveOutline(spec.shape, outerSize, rcMin, spec.wire), (outline) => resolveBoreOutline(outline, d).boreOutline, d, spec.tolerance, mbr),
-    height: minFaceChannelHeight(d, spec.tolerance, mbr),
+    height: minFaceChannelHeight(d, spec.tolerance, mbr, bottomFace),
   };
 }
 
@@ -307,7 +311,7 @@ function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap:
   const { boreOutline } = resolveBoreOutline(outline, spec.wire.diameter);
   const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSizeEnvelope = env + 2 * FLANGE_MARGIN;
-  const topCapEnabled = resolveTopCap(spec, g.layers);
+  const topCapEnabled = resolveTopCap(spec);
   const baseOn = baseEnabled(spec);
   const { margin, thickness } = resolveFlangeSizing(
     outline,
@@ -382,8 +386,8 @@ function finishSolution(
   const innerBore = resolved.outerSize - 2 * wall;
   const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSize = env + 2 * FLANGE_MARGIN;
-  const capsAuto = resolved.layers > 1 && baseEnabled(spec);
-  const topCapEnabled = resolveTopCap(spec, resolved.layers);
+  const capsAuto = false;
+  const topCapEnabled = resolveTopCap(spec);
   const deltaPct = ((totalWireLength - target) / target) * 100;
 
   if (innerBore <= 0) {

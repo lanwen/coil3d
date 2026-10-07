@@ -112,6 +112,8 @@ export interface SkadisTclipInput {
   boreOutline: ShapeOutline;
   /** The top cap's hole, when there is a cap: each fin's top must be reachable through it. */
   capHole?: ShapeOutline;
+  /** The top ring's hole and the height of its funnel's foot, when the core has no cap: the fins stay below the funnel, and each fin's top must be reachable through the hole. */
+  ring?: { holeOutline: ShapeOutline; funnelFloor: number };
   /** The wall's top (z), the core's winding height. */
   wallTop: number;
   /** The flange's (and the floor's) full thickness T. */
@@ -241,6 +243,7 @@ function cuttersFor(toXY: (u: number, s: number) => XY, side: number, axisUp: nu
 function keptIn(input: SkadisTclipInput, p: XY, keep: number): boolean {
   if (outlineOffsetAt(input.boreOutline, p.x, p.y).offset > -keep) return false;
   if (input.capHole && outlineOffsetAt(input.capHole, p.x, p.y).offset > -SKADIS_TCLIP_REACH_MARGIN) return false;
+  if (input.ring && outlineOffsetAt(input.ring.holeOutline, p.x, p.y).offset > -tclipSweep(input.tolerance)) return false;
   return true;
 }
 
@@ -308,7 +311,8 @@ export function layoutSkadisTclips(input: SkadisTclipInput): SkadisTclipLayout {
   const capOn = !!input.capHole;
   // In a bore too narrow for a hand, the fins rise to the top (a fingertip only pinches there).
   const narrow = -outlineOffsetAt(boreOutline, 0, 0).offset * 2 < SKADIS_TCLIP_HAND_WIDTH;
-  const finRoom = wallTop - (capOn ? JOINT_ENGAGE_DEPTH : 0) - SKADIS_TCLIP_FIN_TOP_GAP;
+  const finCeiling = input.ring ? input.ring.funnelFloor : wallTop - (capOn ? JOINT_ENGAGE_DEPTH : 0);
+  const finRoom = finCeiling - SKADIS_TCLIP_FIN_TOP_GAP;
   const finTop = Math.max(zf + SKADIS_TCLIP_HANDLE_THICKNESS, narrow ? finRoom : Math.min(zf + SKADIS_TCLIP_FIN_MAX, finRoom));
   const reachDepth = wallTop + (capOn ? CAP_THICKNESS : 0) - finTop;
   if (!chosen) {

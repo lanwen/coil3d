@@ -18,7 +18,7 @@ describe.sequential("STEP/OCCT export: tri two-part designs, press/bayonet (issu
     height: { locked: true, value: 30 }, // not 60: the wall's STEP build time grows with its turns, and the joint sits at the top, so a short core proves the same (issue #181)
     layers: { locked: true, value: 2 },
     objective: "minVolume",
-    topCap: "auto",
+    topCap: "on",
     base: "on",
     joint: "press",
     tolerance: 0.2,

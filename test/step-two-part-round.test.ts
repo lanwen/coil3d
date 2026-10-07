@@ -20,7 +20,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
       height: { locked: true, value: 30 }, // not 60: the wall's STEP build time grows with its turns, and the joint sits at the top (issue #181)
       layers: { locked: true, value: 2 },
       objective: "minVolume",
-      topCap: "auto",
+      topCap: "on",
       base: "on",
       joint: "press",
       tolerance: 0.2,
@@ -145,7 +145,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
       height: { locked: true, value: 60 },
       layers: { locked: true, value: 1 },
       objective: "minVolume",
-      topCap: "auto",
+      topCap: "off",
       base: "on",
       joint: "press",
       tolerance: 0.2,

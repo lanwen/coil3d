@@ -331,6 +331,7 @@ function sewnSolid(kernel: OpenCascadeInstance, solids: R.Shape3D[], interfaces:
 function faceChannelTube(kernel: OpenCascadeInstance, layout: FaceChannelLayout, profile: WallProfile, ts: number[], wallSpec: WallSpec): R.Shape3D {
   const { boreOutline, height, pitch } = wallSpec;
   const rings = faceRingSolids(layout, boreOutline);
+  const present = <T>(items: Array<T | undefined>): T[] => items.filter((item): item is T => item !== undefined);
   const slots = (ends: FaceEnd[]) =>
     ends.flatMap((end) => faceCutArcs(end).map((arc) => faceArcCutterSolid(arc, end, layout))).reduce((all, piece) => boolean(kernel, "fuse", all, piece));
   const band = (zLo: number, zHi: number, ring: R.Shape3D | undefined, ends: FaceEnd[]) => {
@@ -342,21 +343,23 @@ function faceChannelTube(kernel: OpenCascadeInstance, layout: FaceChannelLayout,
   const splitLow = layout.bottomThickness + FACE_BLOCK_MARGIN;
   const splitHigh = faceTopFloor(layout) - FACE_RING_OVERLAP - FACE_BLOCK_MARGIN;
   if (layout.outer && splitHigh - splitLow < FACE_MIN_MIDDLE_PITCHES * pitch) {
-    const both = rings.slice(1).reduce((all, ring) => boolean(kernel, "fuse", all, ring), rings[0]);
-    return band(0, height, both, [layout.inner, layout.outer]);
+    const [first, ...others] = present([rings.bottom, rings.top]);
+    const both = others.reduce((all, ring) => boolean(kernel, "fuse", all, ring), first);
+    return band(0, height, both, present([layout.inner, layout.outer]));
   }
-  const bottom = band(0, splitLow, rings[0], [layout.inner]);
+  const bottom = band(0, splitLow, rings.bottom, present([layout.inner]));
   if (!layout.outer) return sewnSolid(kernel, [bottom, band(splitLow, height, undefined, [])], [splitLow]);
   const middle = band(splitLow, splitHigh, undefined, []);
-  const top = band(splitHigh, height, rings[1], [layout.outer]);
+  const top = band(splitHigh, height, rings.top, [layout.outer]);
   return sewnSolid(kernel, [bottom, middle, top], [splitLow, splitHigh]);
 }
 
-function faceRingSolids(layout: FaceChannelLayout, boreOutline: ShapeOutline): R.Shape3D[] {
+function faceRingSolids(layout: FaceChannelLayout, boreOutline: ShapeOutline): { bottom?: R.Shape3D; top?: R.Shape3D } {
   const grown = offsetOutline(boreOutline, FACE_RING_OVERLAP);
   const hole = (zLo: number, zHi: number) => outlineSolid(layout.holeOutline, zHi - zLo, zLo);
   const over = FACE_CUT_OVERSHOOT;
-  const rings = [outlineSolid(grown, layout.bottomThickness + over, -over).cut(hole(-2 * over, layout.bottomThickness + 2 * over))];
+  const rings: { bottom?: R.Shape3D; top?: R.Shape3D } = {};
+  if (layout.inner) rings.bottom = outlineSolid(grown, layout.bottomThickness + over, -over).cut(hole(-2 * over, layout.bottomThickness + 2 * over));
   if (layout.topThickness !== undefined) {
     const flat = layout.height - layout.topThickness;
     const depth = layout.funnelDepth + FACE_RING_OVERLAP;
@@ -364,7 +367,7 @@ function faceRingSolids(layout: FaceChannelLayout, boreOutline: ShapeOutline): R
     const top = layout.height + over;
     const flared = { ...layout.holeOutline, apothem: layout.holeOutline.apothem + depth, cornerRadius: layout.holeOutline.cornerRadius + depth };
     const void_ = outlineLoftSolid(flared, layout.holeOutline, foot, flat).fuse(hole(flat - over, top + over));
-    rings.push(outlineSolid(grown, top - foot, foot).cut(void_));
+    rings.top = outlineSolid(grown, top - foot, foot).cut(void_);
   }
   return rings;
 }

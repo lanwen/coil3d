@@ -132,7 +132,7 @@ function StepThreadFaceInnerEnd({ design, n }: { design: Design; n: number }) {
   const lead = design.innerEndLeadIn;
   const innerEnd: WireLayerPath = { layer: 0, turns: 0, points: lead };
   const grooveStart = new THREE.Vector3(lead[lead.length - 3], lead[lead.length - 2], lead[lead.length - 1]);
-  const { level, hole } = design.faceChannels!.inner;
+  const { level, hole } = design.faceChannels!.inner!;
   const holeEntrance = new THREE.Vector3(hole.x, hole.y, level);
   const { anchor, windowMm } = channelView(lead, level);
   return (
@@ -581,7 +581,7 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
   const { topCapEnabled } = design.solution;
   const hasPlate = !!platePart(design) && !!design.pegboard;
   const clip = design.innerEndClip;
-  const faceInner = design.faceChannels !== undefined;
+  const faceInner = design.faceChannels?.inner !== undefined;
   const faceOuter = design.faceChannels?.outer !== undefined;
   const hasBase = clip !== undefined;
   const hasThread = hasBase || faceInner;

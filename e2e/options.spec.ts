@@ -178,7 +178,7 @@ test.describe("the summary shows only what matters before printing", () => {
   // free. One turn already holds 25 cm. The cable fits, so the headline says
   // so, and a note under All numbers names the lock that forces the extra room.
   test("a coil the locks make bigger than needed still holds the cable", async ({ page }) => {
-    await page.goto(link({ L: 150, d: 3.6, wt: "stiff", lock: ["outer", "ly"], size: 80, ly: 1, base: "on" }));
+    await page.goto(link({ L: 150, d: 3.6, wt: "stiff", lock: ["outer", "ly"], size: 80, ly: 1, base: "on", cap: "on" }));
     await settled(page);
     await expect(page.getByTestId("verdict")).toHaveAttribute("data-tone", "good");
     await expect(page.getByTestId("verdict-title")).toHaveText("Holds your 15 cm cable");

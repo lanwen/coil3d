@@ -13,7 +13,7 @@ import { expectSettled } from "./settled";
 // own ROOMY_CAP fixture): the flange -- and so the top cap's own annulus --
 // grows well past the core's own outline, leaving plenty of room for a
 // short label at a legible height.
-const ROOMY_ROUND = encodeHashDoc({ L: 10000, d: 3.8, lock: ["outer", "h"], size: 30, h: 60, base: "on" });
+const ROOMY_ROUND = encodeHashDoc({ L: 10000, d: 3.8, lock: ["outer", "h"], size: 30, h: 60, base: "on", cap: "on" });
 // A bigger core (70mm, vs. round's 30mm) so a requested corner radius of 16
 // clears the bend-limit floor for the default "usb" wire type at 3.8mm
 // (MBR = 2.6 x 3.8 = 9.9mm) instead of being silently clamped UP to it --

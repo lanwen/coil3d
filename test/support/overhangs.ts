@@ -225,8 +225,9 @@ const ACCEPTED: Array<{ reason: string; applies: (spec: CoilSpec) => boolean; ma
     applies: (spec) => spec.base === "off",
     matches: (role, q, d) => {
       const layout = d.faceChannels;
-      if (role !== "core" || !layout || q.worstDeg < 60) return false;
-      return q.min[2] >= layout.inner.level - layout.channelRadius - 0.5 && q.max[2] <= Math.max(layout.inner.level, layout.inner.windingZ) + layout.channelRadius + 0.5;
+      const inner = layout?.inner;
+      if (role !== "core" || !layout || !inner || q.worstDeg < 60) return false;
+      return q.min[2] >= inner.level - layout.channelRadius - 0.5 && q.max[2] <= Math.max(inner.level, inner.windingZ) + layout.channelRadius + 0.5;
     },
     within: (q) => q.width <= FACE_BRIDGE_LIMIT && q.freeLength <= 5 * FACE_BRIDGE_LIMIT,
   },

@@ -135,7 +135,8 @@ describe.each(SHAPES.flatMap(([shapeName]) => CABLES.map(([cableName]) => [shape
 
   it("counts the channel in the cable length: the solver's length is the wound cable plus both drawn ends", async () => {
     const d = await bare(shapeName, cableName, 1, "off");
-    const { inner, outer } = d.faceChannels!;
+    const { outer } = d.faceChannels!;
+    const inner = d.faceChannels!.inner!;
     expect(d.solution.totalWireLength - d.solution.totalWoundLength).toBeCloseTo(inner.length + outer!.length, 6);
     expect(pathLength(d.innerEndLeadIn)).toBeCloseTo(inner.length, -0.5);
     expect(Math.abs(pathLength(d.innerEndLeadIn) - inner.length) / inner.length).toBeLessThan(0.005);
@@ -171,9 +172,13 @@ describe("the face rings (issue #254)", () => {
     expect(unsupportedOverhangs(await design(wide, "final"), "wide triangle")).toEqual([]);
   }, 60_000);
 
-  it("leaves the base alone: no face channels with the base on", async () => {
+  it("leaves the base's bottom alone: with the base on only the top has a ring and a channel", async () => {
     const d = await design({ ...spec({ kind: "round" }, CABLES[0][1], 1, "off"), base: "on" }, "draft");
-    expect(d.faceChannels).toBeUndefined();
+    expect(d.faceChannels?.inner).toBeUndefined();
+    expect(d.faceChannels?.outer).toBeDefined();
+    expect(d.innerEndClip).toBeDefined();
+    const capped = await design({ ...spec({ kind: "round" }, CABLES[0][1], 1, "on"), base: "on" }, "draft");
+    expect(capped.faceChannels).toBeUndefined();
   });
 
   it("sizes the core so the channel fits, and says so when a locked size is raised", async () => {
