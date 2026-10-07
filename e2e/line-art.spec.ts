@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for issue #3 (docs/design.md, Rendering): the IKEA
 // line-art look. White fill, a continuous black silhouette plus crease lines,
@@ -26,8 +27,7 @@ async function gotoDesign(page: Page, hash: string) {
   // trust a stale mesh" reason (issue #7 AC), so wait on it here too instead
   // of guessing a duration.
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  // Let the pipeline render a few settled frames past that point.
-  await page.waitForTimeout(800);
+  await expectSettled(page);
 }
 
 type Rgb = [number, number, number];
@@ -136,7 +136,7 @@ test.describe("IKEA line-art renderer", () => {
     // model; this scan cares only about the model's own silhouette, so it
     // turns them off first (the camera stays put).
     await page.getByTestId("toggle-dimensions").uncheck();
-    await page.waitForTimeout(300);
+    await expectSettled(page);
     const png = await page.getByTestId("coil-viewer").locator("canvas").screenshot();
     const fractions = Array.from({ length: 60 }, (_, i) => 0.25 + (0.5 * i) / 59);
     const rows = await readRows(page, png, fractions);
@@ -151,7 +151,7 @@ test.describe("IKEA line-art renderer", () => {
     test(`the ${size} mm long coil draws one ring per turn, not hint bands (issue #258)`, async ({ page }) => {
       await gotoDesign(page, encodeHashDoc({ L: 6000, d: 4, size }));
       await page.getByTestId("toggle-dimensions").uncheck();
-      await page.waitForTimeout(300);
+      await expectSettled(page);
       const png = await page.getByTestId("coil-viewer").locator("canvas").screenshot();
       const [middle] = await readRows(page, png, [0.5]);
       const sil = silhouette(middle);
@@ -185,7 +185,7 @@ test.describe("IKEA line-art renderer", () => {
     await page.mouse.down();
     await page.mouse.move(box.x + box.width - 8, box.y + box.height - 8, { steps: 10 });
     await page.mouse.up();
-    await page.waitForTimeout(200);
+    await expectSettled(page);
     const after = await canvas.screenshot();
     expect(after.equals(before), "a drag started on the background must orbit the camera").toBe(false);
   });
@@ -203,7 +203,7 @@ test.describe("IKEA line-art renderer", () => {
     await page.mouse.down();
     await page.mouse.move(box.x + box.width / 2 + 120, box.y + box.height / 2 + 60, { steps: 10 });
     await page.mouse.up();
-    await page.waitForTimeout(200);
+    await expectSettled(page);
     const after = await canvas.screenshot();
     expect(after.equals(before), "a drag started on the model must orbit the camera").toBe(false);
   });
@@ -226,7 +226,7 @@ test.describe("IKEA line-art renderer", () => {
     await page.mouse.down();
     await page.mouse.move(box.x + box.width / 2 + box.height * 0.6, box.y + box.height / 2, { steps: 30 });
     await page.mouse.up();
-    await page.waitForTimeout(200);
+    await expectSettled(page);
     const after = await page.evaluate(() => (window as unknown as InstrumentedWindow).__orbitAzimuthDeg ?? 0);
     expect(Math.abs(after - before)).toBeGreaterThanOrEqual(180);
   });
@@ -237,8 +237,10 @@ test.describe("IKEA line-art renderer", () => {
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
     const wide = await canvas.screenshot();
 
+    const wideWidth = await canvas.evaluate((el: HTMLCanvasElement) => el.width);
     await page.setViewportSize({ width: 500, height: 800 });
-    await page.waitForTimeout(300);
+    await expect.poll(() => canvas.evaluate((el: HTMLCanvasElement) => el.width)).not.toBe(wideWidth);
+    await expectSettled(page);
     const narrow = await canvas.screenshot();
 
     expect(narrow.equals(wide), "the render must adapt when the canvas is resized").toBe(false);

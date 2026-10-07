@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for issue #12 (label on the top cap, docs/design.md,
 // Decisions). Solver/geometry numbers themselves are covered by vitest
@@ -31,7 +32,7 @@ async function gotoDesign(page: Page, hash: string) {
   // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
   // gotoDesign, issue #61/#62, for the full story).
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(800);
+  await expectSettled(page);
 }
 
 /** Zoom the canvas in on the top cap's face (mirrors top-cap.spec.ts's own
@@ -45,7 +46,7 @@ async function zoomOnCapFace(page: Page) {
     await page.mouse.wheel(0, -120);
     await page.waitForTimeout(50);
   }
-  await page.waitForTimeout(300);
+  await expectSettled(page);
   return canvas;
 }
 
@@ -137,7 +138,7 @@ test.describe("engraved label render, round/square/triangle (issue #12)", () => 
     await page.goto(`/${withHashDoc(ROOMY_ROUND, { label: "USB-C 2m" })}`);
     await page.reload();
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
-    await page.waitForTimeout(800);
+    await expectSettled(page);
     const canvasAfter = await zoomOnCapFace(page);
     const labelled = await canvasAfter.screenshot();
 

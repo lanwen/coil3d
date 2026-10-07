@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { hoverHint } from "./hint";
 import { openAllNumbers } from "./advanced";
 import { encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for the overall-dimension axes: issue #50's IKEA-style
 // dimensions (values fixed by #63), redrawn by issue #69 as 3D axes inside
@@ -71,12 +72,12 @@ async function gotoDesign(page: Page, hash: string) {
   // Wait for the FINAL-resolution mesh (download-stl is gated on it, see
   // e2e/line-art.spec.ts): the dimensions are measured off the part meshes.
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(500);
+  await expectSettled(page);
 }
 
 async function showPreset(page: Page, preset: (typeof PRESETS)[number]) {
   await page.getByTestId(`preset-${preset}`).click();
-  await page.waitForTimeout(600);
+  await expectSettled(page);
 }
 
 /** The axes' probe, once it exists: it is dropped while the axes are rebuilt and comes back on the next frame. */
@@ -137,10 +138,10 @@ async function dimensionInk(page: Page, rects: Rect[] = [], includeMask = false)
   const ignore = { x: toggleBox.x - canvasBox.x - 2, y: toggleBox.y - canvasBox.y - 2, width: toggleBox.width + 4, height: toggleBox.height + 4 };
   const withAxes = await canvas.screenshot();
   await page.getByTestId("toggle-dimensions").uncheck();
-  await page.waitForTimeout(300);
+  await expectSettled(page);
   const without = await canvas.screenshot();
   await page.getByTestId("toggle-dimensions").check();
-  await page.waitForTimeout(300);
+  await expectSettled(page);
   return page.evaluate(
     async ({ a, b, rects, ignore, includeMask }) => {
       const decode = async (b64: string) => {
@@ -313,7 +314,7 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     await page.mouse.down();
     await page.mouse.move(cx + 220, cy + 40, { steps: 8 });
     await page.mouse.up();
-    await page.waitForTimeout(400);
+    await expectSettled(page);
     const after = await dimensionInk(page, [], true);
     expect(after.count).toBeGreaterThan(800);
     let shared = 0;
@@ -326,13 +327,13 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
     await expect(page.getByTestId("dimensions")).toHaveCount(1);
 
     await page.getByTestId("toggle-exploded").check();
-    await page.waitForTimeout(1200);
+    await expectSettled(page);
     await expect(page.getByTestId("dimensions")).toHaveCount(0);
     // (a handful of stray pixels: re-render noise, not an axis)
     expect((await dimensionInk(page)).count, "nothing drawn while exploded").toBeLessThan(30);
 
     await page.getByTestId("toggle-exploded").uncheck();
-    await page.waitForTimeout(1200);
+    await expectSettled(page);
     await expect(page.getByTestId("dimensions")).toHaveCount(1);
     expect((await dimensionInk(page)).count).toBeGreaterThan(800);
   });
@@ -426,11 +427,9 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
           });
         }
         if (!INK_STEPS.has(step)) continue;
-        // Settle a beat before the pixels are actually read, same as every
-        // other ink check in this file (dimensionInk's own toggles wait
-        // 300ms) -- the rAF wait above only guarantees the PROBE'S numbers
-        // are current, not that the compositor has painted them yet.
-        await page.waitForTimeout(100);
+        // The rAF wait above only guarantees the PROBE'S numbers are current,
+        // not that the compositor has painted them yet.
+        await expectSettled(page);
         const shot = await canvas.screenshot();
         const inked = await page.evaluate(
           async ({ png, samples }) => {

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // Issue #145: at phone widths the viewport overlay used to be crowded --
 // the projection switch sat on the Dimensions toggle's (i) button and the
@@ -75,12 +76,12 @@ for (const width of [390, 680]) {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(`/${hash}`);
       await expect(page.getByTestId("download-stl")).toBeEnabled();
-      await page.waitForTimeout(800);
+      await expectSettled(page);
 
       for (const preset of ["iso", "front"] as const) {
         await page.getByTestId(`preset-${preset}`).click();
         await expect(page.getByTestId(`preset-${preset}`)).toHaveAttribute("aria-pressed", "true");
-        await page.waitForTimeout(400);
+        await expectSettled(page);
         const boxes = await controlBoxes(page);
         expect(boxes.length, "toggles, projection switch and preset bar all present").toBeGreaterThanOrEqual(4);
         for (let i = 0; i < boxes.length; i++) {

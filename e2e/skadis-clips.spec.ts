@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for the SKÅDIS rim clips (issue #207; the clip mount
 // plate before it was issues #14 and #106). The geometry and the fit on a
@@ -22,7 +23,7 @@ async function gotoDesign(page: Page, hash: string) {
   // alone can race it under a loaded/slow run (see line-art.spec.ts's
   // gotoDesign, issue #61/#62, for the full story).
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(800);
+  await expectSettled(page);
 }
 
 test.describe("SKÅDIS mount controls (issue #207)", () => {
@@ -156,7 +157,7 @@ test.describe("SKÅDIS clip screenshots (issue #207)", () => {
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
     await page.getByTestId("preset-wallRoom").click();
     await expect(page.getByTestId("wall-view-caption")).toHaveText(/top cap faces the room/i);
-    await page.waitForTimeout(900);
+    await expectSettled(page);
     await expect(canvas).toHaveScreenshot("skadis-wallroom-round-85.png");
   });
 
@@ -166,7 +167,7 @@ test.describe("SKÅDIS clip screenshots (issue #207)", () => {
     await expect(canvas).toHaveScreenshot("skadis-assembled-round-85.png");
     const assembled = await canvas.screenshot();
     await page.getByTestId("toggle-exploded").check();
-    await page.waitForTimeout(1000);
+    await expectSettled(page);
     const exploded = await canvas.screenshot();
     expect(exploded.equals(assembled), "exploding must change the render").toBe(false);
     await expect(canvas).toHaveScreenshot("skadis-exploded-round-85.png");

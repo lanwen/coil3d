@@ -64,7 +64,9 @@ the default. If Playwright's own Chromium isn't available, point
 - A regression test must fail on the pre-fix code for the intended reason.
   Check this before claiming the fix.
 - Screenshot and e2e tests wait for the FINAL mesh (`download-stl` becomes
-  enabled). Fixed sleeps race the draft→final swap.
+  enabled), then for the viewer's `data-settled="true"` (`expectSettled` in
+  `e2e/settled.ts`), and again after any action that redraws it. Fixed sleeps
+  race the draft→final swap and the frames that follow it.
 - Use Playwright `reducedMotion: 'reduce'`, except in tests of animations.
 - Update screenshot baselines only after looking at the actual/expected diff.
 

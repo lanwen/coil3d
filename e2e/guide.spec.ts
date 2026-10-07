@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for issue #17 (the printable, IKEA-style assembly
 // guide). The guide is generated from the current design via `ui.view` in
@@ -249,7 +250,7 @@ test.describe("printable assembly guide (issue #17)", () => {
   test("the toolbar opens the guide from the design view and back again, without losing the design", async ({ page }) => {
     await page.goto(`/${TWO_LAYER_CAP}`);
     await expect(page.getByTestId("coil-viewer")).toBeVisible();
-    await page.waitForTimeout(500);
+    await expectSettled(page);
 
     await page.getByTestId("open-guide").click();
     await expect(page.getByTestId("guide-view")).toBeVisible();

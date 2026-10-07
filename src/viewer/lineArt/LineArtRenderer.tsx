@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useFrame, useStore, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
@@ -48,13 +48,14 @@ function easeInOutCubic(t: number): number {
 
 const SETTLE_KICK_FRAMES = 4;
 
-export function kickInvalidate(invalidate: () => void) {
+export function kickInvalidate(invalidate: () => void, onDone?: () => void) {
   invalidate();
   let remaining = SETTLE_KICK_FRAMES;
   const tick = () => {
     invalidate();
     remaining -= 1;
     if (remaining > 0) requestAnimationFrame(tick);
+    else onDone?.();
   };
   requestAnimationFrame(tick);
 }
@@ -232,10 +233,44 @@ export interface LineArtRendererProps {
   fill?: number;
   reducedMotion: boolean;
   resolution?: Resolution;
+  onSettledChange?: (settled: boolean) => void;
 }
 
-export function LineArtRenderer({ geometry, controlsRef, projection, preset, fill = DEFAULT_FILL, reducedMotion, resolution = "final" }: LineArtRendererProps) {
-  const { gl, scene, size, invalidate, set } = useThree();
+export function LineArtRenderer({ geometry, controlsRef, projection, preset, fill = DEFAULT_FILL, reducedMotion, resolution = "final", onSettledChange }: LineArtRendererProps) {
+  const { gl, scene, size, invalidate, set, get } = useThree();
+  const store = useStore();
+  const settled = useRef(false);
+  const pendingKicks = useRef(0);
+
+  function publishSettled(next: boolean) {
+    if (!onSettledChange || settled.current === next) return;
+    settled.current = next;
+    onSettledChange(next);
+  }
+
+  function kick() {
+    pendingKicks.current += 1;
+    publishSettled(false);
+    kickInvalidate(invalidate, () => (pendingKicks.current -= 1));
+  }
+
+  useLayoutEffect(() => publishSettled(false), [geometry, resolution, preset, projection, fill, size.width, size.height]);
+
+  useEffect(() => {
+    if (!onSettledChange) return;
+    const original = get().invalidate;
+    set({
+      invalidate: (frames) => {
+        publishSettled(false);
+        original(frames);
+      },
+    });
+    const unsubscribe = store.subscribe(() => publishSettled(false));
+    return () => {
+      unsubscribe();
+      set({ invalidate: original });
+    };
+  }, []);
 
   const orthoCamera = useMemo(() => {
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10000);
@@ -346,7 +381,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
       applyFraming(activeCamera, projection, fit, settledDirection.current, settledUp.current, aspectOf(), size, controlsRef.current, passes.thickenPass, gl);
       settledFit.current = fit;
     }
-    kickInvalidate(invalidate);
+    kick();
   }, [gl, size.width, size.height, targets, passes]);
 
   useEffect(() => {
@@ -365,7 +400,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
       scaleAnim.current = { from: from ?? toFit, to: toFit, start: performance.now(), duration: SCALE_TWEEN_MS };
       recordFramingTween();
     }
-    kickInvalidate(invalidate);
+    kick();
   }, [geometry, resolution]);
 
   useEffect(() => {
@@ -388,7 +423,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
     } else {
       orientAnim.current = { from, to, start: performance.now(), duration: ORIENT_TWEEN_MS };
     }
-    kickInvalidate(invalidate);
+    kick();
   }, [preset]);
 
   useEffect(() => {
@@ -410,7 +445,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
     mountedProjection.current = true;
     prevProjection.current = projection;
     set({ camera: activated });
-    kickInvalidate(invalidate);
+    kick();
   }, [projection]);
 
   function reassertTargetAndZoomLimits(controls: OrbitControlsImpl, fit: Fit) {
@@ -476,7 +511,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
         settledDirection.current = direction;
         settledUp.current = up;
         if (fit) settledFit.current = fit;
-        kickInvalidate(invalidate);
+        kick();
       } else {
         invalidate();
       }
@@ -497,7 +532,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
       if (t >= 1) {
         scaleAnim.current = null;
         settledFit.current = scale.to;
-        kickInvalidate(invalidate);
+        kick();
       } else {
         invalidate();
       }
@@ -525,6 +560,9 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
     passes.outputPass.render(gl, targets.output, targets.thicken, 0, false);
     drawDimensionOverlays();
     gl.setClearAlpha(prevClearAlpha);
+
+    const framePending = orientAnim.current || scaleAnim.current || get().internal.frames > 1;
+    if (resolution === "final" && pendingKicks.current === 0 && !framePending) publishSettled(true);
   }, 1);
 
   return null;

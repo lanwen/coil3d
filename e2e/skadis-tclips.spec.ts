@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for the SKÅDIS T-clips (issues #213, #221, after the
 // CC BY 4.0 Skadis T-Clip System), in slots through a floor in the bore. The fit, the twist lock and printability are
@@ -18,7 +19,7 @@ async function gotoDesign(page: Page, hash: string) {
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
   // Wait for the FINAL-resolution mesh before settling (see skadis-clips.spec.ts).
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(800);
+  await expectSettled(page);
 }
 
 test.describe("SKÅDIS T-clip controls (issues #213, #221)", () => {
