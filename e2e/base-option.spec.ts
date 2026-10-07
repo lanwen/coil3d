@@ -47,9 +47,9 @@ test.describe("the base option (issue #254)", () => {
 
   test("a bare core's size field starts at the smallest core that passes a connector, with the note saying so", async ({ page }) => {
     await gotoDesign(page, encodeHashDoc({ L: 1000, d: 4, size: 20, base: "off" }));
-    // 22.4 mm of free bore plus two 3.1 mm walls: 28.6 mm. With the base, 20 mm is not raised.
+    // The 22.4 mm hole, the 4.4 mm channel and a 1.2 mm web each side, to the winding surface: 18.2 mm, so 36.4 mm. With the base, 20 mm is not raised.
     const outer = page.getByTestId("input-outer");
-    expect(Number(await outer.inputValue())).toBeGreaterThanOrEqual(28.5);
+    expect(Number(await outer.inputValue())).toBeGreaterThanOrEqual(36);
     await expect(page.getByTestId("core-size-raised-note")).toBeVisible();
   });
 
@@ -59,7 +59,7 @@ test.describe("the base option (issue #254)", () => {
     await expect(page.getByTestId("core-size-raised-note")).toHaveCount(0);
   });
 
-  test("renders a bare core: a grooved tube with no flange", async ({ page }) => {
+  test("renders a bare core: a grooved tube with a ring at each end and no flange", async ({ page }) => {
     await gotoDesign(page, BARE);
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("bare-core.png");
   });

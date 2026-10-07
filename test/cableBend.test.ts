@@ -237,3 +237,31 @@ describe("an ok design never bends the cable tighter than its bend radius (issue
     expect(ok).toBeGreaterThanOrEqual(40);
   });
 });
+
+// Issue #254: a bare core's cable ends leave the winding onto a flat end face and turn through the hole
+// (src/core/faceChannel.ts). The whole path, the winding, the exit onto the face, the arc and the bend at the
+// hole, holds the bend radius, in every piece and joined.
+describe("a bare core's whole cable respects the bend radius (issue #254)", () => {
+  for (const shape of SHAPES) {
+    for (const { type, diameter } of TYPES) {
+      for (const layers of [1, 2, 3]) {
+        for (const topCap of ["on", "off"] as const) {
+          it(`shape=${shape.kind} type=${type} layers=${layers} cap=${topCap} base=off`, async () => {
+            const spec = baseSpec({ shape, wire: { length: 3000, diameter, type }, layers: { locked: true, value: layers }, topCap, base: "off" });
+            const d = await design(spec);
+            const mbr = bendMultiplierOf(spec.wire) * diameter;
+            expect(d.faceChannels, "the ends use the face channels").toBeDefined();
+            expect(d.wirePaths).toHaveLength(layers);
+            expectEveryBendWithinLimit(d, mbr);
+            const joined = joinedPieces(d);
+            expect(joined.length).toBe(d.cablePath.length);
+            expectWithinBendLimit(joined, mbr, "joined pieces");
+            expect(maxGap(d.cablePath), "cablePath: largest step between samples").toBeLessThan(5);
+            expect(d.innerEndLeadIn[2], "the inner end rises to the top face").toBeCloseTo(d.solution.height, 4);
+            expect(d.warnings.filter((w) => /bends tighter/i.test(w))).toEqual([]);
+          });
+        }
+      }
+    }
+  }
+});

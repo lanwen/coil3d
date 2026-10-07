@@ -44,6 +44,8 @@ import {
 import { clamp01 } from "./capacity";
 import { bump, capCableZ, capTailPath } from "./innerEnd";
 import type { InnerEndLayout } from "./innerEnd";
+import { faceEndPath } from "./faceChannel";
+import type { FaceChannelLayout } from "./faceChannel";
 import { offsetPerimeter, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { createWallProfile, type WallSpec } from "./wall";
@@ -259,6 +261,7 @@ function searchBlend(build: (turns: number) => { points: Float32Array; check: nu
 export interface CableEnds {
   /** The inner-end layout (innerEnd.ts), whose `leadIn` starts the cable. */
   innerEnd?: InnerEndLayout;
+  faceChannels?: FaceChannelLayout;
   topCapEnabled: boolean;
   /** The wall's own height (the top cap's underside, assembled frame). */
   height: number;
@@ -345,7 +348,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
     return { wirePaths, innerEndLeadIn: new Float32Array(0), layerTransitions, outerEndLeadOut: new Float32Array(0), cablePath: new Float32Array(0), outerEndU: 0, warnings };
   }
 
-  const innerEndLeadIn = new Float32Array((ends.innerEnd?.leadIn ?? []).flatMap((p) => [p.x, p.y, p.z]));
+  const innerEndLeadIn = new Float32Array((ends.faceChannels ? faceEndPath(ends.faceChannels.inner).reverse() : (ends.innerEnd?.leadIn ?? [])).flatMap((p) => [p.x, p.y, p.z]));
 
   const last = runs.at(-1)!;
   const lastPoints = wirePaths.at(-1)!.points;
@@ -355,7 +358,9 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
   let outerEndLeadOut: Float32Array;
   let outerEndU = uEnd;
 
-  if (!ends.topCapEnabled) {
+  if (ends.faceChannels?.outer) {
+    outerEndLeadOut = new Float32Array(faceEndPath(ends.faceChannels.outer).flatMap((p) => [p.x, p.y, p.z]));
+  } else if (!ends.topCapEnabled) {
     const EPS = 1e-5;
     const a = pointAt(outline, uEnd - EPS, lastOffset);
     const b = pointAt(outline, uEnd, lastOffset);

@@ -1,6 +1,6 @@
 import { printPlacements } from "../../src/core";
 import type { CoilMesh, CoilSpec, Design, PartRole, RigidTransform } from "../../src/core";
-import { SCREW_MOUNT_RECESS_DEPTH, SCREW_MOUNT_SLOT_TRAVEL } from "../../src/core/constants";
+import { FACE_BRIDGE_LIMIT, SCREW_MOUNT_RECESS_DEPTH, SCREW_MOUNT_SLOT_TRAVEL } from "../../src/core/constants";
 import { layoutKeyholeMount } from "../../src/core/mount";
 import { KEYHOLE_ROOF_MAX_SPAN } from "./keyholeBridge";
 
@@ -216,6 +216,20 @@ const KNOWN: Array<{ issue: string; applies: (spec: CoilSpec) => boolean; matche
  * stays `within` its bound, so it still fails if it grows.
  */
 const ACCEPTED: Array<{ reason: string; applies: (spec: CoilSpec) => boolean; matches: (role: PartRole, patch: Patch, d: Design) => boolean; within: (patch: Patch) => boolean }> = [
+  // The bare core's bottom channel is open to the bed and bridges its own width under a roof
+  // (maintainer decisions 3 and 7, #254): a round roof as wide as the channel, 8 mm at most, and
+  // only inside the bottom ring, over the channel itself. Where the roof meets the grooved wall the patch
+  // runs up the groove's flank, so its top may stand half a millimetre over the roof.
+  {
+    reason: "bare core's bottom channel roof, accepted bridge (#254)",
+    applies: (spec) => spec.base === "off",
+    matches: (role, q, d) => {
+      const layout = d.faceChannels;
+      if (role !== "core" || !layout || q.worstDeg < 60) return false;
+      return q.min[2] >= layout.inner.level - layout.channelRadius - 0.5 && q.max[2] <= Math.max(layout.inner.level, layout.inner.windingZ) + layout.channelRadius + 0.5;
+    },
+    within: (q) => q.width <= FACE_BRIDGE_LIMIT && q.freeLength <= 5 * FACE_BRIDGE_LIMIT,
+  },
   // Keyhole undercut roof: an accepted bridge (maintainer decision, #175).
   // Most printers bridge this span; the alternative was a 3.5 mm thicker pad.
   // Only the flat roof itself: on the core, at the roof's height above the

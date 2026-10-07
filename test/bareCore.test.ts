@@ -4,11 +4,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { CAP_THICKNESS, DEFAULT_SPEC, design } from "../src/core";
 import type { CoilMesh, CoilSpec } from "../src/core";
 
-// Issue #254, part 1: the base plate is an option. A bare core (base off) has no
-// flange, sizes itself to let the inner end through its bore (centre-held ends
-// follow in later parts), and counts the cable its core holds. Everything here
-// goes through design(); the numbers are worked out here from the cable, not read
-// back from the core's constants.
+// Issue #254: the base plate is an option. A bare core (base off) has no flange,
+// takes both cable ends through a hole in a ring at each end of the core (part 2,
+// test/faceChannel.test.ts), sizes itself to fit them, and counts the cable its core
+// holds. Everything here goes through design(); the numbers are worked out here from
+// the cable, not read back from the core's constants.
 
 let wasm: ManifoldToplevel;
 beforeAll(async () => {
@@ -62,7 +62,8 @@ describe("a bare core (base off)", () => {
     expect(hi).toBeCloseTo(d.solution.height, 4);
     expect(d.flangeSpec.thickness).toBe(0);
     expect(d.innerEndClip).toBeUndefined();
-    expect(d.innerEndLeadIn.length).toBe(0);
+    expect(d.faceChannels).toBeDefined();
+    expect(d.innerEndLeadIn.length).toBeGreaterThan(0);
     expect(d.rimSlots.base).toBeUndefined();
   });
 
@@ -75,11 +76,13 @@ describe("a bare core (base off)", () => {
     expect(on.solution.flangeExtent!.acrossFlats).toBeGreaterThan(on.solution.outerSize + 2);
   });
 
-  it("draws the cable from layer 1's first turn: no inner-end lead-in, the cable path starts on the groove", async () => {
+  it("draws the cable from the inner end's tail at the top, down the hole and along the bottom channel into layer 1's first turn", async () => {
     const d = await design(spec({ base: "off", topCap: "off" }));
-    expect(d.cablePath.length).toBeGreaterThan(0);
+    const lead = d.innerEndLeadIn;
     const first = d.wirePaths[0].points;
-    expect([d.cablePath[0], d.cablePath[1], d.cablePath[2]]).toEqual([first[0], first[1], first[2]]);
+    expect([d.cablePath[0], d.cablePath[1], d.cablePath[2]]).toEqual([lead[0], lead[1], lead[2]]);
+    expect(lead[2]).toBeCloseTo(d.solution.height, 4);
+    expect([lead[lead.length - 3], lead[lead.length - 2], lead[lead.length - 1]]).toEqual([first[0], first[1], first[2]]);
   });
 
   it("with the base on, the same spec is what it was: a flange below z = 0 and an inner-end clip", async () => {
@@ -160,12 +163,13 @@ describe("a bare core's minimum size (issue #254)", () => {
     expect(bare.solution.outerSize).toBeGreaterThanOrEqual(bare.solution.minOuterSizeForShape - 1e-6);
   });
 
-  it("with the new bend multipliers the default cable needs no growth: the 30 mm default core still fits it", async () => {
-    // USB 3.8 mm: MBR 9.9 mm (it was 15.2 mm). The 22.4 mm passage needs a 28.4 mm core.
+  it("the default cable's smallest bare core holds the hole, the channel and a web each side: 36 mm for 3.8 mm USB", async () => {
+    // Half the 22.4 mm passage and the clearance (11.4), the channel's width d + 2c (4.2), and 2 x 1.2 mm of web: 18 mm to the winding surface.
+    const wanted = 2 * (22.4 / 2 + 0.2 + (3.8 + 2 * 0.2) + 2 * 1.2);
     const d = await design({ ...DEFAULT_SPEC, base: "off" }, "draft");
-    expect(d.solution.minOuterSizeForShape).toBeLessThan(30);
-    expect(d.solution.outerSize).toBe(30);
-    expect(d.notices.filter((n) => /raised/i.test(n.message))).toEqual([]);
+    expect(d.solution.minOuterSizeForShape).toBeCloseTo(wanted, 1);
+    expect(d.solution.outerSize).toBeCloseTo(wanted, 1);
+    expect(d.notices.some((n) => /Core size raised/.test(n.message))).toBe(true);
   });
 
   it("a stiff cable's bend radius, not the passage, sets the size, and it grows with the cable", async () => {
@@ -181,7 +185,7 @@ describe("a bare core's minimum size (issue #254)", () => {
     const d = await design(spec({ base: "off", topCap: "off", coreSize: { locked: true, dimension: "outer", value: 22 }, height: { locked: false } }), "draft");
     expect(d.solution.outerSize).toBeGreaterThanOrEqual(PASSAGE + 2 * WALL(3.8) - 1e-6);
     const note = d.notices.find((n) => /Core size raised/.test(n.message));
-    expect(note?.message).toMatch(/bare core/);
+    expect(note?.message).toMatch(/centre hole/);
     // With the base, 22 mm is not raised for this reason.
     const based = await design(spec({ base: "on", topCap: "off", coreSize: { locked: true, dimension: "outer", value: 22 }, height: { locked: false } }), "draft");
     expect(based.notices.find((n) => /Core size raised/.test(n.message))).toBeUndefined();
@@ -189,11 +193,11 @@ describe("a bare core's minimum size (issue #254)", () => {
 });
 
 describe("a bare core's cable length (issue #254)", () => {
-  it("counts the inner end held in the core: at least its 30 mm grip more than the same core with a base", async () => {
+  it("counts both ends the core holds: at least its height more than the same core with a base", async () => {
     const on = await design(spec({ base: "on", topCap: "off" }), "draft");
     const off = await design(spec({ base: "off", topCap: "off" }), "draft");
     expect(off.solution.totalWoundLength).toBeCloseTo(on.solution.totalWoundLength, 6);
-    expect(off.solution.totalWireLength - on.solution.totalWireLength).toBeGreaterThanOrEqual(30);
+    expect(off.solution.totalWireLength - on.solution.totalWireLength).toBeGreaterThanOrEqual(80);
   });
 
   it("the held length grows with the core height", async () => {
@@ -224,12 +228,12 @@ describe("a bare core's cable length (issue #254)", () => {
     }
   });
 
-  it("a locked height under what the grip and the bend need is raised, with a note", async () => {
-    const d = await design(spec({ base: "off", topCap: "off", height: { locked: true, value: 20 }, coreSize: { locked: true, dimension: "outer", value: 40 } }), "draft");
-    // 30 mm grip + the quarter bend (2.6 x 3.8 = 9.9 mm radius) + the cable's own seat.
-    expect(d.solution.height).toBeGreaterThanOrEqual(30 + 9.88 + 2);
+  it("a locked height under what the two rings and the bend need is raised, with a note", async () => {
+    const d = await design(spec({ base: "off", topCap: "off", height: { locked: true, value: 12 }, coreSize: { locked: true, dimension: "outer", value: 60 } }), "draft");
+    // The bottom ring (5.5 mm), the top ring (up to 10.2 mm) and a funnel under it (4.8 mm at least).
+    expect(d.solution.height).toBeGreaterThanOrEqual(20);
     expect(d.notices.some((n) => /Height raised/.test(n.message))).toBe(true);
-    const based = await design(spec({ base: "on", topCap: "off", height: { locked: true, value: 20 }, coreSize: { locked: true, dimension: "outer", value: 40 } }), "draft");
-    expect(based.solution.height).toBe(20);
+    const based = await design(spec({ base: "on", topCap: "off", height: { locked: true, value: 12 }, coreSize: { locked: true, dimension: "outer", value: 60 } }), "draft");
+    expect(based.solution.height).toBe(12);
   });
 });

@@ -107,6 +107,23 @@ function StepThreadInnerEnd({ design, n, clip }: { design: Design; n: number; cl
   );
 }
 
+function StepThreadFaceInnerEnd({ design, n }: { design: Design; n: number }) {
+  const core = corePart(design);
+  const inner = design.faceChannels!.inner;
+  const anchor = new THREE.Vector3(inner.hole.x, inner.hole.y, inner.level);
+  const innerEnd: WireLayerPath = { layer: 0, turns: 0, points: design.innerEndLeadIn };
+  return (
+    <StepCard n={n} title="Lay in the inner cable end">
+      <div className="guide-figure-row guide-figure-row--solo">
+        <Figure parts={[core]} wirePaths={[innerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-thread-inner" zoomInsetAt={anchor} />
+      </div>
+      <Callout icons={<KeyholeIcon label="Press the cable into the channel on the bottom face" />}>
+        Press the cable into the channel on the bottom face, from the groove's start in to the centre hole. Bring the connector up through the hole and out of the top.
+      </Callout>
+    </StepCard>
+  );
+}
+
 const WIND_ARROW_MAX_TURNS = 0.72;
 const WIND_ARROW_MIN_SAMPLES = 10;
 const WIND_ARROW_START_FRACTION = 0.08;
@@ -189,6 +206,23 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
         </figure>
       </div>
       <Callout icons={[<JointIcon key="joint" label={JOINT_LINE[joint]} />, <GlueDropIcon key="glue" label="Permanent: add glue" />]}>{JOINT_LINE[joint]}</Callout>
+    </StepCard>
+  );
+}
+
+function StepLayOuterEndFace({ design, n }: { design: Design; n: number }) {
+  const core = corePart(design);
+  const outer = design.faceChannels!.outer!;
+  const anchor = new THREE.Vector3(outer.hole.x, outer.hole.y, outer.level);
+  const outerEnd: WireLayerPath = { layer: 0, turns: 0, points: design.outerEndLeadOut };
+  return (
+    <StepCard n={n} title="Lay in the outer cable end">
+      <div className="guide-figure-row guide-figure-row--solo">
+        <Figure parts={[core]} wirePaths={[...design.wirePaths, outerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-secure-outer" zoomInsetAt={anchor} />
+      </div>
+      <Callout icons={<KeyholeIcon label="Press the cable into the channel on the top face" />}>
+        Press the outer end into the channel on the top face, from the last turn in to the centre hole. Let the connector hang down through the hole.
+      </Callout>
     </StepCard>
   );
 }
@@ -524,11 +558,15 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
   const { topCapEnabled } = design.solution;
   const hasPlate = !!platePart(design) && !!design.pegboard;
   const clip = design.innerEndClip;
+  const faceInner = design.faceChannels !== undefined;
+  const faceOuter = design.faceChannels?.outer !== undefined;
   const hasBase = clip !== undefined;
-  const windN = hasBase ? 3 : 2;
+  const hasThread = hasBase || faceInner;
+  const windN = hasThread ? 3 : 2;
   const capN = windN + 1;
   const capStepCount = topCapEnabled ? 2 : 0;
-  const plateN = capN + capStepCount;
+  const outerFaceN = capN + capStepCount;
+  const plateN = outerFaceN + (faceOuter ? 1 : 0);
   const mountN = plateN + (hasPlate ? 1 : 0);
   const unwindN = hasBase ? mountN + 1 : mountN;
   return (
@@ -547,9 +585,11 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
       </header>
       <StepPrintParts design={design} />
       {clip && <StepThreadInnerEnd design={design} n={2} clip={clip} />}
+      {faceInner && <StepThreadFaceInnerEnd design={design} n={2} />}
       <StepWind design={design} n={windN} />
       {topCapEnabled && <StepFitCap design={design} n={capN} />}
       {topCapEnabled && <StepSecureOuterEnd design={design} n={capN + 1} />}
+      {faceOuter && <StepLayOuterEndFace design={design} n={outerFaceN} />}
       {hasPlate && <StepFitPlate design={design} n={plateN} />}
       {hasBase && <StepMount design={design} n={mountN} />}
       <StepUnwind design={design} n={unwindN} />
