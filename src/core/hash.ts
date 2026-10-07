@@ -57,7 +57,7 @@ import type { BaseMode, CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock
 /** The current (`#s=`) document version. Bump this and add a migration branch if the shape ever changes incompatibly. */
 const DOC_VERSION = 2;
 
-const DEFAULT_OUTER_SIZE = 30;
+const DEFAULT_OUTER_SIZE = 36;
 const DEFAULT_HEIGHT = 40;
 const DEFAULT_LAYERS = 1;
 

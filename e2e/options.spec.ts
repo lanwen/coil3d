@@ -147,12 +147,13 @@ test.describe("the summary shows only what matters before printing", () => {
     await expect(page.getByTestId("bed-fit")).toHaveText("fits your bed");
     await expect(page.getByTestId("fact-parts")).toHaveText("1 part");
     await expect(page.getByTestId("problems")).toHaveCount(0);
-    // The full numbers and the automatic-adjustment note stay available, collapsed.
+    // The full numbers stay available, collapsed; the default design needs no automatic adjustment, so there is no note.
     await expect(page.getByTestId("outer-size")).toBeHidden();
     await expect(page.getByTestId("warnings")).toBeHidden();
     await page.getByTestId("all-numbers").locator("summary").click();
     await expect(page.getByTestId("outer-size")).toHaveText("36.0 mm");
-    await expect(page.getByTestId("warnings")).toContainText("Core size raised from 30.0 mm to 36.0 mm");
+    await expect(page.getByTestId("warnings")).toHaveCount(0);
+    await expect(page.getByTestId("core-size-raised-note")).toHaveCount(0);
   });
 
   test("problems are listed in plain words, in cm, and the bed chip says it's too big", async ({ page }) => {

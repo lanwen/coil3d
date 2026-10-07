@@ -170,7 +170,14 @@ describe("a bare core's minimum size (issue #254)", () => {
     const d = await design({ ...DEFAULT_SPEC, base: "off" }, "draft");
     expect(d.solution.minOuterSizeForShape).toBeCloseTo(wanted, 1);
     expect(d.solution.outerSize).toBeCloseTo(wanted, 1);
-    expect(d.notices.some((n) => /Core size raised/.test(n.message))).toBe(true);
+    expect(d.notices.some((n) => /Core size raised/.test(n.message))).toBe(false);
+  });
+
+  it("the default core size sits on the default cable's floor, so a fresh design is not raised", async () => {
+    const d = await design(DEFAULT_SPEC, "draft");
+    expect(DEFAULT_SPEC.coreSize).toMatchObject({ locked: true, dimension: "outer" });
+    expect(DEFAULT_SPEC.coreSize.locked && DEFAULT_SPEC.coreSize.value).toBeCloseTo(d.solution.minOuterSizeForShape, 6);
+    expect(d.notices.some((n) => /Core size raised/.test(n.message))).toBe(false);
   });
 
   it("a stiff cable's bend radius, not the passage, sets the size, and it grows with the cable", async () => {
