@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for issue #104 (switch polish): the shared pill
 // {@link Switch} (src/components/fields.tsx) redesigned so its knob is
@@ -17,7 +18,7 @@ async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(500);
+  await expectSettled(page);
 }
 
 /** The absolute difference between a switch's knob centre and its own

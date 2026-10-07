@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for issue #4 (docs/design.md, Rendering): the schematic
 // wound-cable render. A distinct wound body at ordinary turn counts, legible
@@ -29,7 +30,7 @@ async function gotoDesign(page: Page, hash: string) {
   // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
   // gotoDesign, issue #61/#62, for the full story).
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(800);
+  await expectSettled(page);
 }
 
 type Rgb = [number, number, number];
@@ -62,7 +63,7 @@ test.describe("wound-cable schematic (issue #4)", () => {
     // actually about. The dimension axes (issue #69) are drawn in the canvas
     // itself, so they are switched off (the camera stays put).
     await page.getByTestId("toggle-dimensions").uncheck();
-    await page.waitForTimeout(300);
+    await expectSettled(page);
     const png = await page
       .getByTestId("coil-viewer")
       .locator("canvas")

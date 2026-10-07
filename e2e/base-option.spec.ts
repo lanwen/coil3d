@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for issue #254, part 1: the base plate is an option (the
 // Base switch, next to the top cap's), and a bare core renders as a plain
@@ -15,7 +16,7 @@ async function gotoDesign(page: Page, hash: string) {
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
   // The FINAL mesh, not the draft (see line-art.spec.ts's gotoDesign).
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(800);
+  await expectSettled(page);
 }
 
 test.describe("the base option (issue #254)", () => {

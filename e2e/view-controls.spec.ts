@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // This whole file is ABOUT the transition system itself, so it opts back
 // into real motion over the suite-wide `reducedMotion: "reduce"` default
@@ -39,16 +40,16 @@ async function gotoDesign(page: Page, hash: string) {
   // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
   // gotoDesign, issue #61/#62, for the full story).
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  // A full second, not the usual 800ms (e.g. top-cap.spec.ts): the sidebar's
-  // "Kanit" webfont can still be loading at 800ms, and its arrival reflows
-  // the header/sidebar and so the canvas's own CSS size by a few px -- which
-  // re-fits the camera (LineArtRenderer's own resize effect) right as this
-  // file's tests take their first screenshot. Otherwise harmless (every
-  // other suite's 800ms-then-go-straight-to-interacting tests never
-  // happen to sample a screenshot in that exact narrow window), but these
-  // tests specifically compare a "before" screenshot byte-for-byte/near-
-  // exactly against later ones, so they need the layout fully settled first.
-  await page.waitForTimeout(1000);
+  // The sidebar's "Kanit" webfont can still be loading here, and its arrival
+  // reflows the header/sidebar and so the canvas's own CSS size by a few px,
+  // which re-fits the camera. These tests compare a "before" screenshot
+  // byte-for-byte/near-exactly against later ones, so the font and the
+  // two frames its reflow needs to reach the viewer come before the settled wait.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  await expectSettled(page);
 }
 
 test.describe("camera view presets (issue #15/#49)", () => {
@@ -70,7 +71,7 @@ test.describe("camera view presets (issue #15/#49)", () => {
     for (const id of ["front", "iso", "wallRoom"] as const) {
       await page.getByTestId(`preset-${id}`).click();
       await expect(page.getByTestId(`preset-${id}`)).toHaveAttribute("aria-pressed", "true");
-      await page.waitForTimeout(900); // slerp (ORIENT_TWEEN_MS) + wall-mount's own geometry-swap scale tween
+      await expectSettled(page);
       shots[id] = await canvas.screenshot();
       await expect(canvas).toHaveScreenshot(`view-controls-preset-${id}.png`);
     }
@@ -91,7 +92,6 @@ test.describe("camera view presets (issue #15/#49)", () => {
   test("returning to iso after visiting the other presets reproduces the original render", async ({ page }) => {
     await gotoDesign(page, SQUAT);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
-    await page.waitForTimeout(600);
     // A tolerant baseline compare (like the rest of the suite's round-trip
     // checks, e.g. top-cap.spec.ts's assembled/exploded/assembled cycle),
     // not an exact byte match: several chained slerps accumulate float
@@ -101,7 +101,7 @@ test.describe("camera view presets (issue #15/#49)", () => {
 
     for (const id of ["front", "wallRoom", "iso"] as const) {
       await page.getByTestId(`preset-${id}`).click();
-      await page.waitForTimeout(900);
+      await expectSettled(page);
     }
     await expect(canvas).toHaveScreenshot("view-controls-iso-baseline.png");
   });
@@ -115,7 +115,7 @@ test.describe("camera view presets (issue #15/#49)", () => {
     await page.waitForTimeout(60); // well under the normal-motion slerp duration
     const soonAfterClick = await canvas.screenshot();
 
-    await page.waitForTimeout(900);
+    await expectSettled(page);
     const settled = await canvas.screenshot();
     expect(soonAfterClick.equals(settled), "reduced motion must already show the settled front view almost immediately").toBe(true);
   });
@@ -129,7 +129,7 @@ test.describe("camera view presets (issue #15/#49)", () => {
     await page.waitForTimeout(60);
     const soonAfterClick = await canvas.screenshot();
 
-    await page.waitForTimeout(900);
+    await expectSettled(page);
     const settled = await canvas.screenshot();
     expect(soonAfterClick.equals(settled), "reduced motion must already show the settled wall-mount view almost immediately").toBe(true);
   });
@@ -164,12 +164,12 @@ test.describe("perspective/orthographic toggle (issue #15)", () => {
     await expect(canvas).toHaveScreenshot("view-controls-ortho-baseline.png");
 
     await page.getByTestId("toggle-projection").check();
-    await page.waitForTimeout(600);
+    await expectSettled(page);
     const perspective = await canvas.screenshot();
     expect(perspective.equals(orthoBefore), "switching to perspective must change the render").toBe(false);
 
     await page.getByTestId("toggle-projection").uncheck();
-    await page.waitForTimeout(600);
+    await expectSettled(page);
     await expect(canvas).toHaveScreenshot("view-controls-ortho-baseline.png");
   });
 
@@ -194,7 +194,7 @@ test.describe("perspective/orthographic toggle (issue #15)", () => {
     const beforeCount = await countModelPixels();
 
     await page.getByTestId("toggle-projection").check();
-    await page.waitForTimeout(600);
+    await expectSettled(page);
     const afterCount = await countModelPixels();
 
     // "Preserves on-screen scale" means the toggle neither shrinks the
@@ -211,7 +211,7 @@ test.describe("perspective/orthographic toggle (issue #15)", () => {
     // Exploded view (its own tighter fill leaves less margin to absorb
     // foreshortening) -- see LineArtRenderer.tsx's computeFit doc comment.
     await page.getByTestId("toggle-exploded").check();
-    await page.waitForTimeout(1200);
+    await expectSettled(page);
 
     const canvas = page.getByTestId("coil-viewer").locator("canvas");
     const countModelPixels = async () =>
@@ -231,7 +231,7 @@ test.describe("perspective/orthographic toggle (issue #15)", () => {
 
     const beforeCount = await countModelPixels();
     await page.getByTestId("toggle-projection").check();
-    await page.waitForTimeout(600);
+    await expectSettled(page);
     const afterCount = await countModelPixels();
 
     // Loose sanity, not a scale match: this specific view legitimately asks

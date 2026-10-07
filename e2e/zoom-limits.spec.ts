@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for issue #48 (zoom limits): wheel/pinch zoom is
 // clamped to a sensible multiple of the current fitted framing (0.3x-4x,
@@ -58,7 +59,7 @@ async function gotoDesign(page: Page, hash: string) {
   // a slow/loaded run could take its "before" capture off the draft mesh
   // instead, which is a determinism risk, not a speed one.
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(1000);
+  await expectSettled(page);
 }
 
 /** Polls `canvas.screenshot()` until two consecutive reads are byte-identical (the render has settled) or `maxWaitMs` elapses, whichever comes first -- a real "wait for the render to finish changing" signal instead of a fixed sleep, so this test is neither slower than it needs to be when idle nor flaky under load. */

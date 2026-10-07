@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for issue #78: a "Print layout" view showing every part
 // exactly as it lies on the print bed -- the SAME transform the 3MF export
@@ -23,12 +24,12 @@ async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
   await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(500);
+  await expectSettled(page);
 }
 
 async function showPrintLayout(page: Page) {
   await page.getByTestId("preset-printLayout").click();
-  await page.waitForTimeout(900);
+  await expectSettled(page);
 }
 
 /**
@@ -93,7 +94,6 @@ test.describe("Print layout view (issue #78)", () => {
 
     // Back to a standing preset: the caption and the print-layout-only list disappear again.
     await page.getByTestId("preset-iso").click();
-    await page.waitForTimeout(300);
     await expect(page.getByTestId("wall-view-caption")).toHaveCount(0);
     await expect(page.getByTestId("print-layout-parts")).toHaveCount(0);
     await expect(page.getByTestId("dimensions")).toHaveCount(1);
@@ -113,7 +113,6 @@ test.describe("Print layout view (issue #78)", () => {
     await expect(page.getByTestId("toggle-exploded")).toHaveCount(0);
 
     await page.getByTestId("preset-iso").click();
-    await page.waitForTimeout(300);
     await expect(page.getByTestId("toggle-wire")).not.toBeChecked(); // restored, not reset to the default (checked)
     await expect(page.getByTestId("toggle-dimensions")).toBeChecked();
     await expect(page.getByTestId("toggle-exploded")).toBeVisible();
@@ -192,7 +191,7 @@ test.describe("Print layout view (issue #78)", () => {
     await page.getByTestId("preset-printLayout").click();
     await page.waitForTimeout(60);
     const soonAfterClick = await canvas.screenshot();
-    await page.waitForTimeout(900);
+    await expectSettled(page);
     const settled = await canvas.screenshot();
     expect(soonAfterClick.equals(settled), "reduced motion must already show the settled print-layout view almost immediately").toBe(true);
   });

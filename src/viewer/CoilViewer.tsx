@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
@@ -473,6 +473,9 @@ export function CoilViewer({
   const dimensionsShown = showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && viewMode !== "mountSide";
 
   const onCanvasCreated = useThrowOnContextLoss();
+  const onSettledChange = useCallback((settled: boolean) => {
+    if (frameRef.current) frameRef.current.dataset.settled = String(settled);
+  }, []);
 
   return (
     <div ref={frameRef} data-testid="coil-viewer" className="coil-viewer-frame">
@@ -521,6 +524,7 @@ export function CoilViewer({
           fill={printLayoutFramingGeometry ? undefined : focusFramingGeometry ? FOCUS_FILL : exploded ? EXPLODED_FILL : undefined}
           reducedMotion={reducedMotion}
           resolution={resolution}
+          onSettledChange={onSettledChange}
         />
         {dimensionsShown && dimensionLabels && (
           <DimensionAxes axes={dimensionAxes} rotation={dimensionMatrix} labels={dimensionLabels} roundGroundLabel={shapeKind === "round"} />

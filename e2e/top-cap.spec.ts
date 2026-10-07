@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
+import { expectSettled } from "./settled";
 
 // End-to-end checks for issue #9 (top cap, joints, exploded view,
 // docs/design.md, Parts and printing and Tolerances). Solver/geometry
@@ -22,7 +23,7 @@ async function gotoDesign(page: Page, hash: string) {
   // alone can race it under a loaded/slow CI run (see line-art.spec.ts's
   // gotoDesign, issue #61/#62, for the full story).
   await expect(page.getByTestId("download-stl")).toBeEnabled();
-  await page.waitForTimeout(800);
+  await expectSettled(page);
 }
 
 test.describe("top cap controls and auto-decision (issue #9)", () => {
@@ -193,8 +194,7 @@ test.describe("exploded-view animation (issue #9)", () => {
     const assembled = await canvas.screenshot();
 
     await page.getByTestId("toggle-exploded").check();
-    // The explode animation eases in (CoilViewer.tsx); give it time to settle.
-    await page.waitForTimeout(1000);
+    await expectSettled(page);
     const exploded = await canvas.screenshot();
     // An exact byte comparison, not `toHaveScreenshot`'s tolerant perceptual
     // diff (maxDiffPixelRatio 0.005, see playwright.config.ts): the cap lifts
@@ -208,7 +208,7 @@ test.describe("exploded-view animation (issue #9)", () => {
     await expect(canvas).toHaveScreenshot("top-cap-exploded-press.png");
 
     await page.getByTestId("toggle-exploded").uncheck();
-    await page.waitForTimeout(1000);
+    await expectSettled(page);
     await expect(canvas, "collapsing back must restore the assembled render").toHaveScreenshot("top-cap-assembled-press.png");
   });
 });
@@ -265,7 +265,7 @@ test.describe("assembled and exploded screenshots per joint (issue #9)", () => {
       await expect(canvas).toHaveScreenshot(`top-cap-assembled-${label}.png`);
 
       await page.getByTestId("toggle-exploded").check();
-      await page.waitForTimeout(1000);
+      await expectSettled(page);
       await expect(canvas).toHaveScreenshot(`top-cap-exploded-${label}.png`);
     });
   }
