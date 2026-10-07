@@ -19,6 +19,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     layers: { locked: false },
     objective: "minVolume",
     topCap: "auto",
+    base: "on",
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },

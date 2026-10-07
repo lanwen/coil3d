@@ -9,8 +9,9 @@ import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 // reuses the same line-art pipeline as the interactive viewer
 // (src/viewer/CoilScene.tsx, src/viewer/GuideFigure.tsx).
 
-const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 }); // layers=1 (default): no top cap, so the two cap steps are skipped
-const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 }); // layers=2: top cap auto-on
+const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 }); // the default design: a bare core, layers=1, so no base and no top cap
+const BASED_ONE_LAYER = withHashDoc(ONE_LAYER, { base: "on" }); // with the base: the inner end clips into its rim
+const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" }); // layers=2 with the base: top cap auto-on
 
 // The guide's own screenshots render several distinct WebGL figures at
 // once (one per step), so they're the heaviest screenshots in the whole
@@ -87,8 +88,25 @@ test.describe("printable assembly guide (issue #17)", () => {
   // step wording. All three used to be their own tests, but each loaded this
   // identical ONE_LAYER design and only read text already covered here, so
   // they're folded in rather than paying for three more page loads.
-  test("a 1-layer design (no top cap) skips the two cap steps: print, thread, wind, mount, unwind", async ({ page }) => {
+  test("the default bare core has no base or cap steps: print, lay in the inner end, wind, lay in the outer end, unwind", async ({ page }) => {
     await gotoGuide(page, ONE_LAYER);
+    await expect(page.getByTestId("guide-step-1")).toContainText("Print the parts");
+    await expect(page.getByTestId("guide-step-1")).toContainText("1 part");
+    await expect(page.getByTestId("guide-step-2")).toContainText("Lay in the inner cable end");
+    await expect(page.getByTestId("guide-step-2")).toContainText("bottom face");
+    await expect(page.getByTestId("guide-step-3")).toContainText("Wind the cable");
+    await expect(page.getByTestId("guide-step-4")).toContainText("Lay in the outer cable end");
+    await expect(page.getByTestId("guide-step-4")).toContainText("top face");
+    await expect(page.getByTestId("guide-step-5")).toContainText("Unwinding");
+    await expect(page.getByTestId("guide-step-6")).toHaveCount(0);
+    await expect(page.getByText("Clip in the inner cable end")).toHaveCount(0);
+    await expect(page.getByText("Mount on the wall")).toHaveCount(0);
+    await expect(page.getByText("Fit the top cap")).toHaveCount(0);
+    await expect(page.locator(".guide-header")).toContainText("Print, thread, wind.");
+  });
+
+  test("a 1-layer design with the base (no top cap) skips the two cap steps: print, thread, wind, mount, unwind", async ({ page }) => {
+    await gotoGuide(page, BASED_ONE_LAYER);
     await expect(page.getByTestId("guide-step-1")).toContainText("Print the parts");
     await expect(page.getByTestId("guide-step-2")).toContainText("Clip in the inner cable end");
     await expect(page.getByTestId("guide-step-3")).toContainText("Wind the cable");
@@ -271,7 +289,7 @@ test.describe("printable assembly guide (issue #17)", () => {
   test.describe("every zoom inset shows its close-up (issues #253, #274)", () => {
     const MIN_INK_PIXELS = 50;
     const DESIGNS = [
-      { name: "1-layer round, no cap", hash: ONE_LAYER, minInsets: 1 },
+      { name: "1-layer bare core (the default)", hash: ONE_LAYER, minInsets: 2 },
       { name: "2-layer round with a bayonet top cap", hash: withHashDoc(TWO_LAYER_CAP, { joint: "bayonet" }), minInsets: 2 },
       { name: "square core with a top cap and the screw-keyhole mount", hash: encodeHashDoc({ shape: "sq", rc: 15, L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, mount: "keyhole" }), minInsets: 3 },
       { name: "triangle core, 3 layers, through-hole mount", hash: encodeHashDoc({ shape: "tri", rc: 12, L: 5000, d: 3, lock: ["outer", "ly"], size: 70, ly: 3, mount: "through" }), minInsets: 3 },

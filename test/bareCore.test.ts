@@ -124,14 +124,15 @@ describe("a bare core (base off)", () => {
     expect(on.notices.filter((n) => n.severity === "problem")).toEqual([]);
   });
 
-  it("a wall mount needs the base: it stays on, with a notice, and the spec keeps the user's choice", async () => {
-    const d = await design(spec({ base: "off", topCap: "off", mount: "keyhole", coreSize: { locked: true, dimension: "outer", value: 50 } }));
-    expect(d.spec.base).toBe("off");
-    expect(d.flangeSpec.thickness).toBeGreaterThan(0);
-    expect(d.notices.some((n) => n.severity === "note" && /mount needs the base/i.test(n.message))).toBe(true);
-    // Left to its default, no such notice.
-    const plain = await design(spec({ topCap: "off", mount: "keyhole", coreSize: { locked: true, dimension: "outer", value: 50 } }));
-    expect(plain.notices.some((n) => /mount needs the base/i.test(n.message))).toBe(false);
+  it("a wall mount needs the base: it stays on, with no notice, and the spec keeps the user's choice", async () => {
+    const mounted = { topCap: "off", mount: "keyhole", coreSize: { locked: true, dimension: "outer", value: 50 } } as const;
+    const bare = await design(spec(mounted));
+    expect(bare.spec.base).toBe("off");
+    expect(bare.flangeSpec.thickness).toBeGreaterThan(0);
+    expect(bare.faceChannels).toBeUndefined();
+    expect(bare.notices.some((n) => /mount needs the base/i.test(n.message))).toBe(false);
+    const explicit = await design(spec({ ...mounted, base: "on" }));
+    expect(explicit.flangeSpec.thickness).toBe(bare.flangeSpec.thickness);
   });
 });
 
@@ -169,7 +170,14 @@ describe("a bare core's minimum size (issue #254)", () => {
     const d = await design({ ...DEFAULT_SPEC, base: "off" }, "draft");
     expect(d.solution.minOuterSizeForShape).toBeCloseTo(wanted, 1);
     expect(d.solution.outerSize).toBeCloseTo(wanted, 1);
-    expect(d.notices.some((n) => /Core size raised/.test(n.message))).toBe(true);
+    expect(d.notices.some((n) => /Core size raised/.test(n.message))).toBe(false);
+  });
+
+  it("the default core size sits on the default cable's floor, so a fresh design is not raised", async () => {
+    const d = await design(DEFAULT_SPEC, "draft");
+    expect(DEFAULT_SPEC.coreSize).toMatchObject({ locked: true, dimension: "outer" });
+    expect(DEFAULT_SPEC.coreSize.locked && DEFAULT_SPEC.coreSize.value).toBeCloseTo(d.solution.minOuterSizeForShape, 6);
+    expect(d.notices.some((n) => /Core size raised/.test(n.message))).toBe(false);
   });
 
   it("a stiff cable's bend radius, not the passage, sets the size, and it grows with the cable", async () => {

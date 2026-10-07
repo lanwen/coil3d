@@ -23,7 +23,6 @@
 import {
   CAP_THICKNESS,
   FACE_BRIDGE_NOTE_WIDTH,
-  DEFAULT_BASE,
   MARGIN_BOTTOM,
   MARGIN_TOP_FACTOR,
   FINAL_ROWS_PER_PITCH,
@@ -205,9 +204,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       : undefined;
   const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, rimSlotMargin, channelOnlyThickness } = sizing;
   const baseOn = baseEnabled(spec);
-  if (spec.mount !== "none" && (spec.base ?? DEFAULT_BASE) === "off") {
-    note("A wall mount needs the base plate, so the base stays on.");
-  }
   if (baseOn && innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= rimSlotMargin) {
     note(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
   }

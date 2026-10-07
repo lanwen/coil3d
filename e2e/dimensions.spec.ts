@@ -14,11 +14,11 @@ import { encodeHashDoc } from "./hashDoc";
 // is really drawn, stays in the frame and clear of the controls, moves with
 // an orbit, and is gone in exploded view.
 
-const ROUND_NO_CAP = encodeHashDoc({ L: 1000, d: 4, size: 50, h: 40, ly: 1, cap: "off" });
-const ROUND_CAP = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on" });
-const ROUND_CAP_OFF = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "off" });
-const SQUARE = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "sq", rc: 15 });
-const TRIANGLE = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "tri", rc: 15 });
+const ROUND_NO_CAP = encodeHashDoc({ L: 1000, d: 4, size: 50, h: 40, ly: 1, cap: "off", base: "on" });
+const ROUND_CAP = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", base: "on" });
+const ROUND_CAP_OFF = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "off", base: "on" });
+const SQUARE = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "sq", rc: 15, base: "on" });
+const TRIANGLE = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "on", shape: "tri", rc: 15, base: "on" });
 // A slim, tall coil -- the same proportions as e2e/wire.spec.ts's own
 // MANY_TURN fixture (Ø 2.4 cm x 26.1 cm), which is where issue #99 was
 // spotted: width and depth start from the same origin corner, so a small

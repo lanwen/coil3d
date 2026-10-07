@@ -6,8 +6,8 @@ import { encodeHashDoc, withHashDoc } from "./hashDoc";
 // (test/faceChannel.test.ts); these check what the guide tells the user, and that the design
 // builds and downloads, through the URL hash and the UI.
 
-const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 60, base: "off" });
-const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, size: 60, ly: 2, cap: "on", base: "off" });
+const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 60 });
+const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, size: 60, ly: 2, cap: "on" });
 
 const GUIDE_TIMEOUT = process.env.CI ? 120_000 : 25_000;
 

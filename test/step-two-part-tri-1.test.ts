@@ -19,6 +19,7 @@ describe.sequential("STEP/OCCT export: tri two-part designs, press/bayonet (issu
     layers: { locked: true, value: 2 },
     objective: "minVolume",
     topCap: "auto",
+    base: "on",
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },

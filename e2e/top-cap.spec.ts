@@ -11,8 +11,8 @@ import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 // outer=60, height=60 (both locked), layers=2 locked -> layers > 1, so the
 // top cap is auto-on and every joint has room for its features (>= the
 // JOINT_ENGAGE_DEPTH + margin floor in src/core/constants.ts).
-const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 });
-const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 }); // layers=1 (default): no top cap
+const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" });
+const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40, base: "on" }); // layers=1 (default): no top cap
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);

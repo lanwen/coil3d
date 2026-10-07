@@ -24,6 +24,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     layers: { locked: true, value: 4 },
     objective: "minVolume",
     topCap: "on",
+    base: "on",
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
@@ -54,7 +55,7 @@ function woundOffset(d: Design): number {
 
 describe("slim base and cap (issue #239)", () => {
   it("the feedback design: the margin is set by the inner end's lead-in, no longer by a 4 mm pad or the cap", async () => {
-    const d = await design(parseHash(FEEDBACK).spec, "draft");
+    const d = await design({ ...parseHash(FEEDBACK).spec, base: "on" }, "draft");
     // 9.8 mm with the cap clips, 6.1 mm with a 4 mm lip; the wound cable reaches 2.1 mm.
     expect(d.flangeSpec.margin).toBeLessThan(5.5);
     expect(d.flangeSpec.margin).toBeGreaterThan(requiredRimSlotMargin(3, d.spec.tolerance));

@@ -107,7 +107,7 @@ test.describe("IKEA line-art renderer", () => {
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("lineart-long.png");
   });
 
-  test("renders a 2-layer coil with its large flange", async ({ page }) => {
+  test("renders a 2-layer coil", async ({ page }) => {
     await gotoDesign(page, TWO_LAYER);
     await expect(page.getByTestId("layers")).toHaveText("2");
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("lineart-two-layer.png");

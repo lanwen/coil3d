@@ -481,7 +481,8 @@ function faceArcCutter(wasm: ManifoldToplevel, track: Track, arc: FaceCutArc, en
   const degrees = (Math.abs(arc.sweep) * 180) / Math.PI;
   const lowest = (Math.min(arc.from, arc.from + arc.sweep) * 180) / Math.PI;
   const solid = track(wasm.Manifold.revolve([profile], FACE_REVOLVE_SEGMENTS, degrees));
-  return track(solid.rotate([0, 0, lowest]).translate([arc.centre.x, arc.centre.y, 0]));
+  const turned = track(solid.rotate([0, 0, lowest]));
+  return track(turned.translate([arc.centre.x, arc.centre.y, 0]));
 }
 
 function faceChannelCutter(wasm: ManifoldToplevel, track: Track, layout: FaceChannelLayout): Manifold {

@@ -85,12 +85,16 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
 
 ### Bare core and its face channels (#254)
 
-The base plate is an option (`base`: on or off). A wall mount needs it, so a
-mount keeps the base on (a notice says so; the spec keeps the user's value).
-With the base off the core is the only part: a grooved tube that stands on its
-own bottom face, with no flange, no inner-end channel and no base rim slot.
-The top cap stays optional, and `auto` means off on a bare core. An explicit
-cap is still built, sized to the wound cable.
+The default design is the bare core: no base and no top cap. The base plate is
+an option (`base`: on or off, written to the link only when on). A wall mount
+needs it, so a mount keeps the base on whatever `base` says; the spec keeps the
+user's value. With the base off the core is the only part: a grooved tube that
+stands on its own bottom face, with no flange, no inner-end channel and no base
+rim slot. The top cap stays optional, and `auto` means on only when there is a
+base and more than one layer, so a bare core has no cap until the user switches
+it on. An explicit cap is still built, sized to the wound cable. A link that
+sets `base` or `cap` keeps its choice. Multi-layer outer ends on a bare core
+continue in #286.
 
 Both cable ends leave the winding onto an end face (`faceChannel.ts`). Layer 1
 starts on the bottom turn and climbs, so the inner end uses the bottom face. An
@@ -455,7 +459,7 @@ The hash is `#s=<base64url(JSON)>` (`src/core/hash.ts`).
   the spec: `L` (cable length, mm), `d` (diameter), `wt` (cable type), `mbr`
   (custom bend multiplier), `q` (winding quality), `obj`, `shape` and `rc`
   (corner radius), `lock` with `size`, `h` and `ly`, `cap`, `joint`, `tol`,
-  `base` (the base plate, only written when off), `bx`/`by`/`bz` (bed), `label`, and the mount keys (`mount`, `pj`, `kr`,
+  `base` (the base plate, only written when on), `bx`/`by`/`bz` (bed), `label`, and the mount keys (`mount`, `pj`, `kr`,
   `thd`). View-only state is nested under `ui` (`wire`, `view`). Lengths are
   always millimetres; the centimetre display in the controls is a UI-only
   conversion.

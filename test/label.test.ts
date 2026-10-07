@@ -24,6 +24,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     layers: { locked: true, value: 6 },
     objective: "minVolume",
     topCap: "on",
+    base: "on",
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
@@ -109,7 +110,7 @@ describe("top cap label (issue #12)", () => {
   });
 
   describe("labelFit: how much of the label the cap can hold", () => {
-    const DEFAULT_CAP = { ...DEFAULT_SPEC, topCap: "on" as const };
+    const DEFAULT_CAP = { ...DEFAULT_SPEC, base: "on" as const, topCap: "on" as const };
     const maxChars = async (spec: CoilSpec, label: string) => (await design({ ...spec, label })).labelFit?.maxChars;
 
     it("is absent without a label, with a blank label, and without a top cap", async () => {
@@ -209,7 +210,7 @@ describe("label letter floors bridge at most 2 mm (issue #176)", () => {
     return [...area.keys()].map((r) => (2 * area.get(r)!) / perimeter.get(r)!);
   }
 
-  const DEFAULT_CAP = { ...DEFAULT_SPEC, topCap: "on" as const };
+  const DEFAULT_CAP = { ...DEFAULT_SPEC, base: "on" as const, topCap: "on" as const };
   const SMALL_CAP = baseSpec({ coreSize: { locked: true, dimension: "outer", value: 40 }, height: { locked: true, value: 40 }, layers: { locked: true, value: 2 }, wire: { length: 3000, diameter: 2.5, type: "usb" } });
   const LARGE_CAP = baseSpec({ coreSize: { locked: true, dimension: "outer", value: 90 }, height: { locked: true, value: 60 }, layers: { locked: true, value: 2 }, wire: { length: 5000, diameter: 5, type: "usb" } });
 
