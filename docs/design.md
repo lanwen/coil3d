@@ -83,7 +83,7 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   0.3 mm clear of the wall (a single layer sits half in the groove, which has
   faded out at the top). Only the free ends leave the plate.
 
-### Bare core (#254, part 1)
+### Bare core and its face channels (#254)
 
 The base plate is an option (`base`: on or off). A wall mount needs it, so a
 mount keeps the base on (a notice says so; the spec keeps the user's value).
@@ -92,25 +92,62 @@ own bottom face, with no flange, no inner-end channel and no base rim slot.
 The top cap stays optional, and `auto` means off on a bare core. An explicit
 cap is still built, sized to the wound cable.
 
-The cable ends move into the core in the next parts of #254, so the solver
-already sizes a bare core for them:
+Both cable ends leave the winding onto an end face (`faceChannel.ts`). Layer 1
+starts on the bottom turn and climbs, so the inner end uses the bottom face. An
+odd last layer finishes on the top turn; an even one on the bottom turn.
 
-- The bore always passes a 22.4 mm free circle (an HDMI plug's diagonal), so a
-  connector can be fed up through it.
-- The inner end drops down the bore, bends to level and runs tangent into the
-  groove start. A path tangent to the layer-1 circle (radius `rho`) that bends
-  no tighter than the bend radius `m` (the MBR over the lead-in's curvature
-  budget) reaches `|2m - rho|` from the axis. The bore's chord on that line
-  must hold `m` of level run plus the cable's seat. `minCentreEndsOuterSize`
-  finds the smallest core size for this by bisection, on the inscribed circle
-  (a square or a triangle only has more room).
-- The height is at least the 30 mm grip, the quarter bend and the seat.
-- The cable length counts the vertical run and the quarter bend. The level
-  chord and the plan arc are real cable too and are not counted yet, so the
-  count can only fall short of the real length.
+- **Rings.** The core gets a thin ring at the bottom, and one at the top when
+  the outer end uses the top face. The ring's opening is the hole; its outline
+  is the bore's, offset inward by the ring width `W`, so a square or a triangle
+  has a thin ring all round (corners sharp below `FACE_HOLE_CORNER_MIN`). The
+  hole always passes a 22.4 mm plug (plus the print clearance).
+  The hole's inscribed radius `a = sqrt(R (R - 2 rho))` is where an arc at the
+  bend radius `rho`, tangent to a winding of radius `R`, reaches the hole
+  square-on. It is kept between the passage (the plug and the bend) and the
+  bore less the channel and 1.2 mm of web each side, and `W` is the bore's
+  inscribed radius less `a`.
+- **Bottom ring.** Flat on the bed, `zStart + r_u + 1.2 mm` thick: the cable's
+  centre level, the channel's round roof (radius `r_u = d/2 + c`) and 1.2 mm
+  above it. The channel is open to the bed, so the roof bridges the channel's
+  width `d + 2c`: 4.6 mm for USB-C, 7.4 mm for a 7 mm HDMI cable. Cables wider
+  than 8 mm bridge more than that; the test accepts roofs up to 8.5 mm.
+- **Top ring.** Its top is the core's top face. The channel is open to the top.
+  The channel's floor is the cable's level less `r_u`, with 1.2 mm of web
+  under it. Under the ring a 45 degree funnel (the distance to the hole)
+  reaches down to the bore wall, so it prints without supports. Each bore
+  column meets the nearest point of the hole's outline (a corner of a square
+  or a triangle takes the whole corner's arc), because a ruled surface to any
+  other point leans flatter than 45 degrees between columns.
+- **Channel.** From the end turn, level at the turn's own height (the
+  helix's slope eases to level over 6 mm), one circular arc tangent to the
+  winding, of radius `max(rho_min, dive)`, where `rho_min` is the bend radius
+  over the curvature budget and `dive` is how far the hole is from the
+  winding. A corner of a square or a triangle is followed first, so the arc
+  leaves along a flat side. The arc crosses the hole's edge; the cable then
+  runs straight on, bends 90 degrees up (inner end) or down (outer end) at
+  `rho_min` in the vertical plane, and stands in the hole. The cut is a
+  revolved section (an arc, no sweep), so STEP gets exact tori.
+- **One layer, no cap.** Only then does the outer end use the top face. With
+  more layers the outer end cannot reach the centre: it would cross the lower
+  layers' turns at the same height. It keeps its straight tail, or the cap's
+  rim slot. The even-layer outer end therefore stays outside (decision 6 of
+  #254 needs an answer for the crossing).
+- **Clearances.** Channel arcs reach the hole at least 0.4 square-on (a
+  grazing crossing leaves a sliver of ring beside the channel); the standing
+  cable keeps 0.5 mm clear of the hole's edge; the two cables stand at least
+  one diameter and a millimetre apart.
+- **Floors.** The solver raises the core so the arc reaches the hole within
+  the bend radius (`minFaceChannelOuterSize`, by bisection on `planFaceChannels`
+  at an unlimited height), and the height so the rings, the funnel and the
+  bend fit. The cable length counts the arcs, the straight run, the quarter
+  bend and (for the inner end) the climb to the top face.
+- **Mesh.** The ring surfaces are part of the wall's own mesh (`buildWall`:
+  the bore's profile per column), so no boolean builds a ring. One boolean cuts
+  the channels from the finished wall.
 
-With the 2.6 x d bend radius (#255), the default 3.8 mm USB cable needs a
-28.4 mm core, set by the passage, so the 30 mm default still fits.
+With the 2.6 x d bend radius (#255) the default 3.8 mm USB cable needs a
+36 mm core (the hole's 22.8 mm, the channel's 4.2 mm and 1.2 mm of web each
+side: 18 mm to the winding surface); the 30 mm default is raised.
 
 ### Parts and printing
 

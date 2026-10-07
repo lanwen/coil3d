@@ -91,6 +91,30 @@ Other things we learned in the shipped code:
   in memory but invalid after a STEP round trip, on an 8 mm cable. The profile
   caps that flank at 70 degrees from the axis (wall.ts).
 
+## A bare core's face channels
+
+The channel and the rings must not touch the whole B-spline wall in one boolean:
+cutting the finished wall took 9 s on a 60 mm core (the baseline is 0.5 s), and
+fusing the rings to it took more. So the wall is built in three bands (bottom,
+middle, top), each its own fitted face, and only the two end bands see the
+rings and the channel. The three cut solids are sewn into one shell (the
+planar faces at the two interfaces dropped; fusing the blocks took 1.5 s each).
+The cuts are raw `BRepAlgoAPI_Cut` calls, one for the bore minus the ring, one
+for the channel's arcs.
+
+Pitfalls met:
+
+- A sewn band can come out inside-out (negative volume); a point on the axis
+  tells which way it faces.
+- Cutting the bore minus ring and the channel in one tool silently left a
+  triangular core's top band uncut. Cut them in two steps.
+- Rings and tools overshoot the faces they cut through. A tool face on the
+  wall's own cap plane made each cut 1 s slower.
+
+Cost: a bare core's STEP export takes 2 to 4.5 times as long as before (a
+60 mm round core 2.1 s against 0.5 s; a square or a triangle 6 s against 1.5 s
+with one layer).
+
 ## Open
 
 - STEP output has been read back by OCCT only. Open it in FreeCAD and in a CAD

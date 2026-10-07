@@ -54,6 +54,9 @@ import { chamferedRim, chamferWedgeRows, rimTriangles } from "./edgeChamfer";
 import type { RimRow } from "./edgeChamfer";
 import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd, sweepMesh } from "./innerEnd";
+import { FACE_CUT_OVERSHOOT, FACE_DOME_SEGMENTS, FACE_REVOLVE_SEGMENTS } from "./constants";
+import { faceCutArcs } from "./faceChannel";
+import type { FaceCutArc, FaceChannelLayout, FaceEnd } from "./faceChannel";
 import type { InnerEndLayout, RimSlot, SweepSolid } from "./innerEnd";
 import { layoutKeyholeMount, throughHoleCountersink } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
@@ -458,12 +461,42 @@ function relieveFlange(
   return track(ring.intersect(track(kept.add(padSolid))));
 }
 
+type Track = <T extends { delete(): void }>(m: T) => T;
+type Section = [number, number][];
+
+function channelProfile(face: FaceEnd["face"], offset: number, halfWidth: number, level: number, height: number): Section {
+  const dome = (from: number, to: number) =>
+    Array.from({ length: FACE_DOME_SEGMENTS + 1 }, (_, i): [number, number] => {
+      const a = from + ((to - from) * i) / FACE_DOME_SEGMENTS;
+      return [offset + halfWidth * Math.cos(a), level + halfWidth * Math.sin(a)];
+    });
+  if (face === "bottom") {
+    return [[offset - halfWidth, -FACE_CUT_OVERSHOOT], [offset + halfWidth, -FACE_CUT_OVERSHOOT], ...dome(0, Math.PI)];
+  }
+  return [...dome(Math.PI, 2 * Math.PI), [offset + halfWidth, height + FACE_CUT_OVERSHOOT], [offset - halfWidth, height + FACE_CUT_OVERSHOOT]];
+}
+
+function faceArcCutter(wasm: ManifoldToplevel, track: Track, arc: FaceCutArc, end: FaceEnd, layout: FaceChannelLayout): Manifold {
+  const profile = channelProfile(end.face, arc.radius, layout.channelRadius, end.level, layout.height);
+  const degrees = (Math.abs(arc.sweep) * 180) / Math.PI;
+  const lowest = (Math.min(arc.from, arc.from + arc.sweep) * 180) / Math.PI;
+  const solid = track(wasm.Manifold.revolve([profile], FACE_REVOLVE_SEGMENTS, degrees));
+  return track(solid.rotate([0, 0, lowest]).translate([arc.centre.x, arc.centre.y, 0]));
+}
+
+function faceChannelCutter(wasm: ManifoldToplevel, track: Track, layout: FaceChannelLayout): Manifold {
+  const ends = [layout.inner, ...(layout.outer ? [layout.outer] : [])];
+  const pieces = ends.flatMap((end) => faceCutArcs(end).map((arc) => faceArcCutter(wasm, track, arc, end, layout)));
+  return track(wasm.Manifold.union(pieces));
+}
+
 export async function fuseFlange(
   wall: CoilMesh,
   flange: FlangeSpec,
   coreJoint?: CoreJointCut,
   innerEnd?: InnerEndCut,
   mountPlateCut?: MountPlateFlangeCut,
+  faceChannels?: FaceChannelLayout,
 ): Promise<CoilMesh> {
   const wasm = await getWasm();
   const { Manifold, Mesh } = wasm;
@@ -495,6 +528,14 @@ export async function fuseFlange(
     let status = fused.status();
     if (status !== "NoError") {
       throw new Error(`Fused mesh is not a valid manifold: ${status}`);
+    }
+
+    if (faceChannels) {
+      fused = track(fused.subtract(faceChannelCutter(wasm, track, faceChannels)));
+      status = fused.status();
+      if (status !== "NoError") {
+        throw new Error(`Face channel cut is not a valid manifold: ${status}`);
+      }
     }
 
     if (innerEnd && innerEndLayout) {

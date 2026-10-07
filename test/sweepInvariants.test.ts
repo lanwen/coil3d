@@ -5,6 +5,7 @@ import { FLANGE_MARGIN } from "../src/core/constants";
 import { outlineOffsetAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 import { expectWithinBendLimit } from "./support/cableBend";
+import { faceWebs, MIN_WEB, WEB_TOLERANCE } from "./support/faceWeb";
 import { unsupportedOverhangs } from "./support/overhangs";
 
 // Issue #274: the defects that were first seen in screenshots -- an overhang, the cable outside the plate, a kink in
@@ -146,5 +147,20 @@ describe("the whole drawn cable respects the bend radius, over the swept designs
   it("checks enough ok designs to mean something", async () => {
     const statuses = await Promise.all(CASES.map(async (c) => (await designOf(c)).solution.diagnosis.status));
     expect(statuses.filter((s) => s === "ok").length).toBeGreaterThanOrEqual(CASES.length * 0.75);
+  });
+});
+
+describe("a bare core's face channels keep their roof and floor, over the swept designs (issue #254)", () => {
+  it.each(CASES)("$name", async (c) => {
+    const d = await designOf(c);
+    if (c.spec.base !== "off" || !d.faceChannels) return;
+    const { roof, floor } = faceWebs(d);
+    for (const web of [...roof, ...floor]) expect(web, "material over the bottom roof and under the top floor along the channels").toBeGreaterThanOrEqual(MIN_WEB - WEB_TOLERANCE);
+    expect(roof.length, "the bottom channel's roof is checked").toBeGreaterThan(2);
+  });
+
+  it("checks enough bare designs to mean something", async () => {
+    const found = await Promise.all(CASES.filter((c) => c.spec.base === "off").map(async (c) => (await designOf(c)).faceChannels !== undefined));
+    expect(found.filter(Boolean).length).toBeGreaterThanOrEqual(10);
   });
 });

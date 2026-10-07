@@ -9,9 +9,9 @@
 // outer wall, the bore, and the flat annuli at z=0 and z=height are all
 // connected. Fusing the bottom flange (see manifold.ts) only extends it.
 
-import { GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
+import { FACE_HOLE_CORNER_MIN, GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
 import { chamferedRim } from "./edgeChamfer";
-import { arcLengthFractionAt, outlineColumnParams, outlineOffsetAt, pointAt } from "./shapes";
+import { arcLengthFractionAt, evalOutline, outlineColumnParams, outlineOffsetAt, paramAt, pointAt, polygonVertex } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
@@ -69,6 +69,37 @@ export function wallThickness(wireDiameter: number): number {
   return Math.max(WALL_THICKNESS, grooveShape(wireDiameter).depth + GROOVE_FLOOR_WALL);
 }
 
+export interface WallRings {
+  holeOutline: ShapeOutline;
+  width: number;
+  bottomThickness: number;
+  topThickness?: number;
+}
+
+export function ringHolePoint(boreOutline: ShapeOutline, t: number, width: number): { x: number; y: number } {
+  if (boreOutline.cornerRadius === boreOutline.apothem) {
+    const p = pointAt(boreOutline, t, 0);
+    const scale = (boreOutline.apothem - width) / boreOutline.apothem;
+    return { x: p.x * scale, y: p.y * scale };
+  }
+  const param = paramAt(boreOutline, 0, t);
+  const rounded = boreOutline.cornerRadius - width >= FACE_HOLE_CORNER_MIN;
+  const sharp = { n: boreOutline.n, apothem: boreOutline.apothem - width, cornerRadius: 0 };
+  const corner = param.seg >> 1;
+  if (param.seg % 2 === 0) {
+    if (rounded) return evalOutline(boreOutline, param, -width);
+    const [x, y] = polygonVertex(sharp, corner);
+    return { x, y };
+  }
+  const across = evalOutline(boreOutline, param, -width);
+  if (rounded) return across;
+  const [ax, ay] = polygonVertex(sharp, corner);
+  const [bx, by] = polygonVertex(sharp, (corner + 1) % boreOutline.n);
+  const along = ((across.x - ax) * (bx - ax) + (across.y - ay) * (by - ay)) / ((bx - ax) ** 2 + (by - ay) ** 2);
+  const at = Math.min(1, Math.max(0, along));
+  return { x: ax + (bx - ax) * at, y: ay + (by - ay) * at };
+}
+
 export interface WallSpec {
   /** The winding surface's outline at offset 0 (docs/design.md, Shapes). */
   outline: ShapeOutline;
@@ -96,6 +127,7 @@ export interface WallSpec {
   rowsPerPitch: number;
   /** Issue #85: minimum corner-arc segments (shapes.ts's `minCornerSegments`, already scaled to this outline's own corner sweep) -- `buildWall`/`buildOutlineRing` redistribute `columns` toward corners to reach it, via `outlineColumnParams`. Round ignores this (no corner arc of its own). */
   minCornerSegments: number;
+  rings?: WallRings;
 }
 
 export const smoothstep = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
@@ -324,16 +356,11 @@ export function buildWall(spec: WallSpec): CoilMesh {
   const profile = createWallProfile(spec);
   const { pitch, zStart } = profile;
 
-  // Issue #85: adaptive, corner-favoring column placement, not a plain
-  // `ci / columns` -- see `outlineColumnParams`'s own doc comment. `ts`'s
-  // length is the mesh's REAL column count, which may exceed the
-  // `columns` budget when the corner floor forces it to.
   const ts = outlineColumnParams(outline, columns, minCornerSegments);
   const C = ts.length;
 
   const delta = pitch / rowsPerPitch;
   const rowOffsets = profile.rowOffsets(rowsPerPitch);
-  // The lowest row stays a quarter row above z = 0, so it never lands on the bottom vertex.
   const zLo = Math.max(marginBottom * 0.5, delta * 0.25);
   const zHi = height - marginTop * 0.5;
 
@@ -344,15 +371,6 @@ export function buildWall(spec: WallSpec): CoilMesh {
   const bottomO: number[] = [];
   const topO: number[] = [];
 
-  // Sheared (helical) rows: each column's rows sit at z = zStart +
-  // pitch*phaseFraction(t) + k*pitch + one of `rowOffsets`, so every column samples the groove
-  // profile at the same phase `profile.offset` itself uses (issue #103: the
-  // groove floor's own phase, not `t` directly -- see
-  // `shapes.ts`'s `arcLengthFractionAt`). This is what makes the profile
-  // exact with no aliasing, and what lets the t=0/t=1 seam close for free
-  // (docs/design.md, Geometry). Non-uniform column spacing (issue #85) doesn't disturb
-  // this: each column still samples its own exact arc-length fraction `t`,
-  // just not evenly spaced from its neighbours.
   for (let ci = 0; ci < C; ci++) {
     const t = ts[ci];
     const idx: number[] = [];
@@ -379,7 +397,6 @@ export function buildWall(spec: WallSpec): CoilMesh {
     colZ.push(zz);
   }
 
-  // Zipper adjacent columns together (z-sorted greedy merge).
   for (let ci = 0; ci < C; ci++) {
     const A = colIdx[ci];
     const Az = colZ[ci];
@@ -398,29 +415,46 @@ export function buildWall(spec: WallSpec): CoilMesh {
     }
   }
 
-  // Bore (its own outline, offset 0, 2 vertices per column) and the
-  // top/bottom annuli that close the wall into a watertight torus.
-  const bottomI: number[] = [];
-  const topI: number[] = [];
+  const { rings } = spec;
+  const profileOf = (t: number): Array<[number, number, number]> => {
+    const b = pointAt(boreOutline, t, 0);
+    if (!rings) return [[b.x, b.y, 0], [b.x, b.y, height]];
+    const h = ringHolePoint(boreOutline, t, rings.width);
+    const bottom = rings.bottomThickness;
+    if (rings.topThickness === undefined) return [[h.x, h.y, 0], [h.x, h.y, bottom], [b.x, b.y, bottom], [b.x, b.y, height]];
+    const flat = height - rings.topThickness;
+    const foot = Math.max(bottom, flat - outlineOffsetAt(rings.holeOutline, b.x, b.y).offset);
+    return [[h.x, h.y, 0], [h.x, h.y, bottom], [b.x, b.y, bottom], [b.x, b.y, foot], [h.x, h.y, flat], [h.x, h.y, height]];
+  };
+  const inner: number[][] = [];
+  let previous: { points: Array<[number, number, number]>; index: number[] } | undefined;
   for (let ci = 0; ci < C; ci++) {
-    const t = ts[ci];
-    const p = pointAt(boreOutline, t, 0);
-    bottomI.push(positions.length / 3);
-    positions.push(p.x, p.y, 0);
-    topI.push(positions.length / 3);
-    positions.push(p.x, p.y, height);
+    const points = profileOf(ts[ci]);
+    const index = points.map((p, j) => {
+      const q = previous?.points[j];
+      if (previous && q && Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) < 1e-9) return previous.index[j];
+      positions.push(p[0], p[1], p[2]);
+      return positions.length / 3 - 1;
+    });
+    inner.push(index);
+    previous = { points, index };
   }
+  const solid = (a: number, b: number, c: number) => {
+    if (a !== b && b !== c && a !== c) indices.push(a, b, c);
+  };
   for (let ci = 0; ci < C; ci++) {
     const cj = (ci + 1) % C;
-    // Bore faces inward.
-    indices.push(bottomI[ci], topI[ci], bottomI[cj]);
-    indices.push(bottomI[cj], topI[ci], topI[cj]);
-    // Bottom annulus faces -z.
-    indices.push(bottomO[ci], bottomI[ci], bottomO[cj]);
-    indices.push(bottomO[cj], bottomI[ci], bottomI[cj]);
-    // Top annulus faces +z.
-    indices.push(topO[ci], topO[cj], topI[ci]);
-    indices.push(topO[cj], topI[cj], topI[ci]);
+    const here = inner[ci];
+    const next = inner[cj];
+    for (let j = 0; j + 1 < here.length; j++) {
+      solid(here[j], here[j + 1], next[j]);
+      solid(next[j], here[j + 1], next[j + 1]);
+    }
+    const last = here.length - 1;
+    solid(bottomO[ci], here[0], bottomO[cj]);
+    solid(bottomO[cj], here[0], next[0]);
+    solid(topO[ci], topO[cj], here[last]);
+    solid(topO[cj], next[last], here[last]);
   }
 
   return { positions: new Float32Array(positions), indices: new Uint32Array(indices) };

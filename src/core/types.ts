@@ -6,6 +6,7 @@
 import type { WallSpec } from "./wall";
 import type { FlangeSpec } from "./manifold";
 import type { RimSlot } from "./innerEnd";
+import type { FaceChannelLayout } from "./faceChannel";
 
 export type { ShapeKind } from "./shapes";
 
@@ -509,6 +510,7 @@ export interface Design {
    * beyond the guide (the seat); both geometry backends cut them from here.
    */
   rimSlots: { base?: RimSlot; cap?: RimSlot };
+  faceChannels?: FaceChannelLayout;
 }
 
 export type ExportFormat = "stl" | "step" | "3mf";

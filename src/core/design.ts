@@ -22,6 +22,7 @@
 
 import {
   CAP_THICKNESS,
+  FACE_BRIDGE_NOTE_WIDTH,
   DEFAULT_BASE,
   MARGIN_BOTTOM,
   MARGIN_TOP_FACTOR,
@@ -62,6 +63,7 @@ import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
 import type { CoilMesh, CoilSpec, Design, Part, Resolution, Solution } from "./types";
 import { buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
+import { planFaceChannels } from "./faceChannel";
 import { buildCable } from "./wire";
 
 function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, boreOutline: ShapeOutline) {
@@ -150,6 +152,25 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const groove = grooveShape(wireDiameter);
   const layer1Turns = solution.layerResults[0]?.turns ?? 0;
 
+  const woundLayers = solution.layerResults.filter((r) => r.turns > 0).length;
+  const faceChannels = baseEnabled(spec) || woundLayers === 0
+    ? undefined
+    : planFaceChannels({
+        outline,
+        boreOutline,
+        height: solution.height,
+        wireDiameter,
+        tolerance: spec.tolerance,
+        bendRadius: bendMultiplierOf(spec.wire) * wireDiameter,
+        topFace: woundLayers === 1 && !solution.topCapEnabled,
+      });
+  if (faceChannels && 2 * faceChannels.channelRadius > FACE_BRIDGE_NOTE_WIDTH) {
+    note(`The channel on the bottom face is ${(2 * faceChannels.channelRadius).toFixed(1)} mm wide, so its roof bridges more than 8 mm; check that your printer manages it.`);
+  }
+  if (!baseEnabled(spec) && woundLayers > 0 && !faceChannels) {
+    problem("The cable's ends have no room to leave the core's centre at this size and height; the core needs to be bigger.");
+  }
+
   const wallSpec = {
     outline,
     boreOutline,
@@ -166,6 +187,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     columns,
     minCornerSegments: cornerSegs,
     rowsPerPitch,
+    rings: faceChannels && { holeOutline: faceChannels.holeOutline, width: faceChannels.ringWidth, bottomThickness: faceChannels.bottomThickness, topThickness: faceChannels.topThickness },
   };
   const wantsKeyhole = spec.mount === "keyhole";
   const wantsThrough = spec.mount === "through";
@@ -274,6 +296,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const cable = buildCable(solution.layerResults, wallSpec, spec.windingQuality, resolution, {
     innerEnd: innerEndLayout,
+    faceChannels,
     topCapEnabled,
     height: solution.height,
     margin,
@@ -296,7 +319,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot };
 
   const wall = buildWall(wallSpec);
-  const coreMesh = await fuseFlange(wall, coreFlangeSpec, coreJoint, innerEndCut, mountPlateCut);
+  const coreMesh = await fuseFlange(wall, coreFlangeSpec, coreJoint, innerEndCut, mountPlateCut, faceChannels);
   coreMesh.fadeTriangles = grooveFadeTriangles(coreMesh, wallSpec);
 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
@@ -397,6 +420,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     layerTransitions: cable.layerTransitions,
     outerEndLeadOut: cable.outerEndLeadOut,
     cablePath: cable.cablePath,
+    faceChannels,
     rimSlots: { base: baseSlot, cap: capSlot },
   };
 }
