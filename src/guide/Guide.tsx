@@ -113,15 +113,32 @@ function faceWindowMm(design: Design): number {
   return FACE_WINDOW_WIRE_DIAMETERS * (design.spec.wire.diameter + design.spec.tolerance);
 }
 
+const BOTTOM_FACE_TILT = THREE.MathUtils.degToRad(48);
+const FROM_BELOW = new THREE.Matrix4()
+  .makeRotationAxis(new THREE.Vector3(1, 1, 0).normalize(), BOTTOM_FACE_TILT)
+  .multiply(new THREE.Matrix4().makeRotationX(Math.PI));
+const CHANNEL_WINDOW_MARGIN = 1.5;
+
+function channelView(lead: Float32Array, level: number): { anchor: THREE.Vector3; windowMm: number } {
+  const box = new THREE.Box3();
+  for (let i = 0; i < lead.length; i += 3) box.expandByPoint(new THREE.Vector3(lead[i], lead[i + 1], level));
+  const centre = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  return { anchor: centre, windowMm: CHANNEL_WINDOW_MARGIN * Math.hypot(size.x, size.y) };
+}
+
 function StepThreadFaceInnerEnd({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
   const lead = design.innerEndLeadIn;
-  const anchor = new THREE.Vector3(lead[lead.length - 3], lead[lead.length - 2], lead[lead.length - 1]);
   const innerEnd: WireLayerPath = { layer: 0, turns: 0, points: lead };
+  const grooveStart = new THREE.Vector3(lead[lead.length - 3], lead[lead.length - 2], lead[lead.length - 1]);
+  const { level, hole } = design.faceChannels!.inner;
+  const holeEntrance = new THREE.Vector3(hole.x, hole.y, level);
+  const { anchor, windowMm } = channelView(lead, level);
   return (
     <StepCard n={n} title="Lay in the inner cable end">
       <div className="guide-figure-row guide-figure-row--solo">
-        <Figure parts={[core]} wirePaths={[innerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-thread-inner" zoomInsetAt={anchor} zoomInsetWindowMm={faceWindowMm(design)} />
+        <Figure parts={[core]} wirePaths={[innerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-thread-inner" zoomInsetAt={grooveStart} zoomInsetWindowMm={Math.max(windowMm, faceWindowMm(design))} zoomInsetView={{ pose: FROM_BELOW, at: anchor, focus: [grooveStart, holeEntrance] }} />
       </div>
       <Callout icons={<KeyholeIcon label="Press the cable into the channel on the bottom face" />}>
         Press the cable into the channel on the bottom face, from the groove's start in to the centre hole. Bring the connector up through the hole and out of the top.
