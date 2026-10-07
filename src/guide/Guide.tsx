@@ -107,15 +107,21 @@ function StepThreadInnerEnd({ design, n, clip }: { design: Design; n: number; cl
   );
 }
 
+const FACE_WINDOW_WIRE_DIAMETERS = 9;
+
+function faceWindowMm(design: Design): number {
+  return FACE_WINDOW_WIRE_DIAMETERS * (design.spec.wire.diameter + design.spec.tolerance);
+}
+
 function StepThreadFaceInnerEnd({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
-  const inner = design.faceChannels!.inner;
-  const anchor = new THREE.Vector3(inner.hole.x, inner.hole.y, inner.level);
-  const innerEnd: WireLayerPath = { layer: 0, turns: 0, points: design.innerEndLeadIn };
+  const lead = design.innerEndLeadIn;
+  const anchor = new THREE.Vector3(lead[lead.length - 3], lead[lead.length - 2], lead[lead.length - 1]);
+  const innerEnd: WireLayerPath = { layer: 0, turns: 0, points: lead };
   return (
     <StepCard n={n} title="Lay in the inner cable end">
       <div className="guide-figure-row guide-figure-row--solo">
-        <Figure parts={[core]} wirePaths={[innerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-thread-inner" zoomInsetAt={anchor} />
+        <Figure parts={[core]} wirePaths={[innerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-thread-inner" zoomInsetAt={anchor} zoomInsetWindowMm={faceWindowMm(design)} />
       </div>
       <Callout icons={<KeyholeIcon label="Press the cable into the channel on the bottom face" />}>
         Press the cable into the channel on the bottom face, from the groove's start in to the centre hole. Bring the connector up through the hole and out of the top.
@@ -218,7 +224,7 @@ function StepLayOuterEndFace({ design, n }: { design: Design; n: number }) {
   return (
     <StepCard n={n} title="Lay in the outer cable end">
       <div className="guide-figure-row guide-figure-row--solo">
-        <Figure parts={[core]} wirePaths={[...design.wirePaths, outerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-secure-outer" zoomInsetAt={anchor} />
+        <Figure parts={[core]} wirePaths={[...design.wirePaths, outerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-secure-outer" zoomInsetAt={anchor} zoomInsetWindowMm={faceWindowMm(design)} />
       </div>
       <Callout icons={<KeyholeIcon label="Press the cable into the channel on the top face" />}>
         Press the outer end into the channel on the top face, from the last turn in to the centre hole. Let the connector hang down through the hole.
@@ -569,6 +575,7 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
   const plateN = outerFaceN + (faceOuter ? 1 : 0);
   const mountN = plateN + (hasPlate ? 1 : 0);
   const unwindN = hasBase ? mountN + 1 : mountN;
+  const summary = ["Print", "thread", "wind", ...(topCapEnabled ? ["fit the cap"] : []), ...(hasBase ? ["mount it"] : [])].join(", ");
   return (
     <div className="guide" data-testid="guide-view" data-resolution={design.resolution}>
       <div className="guide-toolbar" data-testid="guide-toolbar">
@@ -581,7 +588,7 @@ export function Guide({ design, onBack }: { design: Design; onBack: () => void }
       </div>
       <header className="guide-header">
         <h1>Assembly guide</h1>
-        <p>Print, thread, wind, fit the cap, mount it.</p>
+        <p>{summary}.</p>
       </header>
       <StepPrintParts design={design} />
       {clip && <StepThreadInnerEnd design={design} n={2} clip={clip} />}

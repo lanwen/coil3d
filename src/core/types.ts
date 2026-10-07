@@ -19,7 +19,7 @@ export type { ShapeKind } from "./shapes";
  */
 export type ShapeSpec = { kind: "round" } | { kind: "sq"; cornerRadius: number } | { kind: "tri"; cornerRadius: number };
 
-/** Top-cap override (issue #9): `auto` follows `Solution.capsAuto` (on when layers > 1). */
+/** Top-cap override (issue #9): `auto` follows `Solution.capsAuto` (on when layers > 1 and the base is on). */
 export type TopCapMode = "auto" | "on" | "off";
 
 export type BaseMode = "on" | "off";
@@ -128,7 +128,7 @@ export interface CoilSpec {
   /** Used only when exactly two of {coreSize, height, layers} are free. */
   objective: Objective;
   base?: BaseMode;
-  /** Top-cap override (issue #9): defaults to "auto" (on when layers > 1). */
+  /** Top-cap override (issue #9): defaults to "auto" (on when layers > 1 and the base is on). */
   topCap: TopCapMode;
   /** Cap joint (issue #9): press-fit, bayonet/twist-lock or snap clips, all permanent and glue-friendly. */
   joint: JointKind;

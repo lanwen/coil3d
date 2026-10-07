@@ -34,7 +34,7 @@ function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): nu
 
 describe("round core matches main's golden numbers for a fixed hash (issue #6 regression)", () => {
   it("L=2000, d=3.8, outer size 60", async () => {
-    const { spec, notice } = parseHash(encodeHashDoc({ L: 2000, d: 3.8, size: 60 }));
+    const { spec, notice } = parseHash(encodeHashDoc({ L: 2000, d: 3.8, size: 60, base: "on" }));
     expect(notice).toBeUndefined();
     const d = await design(spec);
 

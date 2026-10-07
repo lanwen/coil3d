@@ -5,7 +5,7 @@ import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 // 3MF export, plate layout and bed warnings (issue #10).
 
 test("Download 3MF produces a real zip package and the part count is shown", async ({ page }) => {
-  await page.goto(`/${encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 })}`);
+  await page.goto(`/${encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" })}`);
   await expect(page.getByTestId("download-3mf")).toBeVisible();
 
   // Two-part design (core + auto top cap): the mesh-detail row shows the count.

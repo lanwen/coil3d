@@ -36,6 +36,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     layers: { locked: true, value: 2 },
     objective: "minVolume",
     topCap: "on",
+    base: "on",
     joint: "press",
     tolerance: 0.2,
     print: { bedX: 256, bedY: 256, bedZ: 256 },
@@ -59,7 +60,7 @@ function pieces(mesh: { positions: Float32Array; indices: Uint32Array }): number
 
 describe("rim cable slots (issue #241)", () => {
   it("the cap no longer sets the margin: on the feedback design only the outer end's run up to the cap does", async () => {
-    const { spec } = parseHash(FEEDBACK);
+    const spec = { ...parseHash(FEEDBACK).spec, base: "on" as const };
     const on = await design(spec, "draft");
     const off = await design({ ...spec, topCap: "off" }, "draft");
     // The cap clips set it at 9.8 mm. Now the plate covers the drawn cable plus the lip: with the cap on, the single
@@ -71,7 +72,7 @@ describe("rim cable slots (issue #241)", () => {
   });
 
   it("the base slot sits right below the cap slot when nothing on the base is in the way", async () => {
-    const d = await design(parseHash(FEEDBACK).spec, "draft");
+    const d = await design({ ...parseHash(FEEDBACK).spec, base: "on" }, "draft");
     const { base, cap } = d.rimSlots;
     expect(base).toBeDefined();
     expect(cap).toBeDefined();

@@ -27,7 +27,7 @@ function rayHits(mesh: { positions: Float32Array; indices: Uint32Array }, x: num
 }
 
 function spec(overrides: Partial<CoilSpec>): CoilSpec {
-  return { ...parseHash("").spec, topCap: "on", ...overrides };
+  return { ...parseHash("").spec, base: "on", topCap: "on", ...overrides };
 }
 
 const DESIGNS: Array<{ label: string; spec: CoilSpec }> = [

@@ -397,7 +397,7 @@ export function ControlsForm({
                 checked={topCapOn}
                 title={
                   topCapAuto
-                    ? `Auto -- currently ${topCapOn ? "on" : "off"} (on once there's more than one layer). Touch to set it explicitly.`
+                    ? `Auto -- currently ${topCapOn ? "on" : "off"} (on once there's a base and more than one layer). Touch to set it explicitly.`
                     : `${topCapOn ? "On" : "Off"} (explicit) -- click to change`
                 }
                 onChange={setTopCapExplicit}

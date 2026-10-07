@@ -11,7 +11,7 @@ import { encodeHashDoc } from "./hashDoc";
 // AC's own automated check: "the knob is centred (Playwright bbox check:
 // knob centre y = track centre y ± 0.5 px)".
 
-const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 });
+const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" });
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);

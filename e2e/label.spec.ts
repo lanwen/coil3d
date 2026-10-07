@@ -12,7 +12,7 @@ import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 // own ROOMY_CAP fixture): the flange -- and so the top cap's own annulus --
 // grows well past the core's own outline, leaving plenty of room for a
 // short label at a legible height.
-const ROOMY_ROUND = encodeHashDoc({ L: 10000, d: 3.8, lock: ["outer", "h"], size: 30, h: 60 });
+const ROOMY_ROUND = encodeHashDoc({ L: 10000, d: 3.8, lock: ["outer", "h"], size: 30, h: 60, base: "on" });
 // A bigger core (70mm, vs. round's 30mm) so a requested corner radius of 16
 // clears the bend-limit floor for the default "usb" wire type at 3.8mm
 // (MBR = 2.6 x 3.8 = 9.9mm) instead of being silently clamped UP to it --
@@ -159,7 +159,7 @@ test.describe("too-long-text warning (issue #12)", () => {
 
 // Default cable and core with the top cap forced on: ABCDEFGH is the longest
 // all-caps prefix of ABCDEFGHIJKLMNOP that fits this cap (test/label.test.ts).
-const DEFAULT_CAP_ON = encodeHashDoc({ cap: "on" });
+const DEFAULT_CAP_ON = encodeHashDoc({ cap: "on", base: "on" });
 
 test.describe("the label field stops at what the cap can hold", () => {
   async function openLabelField(page: Page, hash: string) {
@@ -201,7 +201,7 @@ test.describe("the label field stops at what the cap can hold", () => {
 
   test("shrinking the core after typing keeps the text and shows the fit warning", async ({ page }) => {
     // 50 mm core, 6 m of cable: a 5-layer cap holds 11 letters; at 30 mm it holds 9.
-    const input = await openLabelField(page, encodeHashDoc({ cap: "on", size: 50, L: 6000, lock: ["outer"] }));
+    const input = await openLabelField(page, encodeHashDoc({ cap: "on", size: 50, L: 6000, lock: ["outer"], base: "on" }));
     await input.fill("ABCDEFGHIJK");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
     await expect(input).toHaveValue("ABCDEFGHIJK");

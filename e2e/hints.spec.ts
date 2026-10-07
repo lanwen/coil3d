@@ -90,7 +90,7 @@ test("advanced settings and the top-cap/joint/label/mount/print-bed controls all
   // Issue #131: joint/tolerance/label are cap-only controls, hidden while
   // the top cap is off -- a two-layer link keeps the (auto) cap on so those
   // fields are actually in the DOM to check.
-  await page.goto(`/${encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60 })}`);
+  await page.goto(`/${encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
   await openAdvanced(page);
   for (const heading of ["Winding quality"]) {
@@ -108,7 +108,7 @@ test("the conditional fields (custom bend multiplier, the option cards) have hin
   // wt=custom shows the custom-bend-multiplier field; leaving only "outer"
   // locked (height + layers both free) shows the option cards (issue #192,
   // which replaced the objective picker).
-  await page.goto(`/${encodeHashDoc({ L: 2000, d: 3.8, wt: "custom", lock: ["outer"], size: 30 })}`);
+  await page.goto(`/${encodeHashDoc({ L: 2000, d: 3.8, wt: "custom", lock: ["outer"], size: 30, base: "on" })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
 
   const customField = page.locator(".field").filter({ hasText: "Custom bend multiplier" });

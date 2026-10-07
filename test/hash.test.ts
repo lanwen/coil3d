@@ -264,20 +264,26 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(parseHash(toHash(off))).toEqual({ ...DESIGN, spec: off });
   });
 
-  it("the base (issue #254) is left out at its default, and round-trips when it differs", () => {
-    expect(DEFAULT_SPEC.base).toBe("on");
-    expect(decodeDoc(toHash({ ...DEFAULT_SPEC, base: "on" }))).toEqual({ v: 2 });
-    expect(parseHash(toHash({ ...DEFAULT_SPEC, base: "on" })).spec.base).toBe("on");
+  it("the bare core (issue #254) is the default: base off and cap auto are left out, and a link that sets either keeps it", () => {
+    expect(DEFAULT_SPEC.base).toBe("off");
+    expect(DEFAULT_SPEC.topCap).toBe("auto");
+    expect(decodeDoc(toHash(DEFAULT_SPEC))).toEqual({ v: 2 });
+    expect(parseHash("").spec.base).toBe("off");
 
-    const off: CoilSpec = { ...DEFAULT_SPEC, base: "off" };
-    expect(decodeDoc(toHash(off))).toEqual({ v: 2, base: "off" });
-    expect(parseHash(toHash(off))).toEqual({ ...DESIGN, spec: off });
+    const based: CoilSpec = { ...DEFAULT_SPEC, base: "on" };
+    expect(decodeDoc(toHash(based))).toEqual({ v: 2, base: "on" });
+    expect(parseHash(toHash(based))).toEqual({ ...DESIGN, spec: based });
+
+    const capped: CoilSpec = { ...DEFAULT_SPEC, topCap: "on" };
+    expect(decodeDoc(toHash(capped))).toEqual({ v: 2, cap: "on" });
+    expect(parseHash(toHash(capped))).toEqual({ ...DESIGN, spec: capped });
+    expect(parseHash(toHash(capped)).spec.base).toBe("off");
   });
 
   it("base off with a mount round-trips: the spec keeps what the user chose", () => {
-    const spec: CoilSpec = { ...DEFAULT_SPEC, base: "off", mount: "keyhole", topCap: "off" };
+    const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "keyhole", topCap: "off" };
     const hash = toHash(spec);
-    expect(decodeDoc(hash)).toEqual({ v: 2, base: "off", mount: "keyhole", cap: "off" });
+    expect(decodeDoc(hash)).toEqual({ v: 2, mount: "keyhole", cap: "off" });
     expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
   });
 

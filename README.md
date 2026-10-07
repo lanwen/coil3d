@@ -19,8 +19,10 @@ a design by sharing the link.
 - A solver: lock what you know (core size, height, layers) and it fills in the
   rest. It checks the cable's minimum bend radius and warns when a design
   cannot hold the cable.
-- Parts that print flat without supports: the core with its bottom flange, a
-  top cap with a press, bayonet or snap joint, and an optional engraved label.
+- Parts that print flat without supports. The default is a bare core, one
+  part with a thin ring and a centre hole at each end where the cable ends
+  run in. A base plate, and a top cap with a press, bayonet or snap joint and
+  an optional engraved label, are options. A wall mount adds the base.
 - Wall mounts: screw keyhole, through holes, or IKEA SKÅDIS rim clips or
   twist-lock T-clips (not affiliated with IKEA). See [docs/mounts.md](docs/mounts.md).
 - A step-by-step assembly guide and a print-layout view.

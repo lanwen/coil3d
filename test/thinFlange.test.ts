@@ -53,7 +53,7 @@ function midMarginPoints(d: Design, count = 72) {
 }
 
 function spec(overrides: Partial<CoilSpec>): CoilSpec {
-  return { ...parseHash("").spec, ...overrides };
+  return { ...parseHash("").spec, base: "on", ...overrides };
 }
 
 const DESIGNS: Array<{ label: string; spec: CoilSpec }> = [
@@ -287,12 +287,12 @@ describe("SKÅDIS rim clips on the thin flange (issue #207)", () => {
 describe("the channel pad blends into the collar (issue #133)", () => {
   const MAX_CREASE_DEG = 25;
   const cases: Array<[string, string]> = [
-    ["round", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20 })],
-    ["round, cap on", encodeHashDoc({ L: 2000, d: 4, size: 60, h: 20, cap: "on" })],
-    ["square", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 20 })],
-    ["square, tight corners", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 3 })],
-    ["triangle", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "tri", rc: 20 })],
-    ["round, 8 mm cable", encodeHashDoc({ L: 300, d: 8, size: 60, h: 30 })],
+    ["round", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, base: "on" })],
+    ["round, cap on", encodeHashDoc({ L: 2000, d: 4, size: 60, h: 20, cap: "on", base: "on" })],
+    ["square", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 20, base: "on" })],
+    ["square, tight corners", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 3, base: "on" })],
+    ["triangle", encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "tri", rc: 20, base: "on" })],
+    ["round, 8 mm cable", encodeHashDoc({ L: 300, d: 8, size: 60, h: 30, base: "on" })],
   ];
   it.each(cases)("%s: no sharp crease on the flange's chamfers", async (_, hash) => {
     const d = await design(parseHash(hash).spec, "draft");

@@ -23,8 +23,8 @@ import { encodeHashDoc } from "./hashDoc";
 // (its "self-healing" reframe, see that file's own useFrame comment), so
 // no amount of scrolling/panning keeps an off-centre feature like the
 // bottom flange in frame once zoomed in far enough.
-const ROUND = `?debugFocusInnerEnd=1${encodeHashDoc({ L: 800, d: 4, size: 60, h: 20 })}`;
-const SQUARE = `?debugFocusInnerEnd=1${encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 20 })}`;
+const ROUND = `?debugFocusInnerEnd=1${encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, base: "on" })}`;
+const SQUARE = `?debugFocusInnerEnd=1${encodeHashDoc({ L: 800, d: 4, size: 60, h: 20, shape: "sq", rc: 20, base: "on" })}`;
 
 test.use({ viewport: { width: 900, height: 700 } });
 
@@ -86,7 +86,7 @@ test.describe("bottom rim keyhole + channel close-up (issue #8)", () => {
     // design-error` banner, so that check passed for an unrelated reason
     // (a negative control with no teeth). Asserting the banner itself is
     // absent is the real, failing-for-the-right-reason check.
-    await gotoDesign(page, encodeHashDoc({ L: 2000, d: 8, wt: "stiff", size: 60, ly: 1 }));
+    await gotoDesign(page, encodeHashDoc({ L: 2000, d: 8, wt: "stiff", size: 60, ly: 1, base: "on" }));
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
     await expect(page.getByTestId("design-error")).toHaveCount(0);
   });

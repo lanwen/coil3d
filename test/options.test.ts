@@ -9,7 +9,7 @@ import type { CoilSpec, Solution } from "../src/core";
 // the link (`toHash`/`parseHash`).
 
 function spec(overrides: Partial<CoilSpec>): CoilSpec {
-  return { ...DEFAULT_SPEC, ...overrides };
+  return { ...DEFAULT_SPEC, base: "on", ...overrides };
 }
 
 /** Through the URL hash and back, as a shared link would. */
