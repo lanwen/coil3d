@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
 import { expectSettled } from "./settled";
 
-const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" });
+const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on", cap: "on" });
 
 async function recordSettledChanges(page: Page) {
   await page.addInitScript(() => {
