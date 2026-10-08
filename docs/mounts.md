@@ -38,8 +38,8 @@ coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
   before it is skipped. A round flange rotates the ring of holes to clear the
   inner-end channel pad. A round flange rotates the ring of holes to clear the
   pads. A square or triangle flange skips a corner hole that is blocked and
-  warns, so a triangle with a 6-8 mm cable can end up with 2 holes. This mount
-  is permanent.
+  warns, but only on a locked core size: with a free size the flange margin
+  grows until every hole fits. This mount is permanent.
 
 ## SKÅDIS
 
@@ -197,7 +197,8 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
     Its weight keeps the clip dropped in its slot, and a clip can't turn
     back without being lifted, so nothing turns. A note says so.
   - If no slot fits, the clips are left out with a warning that suggests the
-    rim clips.
+    rim clips. That only happens on a locked core size: a free size grows
+    until one clip fits.
 
   For 2 m of 3.8 mm cable: round 40-50 mm gets 1 clip, 60 mm gets 2, and
   70 mm and up gets 3; square 60 mm gets 2; triangle 50 mm gets 1.

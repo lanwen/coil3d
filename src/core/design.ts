@@ -37,6 +37,7 @@ import {
   RIM_SLOT_KEEP_OUT,
   RIM_SLOT_LABEL_KEEP_OUT,
   SCREW_MOUNT_HEAD_RADIUS,
+  SIZE_HI,
   SKADIS_CLIP_WIDTH,
   THROUGH_MOUNT_EDGE_MARGIN,
 } from "./constants";
@@ -72,7 +73,7 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
 
   const bendRadius = bendMultiplierOf(spec.wire) * wireDiameter;
   const baseOn = baseEnabled(spec);
-  const sizing = resolveFlangeSizing(
+  const sized = resolveFlangeSizing(
     outline,
     boreOutline,
     solution.flangeSize,
@@ -83,42 +84,97 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
     spec.throughHoleDiameter,
     baseOn,
   );
-  let thickness = sizing.thickness;
-  const channelDepth = resolveChannelDepth(wireDiameter, thickness);
+  const channelDepth = resolveChannelDepth(wireDiameter, sized.thickness);
 
-  const innerEndLayout = baseOn ? layoutInnerEnd(outline, sizing.margin, wireDiameter, spec.tolerance, bendRadius, channelDepth) : undefined;
+  const layoutsAt = (margin: number) => {
+    let thickness = sized.thickness;
+    const innerEndLayout = baseOn ? layoutInnerEnd(outline, margin, wireDiameter, spec.tolerance, bendRadius, channelDepth) : undefined;
 
-  let mountLayout: MountLayout | undefined;
-  if (spec.mount === "keyhole") {
-    const layout = layoutKeyholeMount(outline, boreOutline, sizing.margin, spec.keyholeRotation);
-    mountLayout = layout;
-    const clearance = SCREW_MOUNT_HEAD_RADIUS + INNER_CHANNEL_MIN_SHELF;
-    const onChannel = layout.slots.some((slot) =>
-      Array.from({ length: 9 }, (_, i) => i / 8).some(
-        (k) =>
-          innerEndLayout !== undefined &&
-          innerEndLayout.channelRibbon.length >= 3 &&
-          distanceToClosedPolygon(slot.head.x + (slot.shankEnd.x - slot.head.x) * k, slot.head.y + (slot.shankEnd.y - slot.head.y) * k, innerEndLayout.channelRibbon) < clearance,
-      ),
-    );
-    if (onChannel) thickness = stackedKeyholeThickness(wireDiameter, thickness);
+    let mountLayout: MountLayout | undefined;
+    if (spec.mount === "keyhole") {
+      const layout = layoutKeyholeMount(outline, boreOutline, margin, spec.keyholeRotation);
+      mountLayout = layout;
+      const clearance = SCREW_MOUNT_HEAD_RADIUS + INNER_CHANNEL_MIN_SHELF;
+      const onChannel = layout.slots.some((slot) =>
+        Array.from({ length: 9 }, (_, i) => i / 8).some(
+          (k) =>
+            innerEndLayout !== undefined &&
+            innerEndLayout.channelRibbon.length >= 3 &&
+            distanceToClosedPolygon(slot.head.x + (slot.shankEnd.x - slot.head.x) * k, slot.head.y + (slot.shankEnd.y - slot.head.y) * k, innerEndLayout.channelRibbon) < clearance,
+        ),
+      );
+      if (onChannel) thickness = stackedKeyholeThickness(wireDiameter, thickness);
+    }
+    const skadisLayout: SkadisClipLayout | undefined =
+      spec.mount === "skadis" && innerEndLayout
+        ? layoutSkadisClips({
+            flangeOutline: offsetOutline(outline, margin),
+            boreOutline,
+            envelopeOutline: offsetOutline(outline, lipKeepOffset(sized.envelopeOffset, thickness, sized.plateThickness, spec.tolerance)),
+            thickness,
+            plateThickness: sized.plateThickness,
+            tolerance: spec.tolerance,
+            latch: spec.skadisLatch ?? true,
+            heavy: heavyCable,
+            avoid: innerEndLayout.channelRibbon,
+            padFootprints: channelPadFootprints(outline, innerEndLayout, thickness, sized.plateThickness),
+          })
+        : undefined;
+    return { margin, thickness, innerEndLayout, mountLayout, skadisLayout };
+  };
+
+  const mountFits = (plan: ReturnType<typeof layoutsAt>): boolean => {
+    if (spec.mount === "keyhole") return plan.mountLayout?.warning === undefined;
+    if (spec.mount === "skadis") return plan.skadisLayout?.warning === undefined;
+    if (spec.mount === "through") {
+      const flange = {
+        outline,
+        boreOutline,
+        margin: plan.margin,
+        thickness: plan.thickness,
+        plateThickness: sized.plateThickness,
+        columns: FINAL_COLUMNS,
+        minCornerSegments: minCornerSegments(outline, FINAL_MIN_CORNER_SEGMENTS_PER_90),
+        mount: spec.mount,
+        throughHoleDiameter: spec.throughHoleDiameter,
+      };
+      return layoutFlangeThroughHoles(flange, plan.innerEndLayout).warning === undefined;
+    }
+    if (mountKindForPlate) {
+      const layout = mountPlateLayoutFor(offsetOutline(outline, plan.margin), boreOutline, plan.innerEndLayout);
+      return layout.clips.length > 0 && layout.anchors.length > 0;
+    }
+    return true;
+  };
+
+  let plan = layoutsAt(sized.margin);
+  let sizing = sized;
+  if (baseOn && !spec.coreSize.locked && !mountFits(plan)) {
+    const grown = growMargin(sized.margin, (margin) => mountFits(layoutsAt(margin)));
+    if (grown !== undefined) {
+      plan = layoutsAt(grown);
+      sizing = { ...sized, margin: grown, mountMargin: grown };
+    }
   }
-  const skadisLayout: SkadisClipLayout | undefined =
-    spec.mount === "skadis" && innerEndLayout
-      ? layoutSkadisClips({
-          flangeOutline: offsetOutline(outline, sizing.margin),
-          boreOutline,
-          envelopeOutline: offsetOutline(outline, lipKeepOffset(sizing.envelopeOffset, thickness, sizing.plateThickness, spec.tolerance)),
-          thickness,
-          plateThickness: sizing.plateThickness,
-          tolerance: spec.tolerance,
-          latch: spec.skadisLatch ?? true,
-          heavy: heavyCable,
-          avoid: innerEndLayout.channelRibbon,
-          padFootprints: channelPadFootprints(outline, innerEndLayout, thickness, sizing.plateThickness),
-        })
-      : undefined;
+  const { innerEndLayout, mountLayout, skadisLayout, thickness } = plan;
   return { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness };
+}
+
+function growMargin(from: number, fits: (margin: number) => boolean): number | undefined {
+  let tooSmall = from;
+  let step = 1;
+  while (!fits(from + step)) {
+    tooSmall = from + step;
+    step *= 2;
+    if (step > SIZE_HI) return undefined;
+  }
+  let works = from + step;
+  for (let i = 0; i < 20; i++) {
+    const middle = (tooSmall + works) / 2;
+    if (fits(middle)) works = middle;
+    else tooSmall = middle;
+  }
+  return works;
 }
 
 /** An alternate candidate with its real flange width and overall height filled in (issue #192), from the same `planFlange` design() builds the parts from. */
@@ -230,7 +286,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     note(`Flange margin increased to ${margin.toFixed(1)} mm to fit the openGrid clip mount plate's grid.`);
   }
   if (spec.mount === "skadis" && mountMargin > baseMargin) {
-    note(`Flange margin increased to ${margin.toFixed(1)} mm so the SKÅDIS clips grip the rim clear of the wound cable.`);
+    note(`Flange margin increased to ${margin.toFixed(1)} mm so the SKÅDIS clips grip the rim clear of the wound cable and the inner cable end.`);
   }
   if (skadisLayout?.warning) problem(skadisLayout.warning);
   if (tclipLayout?.warning) problem(tclipLayout.warning);
