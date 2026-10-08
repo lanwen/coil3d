@@ -119,7 +119,7 @@ export function ControlsForm({
   const layersLockDisabled = !spec.layers.locked && lockedCount >= 2;
 
   const topCapAuto = spec.topCap === "auto";
-  const topCapOn = topCapAuto ? (solution?.capsAuto ?? false) : spec.topCap === "on";
+  const topCapOn = spec.topCap === "on";
   const setTopCapExplicit = (checked: boolean) => onChange({ ...spec, topCap: checked ? "on" : "off" });
   const resetTopCapToAuto = () => onChange({ ...spec, topCap: "auto" });
 

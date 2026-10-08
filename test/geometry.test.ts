@@ -121,8 +121,6 @@ describe("design().mesh is a valid, expected manifold", () => {
     const twoLayers = await design(twoLayerSpec);
     expect(twoLayers.solution.envelopeDiameter).toBeGreaterThan(oneLayer.solution.envelopeDiameter);
     expect(twoLayers.solution.flangeSize).toBeGreaterThan(oneLayer.solution.flangeSize);
-    expect(twoLayers.solution.capsAuto).toBe(false);
-    expect(oneLayer.solution.capsAuto).toBe(false);
   });
 });
 

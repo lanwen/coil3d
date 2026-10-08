@@ -147,7 +147,6 @@ describe("the solver with the base on (issue #292)", () => {
   it.each([1, 2, 3])("resolves the auto top cap the bare core's way at %i layers, whatever the base", async (layers) => {
     for (const base of ["on", "off"] as const) {
       const d = await design({ ...free(base, layers, "auto"), coreSize: { locked: true, dimension: "outer", value: 50 } }, "draft");
-      expect(d.solution.capsAuto, base).toBe(false);
       expect(d.solution.topCapEnabled, base).toBe(false);
       expect(d.parts.map((p) => p.name), base).toEqual(["core"]);
     }

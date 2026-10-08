@@ -90,7 +90,7 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
       <Row
         testId={`${prefix}caps`}
         label="Top cap"
-        value={`${solution.topCapEnabled ? "on" : "off"} (auto would be ${solution.capsAuto ? "on" : "off"})`}
+        value={solution.topCapEnabled ? "on" : "off"}
       />
       <table className="layer-table" data-testid={`${prefix}layer-table`}>
         <thead>

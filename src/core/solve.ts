@@ -386,7 +386,6 @@ function finishSolution(
   const innerBore = resolved.outerSize - 2 * wall;
   const env = envelopeDiameter(outline, cap.outermostOffset, spec.wire.diameter);
   const flangeSize = env + 2 * FLANGE_MARGIN;
-  const capsAuto = false;
   const topCapEnabled = resolveTopCap(spec);
   const deltaPct = ((totalWireLength - target) / target) * 100;
 
@@ -437,7 +436,6 @@ function finishSolution(
     capacityRange: [Math.min(lengthLo, lengthHi), Math.max(lengthLo, lengthHi)],
     envelopeDiameter: env,
     flangeSize,
-    capsAuto,
     topCapEnabled,
     minOuterSizeForBend,
     minOuterSizeForShape: minOuterSizeForShapeVal,

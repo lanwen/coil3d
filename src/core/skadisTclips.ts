@@ -112,7 +112,6 @@ export interface SkadisTclipInput {
   boreOutline: ShapeOutline;
   /** The top cap's hole, when there is a cap: each fin's top must be reachable through it. */
   capHole?: ShapeOutline;
-  /** The top ring's hole and the height of its funnel's foot, when the core has no cap: the fins stay below the funnel, and each fin's top must be reachable through the hole. */
   ring?: { holeOutline: ShapeOutline; funnelFloor: number };
   /** The wall's top (z), the core's winding height. */
   wallTop: number;

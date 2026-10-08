@@ -524,6 +524,12 @@ core's flange, so those meshes have every edge cut to 10 mm and the edges
 inside each horizontal flat face flipped to the triangulation with the best
 smallest angle (`src/core/flatFaces.ts`).
 
+Before that, `src/core/weld.ts` collapses every edge under 0.02 mm. A collapse
+that fails the link condition because a vertex across the edge has only three
+triangles drops that tip first, when it lies within 0.04 mm of the plane its
+neighbours span. A channel's side wall crossing the wall's rim beside a rim
+vertex leaves a tip 0.03 mm off a steep wall triangle (#292).
+
 The camera is refitted to the projected bounds when the geometry changes.
 The wound cable is drawn as one merged tube per layer, with smooth normals so
 the tube's facets do not draw lines. When the wire's on-screen diameter falls

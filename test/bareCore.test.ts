@@ -107,12 +107,10 @@ describe("a bare core (base off)", () => {
 
   it("topCap auto resolves to off, even with several layers and a base; an explicit cap is still built, sized to the cable", async () => {
     const auto = await design(spec({ base: "off", layers: { locked: true, value: 2 }, coreSize: { locked: true, dimension: "outer", value: 40 } }));
-    expect(auto.solution.capsAuto).toBe(false);
     expect(auto.solution.topCapEnabled).toBe(false);
     expect(auto.parts.map((p) => p.name)).toEqual(["core"]);
 
     const withBase = await design(spec({ base: "on", layers: { locked: true, value: 2 }, coreSize: { locked: true, dimension: "outer", value: 40 } }));
-    expect(withBase.solution.capsAuto).toBe(false);
     expect(withBase.parts.map((p) => p.name)).toEqual(["core"]);
 
     const on = await design(spec({ base: "off", topCap: "on", layers: { locked: true, value: 2 }, coreSize: { locked: true, dimension: "outer", value: 40 } }));
