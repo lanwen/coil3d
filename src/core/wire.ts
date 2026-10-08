@@ -40,15 +40,17 @@ import {
   DRAFT_WIRE_MIN_SAMPLES_PER_TURN,
   FINAL_WIRE_MAX_ARC_LENGTH,
   FINAL_WIRE_MIN_SAMPLES_PER_TURN,
+  MARGIN_BOTTOM,
 } from "./constants";
-import { clamp01 } from "./capacity";
-import { bump, capCableZ, capTailPath } from "./innerEnd";
+import { phaseShiftTurns } from "./capacity";
+import { outlineBlend, searchBlend, unitRamp, withNeighbours } from "./blend";
+import { capCableZ, capTailPath } from "./innerEnd";
 import type { InnerEndLayout } from "./innerEnd";
 import { faceEndPath } from "./faceChannel";
-import type { FaceChannelLayout } from "./faceChannel";
-import { offsetPerimeter, pointAt } from "./shapes";
+import type { FaceChannelLayout, OuterStart } from "./faceChannel";
+import { pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
-import { createWallProfile, type WallSpec } from "./wall";
+import { grooveShape, grooveStartHeight } from "./wall";
 import type { LayerResult, Resolution, WireLayerPath } from "./types";
 
 // A hard safety backstop on total samples per layer, so a pathological input
@@ -58,9 +60,6 @@ import type { LayerResult, Resolution, WireLayerPath } from "./types";
 const MAX_TOTAL_SAMPLES_PER_LAYER = 300_000;
 const MIN_SAMPLES_PER_TURN_FLOOR = 8;
 
-/** Transition / cap lead-out lengths tried, in turns: from short hops up to a few full turns (a tall even-layer coil's lead-out climbs the whole height). */
-const BRIDGE_TURNS_MIN = 0.1;
-const BRIDGE_TURNS_STEP = 0.05;
 const TRANSITION_TURNS_MAX = 1.5;
 const LEAD_OUT_TURNS_MAX = 4;
 
@@ -73,19 +72,8 @@ function samplesPerTurn(helixLength: number, minPerTurn: number, maxArcLength: n
   return Math.max(minPerTurn, Math.ceil(helixLength / maxArcLength));
 }
 
-/**
- * Each new layer nests into the valleys of the layer directly below it, an
- * offset of up to half a pitch (docs/design.md, Capacity math).
- * The cumulative shift alternates between 0 and half a pitch (mod 1 pitch),
- * hence `% 2`. `quality` (0..1) blends this toward 0 (stacked) exactly like
- * `radialPitch` blends the radial offset (capacity.ts).
- */
-function phaseShiftTurns(layer: number, quality: number): number {
-  return ((layer - 1) % 2) * clamp01(quality) * 0.5;
-}
-
 /** One wound layer's own geometry: where it starts around the outline, and its z as a function of how far along it is. */
-interface LayerRun {
+export interface LayerRun {
   layer: number;
   turns: number;
   /** The radial offset (outside the outline) at `local` turns into the layer. */
@@ -150,114 +138,6 @@ export function woundReachOffset(envelopeOffset: number, wireDiameter: number, w
   return Math.max(envelopeOffset, wireDiameter + CAP_LEAD_OUT_WALL_GAP);
 }
 
-/** The standard cubic Hermite basis weights at `s` in [0, 1] for (value0, derivative0, value1, derivative1). */
-function hermite(s: number, v0: number, d0: number, v1: number, d1: number): number {
-  const s2 = s * s;
-  const s3 = s2 * s;
-  return (2 * s3 - 3 * s2 + 1) * v0 + (s3 - 2 * s2 + s) * d0 + (-2 * s3 + 3 * s2) * v1 + (s3 - s2) * d1;
-}
-
-/** Zero-slope 0 -> 1 ramp over s in [0, 1] (the lowest-peak-curvature blend, innerEnd.ts's `bump`). */
-const unitRamp = bump(1, 0, 1).value;
-
-/** xy distance per unit of outline parameter at (u, offset), looking forward (`dir` 1) or back (-1) -- one-sided, since it jumps where a flat side meets a corner arc. */
-function outlineSpeed(outline: ShapeOutline, u: number, offset: number, dir: 1 | -1): number {
-  const EPS = 1e-6;
-  const a = pointAt(outline, u, offset);
-  const b = pointAt(outline, u + dir * EPS, offset);
-  return Math.hypot(b.x - a.x, b.y - a.y) / EPS;
-}
-
-/**
- * A blend that travels `turns` further around the outline from outline
- * parameter `u0`, with the radial offset following `offsetAt(sigma)` (flat
- * at both ends) and z a cubic Hermite from (z0, dz0 per turn) to (z1, dz1
- * per turn), where sigma in [0, 1] is the fraction of the blend's own xy
- * LENGTH travelled. Both are driven by true length, not the outline
- * parameter u: at any offset but 0, a corner arc covers more (or less) xy
- * distance per unit u than a flat side, so a ramp in u would kink at every
- * flat/corner seam -- sharply, for a steep climb or a big offset change.
- * sigma(u) depends on the offsets it's used to pick, so it's found by a few
- * fixed-point passes (it settles almost at once). u advances steadily and
- * the offset is flat at both ends, so the tangent at each end is exactly the
- * adjoining layer's own (same outline direction, same dz per unit length):
- * G1 by construction.
- */
-function outlineBlend(outline: ShapeOutline, u0: number, turns: number, offsetAt: (sigma: number) => number, z0: number, dz0: number, z1: number, dz1: number): Float32Array {
-  const approxLength = turns * offsetPerimeter(outline, Math.max(offsetAt(0), offsetAt(1))) + Math.abs(z1 - z0);
-  const steps = Math.max(16, Math.ceil(approxLength / CABLE_BRIDGE_STEP));
-  const xy = new Float64Array((steps + 1) * 2);
-  const sigma = Float64Array.from({ length: steps + 1 }, (_, i) => i / steps);
-  let length = 0;
-  for (let pass = 0; pass < 4; pass++) {
-    for (let i = 0; i <= steps; i++) {
-      const p = pointAt(outline, u0 + (turns * i) / steps, offsetAt(sigma[i]));
-      xy[i * 2] = p.x;
-      xy[i * 2 + 1] = p.y;
-    }
-    const cumulative = [0];
-    for (let i = 1; i <= steps; i++) cumulative.push(cumulative[i - 1] + Math.hypot(xy[i * 2] - xy[i * 2 - 2], xy[i * 2 + 1] - xy[i * 2 - 1]));
-    length = cumulative[steps] || 1;
-    for (let i = 0; i <= steps; i++) sigma[i] = cumulative[i] / length;
-  }
-  // dz per unit sigma at each end: the layer's dz per turn, over its xy
-  // distance per turn there, times this blend's own length.
-  const d0 = (dz0 / outlineSpeed(outline, u0, offsetAt(0), 1)) * length;
-  const d1 = (dz1 / outlineSpeed(outline, u0 + turns, offsetAt(1), -1)) * length;
-  const points = new Float32Array((steps + 1) * 3);
-  for (let i = 0; i <= steps; i++) {
-    points[i * 3] = xy[i * 2];
-    points[i * 3 + 1] = xy[i * 2 + 1];
-    points[i * 3 + 2] = hermite(sigma[i], z0, d0, z1, d1);
-  }
-  return points;
-}
-
-/**
- * Largest discrete curvature (turning angle / mean segment length, 1/mm) at
- * any interior sample of the given samples -- the measure every bend-radius
- * check here (and test/cableBend.test.ts) uses.
- */
-export function maxCurvature(points: ArrayLike<number>): number {
-  let worst = 0;
-  const n = points.length / 3;
-  for (let i = 1; i + 1 < n; i++) {
-    const ax = points[i * 3] - points[i * 3 - 3];
-    const ay = points[i * 3 + 1] - points[i * 3 - 2];
-    const az = points[i * 3 + 2] - points[i * 3 - 1];
-    const bx = points[i * 3 + 3] - points[i * 3];
-    const by = points[i * 3 + 4] - points[i * 3 + 1];
-    const bz = points[i * 3 + 5] - points[i * 3 + 2];
-    const la = Math.hypot(ax, ay, az);
-    const lb = Math.hypot(bx, by, bz);
-    if (la < 1e-6 || lb < 1e-6) continue;
-    const cos = Math.max(-1, Math.min(1, (ax * bx + ay * by + az * bz) / (la * lb)));
-    worst = Math.max(worst, Math.acos(cos) / ((la + lb) / 2));
-  }
-  return worst;
-}
-
-/** `blend` with one real neighbouring sample on each side, so a check also covers the joins. */
-function withNeighbours(before: [number, number, number], blend: Float32Array, after?: [number, number, number]): number[] {
-  return [...before, ...blend, ...(after ?? [])];
-}
-
-/**
- * The shortest blend (in turns, from `BRIDGE_TURNS_MIN` up to `maxTurns`)
- * whose curvature passes the bend check, or the gentlest one tried if none
- * does (then `ok` is false and the caller warns).
- */
-function searchBlend(build: (turns: number) => { points: Float32Array; check: number[] }, limit: number, maxTurns: number, minTurns = BRIDGE_TURNS_MIN): { turns: number; points: Float32Array; ok: boolean } {
-  let best: { turns: number; points: Float32Array; k: number } | undefined;
-  for (let turns = minTurns; turns <= maxTurns + 1e-9; turns += BRIDGE_TURNS_STEP) {
-    const { points, check } = build(turns);
-    const k = maxCurvature(check);
-    if (k <= limit) return { turns, points, ok: true };
-    if (!best || k < best.k) best = { turns, points, k };
-  }
-  return { turns: best!.turns, points: best!.points, ok: false };
-}
-
 export interface CableEnds {
   /** The inner-end layout (innerEnd.ts), whose `leadIn` starts the cable. */
   innerEnd?: InnerEndLayout;
@@ -302,10 +182,18 @@ function joinPieces(pieces: Float32Array[]): Float32Array {
   return new Float32Array(out);
 }
 
-export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, windingQuality: number, resolution: Resolution, ends: CableEnds): WoundCable {
-  const { pitch, zStart } = createWallProfile(wallSpec);
-  const { outline } = wallSpec;
-  const limit = CABLE_BEND_CHECK / ends.bendRadius;
+export interface WoundLayers {
+  wirePaths: WireLayerPath[];
+  layerTransitions: Float32Array[];
+  runs: LayerRun[];
+  warnings: string[];
+}
+
+export function windLayers(layerResults: LayerResult[], outline: ShapeOutline, wireDiameter: number, windingQuality: number, resolution: Resolution, bendRadius: number): WoundLayers {
+  const groove = grooveShape(wireDiameter);
+  const { pitch } = groove;
+  const zStart = grooveStartHeight(groove, MARGIN_BOTTOM);
+  const limit = CABLE_BEND_CHECK / bendRadius;
   const warnings: string[] = [];
 
   const wirePaths: WireLayerPath[] = [];
@@ -335,7 +223,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
           minTurns,
         );
       const found = hop(prev.offsetAt(prev.turns), nthFromEnd(prevPoints, 1));
-      if (!found.ok) warnings.push(`Between layers ${prev.layer} and ${result.layer} the cable bends tighter than it should (its bend radius is ${(ends.bendRadius / 10).toFixed(1)} cm).`);
+      if (!found.ok) warnings.push(`Between layers ${prev.layer} and ${result.layer} the cable bends tighter than it should (its bend radius is ${(bendRadius / 10).toFixed(1)} cm).`);
       layerTransitions.push(found.points);
       start = u0 + found.turns;
     }
@@ -343,6 +231,33 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
     runs.push(run);
     wirePaths.push({ layer: run.layer, turns: run.turns, points: sampleLayer(outline, run, result.perimeter, pitch, resolution) });
   }
+
+  return { wirePaths, layerTransitions, runs, warnings };
+}
+
+export function outerStartOf(wound: WoundLayers): OuterStart | undefined {
+  const { runs, wirePaths, layerTransitions } = wound;
+  if (runs.length < 3 || runs.length % 2 === 0) return undefined;
+  const last = runs.at(-1)!;
+  const below = runs.at(-2)!;
+  let stackTop = -Infinity;
+  for (const points of [...wirePaths.slice(0, -1).map((p) => p.points), ...layerTransitions.slice(0, -1)]) {
+    for (let i = 2; i < points.length; i += 3) stackTop = Math.max(stackTop, points[i]);
+  }
+  const t = last.start + last.turns;
+  const z = last.z(last.turns);
+  const phase = (((t - below.start) % 1) + 1) % 1;
+  const neighbourTurns: number[] = [];
+  for (let local = phase; local <= below.turns; local += 1) {
+    if (below.z(local) >= z - Math.abs(below.slope)) neighbourTurns.push(below.z(local));
+  }
+  return { t, z, slope: last.slope, offset: last.offsetAt(last.turns), neighbourOffset: below.offsetAt(below.turns), neighbourTurns, neighbourSlope: below.slope, stackTop };
+}
+
+export function buildCable(wound: WoundLayers, outline: ShapeOutline, wireDiameter: number, ends: CableEnds): WoundCable {
+  const { wirePaths, layerTransitions, runs } = wound;
+  const warnings = [...wound.warnings];
+  const limit = CABLE_BEND_CHECK / ends.bendRadius;
 
   if (runs.length === 0) {
     return { wirePaths, innerEndLeadIn: new Float32Array(0), layerTransitions, outerEndLeadOut: new Float32Array(0), cablePath: new Float32Array(0), outerEndU: 0, warnings };
@@ -368,7 +283,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
     const ty = b.y - a.y;
     const tz = last.slope * EPS;
     const len = Math.hypot(tx, ty, tz);
-    const tail = Math.max(CABLE_TAIL_MIN, CABLE_TAIL_FACTOR * wallSpec.wireDiameter);
+    const tail = Math.max(CABLE_TAIL_MIN, CABLE_TAIL_FACTOR * wireDiameter);
     const steps = Math.max(2, Math.ceil(tail / (4 * CABLE_BRIDGE_STEP)));
     outerEndLeadOut = new Float32Array((steps + 1) * 3);
     for (let i = 0; i <= steps; i++) {
@@ -378,7 +293,7 @@ export function buildCable(layerResults: LayerResult[], wallSpec: WallSpec, wind
       outerEndLeadOut[i * 3 + 2] = zEnd + (tz / len) * s;
     }
   } else {
-    const d = wallSpec.wireDiameter;
+    const d = wireDiameter;
     const zKey = ends.height + capCableZ(d);
     const o0 = lastOffset;
     const climbsAll = last.slope < 0;

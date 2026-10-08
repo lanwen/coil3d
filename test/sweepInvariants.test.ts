@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import Module from "manifold-3d";
+import type { ManifoldToplevel } from "manifold-3d";
+import { beforeAll, describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilSpec, Design, JointKind, MountKind, ShapeSpec } from "../src/core";
 import { FLANGE_MARGIN } from "../src/core/constants";
@@ -162,5 +164,71 @@ describe("a bare core's face channels keep their roof and floor, over the swept 
   it("checks enough bare designs to mean something", async () => {
     const found = await Promise.all(CASES.filter((c) => c.spec.base === "off").map(async (c) => (await designOf(c)).faceChannels !== undefined));
     expect(found.filter(Boolean).length).toBeGreaterThanOrEqual(10);
+  });
+});
+
+const CROSSING_CASES = CASES.filter((c) => c.spec.layers.locked && c.spec.layers.value === 3 && c.spec.topCap === "off");
+
+describe("the outer end's crossing over an odd stack clears the cable and the core, over the swept designs (issue #286)", () => {
+  let wasm: ManifoldToplevel;
+  beforeAll(async () => {
+    wasm = await Module();
+    wasm.setup();
+  });
+
+  const at = (points: ArrayLike<number>, i: number) => [points[3 * i], points[3 * i + 1], points[3 * i + 2]];
+
+  it("sweeps both bases and every shape", () => {
+    expect(CROSSING_CASES.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it.each(CROSSING_CASES)("$name", async (c) => {
+    const d = await designOf(c);
+    if (d.solution.diagnosis.status !== "ok") return;
+    const outer = d.faceChannels?.outer;
+    expect(outer, "the outer end is in the top channel").toBeDefined();
+    const wire = d.spec.wire.diameter;
+    const lead = d.outerEndLeadOut;
+    const lowerTop = Math.max(...d.wirePaths.slice(0, -1).flatMap((w) => Array.from({ length: w.points.length / 3 }, (_, i) => w.points[3 * i + 2])));
+    expect(outer!.level, "the crossing rides over the lower layers' top turns").toBeGreaterThanOrEqual(lowerTop + wire);
+
+    const lower = d.wirePaths.slice(0, -1);
+    const last = d.wirePaths.at(-1)!.points;
+    const closest = (from: ArrayLike<number>, i: number, among: ArrayLike<number>[]) => {
+      let best = Infinity;
+      for (const points of among) for (let j = 0; j < points.length / 3; j++) best = Math.min(best, Math.hypot(from[3 * i] - points[3 * j], from[3 * i + 1] - points[3 * j + 1], from[3 * i + 2] - points[3 * j + 2]));
+      return best;
+    };
+    const lowerPoints = lower.map((w) => w.points);
+    const start = closest(last, last.length / 3 - 1, lowerPoints);
+    const rampEnd = outer!.ramp!.length;
+    for (let i = 1; i < rampEnd; i++) {
+      expect(closest(lead, i, lowerPoints), `ramp sample ${i} against the lower layers (nested at ${start.toFixed(2)} mm)`).toBeGreaterThanOrEqual(Math.min(wire + d.spec.tolerance, start) - 0.15);
+    }
+
+    const wound = d.cablePath.length / 3 - lead.length / 3;
+    let along = 0;
+    const lengthAt: number[] = [0];
+    for (let i = 1; i < d.cablePath.length / 3; i++) {
+      along += Math.hypot(d.cablePath[3 * i] - d.cablePath[3 * i - 3], d.cablePath[3 * i + 1] - d.cablePath[3 * i - 2], d.cablePath[3 * i + 2] - d.cablePath[3 * i - 1]);
+      lengthAt.push(along);
+    }
+    for (let k = 0; k < lead.length / 3; k += 3) {
+      const i = wound + k;
+      let near = Infinity;
+      for (let j = 0; j < wound; j++) {
+        if (lengthAt[i] - lengthAt[j] < 4 * wire) continue;
+        near = Math.min(near, Math.hypot(d.cablePath[3 * i] - d.cablePath[3 * j], d.cablePath[3 * i + 1] - d.cablePath[3 * j + 1], d.cablePath[3 * i + 2] - d.cablePath[3 * j + 2]));
+      }
+      expect(near, `outer end sample ${k} against the rest of the cable`).toBeGreaterThanOrEqual(0.85 * wire - 0.15);
+    }
+
+    const core = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: d.mesh.positions, triVerts: d.mesh.indices }));
+    const capsules: Array<InstanceType<ManifoldToplevel["Manifold"]>> = [];
+    for (let i = 6; i + 1 < lead.length / 3; i += 2) {
+      const [a, b] = [at(lead, i), at(lead, Math.min(i + 2, lead.length / 3 - 1))];
+      capsules.push(wasm.Manifold.hull([wasm.Manifold.sphere(wire / 2, 10).translate(a as [number, number, number]), wasm.Manifold.sphere(wire / 2, 10).translate(b as [number, number, number])]));
+    }
+    expect(wasm.Manifold.union(capsules).intersect(core).volume(), "outer end volume inside the core (mm^3)").toBeLessThan(0.5);
   });
 });

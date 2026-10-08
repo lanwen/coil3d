@@ -63,8 +63,8 @@ import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
 import type { CoilMesh, CoilSpec, Design, Part, Resolution, Solution } from "./types";
 import { buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
-import { faceTopFloor, planFaceChannels } from "./faceChannel";
-import { buildCable } from "./wire";
+import { crossingActive, crossingReserve, faceTopFloor, planFaceChannels } from "./faceChannel";
+import { buildCable, outerStartOf, windLayers } from "./wire";
 
 function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, boreOutline: ShapeOutline) {
   const wireDiameter = spec.wire.diameter;
@@ -208,24 +208,34 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const layer1Turns = solution.layerResults[0]?.turns ?? 0;
 
   const woundLayers = solution.layerResults.filter((r) => r.turns > 0).length;
-  const topFace = woundLayers === 1 && !solution.topCapEnabled;
+  const bendLimit = bendMultiplierOf(spec.wire) * wireDiameter;
+  const wound = windLayers(solution.layerResults, outline, wireDiameter, spec.windingQuality, resolution, bendLimit);
+  const topFace = woundLayers % 2 === 1 && !solution.topCapEnabled;
   const bottomFace = !baseEnabled(spec);
-  const faceChannels = woundLayers === 0
-    ? undefined
-    : planFaceChannels({
-        outline,
-        boreOutline,
-        height: solution.height,
-        wireDiameter,
-        tolerance: spec.tolerance,
-        bendRadius: bendMultiplierOf(spec.wire) * wireDiameter,
-        topFace,
-        bottomFace,
-      });
+  const reserve = crossingActive(solution.layers, solution.topCapEnabled) ? crossingReserve(wireDiameter, spec.tolerance) : 0;
+  const outerStart = topFace ? outerStartOf(wound) : undefined;
+  const planChannels = (withTop: boolean) =>
+    planFaceChannels({
+      outline,
+      boreOutline,
+      height: solution.height,
+      wireDiameter,
+      tolerance: spec.tolerance,
+      bendRadius: bendLimit,
+      topFace: withTop,
+      bottomFace,
+      reserve,
+      outerStart: withTop ? outerStart : undefined,
+    });
+  let faceChannels = woundLayers === 0 ? undefined : planChannels(topFace);
+  if (topFace && outerStart && !faceChannels) {
+    faceChannels = planChannels(false);
+    note("The outer cable end stays a straight tail: there is no room to lead it over the top turns into the centre hole at this size and height.");
+  }
   if (faceChannels?.inner && 2 * faceChannels.channelRadius > FACE_BRIDGE_NOTE_WIDTH) {
     note(`The channel on the bottom face is ${(2 * faceChannels.channelRadius).toFixed(1)} mm wide, so its roof bridges more than 8 mm; check that your printer manages it.`);
   }
-  if ((bottomFace || topFace) && woundLayers > 0 && !faceChannels) {
+  if ((bottomFace || (topFace && !outerStart)) && woundLayers > 0 && !faceChannels) {
     problem("The cable's ends have no room to leave the core's centre at this size and height; the core needs to be bigger.");
   }
 
@@ -356,7 +366,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     );
   }
 
-  const cable = buildCable(solution.layerResults, wallSpec, spec.windingQuality, resolution, {
+  const cable = buildCable(wound, outline, wireDiameter, {
     innerEnd: innerEndLayout,
     faceChannels,
     topCapEnabled,

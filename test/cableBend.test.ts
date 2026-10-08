@@ -267,3 +267,31 @@ describe("a bare core's whole cable respects the bend radius (issue #254)", () =
     }
   }
 });
+
+// Issue #286: an odd layer count on a bare core leads the outer end up over the stack, along the ramp, into the top
+// face's channel and the centre hole. The whole path, the layers, the steps, the ramp and the channel, holds the bend
+// radius at 3 mm and 6 mm.
+describe("an odd layer count's outer end respects the bend radius (issue #286)", () => {
+  for (const shape of SHAPES) {
+    for (const diameter of [3, 6]) {
+      for (const layers of [3, 5]) {
+        for (const base of ["off", "on"] as const) {
+          it(`shape=${shape.kind} d=${diameter} layers=${layers} base=${base}`, async () => {
+            const spec = baseSpec({ shape, wire: { length: 800 * diameter, diameter, type: "usb" }, layers: { locked: true, value: layers }, topCap: "off", base });
+            const d = await design(spec);
+            const mbr = bendMultiplierOf(spec.wire) * diameter;
+            expect(d.faceChannels?.outer, "the outer end goes into the top channel").toBeDefined();
+            expect(d.faceChannels!.outer!.ramp!.length, "over the stack by a ramp").toBeGreaterThan(8);
+            expect(d.wirePaths).toHaveLength(layers);
+            expectEveryBendWithinLimit(d, mbr);
+            const joined = joinedPieces(d);
+            expect(joined.length).toBe(d.cablePath.length);
+            expectWithinBendLimit(joined, mbr, "joined pieces");
+            expect(maxGap(d.cablePath), "cablePath: largest step between samples").toBeLessThan(5);
+            expect(d.warnings.filter((w) => /bends tighter|straight tail/i.test(w))).toEqual([]);
+          });
+        }
+      }
+    }
+  }
+});
