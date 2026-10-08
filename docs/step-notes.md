@@ -85,7 +85,8 @@ Other things we learned in the shipped code:
   Embed them past the face.
 - replicad's `measureVolume` integrates at a fixed order. On the deep groove's
   B-spline wall it misread the volume by 2-3 %. The export's own check uses
-  `BRepGProp.VolumeProperties` with a 1e-5 precision, like the tests.
+  `BRepGProp.VolumeProperties` with a 1e-3 precision (it is within 1e-5 of the
+  1e-5 run and takes a third of the time); the tests use 1e-5.
 - A near-flat shelf in the wall profile (the deep groove's circle meeting the
   ridge almost level) folded the fitted B-spline into a solid that was valid
   in memory but invalid after a STEP round trip, on an 8 mm cable. The profile
@@ -93,27 +94,44 @@ Other things we learned in the shipped code:
 
 ## A bare core's face channels
 
-The channel and the rings must not touch the whole B-spline wall in one boolean:
-cutting the finished wall took 9 s on a 60 mm core (the baseline is 0.5 s), and
-fusing the rings to it took more. So the wall is built in three bands (bottom,
-middle, top), each its own fitted face, and only the two end bands see the
-rings and the channel. The three cut solids are sewn into one shell (the
-planar faces at the two interfaces dropped; fusing the blocks took 1.5 s each).
-The cuts are raw `BRepAlgoAPI_Cut` calls, one for the bore minus the ring, one
-for the channel's arcs.
+A boolean against the fitted wall costs about 35 ms for every tool face, even
+for a box in the middle of the bore: the wall is one face that wraps the whole
+outline, so its bounding box overlaps every tool, and OCCT must show that each
+pair does not meet. Cutting the bore, the rings and the channel from the wall
+therefore took 2 to 4.5 times as long as before (a 60 mm round core 2.1 s
+against 0.5 s; a square or a triangle 6 s against 1.5 s with one layer). Now
+only the channels are a boolean against the wall:
+
+- The bore and the two rings are one analytic cut (bore minus rings; no wall in
+  it). The tube is not cut from a wall solid. It is sewn from the wall's faces,
+  the faces of that analytic void, and the two end caps, which are planar faces
+  with the void's openings cut out of them.
+- The wall is split in z at the channels' reach (the channel's level plus its
+  radius and 0.5 mm). Each band is fitted on its own, and the bands share their
+  boundary curves. The two end bands are also split in u into sectors of about
+  16 columns. Each sector is its own face on its own small surface, so its
+  bounding box meets only the channel tools near it. The middle band stays one face.
+- One cut removes both channels. Each end's arcs are fused into one tool first,
+  then the two ends go in as a list of tools. Overlapping arcs in the list left
+  slivers of the core as extra solids.
 
 Pitfalls met:
 
-- A sewn band can come out inside-out (negative volume); a point on the axis
-  tells which way it faces.
-- Cutting the bore minus ring and the channel in one tool silently left a
-  triangular core's top band uncut. Cut them in two steps.
+- A sector is a clamped cubic patch with the same poles as the fitted surface
+  (knot insertion at both ends; the difference to the fitted surface is 1e-14).
+  The same patch left unclamped was valid in memory, yet it read back from STEP
+  with 21 % too much volume. Round-trip any change to these surfaces.
+- Cut with a fuzzy value (`SEWN_FUZZY`, above the tolerance sewing leaves on the
+  seams). Without one, the top channel of a 100 mm square core cut nothing, with
+  no error, and the volume check passed at 0.5 %.
+- A sewn solid can come out inside-out; a point in the wall tells which way it faces.
 - Rings and tools overshoot the faces they cut through. A tool face on the
   wall's own cap plane made each cut 1 s slower.
+- Sectors of 6 columns or of 48 columns were slower than 16 (more faces to sew and check, or bigger faces to intersect).
 
-Cost: a bare core's STEP export takes 2 to 4.5 times as long as before (a
-60 mm round core 2.1 s against 0.5 s; a square or a triangle 6 s against 1.5 s
-with one layer).
+Cost, with one layer and no cap: a 36 mm round core takes 0.9 s, a 60 mm rounded
+square 1.3 s and a 90 mm triangle 1.25 s. Without channels they took 0.9, 1.2 and
+1.0 s, and with the channels cut from the wall 2.4, 5.6 and 6.6 s.
 
 ## Open
 

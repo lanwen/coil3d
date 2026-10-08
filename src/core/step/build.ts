@@ -12,8 +12,8 @@
 
 import * as R from "replicad";
 import initOpenCascade from "replicad-opencascadejs";
-import type { OpenCascadeInstance } from "replicad-opencascadejs";
-import { fitPeriodicUClampedV, type Vec3 } from "./bspfit";
+import type { Geom_BSplineSurface, OpenCascadeInstance, TopoDS_Face, TopoDS_Shape } from "replicad-opencascadejs";
+import { fitPeriodicUClampedV, type BSplineFit, type Vec3 } from "./bspfit";
 import { createWallProfile } from "../wall";
 import type { WallProfile, WallSpec } from "../wall";
 import {
@@ -34,8 +34,6 @@ import {
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
-  FACE_BLOCK_MARGIN,
-  FACE_MIN_MIDDLE_PITCHES,
   FACE_CUT_OVERSHOOT,
   FACE_RING_OVERLAP,
 } from "../constants";
@@ -46,7 +44,7 @@ import type { OutlineStack, RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
-import { faceCutArcs, faceTopFloor } from "../faceChannel";
+import { faceCutArcs } from "../faceChannel";
 import type { FaceChannelLayout, FaceCutArc, FaceEnd } from "../faceChannel";
 import type { InnerEndLayout, SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
@@ -245,6 +243,11 @@ function throughHoleCutterSolid(hole: ThroughHole, holeRadius: number, flangeThi
 // see that function's own doc comment.
 const V_SAMPLES_PER_PITCH = 20;
 const MIN_V_SAMPLES = 40;
+const SECTOR_COLUMNS = 16;
+const FACE_BAND_MARGIN = 0.5;
+const FACE_BAND_MIN_MIDDLE = 1;
+const WALL_PROBE_DEPTH = 0.3;
+const SEWN_FUZZY = 1e-4;
 // An early prototype saw <0.03% volume error for this approach; 1% leaves margin
 // for coarser grids while still catching the silent boolean failures OCCT
 // is prone to on B-spline walls. Issue #85 PR review round 2: briefly
@@ -295,85 +298,126 @@ function faceArcCutterSolid(arc: FaceCutArc, end: FaceEnd, layout: FaceChannelLa
   return solid.rotate(lowest, [0, 0, 0], [0, 0, 1]).translate([arc.centre.x, arc.centre.y, 0]);
 }
 
-function boreBetween(boreOutline: ShapeOutline, zLo: number, zHi: number): R.Shape3D {
-  return outlineSolid(boreOutline, zHi - zLo, zLo);
-}
-
 function bandSamples(zLo: number, zHi: number, pitch: number): number {
   return Math.max(MIN_V_SAMPLES, Math.round((V_SAMPLES_PER_PITCH * (zHi - zLo)) / pitch) + 1);
 }
 
-function boolean(kernel: OpenCascadeInstance, op: "cut" | "fuse", a: R.Shape3D, b: R.Shape3D): R.Shape3D {
-  const run = op === "cut" ? new kernel.BRepAlgoAPI_Cut(a.wrapped, b.wrapped) : new kernel.BRepAlgoAPI_Fuse(a.wrapped, b.wrapped);
+function cutShape(kernel: OpenCascadeInstance, shape: TopoDS_Shape, tools: TopoDS_Shape[]): R.AnyShape {
+  const progress = new kernel.Message_ProgressRange();
+  const args = new kernel.NCollection_List_TopoDS_Shape();
+  const list = new kernel.NCollection_List_TopoDS_Shape();
+  const run = new kernel.BRepAlgoAPI_Cut();
   try {
-    run.Build(new kernel.Message_ProgressRange());
+    args.Append(shape);
+    for (const tool of tools) list.Append(tool);
+    run.SetArguments(args);
+    run.SetTools(list);
+    run.SetFuzzyValue(SEWN_FUZZY);
+    run.Build(progress);
     if (run.HasErrors()) throw new Error("STEP export: a boolean operation failed");
-    return R.cast(run.Shape()) as R.Shape3D;
+    const result = run.Shape();
+    const cut = R.cast(result);
+    result.delete();
+    return cut;
   } finally {
     run.delete();
+    list.delete();
+    args.delete();
+    progress.delete();
   }
 }
 
-function sewnSolid(kernel: OpenCascadeInstance, solids: R.Shape3D[], interfaces: number[]): R.Shape3D {
+function cutSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, tools: R.Shape3D[]): R.Shape3D {
+  return cutShape(kernel, solid.wrapped, tools.map((tool) => tool.wrapped)) as R.Shape3D;
+}
+
+function sewnSolidOf(kernel: OpenCascadeInstance, faces: TopoDS_Face[]): R.Shape3D {
+  const progress = new kernel.Message_ProgressRange();
   const sewing = new kernel.BRepBuilderAPI_Sewing(1e-3, true, true, true, false);
-  for (const solid of solids) {
-    for (const face of solid.faces) {
-      if (face.geomType === "PLANE" && interfaces.some((z) => Math.abs(face.center.z - z) < 1e-4)) continue;
-      sewing.Add(face.wrapped);
-    }
-  }
-  sewing.Perform(new kernel.Message_ProgressRange());
-  const fix = new kernel.ShapeFix_Solid(new kernel.BRepBuilderAPI_MakeSolid(kernel.TopoDS.Shell(sewing.SewedShape())).Solid());
-  fix.Perform(new kernel.Message_ProgressRange());
-  return R.cast(fix.Solid()).asShape3D();
+  for (const face of faces) sewing.Add(face);
+  sewing.Perform(progress);
+  const sewn = sewing.SewedShape();
+  const shell = kernel.TopoDS.Shell(sewn);
+  const make = new kernel.BRepBuilderAPI_MakeSolid(shell);
+  const rough = make.Solid();
+  const fix = new kernel.ShapeFix_Solid(rough);
+  fix.Perform(progress);
+  const fixed = fix.Solid();
+  const solid = R.cast(fixed).asShape3D();
+  for (const item of [fixed, fix, rough, make, shell, sewn, sewing, progress]) item.delete();
+  return solid;
 }
 
-function faceChannelTube(kernel: OpenCascadeInstance, layout: FaceChannelLayout, profile: WallProfile, ts: number[], wallSpec: WallSpec): R.Shape3D {
-  const { boreOutline, height, pitch } = wallSpec;
-  const rings = faceRingSolids(layout, boreOutline);
-  const present = <T>(items: Array<T | undefined>): T[] => items.filter((item): item is T => item !== undefined);
-  const slots = (ends: FaceEnd[]) =>
-    ends.flatMap((end) => faceCutArcs(end).map((arc) => faceArcCutterSolid(arc, end, layout))).reduce((all, piece) => boolean(kernel, "fuse", all, piece));
-  const band = (zLo: number, zHi: number, ring: R.Shape3D | undefined, ends: FaceEnd[]) => {
-    const bore = boreBetween(boreOutline, zLo - FACE_CUT_OVERSHOOT, zHi + FACE_CUT_OVERSHOOT);
-    const wall = wallBandSolid(kernel, profile, ts, zLo, zHi, bandSamples(zLo, zHi, pitch));
-    const open = boolean(kernel, "cut", wall, ring ? boolean(kernel, "cut", bore, ring) : bore);
-    return ends.length > 0 ? boolean(kernel, "cut", open, slots(ends)) : open;
-  };
-  const splitLow = layout.bottomThickness + FACE_BLOCK_MARGIN;
-  const splitHigh = faceTopFloor(layout) - FACE_RING_OVERLAP - FACE_BLOCK_MARGIN;
-  if (layout.outer && splitHigh - splitLow < FACE_MIN_MIDDLE_PITCHES * pitch) {
-    const [first, ...others] = present([rings.bottom, rings.top]);
-    const both = others.reduce((all, ring) => boolean(kernel, "fuse", all, ring), first);
-    return band(0, height, both, present([layout.inner, layout.outer]));
-  }
-  const bottom = band(0, splitLow, rings.bottom, present([layout.inner]));
-  if (!layout.outer) return sewnSolid(kernel, [bottom, band(splitLow, height, undefined, [])], [splitLow]);
-  const middle = band(splitLow, splitHigh, undefined, []);
-  const top = band(splitHigh, height, rings.top, [layout.outer]);
-  return sewnSolid(kernel, [bottom, middle, top], [splitLow, splitHigh]);
+interface FaceBand {
+  zLo: number;
+  zHi: number;
+  sectors: number;
 }
 
-function faceRingSolids(layout: FaceChannelLayout, boreOutline: ShapeOutline): { bottom?: R.Shape3D; top?: R.Shape3D } {
+function faceBands(layout: FaceChannelLayout, height: number, sectors: number): FaceBand[] {
+  const reach = layout.channelRadius + FACE_BAND_MARGIN;
+  const splits = [...(layout.inner ? [layout.inner.level + reach] : []), ...(layout.outer ? [layout.outer.level - reach] : [])];
+  const separate = splits.length < 2 || splits[1] - splits[0] > FACE_BAND_MIN_MIDDLE;
+  const edges = [0, ...(separate ? splits : []), height];
+  return edges.slice(1).map((zHi, i) => ({
+    zLo: edges[i],
+    zHi,
+    sectors: (layout.inner !== undefined && i === 0) || (layout.outer !== undefined && i === edges.length - 2) ? sectors : 1,
+  }));
+}
+
+function faceRings(kernel: OpenCascadeInstance, layout: FaceChannelLayout, boreOutline: ShapeOutline): R.Shape3D[] {
   const grown = offsetOutline(boreOutline, FACE_RING_OVERLAP);
   const hole = (zLo: number, zHi: number) => outlineSolid(layout.holeOutline, zHi - zLo, zLo);
   const over = FACE_CUT_OVERSHOOT;
-  const rings: { bottom?: R.Shape3D; top?: R.Shape3D } = {};
-  if (layout.inner) rings.bottom = outlineSolid(grown, layout.bottomThickness + over, -over).cut(hole(-2 * over, layout.bottomThickness + 2 * over));
+  const rings: R.Shape3D[] = [];
+  if (layout.inner) rings.push(cutSolid(kernel, outlineSolid(grown, layout.bottomThickness + over, -over), [hole(-2 * over, layout.bottomThickness + 2 * over)]));
   if (layout.topThickness !== undefined) {
     const flat = layout.height - layout.topThickness;
     const depth = layout.funnelDepth + FACE_RING_OVERLAP;
     const foot = flat - depth;
     const top = layout.height + over;
     const flared = { ...layout.holeOutline, apothem: layout.holeOutline.apothem + depth, cornerRadius: layout.holeOutline.cornerRadius + depth };
-    const void_ = outlineLoftSolid(flared, layout.holeOutline, foot, flat).fuse(hole(flat - over, top + over));
-    rings.top = outlineSolid(grown, top - foot, foot).cut(void_);
+    rings.push(cutSolid(kernel, outlineSolid(grown, top - foot, foot), [outlineLoftSolid(flared, layout.holeOutline, foot, flat), hole(flat - over, top + over)]));
   }
   return rings;
 }
 
-function wallBandSolid(kernel: OpenCascadeInstance, profile: WallProfile, ts: number[], zLo: number, zHi: number, samples: number): R.Shape3D {
-  const NU = ts.length;
+function reversedSolid(solid: R.Shape3D): R.Shape3D {
+  const reversed = solid.wrapped.Reversed();
+  const copy = R.cast(reversed) as R.Shape3D;
+  reversed.delete();
+  return copy;
+}
+
+function faceChannelTube(kernel: OpenCascadeInstance, layout: FaceChannelLayout, profile: WallProfile, ts: number[], wallSpec: WallSpec): R.Shape3D {
+  const { boreOutline, height, pitch } = wallSpec;
+  const bands = faceBands(layout, height, Math.ceil(ts.length / SECTOR_COLUMNS));
+  const fits = bands.map(({ zLo, zHi }) => fitBand(profile, ts, zLo, zHi, bandSamples(zLo, zHi, pitch)));
+  const faces = fits.flatMap((fit, i) => bandFaces(kernel, fit, bands[i].sectors));
+  const rings = faceRings(kernel, layout, boreOutline);
+  const hollow = cutSolid(kernel, outlineSolid(boreOutline, height, 0), rings);
+  const atEnd = (face: R.Face, z: number) => face.geomType === "PLANE" && Math.abs(face.center.z - z) < 1e-6;
+  const openings = hollow.faces.filter((face) => atEnd(face, 0) || atEnd(face, height));
+  const cap = (rim: TopoDS_Face, z: number) =>
+    openings.filter((face) => atEnd(face, z)).reduce<TopoDS_Face[]>((pieces, footprint) => pieces.flatMap((piece) => cutShape(kernel, piece, [footprint.wrapped]).faces.map((face) => face.wrapped)), [rim]);
+  faces.push(
+    ...cap(rimCaps(kernel, fits[0]).bottom, 0),
+    ...cap(rimCaps(kernel, fits[fits.length - 1]).top, height),
+    ...hollow.faces.filter((face) => !openings.some((opening) => opening.wrapped.IsSame(face.wrapped))).map((face) => face.wrapped),
+  );
+  const tube = sewnSolidOf(kernel, faces);
+  const [x, y, z] = profile.point(ts[0], height / 2);
+  const shrink = (Math.hypot(x, y) - WALL_PROBE_DEPTH) / Math.hypot(x, y);
+  const oriented = isInside(kernel, tube, { x: x * shrink, y: y * shrink, z }) ? tube : reversedSolid(tube);
+  const ends = [layout.inner, layout.outer].filter((end): end is FaceEnd => end !== undefined);
+  const tools = ends.map((end) => faceCutArcs(end).map((arc) => faceArcCutterSolid(arc, end, layout)).reduce((all, piece) => all.fuse(piece)));
+  const channelled = cutSolid(kernel, oriented, tools);
+  for (const solid of [...rings, ...tools, hollow, tube, oriented]) solid.delete();
+  return channelled;
+}
+
+function fitBand(profile: WallProfile, ts: number[], zLo: number, zHi: number, samples: number): BSplineFit {
   const span = zHi - zLo;
   const dz = 1e-4;
   const tangent = (z0: number, z1: number) => (i: number): Vec3 => {
@@ -382,51 +426,120 @@ function wallBandSolid(kernel: OpenCascadeInstance, profile: WallProfile, ts: nu
     const b = profile.point(t, z1);
     return a.map((v, c) => ((b[c] - v) / (z1 - z0)) * span) as Vec3;
   };
-  const fit = fitPeriodicUClampedV(ts, samples, (i, j) => profile.point(ts[i], zLo + (j * span) / (samples - 1)), tangent(zLo, zLo + dz), tangent(zHi - dz, zHi));
+  return fitPeriodicUClampedV(ts, samples, (i, j) => profile.point(ts[i], zLo + (j * span) / (samples - 1)), tangent(zLo, zLo + dz), tangent(zHi - dz, zHi));
+}
 
-  const SHIFT = NU - 1;
-  const poles = new kernel.NCollection_Array2_gp_Pnt(1, NU, 1, fit.nvp);
-  for (let i = 0; i < NU; i++) {
+function array1(kernel: OpenCascadeInstance, values: number[], integers: boolean) {
+  const array = new (integers ? kernel.NCollection_Array1_int : kernel.NCollection_Array1_double)(1, values.length);
+  values.forEach((value, n) => array.SetValue(n + 1, value));
+  return array;
+}
+
+function splineSurface(kernel: OpenCascadeInstance, fit: BSplineFit, poleAt: (i: number, k: number) => Vec3, columns: number, uKnots: number[], uMults: number[], periodic: boolean): Geom_BSplineSurface {
+  const poles = new kernel.NCollection_Array2_gp_Pnt(1, columns, 1, fit.nvp);
+  const point = new kernel.gp_Pnt(0, 0, 0);
+  for (let i = 0; i < columns; i++) {
     for (let k = 0; k < fit.nvp; k++) {
-      const q = fit.pole((i + SHIFT) % NU, k);
-      poles.SetValue(i + 1, k + 1, new kernel.gp_Pnt(q[0], q[1], q[2]));
+      const [x, y, z] = poleAt(i, k);
+      point.SetCoord(x, y, z);
+      poles.SetValue(i + 1, k + 1, point);
     }
   }
-  const toArr1 = (vals: number[], asInt: boolean) => {
-    const arr = new (asInt ? kernel.NCollection_Array1_int : kernel.NCollection_Array1_double)(1, vals.length);
-    vals.forEach((v, n) => arr.SetValue(n + 1, v));
-    return arr;
-  };
-  const surface = new kernel.Geom_BSplineSurface(
-    poles,
-    toArr1(fit.uKnots, false),
-    toArr1(fit.vKnots, false),
-    toArr1(fit.uMults, true),
-    toArr1(fit.vMults, true),
-    3,
-    3,
-    true,
-    false,
-  );
+  const knots = [array1(kernel, uKnots, false), array1(kernel, fit.vKnots, false), array1(kernel, uMults, true), array1(kernel, fit.vMults, true)];
+  const surface = new kernel.Geom_BSplineSurface(poles, knots[0], knots[1], knots[2], knots[3], 3, 3, periodic, false);
+  for (const array of knots) array.delete();
+  poles.delete();
+  point.delete();
+  return surface;
+}
 
-  const face = new kernel.BRepBuilderAPI_MakeFace(surface, 1e-6).Face();
-  const sewing = new kernel.BRepBuilderAPI_Sewing(1e-3, true, true, true, false);
-  sewing.Add(face);
+function bandSurface(kernel: OpenCascadeInstance, fit: BSplineFit): Geom_BSplineSurface {
+  return splineSurface(kernel, fit, (i, k) => fit.pole((i + fit.NU - 1) % fit.NU, k), fit.NU, fit.uKnots, fit.uMults, true);
+}
+
+interface PoleSpan {
+  knots: number[];
+  columns: Vec3[][];
+}
+
+function insertKnot({ knots, columns }: PoleSpan, u: number): PoleSpan {
+  let k = knots.length - 1;
+  while (knots[k] > u) k--;
+  const repeats = knots.filter((knot) => knot === u).length;
+  const inserted = columns.concat([columns[columns.length - 1]]).map((column, i) => {
+    if (i <= k - 3) return columns[i];
+    if (i > k - repeats) return columns[i - 1];
+    const weight = (u - knots[i]) / (knots[i + 3] - knots[i]);
+    return column.map((pole, row) => pole.map((value, axis) => weight * value + (1 - weight) * columns[i - 1][row][axis]) as Vec3);
+  });
+  return { knots: [...knots.slice(0, k + 1), u, ...knots.slice(k + 1)], columns: inserted };
+}
+
+function clampedSpan(span: PoleSpan): PoleSpan {
+  const [start, end] = [span.knots[3], span.knots[span.knots.length - 4]];
+  let clamped = span;
+  for (let i = 0; i < 3; i++) clamped = insertKnot(insertKnot(clamped, start), end);
+  return { knots: clamped.knots.slice(3, -3), columns: clamped.columns.slice(3, -3) };
+}
+
+function sectorSurface(kernel: OpenCascadeInstance, fit: BSplineFit, first: number, count: number): Geom_BSplineSurface {
+  const { NU } = fit;
+  const wrap = (i: number) => ((i % NU) + NU) % NU;
+  const columns = Array.from({ length: count + 3 }, (_, i) => Array.from({ length: fit.nvp }, (_, k) => fit.pole(wrap(first - 1 + i), k)));
+  const knots: number[] = [];
+  for (let q = first - 3; q <= first + count + 3; q++) knots.push(fit.uKnots[wrap(q)] + Math.floor(q / NU));
+  const span = clampedSpan({ knots, columns });
+  const distinct = span.knots.filter((knot, i) => i === 0 || knot !== span.knots[i - 1]);
+  const mults = distinct.map((knot) => span.knots.filter((other) => other === knot).length);
+  return splineSurface(kernel, fit, (i, k) => span.columns[i][k], span.columns.length, distinct, mults, false);
+}
+
+function faceOn(kernel: OpenCascadeInstance, surface: Geom_BSplineSurface): TopoDS_Face {
+  const make = new kernel.BRepBuilderAPI_MakeFace(surface, 1e-6);
+  const face = make.Face();
+  make.delete();
+  surface.delete();
+  return face;
+}
+
+function bandFaces(kernel: OpenCascadeInstance, fit: BSplineFit, sectors: number): TopoDS_Face[] {
+  if (sectors <= 1) return [faceOn(kernel, bandSurface(kernel, fit))];
+  const per = Math.ceil(fit.NU / sectors);
+  const faces: TopoDS_Face[] = [];
+  for (let first = 0; first < fit.NU; first += per) faces.push(faceOn(kernel, sectorSurface(kernel, fit, first, Math.min(per, fit.NU - first))));
+  return faces;
+}
+
+function rimCaps(kernel: OpenCascadeInstance, fit: BSplineFit): { bottom: TopoDS_Face; top: TopoDS_Face } {
+  const face = faceOn(kernel, bandSurface(kernel, fit));
+  const caps: TopoDS_Face[] = [];
   const edges = new kernel.TopExp_Explorer(face, kernel.TopAbs_ShapeEnum.TopAbs_EDGE, kernel.TopAbs_ShapeEnum.TopAbs_SHAPE);
   for (; edges.More(); edges.Next()) {
-    const edge = kernel.TopoDS.Edge(edges.Current());
-    if (kernel.BRep_Tool.IsClosed(edge, face)) continue;
-    const cap = new kernel.BRepBuilderAPI_MakeFace(new kernel.BRepBuilderAPI_MakeWire(edge).Wire(), true);
-    if (!cap.IsDone()) throw new Error("STEP export: planar cap face failed");
-    sewing.Add(cap.Face());
+    const current = edges.Current();
+    const edge = kernel.TopoDS.Edge(current);
+    if (!kernel.BRep_Tool.IsClosed(edge, face)) {
+      const wire = new kernel.BRepBuilderAPI_MakeWire(edge);
+      const outline = wire.Wire();
+      const cap = new kernel.BRepBuilderAPI_MakeFace(outline, true);
+      if (!cap.IsDone()) throw new Error("STEP export: planar cap face failed");
+      caps.push(cap.Face());
+      for (const item of [cap, outline, wire]) item.delete();
+    }
+    edge.delete();
+    current.delete();
   }
-  sewing.Perform(new kernel.Message_ProgressRange());
-  const outerFix = new kernel.ShapeFix_Solid(
-    new kernel.BRepBuilderAPI_MakeSolid(kernel.TopoDS.Shell(sewing.SewedShape())).Solid(),
-  );
-  outerFix.Perform(new kernel.Message_ProgressRange());
-  const solid = R.cast(outerFix.Solid()).asShape3D();
-  return isInside(kernel, solid, { x: 0, y: 0, z: (zLo + zHi) / 2 }) ? solid : (R.cast(solid.wrapped.Reversed()) as R.Shape3D);
+  edges.delete();
+  face.delete();
+  const [first, second] = caps;
+  const lower = (R.cast(first) as R.Face).center.z < (R.cast(second) as R.Face).center.z;
+  return lower ? { bottom: first, top: second } : { bottom: second, top: first };
+}
+
+function wallBandSolid(kernel: OpenCascadeInstance, profile: WallProfile, ts: number[], zLo: number, zHi: number, samples: number): R.Shape3D {
+  const fit = fitBand(profile, ts, zLo, zHi, samples);
+  const caps = rimCaps(kernel, fit);
+  const solid = sewnSolidOf(kernel, [...bandFaces(kernel, fit, 1), caps.bottom, caps.top]);
+  return isInside(kernel, solid, { x: 0, y: 0, z: (zLo + zHi) / 2 }) ? solid : reversedSolid(solid);
 }
 
 function isInside(kernel: OpenCascadeInstance, solid: R.Shape3D, point: { x: number; y: number; z: number }): boolean {
@@ -631,11 +744,12 @@ function checkedCut(kernel: OpenCascadeInstance, shape: R.Shape3D, tool: R.Shape
 function validateSolid(kernel: OpenCascadeInstance, solid: R.Shape3D, mesh: Design["mesh"], name: string): void {
   const analyzer = new kernel.BRepCheck_Analyzer(solid.wrapped, true, false, false);
   const valid = analyzer.IsValid();
+  analyzer.delete();
   const solidCount = solid.solids.length;
   // Adaptive integration to a set precision: the default (fixed-order Gauss)
   // one misreads a B-spline wall with a deep groove by a few percent.
   const gprops = new kernel.GProp_GProps();
-  kernel.BRepGProp.VolumeProperties(solid.wrapped, gprops, 1e-5, false, false);
+  kernel.BRepGProp.VolumeProperties(solid.wrapped, gprops, 1e-3, false, false);
   const stepVolume = gprops.Mass();
   gprops.delete();
   const expectedVolume = meshVolume(mesh);

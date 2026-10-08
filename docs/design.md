@@ -432,7 +432,9 @@ B-spline surface, fitted in JavaScript (`src/core/step/bspfit.ts`) to the same
 parametric grid the mesh uses. The poles go straight into
 `Geom_BSplineSurface`. Planar caps are added, the faces are sewn into a solid,
 and the bore is cut. Booleans for the rest are ordinary and run on planar or
-analytic geometry.
+analytic geometry. A bare core skips the bore cut: its tube is sewn from the
+wall's faces and the faces of an analytic bore with its end rings, so the face
+channels are the only boolean that touches the wall.
 
 Why this way:
 
