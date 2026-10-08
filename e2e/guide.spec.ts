@@ -12,7 +12,7 @@ import { expectSettled } from "./settled";
 
 const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 }); // the default design: a bare core, layers=1, so no base and no top cap
 const BASED_ONE_LAYER = withHashDoc(ONE_LAYER, { base: "on" }); // with the base: the inner end clips into its rim
-const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" }); // layers=2 with the base: top cap auto-on
+const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on", cap: "on" }); // layers=2 with the base and the cap switched on (auto is off)
 
 // The guide's own screenshots render several distinct WebGL figures at
 // once (one per step), so they're the heaviest screenshots in the whole
@@ -138,17 +138,18 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.locator(".guide-header")).toContainText("Print, thread, wind.");
   });
 
-  test("a 1-layer design with the base (no top cap) skips the two cap steps: print, thread, wind, mount, unwind", async ({ page }) => {
+  test("a 1-layer design with the base (no top cap) skips the cap steps and lays the outer end in the top hole: print, thread, wind, outer end, mount, unwind", async ({ page }) => {
     await gotoGuide(page, BASED_ONE_LAYER);
     await expect(page.getByTestId("guide-step-1")).toContainText("Print the parts");
     await expect(page.getByTestId("guide-step-2")).toContainText("Clip in the inner cable end");
     await expect(page.getByTestId("guide-step-3")).toContainText("Wind the cable");
-    await expect(page.getByTestId("guide-step-4")).toContainText("Mount on the wall");
-    await expect(page.getByTestId("guide-step-4")).toContainText("mounts are coming soon");
-    await expect(page.getByTestId("guide-step-5")).toContainText("Unwinding");
-    await expect(page.getByTestId("guide-step-5")).toContainText(/rotate the coil/i);
-    await expect(page.getByTestId("guide-step-5")).toContainText(/don't pull the cable/i);
-    await expect(page.getByTestId("guide-step-6")).toHaveCount(0);
+    await expect(page.getByTestId("guide-step-4")).toContainText("Lay in the outer cable end");
+    await expect(page.getByTestId("guide-step-5")).toContainText("Mount on the wall");
+    await expect(page.getByTestId("guide-step-5")).toContainText("mounts are coming soon");
+    await expect(page.getByTestId("guide-step-6")).toContainText("Unwinding");
+    await expect(page.getByTestId("guide-step-6")).toContainText(/rotate the coil/i);
+    await expect(page.getByTestId("guide-step-6")).toContainText(/don't pull the cable/i);
+    await expect(page.getByTestId("guide-step-7")).toHaveCount(0);
 
     // One part (no cap) -> exactly one print-orientation figure.
     await expect(page.getByTestId("guide-print-part-core")).toBeVisible();
@@ -194,7 +195,7 @@ test.describe("printable assembly guide (issue #17)", () => {
 
   test("the wall-mount step gives real instructions once the screw-keyhole mount is selected", async ({ page }) => {
     await gotoGuide(page, withHashDoc(ONE_LAYER, { mount: "keyhole" }));
-    await expect(page.getByTestId("guide-step-4")).toContainText("keyhole slot on a screw");
+    await expect(page.getByTestId("guide-step-5")).toContainText("keyhole slot on a screw");
   });
 
   // Issue #14 landed the SKÅDIS mount after this guide shipped (issue #17 PR
@@ -210,14 +211,14 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.getByTestId("guide-step-1")).toContainText(/Bottom clip ×2/);
     await expect(page.getByTestId("guide-step-1")).toContainText("4 parts");
     await expect(page.getByTestId("guide-step-1")).toContainText(/clips lying on their side/i);
-    await expect(page.getByTestId("guide-step-4")).toContainText(/SK.DIS/i);
-    await expect(page.getByTestId("guide-step-4")).toContainText(/bottom clip/i);
-    await expect(page.getByTestId("guide-step-4")).toContainText(/clicks/i);
-    await expect(page.getByTestId("guide-step-4")).not.toContainText("coming soon");
-    await expect(page.getByTestId("guide-step-4").locator(".guide-overlay-slot").first()).toBeVisible();
-    await expect(page.getByTestId("guide-step-5")).toContainText(/unwind/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/SK.DIS/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/bottom clip/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/clicks/i);
+    await expect(page.getByTestId("guide-step-5")).not.toContainText("coming soon");
+    await expect(page.getByTestId("guide-step-5").locator(".guide-overlay-slot").first()).toBeVisible();
+    await expect(page.getByTestId("guide-step-6")).toContainText(/unwind/i);
     await expect(page.getByTestId("guide-step-1")).toHaveScreenshot("guide-skadis-print.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
-    await expect(page.getByTestId("guide-step-4")).toHaveScreenshot("guide-skadis-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+    await expect(page.getByTestId("guide-step-5")).toHaveScreenshot("guide-skadis-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
   });
 
   // Issue #213: the T-clips print as one figure, x3, and the mount step shows them turned across the board's
@@ -227,13 +228,13 @@ test.describe("printable assembly guide (issue #17)", () => {
     await gotoGuide(page, withHashDoc(ONE_LAYER, { size: 85, mount: "skadis-tclip" }));
     await expect(page.getByTestId("guide-step-1")).toContainText(/T-clip ×3/);
     await expect(page.getByTestId("guide-step-1")).toContainText("4 parts");
-    await expect(page.getByTestId("guide-step-4")).toContainText(/quarter turn clockwise/i);
-    await expect(page.getByTestId("guide-step-4")).toContainText(/reach through the core/i);
-    await expect(page.getByTestId("guide-step-4")).toContainText(/pinch the fin and turn/i);
-    await expect(page.getByTestId("guide-step-4").locator(".guide-overlay-slot").first()).toBeVisible();
+    await expect(page.getByTestId("guide-step-5")).toContainText(/quarter turn clockwise/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/reach through the core/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/pinch the fin and turn/i);
+    await expect(page.getByTestId("guide-step-5").locator(".guide-overlay-slot").first()).toBeVisible();
     await expect(page.getByTestId("guide-mount-inset")).toHaveCount(0);
     await expect(page.getByTestId("guide-step-1")).toHaveScreenshot("guide-skadis-tclip-print.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
-    await expect(page.getByTestId("guide-step-4")).toHaveScreenshot("guide-skadis-tclip-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
+    await expect(page.getByTestId("guide-step-5")).toHaveScreenshot("guide-skadis-tclip-mount.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
   });
 
   // Issue #70 landed the through-hole mount after this guide shipped, the
@@ -243,8 +244,8 @@ test.describe("printable assembly guide (issue #17)", () => {
   test("the wall-mount step gives real instructions once the through-hole mount is selected", async ({ page }) => {
     const doc = { L: 1000, d: 4, size: 40 };
     await gotoGuide(page, encodeHashDoc({ ...doc, mount: "through" }));
-    await expect(page.getByTestId("guide-step-4")).toContainText(/countersunk screw through each hole/i);
-    await expect(page.getByTestId("guide-step-4")).not.toContainText("coming soon");
+    await expect(page.getByTestId("guide-step-5")).toContainText(/countersunk screw through each hole/i);
+    await expect(page.getByTestId("guide-step-5")).not.toContainText("coming soon");
   });
 
   test("the toolbar opens the guide from the design view and back again, without losing the design", async ({ page }) => {
@@ -324,8 +325,8 @@ test.describe("printable assembly guide (issue #17)", () => {
     const DESIGNS = [
       { name: "1-layer bare core (the default)", hash: ONE_LAYER, minInsets: 2 },
       { name: "2-layer round with a bayonet top cap", hash: withHashDoc(TWO_LAYER_CAP, { joint: "bayonet" }), minInsets: 2 },
-      { name: "square core with a top cap and the screw-keyhole mount", hash: encodeHashDoc({ shape: "sq", rc: 15, L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, mount: "keyhole" }), minInsets: 3 },
-      { name: "triangle core, 3 layers, through-hole mount", hash: encodeHashDoc({ shape: "tri", rc: 12, L: 5000, d: 3, lock: ["outer", "ly"], size: 70, ly: 3, mount: "through" }), minInsets: 3 },
+      { name: "square core with a top cap and the screw-keyhole mount", hash: encodeHashDoc({ shape: "sq", rc: 15, L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, mount: "keyhole", cap: "on" }), minInsets: 3 },
+      { name: "triangle core, 3 layers, through-hole mount", hash: encodeHashDoc({ shape: "tri", rc: 12, L: 5000, d: 3, lock: ["outer", "ly"], size: 70, ly: 3, mount: "through", cap: "on" }), minInsets: 3 },
       { name: "1-layer SKÅDIS rim clips", hash: withHashDoc(ONE_LAYER, { size: 85, mount: "skadis" }), minInsets: 2 },
       { name: "1-layer SKÅDIS T-clips", hash: withHashDoc(ONE_LAYER, { size: 85, mount: "skadis-tclip" }), minInsets: 2 },
     ];

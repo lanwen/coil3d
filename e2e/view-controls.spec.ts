@@ -25,7 +25,7 @@ const SQUAT = encodeHashDoc({ L: 1000, d: 4, size: 40 });
 // layers=2 locked, so the exploded-view toggle is present too (issue #9),
 // letting the explode-toggle's own camera reframe (issue #9 review) share
 // coverage with the preset/projection tests below.
-const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" });
+const TWO_LAYER = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on", cap: "on" });
 // A screw-keyhole mount so the "Wall mount" preset actually rotates the
 // geometry into a real hung pose (unmounted designs still show the room-side
 // preset -- it's just a plain standing-on-the-flange rotation with no real

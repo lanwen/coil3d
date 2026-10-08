@@ -153,7 +153,7 @@ describe("the whole drawn cable respects the bend radius, over the swept designs
 describe("a bare core's face channels keep their roof and floor, over the swept designs (issue #254)", () => {
   it.each(CASES)("$name", async (c) => {
     const d = await designOf(c);
-    if (c.spec.base !== "off" || !d.faceChannels) return;
+    if (c.spec.base !== "off" || !d.faceChannels?.inner) return;
     const { roof, floor } = faceWebs(d);
     for (const web of [...roof, ...floor]) expect(web, "material over the bottom roof and under the top floor along the channels").toBeGreaterThanOrEqual(MIN_WEB - WEB_TOLERANCE);
     expect(roof.length, "the bottom channel's roof is checked").toBeGreaterThan(2);

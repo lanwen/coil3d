@@ -63,7 +63,7 @@ describe("solver alternatives can be picked through the spec (issue #192)", () =
 
 describe("design() notices (issue #192)", () => {
   it("tags every message as a problem or a note, and `warnings` lists the same messages in order", async () => {
-    const d = await design(spec({ print: { bedX: 256, bedY: 256, bedZ: 20 }, label: "a label far too long for this small top cap" , layers: { locked: true, value: 2 } }));
+    const d = await design(spec({ print: { bedX: 256, bedY: 256, bedZ: 20 }, label: "a label far too long for this small top cap" , layers: { locked: true, value: 2 }, topCap: "on" }));
     expect(d.notices.length).toBeGreaterThan(0);
     expect(d.warnings).toEqual(d.notices.map((n) => n.message));
     for (const n of d.notices) expect(["problem", "note"]).toContain(n.severity);

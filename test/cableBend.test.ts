@@ -169,6 +169,7 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
       wire: { length: 2000, diameter: 3.6, type: "stiff" },
       coreSize: { locked: true, dimension: "outer", value: 30 },
       layers: { locked: true, value: 2 },
+      topCap: "on",
     });
     const d = await design(spec);
     expect(d.solution.diagnosis.status).toBe("ok");

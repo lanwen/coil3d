@@ -105,15 +105,13 @@ describe("a bare core (base off)", () => {
     }
   });
 
-  it("topCap auto resolves to off, even with several layers; an explicit cap is still built, sized to the cable", async () => {
+  it("topCap auto resolves to off, even with several layers and a base; an explicit cap is still built, sized to the cable", async () => {
     const auto = await design(spec({ base: "off", layers: { locked: true, value: 2 }, coreSize: { locked: true, dimension: "outer", value: 40 } }));
-    expect(auto.solution.capsAuto).toBe(false);
     expect(auto.solution.topCapEnabled).toBe(false);
     expect(auto.parts.map((p) => p.name)).toEqual(["core"]);
 
     const withBase = await design(spec({ base: "on", layers: { locked: true, value: 2 }, coreSize: { locked: true, dimension: "outer", value: 40 } }));
-    expect(withBase.solution.capsAuto).toBe(true);
-    expect(withBase.parts.map((p) => p.name)).toEqual(["core", "top-cap"]);
+    expect(withBase.parts.map((p) => p.name)).toEqual(["core"]);
 
     const on = await design(spec({ base: "off", topCap: "on", layers: { locked: true, value: 2 }, coreSize: { locked: true, dimension: "outer", value: 40 } }));
     expect(on.parts.map((p) => p.name)).toEqual(["core", "top-cap"]);
@@ -129,7 +127,7 @@ describe("a bare core (base off)", () => {
     const bare = await design(spec(mounted));
     expect(bare.spec.base).toBe("off");
     expect(bare.flangeSpec.thickness).toBeGreaterThan(0);
-    expect(bare.faceChannels).toBeUndefined();
+    expect(bare.faceChannels?.inner).toBeUndefined();
     expect(bare.notices.some((n) => /mount needs the base/i.test(n.message))).toBe(false);
     const explicit = await design(spec({ ...mounted, base: "on" }));
     expect(explicit.flangeSpec.thickness).toBe(bare.flangeSpec.thickness);
@@ -194,9 +192,11 @@ describe("a bare core's minimum size (issue #254)", () => {
     expect(d.solution.outerSize).toBeGreaterThanOrEqual(PASSAGE + 2 * WALL(3.8) - 1e-6);
     const note = d.notices.find((n) => /Core size raised/.test(n.message));
     expect(note?.message).toMatch(/centre hole/);
-    // With the base, 22 mm is not raised for this reason.
+    // With the base, a one-layer core has the same top hole, so it is raised the same way (#292); with a cap it has no hole and is not.
     const based = await design(spec({ base: "on", topCap: "off", coreSize: { locked: true, dimension: "outer", value: 22 }, height: { locked: false } }), "draft");
-    expect(based.notices.find((n) => /Core size raised/.test(n.message))).toBeUndefined();
+    expect(based.solution.outerSize).toBeCloseTo(d.solution.outerSize, 6);
+    const capped = await design(spec({ base: "on", topCap: "on", coreSize: { locked: true, dimension: "outer", value: 22 }, height: { locked: false } }), "draft");
+    expect(capped.notices.find((n) => /centre hole/.test(n.message))).toBeUndefined();
   });
 });
 
@@ -242,6 +242,9 @@ describe("a bare core's cable length (issue #254)", () => {
     expect(d.solution.height).toBeGreaterThanOrEqual(20);
     expect(d.notices.some((n) => /Height raised/.test(n.message))).toBe(true);
     const based = await design(spec({ base: "on", topCap: "off", height: { locked: true, value: 12 }, coreSize: { locked: true, dimension: "outer", value: 60 } }), "draft");
-    expect(based.solution.height).toBe(12);
+    expect(based.solution.height).toBeGreaterThanOrEqual(20);
+    expect(based.notices.some((n) => /Height raised/.test(n.message))).toBe(true);
+    const capped = await design(spec({ base: "on", topCap: "on", height: { locked: true, value: 12 }, coreSize: { locked: true, dimension: "outer", value: 60 } }), "draft");
+    expect(capped.solution.height).toBe(12);
   });
 });

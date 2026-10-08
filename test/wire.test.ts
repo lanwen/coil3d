@@ -17,7 +17,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
     height: { locked: true, value: 40 },
     layers: { locked: true, value: 1 },
     objective: "minVolume",
-    topCap: "auto",
+    topCap: "on",
     base: "on",
     joint: "press",
     tolerance: 0.2,
@@ -570,7 +570,7 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
   });
 
   it("with the top cap off, the cable leaves the last turn along a straight tangential tail (issue #115)", async () => {
-    for (const layers of [1, 2]) {
+    for (const layers of [2, 3]) {
       const d = await design(
         baseSpec({
           wire: { length: 3000, diameter: 3.8, type: "usb" },

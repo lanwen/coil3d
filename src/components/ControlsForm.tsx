@@ -119,7 +119,7 @@ export function ControlsForm({
   const layersLockDisabled = !spec.layers.locked && lockedCount >= 2;
 
   const topCapAuto = spec.topCap === "auto";
-  const topCapOn = topCapAuto ? (solution?.capsAuto ?? false) : spec.topCap === "on";
+  const topCapOn = spec.topCap === "on";
   const setTopCapExplicit = (checked: boolean) => onChange({ ...spec, topCap: checked ? "on" : "off" });
   const resetTopCapToAuto = () => onChange({ ...spec, topCap: "auto" });
 
@@ -397,7 +397,7 @@ export function ControlsForm({
                 checked={topCapOn}
                 title={
                   topCapAuto
-                    ? `Auto -- currently ${topCapOn ? "on" : "off"} (on once there's a base and more than one layer). Touch to set it explicitly.`
+                    ? `Auto -- currently ${topCapOn ? "on" : "off"}. Touch to set it explicitly.`
                     : `${topCapOn ? "On" : "Off"} (explicit) -- click to change`
                 }
                 onChange={setTopCapExplicit}

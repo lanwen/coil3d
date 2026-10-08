@@ -86,7 +86,7 @@ test.describe("SKÅDIS mount controls (issue #207)", () => {
   });
 
   test("a heavy cable gets a second top clip", async ({ page }) => {
-    await gotoDesign(page, encodeHashDoc({ L: 10000, d: 8, wt: "flex", size: 85, ly: 4, mount: "skadis" }));
+    await gotoDesign(page, encodeHashDoc({ L: 10000, d: 8, wt: "flex", size: 85, ly: 4, mount: "skadis", cap: "on" }));
     await expect(page.getByTestId("mesh-detail")).toContainText("6 parts"); // core, cap, 2 top + 2 bottom clips
   });
 

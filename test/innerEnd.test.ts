@@ -293,6 +293,7 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
       baseSpec({
         wire: { length: 50, diameter: 3.8, type: "usb" },
         height: { locked: true, value: 5 }, // usable height (minus margins) is below one pitch
+        topCap: "on", // a one-layer core with no cap needs a taller core for its top hole
       }),
     );
     expect(d.solution.layerResults[0]?.turns ?? 0).toBe(0);

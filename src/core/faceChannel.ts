@@ -37,6 +37,7 @@ export interface FaceChannelSpec {
   tolerance: number;
   bendRadius: number;
   topFace: boolean;
+  bottomFace: boolean;
 }
 
 export interface FaceCutArc {
@@ -69,7 +70,7 @@ export interface FaceChannelLayout {
   bottomThickness: number;
   topThickness?: number;
   height: number;
-  inner: FaceEnd;
+  inner?: FaceEnd;
   outer?: FaceEnd;
 }
 
@@ -310,7 +311,7 @@ function buildEnd(spec: FaceChannelSpec, facts: WindingFacts, face: FaceName, pl
   const rise = easeRise(slope);
   const level = windingZ + ((bottom ? -1 : 1) * rise) / 2;
   const endZ = windingZ + (bottom ? -1 : 1) * rise;
-  if (bottom && spec.height < endZ + bendRadius + 1) return undefined;
+  if (bottom && spec.bottomFace && spec.height < endZ + bendRadius + 1) return undefined;
   const run = distance - bendRadius;
   const climb = bottom ? spec.height - endZ - bendRadius : 0;
   return {
@@ -333,6 +334,7 @@ const PLACEMENTS = [0, 0.25, 0.5, 0.75, 1];
 const PLACEMENT_PAIRS: Array<[number, number]> = PLACEMENTS.flatMap((a) => PLACEMENTS.map((b): [number, number] => [a, b])).sort((p, q) => p[0] + p[1] - (q[0] + q[1]) || Math.max(...p) - Math.max(...q));
 
 function planUncached(spec: FaceChannelSpec): FaceChannelLayout | undefined {
+  if (!spec.bottomFace && !spec.topFace) return undefined;
   const facts = windingFacts(spec.wireDiameter, spec.height);
   if (facts.turns < 1) return undefined;
   for (let step = 0; step <= FACE_WIDTH_STEPS; step++) {
@@ -364,7 +366,7 @@ function planWithRings(spec: FaceChannelSpec, facts: WindingFacts, dims: RingDim
   for (const [a, b] of PLACEMENT_PAIRS) {
     const inner = buildEnd(spec, facts, "bottom", innerPlan, slopeIn, innerRange, a);
     const outer = buildEnd(spec, facts, "top", outerPlan, slopeOut, outerRange, b);
-    if (inner && outer && Math.hypot(inner.seat.x - outer.seat.x, inner.seat.y - outer.seat.y) >= spec.wireDiameter + 2 * FACE_SEAT_CLEARANCE) return { ...layout, inner, outer };
+    if (inner && outer && Math.hypot(inner.seat.x - outer.seat.x, inner.seat.y - outer.seat.y) >= spec.wireDiameter + 2 * FACE_SEAT_CLEARANCE) return { ...layout, inner: spec.bottomFace ? inner : undefined, outer };
   }
   return undefined;
 }
@@ -374,7 +376,7 @@ const planCache = new Map<string, FaceChannelLayout | undefined>();
 
 export function planFaceChannels(spec: FaceChannelSpec): FaceChannelLayout | undefined {
   const { outline, boreOutline } = spec;
-  const key = [outline.n, outline.apothem, outline.cornerRadius, boreOutline.apothem, boreOutline.cornerRadius, spec.height, spec.wireDiameter, spec.tolerance, spec.bendRadius, spec.topFace].join(",");
+  const key = [outline.n, outline.apothem, outline.cornerRadius, boreOutline.apothem, boreOutline.cornerRadius, spec.height, spec.wireDiameter, spec.tolerance, spec.bendRadius, spec.topFace, spec.bottomFace].join(",");
   if (planCache.has(key)) return planCache.get(key);
   if (planCache.size >= PLAN_CACHE_LIMIT) planCache.clear();
   const layout = planUncached(spec);
@@ -440,14 +442,14 @@ export function faceTopFloor(layout: FaceChannelLayout): number {
 
 export function faceEndsLength(spec: FaceChannelSpec): number {
   const layout = planFaceChannels(spec);
-  if (layout) return layout.inner.length + (layout.outer?.length ?? 0);
-  return spec.height + (Math.PI / 2) * arcRadiusFloor(spec.bendRadius) + spec.outline.apothem;
+  if (layout) return (layout.inner?.length ?? 0) + (layout.outer?.length ?? 0);
+  return spec.bottomFace ? spec.height + (Math.PI / 2) * arcRadiusFloor(spec.bendRadius) + spec.outline.apothem : 0;
 }
 
 export function minFaceChannelOuterSize(outlineOf: (outerSize: number) => ShapeOutline, boreOf: (outline: ShapeOutline) => ShapeOutline, wireDiameter: number, tolerance: number, bendRadius: number): number {
   const fits = (outerSize: number) => {
     const outline = outlineOf(outerSize);
-    return planFaceChannels({ outline, boreOutline: boreOf(outline), height: HEIGHT_HI, wireDiameter, tolerance, bendRadius, topFace: true }) !== undefined;
+    return planFaceChannels({ outline, boreOutline: boreOf(outline), height: HEIGHT_HI, wireDiameter, tolerance, bendRadius, topFace: true, bottomFace: true }) !== undefined;
   };
   if (!fits(SIZE_HI)) return SIZE_HI;
   let tooSmall = SIZE_LO_FLOOR;
@@ -460,7 +462,7 @@ export function minFaceChannelOuterSize(outlineOf: (outerSize: number) => ShapeO
   return works;
 }
 
-export function minFaceChannelHeight(wireDiameter: number, tolerance: number, bendRadius: number): number {
+export function minFaceChannelHeight(wireDiameter: number, tolerance: number, bendRadius: number, bottomFace: boolean): number {
   const groove = grooveShape(wireDiameter);
   const channelRadius = channelRadiusOf(wireDiameter, tolerance);
   const zStart = grooveStartHeight(groove, MARGIN_BOTTOM);
@@ -468,5 +470,5 @@ export function minFaceChannelHeight(wireDiameter: number, tolerance: number, be
   const top = 1.3 * (wireDiameter / 2) + groove.pitch + channelRadius + FACE_WEB;
   const narrowest = 4 * FACE_WEB;
   const bend = zStart + arcRadiusFloor(bendRadius) + 1 + groove.pitch;
-  return Math.max(bottom + top + narrowest, bend);
+  return bottomFace ? Math.max(bottom + top + narrowest, bend) : bottom + top + narrowest;
 }

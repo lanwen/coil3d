@@ -407,6 +407,21 @@ const REPRODUCTIONS_227: Reproduction[] = [
     resolution: "final",
     segments: { round: 144, other: 96 },
   },
+  {
+    // The channel's side wall crossed the wall's top and bottom rims 0.018 mm from a rim vertex, and the weld could not
+    // drop the one-triangle tip beside them: it stood 0.029 mm off its neighbours' plane, over the 0.02 mm it allowed.
+    // The same design with the base on has the top channel too (issue #292).
+    name: "a channel crossing the rim beside a rim vertex on a bare round core (fuzz case 1220, base off)",
+    spec: { wire: { length: 6547, diameter: 7.42, type: "flex" }, windingQuality: 0.51, coreSize: { locked: true, dimension: "outer", value: 51.85 }, height: { locked: false }, layers: { locked: true, value: 1 }, topCap: "auto", tolerance: 0.33, joint: "bayonet", plateJoint: "snap", base: "off" },
+    resolution: "final",
+    segments: { round: 96, other: 96 },
+  },
+  {
+    name: "the same design with the base on (fuzz case 1220)",
+    spec: { wire: { length: 6547, diameter: 7.42, type: "flex" }, windingQuality: 0.51, coreSize: { locked: true, dimension: "outer", value: 51.85 }, height: { locked: false }, layers: { locked: true, value: 1 }, topCap: "auto", tolerance: 0.33, joint: "bayonet", plateJoint: "snap", base: "on" },
+    resolution: "final",
+    segments: { round: 96, other: 96 },
+  },
 ];
 
 describe("mesh clean-up reproductions (issue #227): every part is one solid, with no short edges or folds", () => {

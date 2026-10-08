@@ -22,7 +22,7 @@ function webs(d: Design, path: Float32Array, direction: 1 | -1, level: number): 
 export function faceWebs(d: Design): { roof: number[]; floor: number[] } {
   const layout = d.faceChannels!;
   return {
-    roof: webs(d, d.innerEndLeadIn, 1, layout.inner.level),
+    roof: layout.inner ? webs(d, d.innerEndLeadIn, 1, layout.inner.level) : [],
     floor: layout.outer ? webs(d, d.outerEndLeadOut, -1, layout.outer.level) : [],
   };
 }

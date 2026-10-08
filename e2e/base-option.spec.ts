@@ -54,8 +54,12 @@ test.describe("the base option (issue #254)", () => {
     await expect(page.getByTestId("core-size-raised-note")).toBeVisible();
   });
 
-  test("with the base, the same 20 mm core is not raised", async ({ page }) => {
+  test("with the base and no cap the same 20 mm core is raised too (the top ring's hole); with the cap on it is not (#292)", async ({ page }) => {
     await gotoDesign(page, encodeHashDoc({ L: 1000, d: 4, size: 20, base: "on" }));
+    expect(Number(await page.getByTestId("input-outer").inputValue())).toBeGreaterThanOrEqual(36);
+    await expect(page.getByTestId("core-size-raised-note")).toBeVisible();
+    await page.goto("about:blank");
+    await gotoDesign(page, encodeHashDoc({ L: 1000, d: 4, size: 20, base: "on", cap: "on" }));
     await expect(page.getByTestId("input-outer")).toHaveValue("20");
     await expect(page.getByTestId("core-size-raised-note")).toHaveCount(0);
   });

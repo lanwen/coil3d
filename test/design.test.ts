@@ -213,6 +213,7 @@ describe("design() solver (round core)", () => {
       coreSize: { locked: false },
       height: { locked: true, value: 21 }, // room for one turn only
       layers: { locked: true, value: 1 },
+      topCap: "on", // no top hole, so the bend limit is the floor
     });
     const d = await design(spec);
     expect(d.solution.diagnosis.status).toBe("ok");
@@ -284,6 +285,7 @@ describe("design() solver (round core)", () => {
       coreSize: { locked: true, dimension: "outer", value: 4 },
       height: { locked: true, value: 30 },
       layers: { locked: true, value: 1 },
+      topCap: "on",
     });
     const d = await design(spec);
     expect(d.warnings.some((w) => /too small/i.test(w))).toBe(true);
@@ -528,6 +530,7 @@ describe("design() keeps square/triangle distinct at small sizes (issue #54)", (
         coreSize: { locked: true, dimension: "outer", value: 5 },
         height: { locked: true, value: 40 },
         layers: { locked: true, value: 1 },
+        topCap: "on",
       }),
     );
     expect(d.solution.minOuterSizeForShape).toBeCloseTo(d.solution.minOuterSizeForBend, 6);

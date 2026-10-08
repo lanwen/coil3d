@@ -19,7 +19,6 @@ export type { ShapeKind } from "./shapes";
  */
 export type ShapeSpec = { kind: "round" } | { kind: "sq"; cornerRadius: number } | { kind: "tri"; cornerRadius: number };
 
-/** Top-cap override (issue #9): `auto` follows `Solution.capsAuto` (on when layers > 1 and the base is on). */
 export type TopCapMode = "auto" | "on" | "off";
 
 export type BaseMode = "on" | "off";
@@ -128,7 +127,6 @@ export interface CoilSpec {
   /** Used only when exactly two of {coreSize, height, layers} are free. */
   objective: Objective;
   base?: BaseMode;
-  /** Top-cap override (issue #9): defaults to "auto" (on when layers > 1 and the base is on). */
   topCap: TopCapMode;
   /** Cap joint (issue #9): press-fit, bayonet/twist-lock or snap clips, all permanent and glue-friendly. */
   joint: JointKind;
@@ -287,9 +285,6 @@ export interface Solution {
    * Set on `alternates` too (see `overallHeight`).
    */
   flangeExtent?: FlangeExtent;
-  /** True iff layers > 1 -- the AUTOMATIC recommendation, independent of `CoilSpec.topCap`'s override. */
-  capsAuto: boolean;
-  /** The RESOLVED decision (issue #9): `capsAuto` unless `CoilSpec.topCap` overrides it to "on"/"off". This is what actually controls whether `Design.parts` includes a topCap part. */
   topCapEnabled: boolean;
   minOuterSizeForBend: number;
   /**

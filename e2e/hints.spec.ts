@@ -88,9 +88,9 @@ test("the hint button is described by its bubble via aria-describedby", async ({
 
 test("advanced settings and the top-cap/joint/label/mount/print-bed controls all have hints too", async ({ page }) => {
   // Issue #131: joint/tolerance/label are cap-only controls, hidden while
-  // the top cap is off -- a two-layer link keeps the (auto) cap on so those
-  // fields are actually in the DOM to check.
-  await page.goto(`/${encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" })}`);
+  // the top cap is off -- a link with the cap switched on keeps those
+  // fields in the DOM to check.
+  await page.goto(`/${encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on", cap: "on" })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
   await openAdvanced(page);
   for (const heading of ["Winding quality"]) {

@@ -73,6 +73,7 @@ export interface WallRings {
   holeOutline: ShapeOutline;
   width: number;
   bottomThickness: number;
+  bottomRing: boolean;
   topThickness?: number;
 }
 
@@ -421,10 +422,11 @@ export function buildWall(spec: WallSpec): CoilMesh {
     if (!rings) return [[b.x, b.y, 0], [b.x, b.y, height]];
     const h = ringHolePoint(boreOutline, t, rings.width);
     const bottom = rings.bottomThickness;
-    if (rings.topThickness === undefined) return [[h.x, h.y, 0], [h.x, h.y, bottom], [b.x, b.y, bottom], [b.x, b.y, height]];
+    const floor: Array<[number, number, number]> = rings.bottomRing ? [[h.x, h.y, 0], [h.x, h.y, bottom], [b.x, b.y, bottom]] : [[b.x, b.y, 0]];
+    if (rings.topThickness === undefined) return [...floor, [b.x, b.y, height]];
     const flat = height - rings.topThickness;
     const foot = Math.max(bottom, flat - outlineOffsetAt(rings.holeOutline, b.x, b.y).offset);
-    return [[h.x, h.y, 0], [h.x, h.y, bottom], [b.x, b.y, bottom], [b.x, b.y, foot], [h.x, h.y, flat], [h.x, h.y, height]];
+    return [...floor, [b.x, b.y, foot], [h.x, h.y, flat], [h.x, h.y, height]];
   };
   const inner: number[][] = [];
   let previous: { points: Array<[number, number, number]>; index: number[] } | undefined;

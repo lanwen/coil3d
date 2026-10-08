@@ -30,6 +30,8 @@ import type { CoilMesh } from "./types";
  */
 export const WELD_EPSILON = 0.02;
 
+const TIP_HEIGHT_EPSILONS = 2;
+
 /** A triangle may turn by at most this angle (cosine) when its corner moves. */
 const MIN_NORMAL_COS = 0.2;
 
@@ -200,13 +202,6 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
     return true;
   };
 
-  /**
-   * Where the booleans leave a cluster of near-coincident vertices, a short edge can fail the link condition because a
-   * vertex across it has only three triangles: a tip, a hair above the triangle its three neighbours span, that is
-   * joined to both ends of the edge and to one more vertex they share. Dropping the tip onto the nearer end of the
-   * edge makes the edge collapsible. Only a tip within the epsilon of that triangle's plane is dropped, so the surface
-   * moves by less than the epsilon (the tip itself may move further). Whether a tip was dropped.
-   */
   const dropTip = (u: number, v: number): boolean => {
     const ofV = trianglesOf(v);
     for (const t of trianglesOf(u)) {
@@ -220,7 +215,7 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
       const len = Math.hypot(...n);
       const height = len === 0 ? 0 : Math.abs((pos[3 * x] - pos[3 * u]) * n[0] + (pos[3 * x + 1] - pos[3 * u + 1]) * n[1] + (pos[3 * x + 2] - pos[3 * u + 2]) * n[2]) / len;
       const [near, far] = squared(x, u) < squared(x, v) ? [u, v] : [v, u];
-      if (height < epsilon && (collapse(x, near) || collapse(x, far))) return true;
+      if (height < TIP_HEIGHT_EPSILONS * epsilon && (collapse(x, near) || collapse(x, far))) return true;
     }
     return false;
   };
