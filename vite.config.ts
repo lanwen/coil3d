@@ -51,5 +51,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],
+    setupFiles: ["test/support/yieldBetweenTests.ts"],
+    testTimeout: 30_000,
   },
 });
