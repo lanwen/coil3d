@@ -1,9 +1,3 @@
-// Entry point for STEP export. In a browser (where `Worker` exists), the
-// actual build (build.ts, which pulls in replicad's ~5 MB WASM) runs in a
-// dedicated Worker so it never blocks the main thread and the WASM is only
-// ever fetched once the user asks for a STEP file. In Node (vitest, no
-// `Worker` global) it runs inline.
-
 import type { Design } from "../types";
 
 interface WorkerResult {
@@ -28,8 +22,10 @@ function runInWorker(design: Design): Promise<Uint8Array<ArrayBuffer>> {
   });
 }
 
+const hasWorkerSupport = () => typeof Worker !== "undefined";
+
 export async function exportStep(design: Design): Promise<Uint8Array<ArrayBuffer>> {
-  if (typeof Worker !== "undefined") return runInWorker(design);
+  if (hasWorkerSupport()) return runInWorker(design);
   const { buildStep } = await import("./build");
   return buildStep(design);
 }

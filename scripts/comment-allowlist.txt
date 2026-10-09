@@ -21,10 +21,6 @@ src/core/shapes.ts
 src/core/skadisClips.ts
 src/core/skadisTclips.ts
 src/core/solve.ts
-src/core/step/bspfit.ts
-src/core/step/build.ts
-src/core/step/index.ts
-src/core/step/worker.ts
 src/core/stl.ts
 src/core/threeMf.ts
 src/core/transform.ts
