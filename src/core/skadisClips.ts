@@ -23,7 +23,7 @@
 // the stem's lower corners on the slot's rounded end.
 
 import {
-  CABLE_DENSITY,
+  CABLE_DENSITY_G_PER_MM3,
   FLANGE_PAD_COLLAR,
   SKADIS_BIGHT_THICKNESS,
   SKADIS_BOARD_THICKNESS,
@@ -126,9 +126,8 @@ export function lipKeepOffset(envelopeOffset: number, thickness: number, plateTh
   return Math.max(envelopeOffset, FLANGE_PAD_COLLAR + depth - tolerance + 0.5 - SKADIS_ENVELOPE_CLEARANCE);
 }
 
-/** The estimated cable weight (kg): its cross-section at CABLE_DENSITY. */
 export function cableWeightKg(diameter: number, length: number): number {
-  return (CABLE_DENSITY * Math.PI * (diameter / 2) ** 2 * length) / 1000;
+  return (CABLE_DENSITY_G_PER_MM3 * Math.PI * (diameter / 2) ** 2 * length) / 1000;
 }
 
 /** Whether this cable gets a second top clip (SKADIS_HEAVY_CABLE_KG). */

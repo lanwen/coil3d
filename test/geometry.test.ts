@@ -65,7 +65,7 @@ describe("design().mesh is a valid, expected manifold", () => {
       const s45 = Math.SQRT1_2;
       const dz45 = rho * s45;
       const f45 = c - rho * s45;
-      // Below 70 degrees from the axis (GROOVE_LIP_ANGLE) the lower flank is a straight chamfer.
+      // Below 70 degrees from the axis (GROOVE_LIP_ANGLE_DEG) the lower flank is a straight chamfer.
       const lipA = (70 * Math.PI) / 180;
       const lipX = c - rho * Math.cos(lipA);
       const lipDz = rho * Math.sin(lipA);
@@ -326,7 +326,7 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
       const s45 = Math.SQRT1_2;
       const dz45 = rho * s45;
       const f45 = c - rho * s45;
-      // Below 70 degrees from the axis (GROOVE_LIP_ANGLE) the lower flank is a straight chamfer.
+      // Below 70 degrees from the axis (GROOVE_LIP_ANGLE_DEG) the lower flank is a straight chamfer.
       const lipA = (70 * Math.PI) / 180;
       const lipX = c - rho * Math.cos(lipA);
       const lipDz = rho * Math.sin(lipA);

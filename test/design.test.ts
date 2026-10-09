@@ -51,7 +51,7 @@ function groove(wireDiameter: number) {
   const depth = GROOVE_DEPTH_FACTOR * wireDiameter;
   const radius = wireDiameter / 2 + GROOVE_SLACK;
   const c = radius - depth;
-  // Below GROOVE_LIP_ANGLE (70 degrees from the axis), the lower flank runs on as a straight chamfer to the surface.
+  // Below GROOVE_LIP_ANGLE_DEG (70 degrees from the axis), the lower flank runs on as a straight chamfer to the surface.
   const a = (70 * Math.PI) / 180;
   const lipX = c - radius * Math.cos(a);
   const down = lipX < 0 ? radius * Math.sin(a) - lipX / Math.tan(a) : Math.sqrt(radius * radius - c * c);

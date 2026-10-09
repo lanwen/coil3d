@@ -1,5 +1,4 @@
 src/core/capacity.ts
-src/core/constants.ts
 src/core/design.ts
 src/core/edgeChamfer.ts
 src/core/export.ts
@@ -24,7 +23,6 @@ src/core/solve.ts
 src/core/stl.ts
 src/core/threeMf.ts
 src/core/transform.ts
-src/core/types.ts
 src/core/wall.ts
 src/core/weld.ts
 src/core/wire.ts

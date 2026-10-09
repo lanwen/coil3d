@@ -22,6 +22,34 @@ coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
   rotated by 0 or 45 degrees away from vertical; the mount axis stays level
   at every setting. Sized for a common wood screw (head about 8 mm, shank
   about 4 mm). A tolerance-checked 2 mm of flange is kept around the cut.
+  - The pocket is 3 mm deep: a 1 mm slot level at the wall-facing surface, and
+    a 2 mm undercut behind it (a pan or truss head is about 2 mm high, so the
+    head is captured there and not wedged at the mouth of a shallow chamber).
+    The slot is 6 mm wide, midway between the 4 mm shank and the 8 mm head.
+    A single depth cannot work: an 8 mm head cannot pass a 4 mm channel to
+    reach the shank's rest point, 4 mm from the entry hole. The slot is nearest
+    the face that prints on the bed, so the void only widens as the print
+    rises. It needs no support and is a plain bridging pocket.
+  - 2 mm of roof stays above the pocket for the head to press against, so a
+    keyhole flange is at least 5 mm thick.
+  - The cut's widest reach is the head radius at either end (the undercut is
+    head wide, directly behind the narrow slot). So the flange's radial width
+    is the slot travel plus two head radii plus two edge margins, at whatever
+    angle the slot sits. Placement uses the shape's exact radius at that angle,
+    not its corner radius, which for a non-round shape could be so pessimistic
+    that the mount never fits.
+  - A flange over 90 mm across gets two slots, 25 degrees either side of the
+    axis, for a more stable hang. The axis may tilt up to 60 degrees from
+    vertical to land on a cheaper direction, such as a flat side's midpoint
+    instead of a sharp corner.
+  - The rotation is 0 or 45 degrees, never 90. At 90 the channel would run
+    horizontal once hung level, with no gravity along it (cos 90 = 0), so
+    nothing would stop the screw sliding. Even 60 degrees (cos = 0.5) is the
+    outer limit of tilt, so 90 would just clamp to 60.
+  - The mesh overlaps the slot and the undercut by 0.05 mm: with the two levels
+    meeting exactly on one plane, a fine flange-thickness sweep hit a stray
+    sliver at one thickness. Only manifold needs it; the exact kernel in STEP
+    uses an exact abutment.
 - **Through holes.** Plain round holes, constant radius, with no counterbore
   and no pad. The diameter is a setting (2.5 to 8 mm, 4.5 mm by default).
   Holes sit near the corners of a square or triangle flange and are evenly
@@ -40,6 +68,10 @@ coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
   pads. A square or triangle flange skips a corner hole that is blocked and
   warns, but only on a locked core size: with a free size the flange margin
   grows until every hole fits. This mount is permanent.
+  A round flange tries four holes, then three. A hole that does not clear the
+  channel or a pad moves outward in 0.25 mm steps. The screw head bears on the
+  flat top of the plate, so a hole sits 1 mm further from the rim than the
+  2 mm edge margin, past the rim's chamfer.
 
 ## SKÅDIS
 
@@ -81,6 +113,19 @@ for both geometry backends.
   - an outer jaw between the flange and the board (the 3 mm standoff), a
     bight round the rim, and a lip on the winding side that reaches 5 mm in
     from the notch floor.
+- **Dimensions.** The clip is 4.4 mm wide: the tightest 4.8 mm slot less 0.2 mm
+  a side. The stem (5 mm) and tongue (6 mm, so 11 mm together) pass the
+  tightest slot's 11.9 mm of full width. The tongue's retaining face sits
+  0.3 mm behind the thickest, 5.2 mm board. The notch in the rim is at least
+  1 mm deep, with a flat floor for the bight, and the rim crosses each notch's
+  side walls at least 15 degrees steeply, so no sliver of rim is left beside a
+  notch. The lip keeps 1 mm from the wound cable's outer surface.
+- **The latch's dimensions.** The arm is 1.6 mm thick and flexes into a 2.9 mm
+  slit, beside a 3 mm mast. From the tooth's centre to the arm's root it is
+  21 mm: long enough to keep the bending strain under 1.5 % (3 t d / 2 a²).
+  The tooth is 2.5 mm deep and 4 mm long. Seated, its top sits 1 mm below the
+  top of the slot's full-width part (tightest slot), which is the most the coil
+  can lift. 0.8 mm separates the stem's top from the arm's free end.
 - **Chamfers.** The clip's outer corners (the jaw and lip tips, the spine's
   top and the stem's back) are cut at 45°, 0.5 mm, so they are not sharp to
   handle. The hook faces, the latch, the jaw faces and the stem are as before.
@@ -159,7 +204,10 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
 
 - **The clip.** One flat "I" profile, 4 mm thick, printed lying on its face,
   so the clamp, the weight and the bars' bending run along the layers.
-  - A fin handle, 18 mm wide (see "Reaching the fins").
+  - A fin handle, 18 mm wide (see "Reaching the fins"): long enough to grip,
+    and to bear on the floor either side of its slot. It is at least 5 mm high
+    above its recess, and at most 60 mm (tall enough to pinch from the top of
+    a deep core).
   - A 2 x 4 mm stem with 0.5 mm chamfered corners: its diagonal (about
     4.1 mm) turns inside even a 4.8 mm slot.
   - A T bar, 12.2 x 3 mm. It passes the tightest slot's 12.65 mm of full
@@ -180,6 +228,9 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
     upright and at a quarter turn clockwise (seen from the room). Turned,
     the fin sits in the recess's across arm, whose upper edge rests on it:
     that carries the coil.
+  - The slot is the board's nominal 5 x 15 mm slot plus 0.1 mm all round, so
+    the T bar passes and the stem turns. A clip's axis keeps the recess's
+    sweep plus 1.5 mm from the bore's wall.
   - The slot is as wide as the recess's upright arm, so the two make one
     straight channel with no ledge. The recess's mouth, where the T bar goes
     in, has a 0.5 mm x 45° lead-in. Below it the walls stay vertical: they
@@ -249,6 +300,23 @@ is a flat panel inset 3 mm from the flange outline, printed back-face up, and
 glued to the flange's outer face on two printed alignment pegs (`peg-1`,
 `peg-2`: 3 mm chamfered octagons, printed lying on a flat, in matching blind
 holes 2.4 mm deep in each part). SKÅDIS used the same plate until issue #207.
+
+The plate prints back-face up and the core prints flange-down, so neither
+mating face can carry a protrusion without supports. Both get matching blind
+round holes instead, 2.4 mm deep (so the flange is at least that plus 1.5 mm
+of roof thick there), aligned on two separately printed pegs, then glued.
+
+- A peg is a low-poly prism: a 3 mm square with its corners cut 0.5 mm at 45
+  degrees, an octagon whose 8 corners lie on one 1.80 mm circle, with a 0.4 mm
+  45-degree lead-in on both ends. It is 4.5 mm long: both holes' depth less a
+  little, so the faces close.
+- It prints lying on one of its wide flats. The layers then run along the peg,
+  so the joint's shear load never splits a layer line, and every other face is
+  at 45 degrees or steeper, with no supports. The round hole grips the
+  octagon's corners, so the peg goes in at any rotation.
+- The plate keeps at most 4 clip positions each side of the centre per axis, so
+  an oversized flange does not grow an absurd count, and it warns when fewer
+  than 2 clip columns fit.
 
 - Grid pitch: 28 x 28 mm (`OPENGRID_PITCH`). This is stated in the
   [openGrid docs](https://github.com/openGrid-3D/openGrid-docs) (`board.mdx`):
