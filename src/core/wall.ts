@@ -11,7 +11,7 @@
 
 import { FACE_HOLE_CORNER_MIN, GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
 import { chamferedRim } from "./edgeChamfer";
-import { arcLengthFractionAt, evalOutline, outlineColumnParams, outlineOffsetAt, paramAt, pointAt, polygonVertex } from "./shapes";
+import { arcLengthFractionAt, evalOutline, outlineColumnParams, outlineOffsetAt, paramAt, pointAlong, pointAt, polygonVertex } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
@@ -77,13 +77,13 @@ export interface WallRings {
   topThickness?: number;
 }
 
-export function ringHolePoint(boreOutline: ShapeOutline, t: number, width: number): { x: number; y: number } {
+export function ringHolePoint(boreOutline: ShapeOutline, outline: ShapeOutline, t: number, width: number): { x: number; y: number } {
   if (boreOutline.cornerRadius === boreOutline.apothem) {
     const p = pointAt(boreOutline, t, 0);
     const scale = (boreOutline.apothem - width) / boreOutline.apothem;
     return { x: p.x * scale, y: p.y * scale };
   }
-  const param = paramAt(boreOutline, 0, t);
+  const param = paramAt(outline, 0, t);
   const rounded = boreOutline.cornerRadius - width >= FACE_HOLE_CORNER_MIN;
   const sharp = { n: boreOutline.n, apothem: boreOutline.apothem - width, cornerRadius: 0 };
   const corner = param.seg >> 1;
@@ -422,9 +422,9 @@ export function buildWall(spec: WallSpec): CoilMesh {
 
   const { rings } = spec;
   const profileOf = (t: number): Array<[number, number, number]> => {
-    const b = pointAt(boreOutline, t, 0);
+    const b = pointAlong(boreOutline, outline, t, 0);
     if (!rings) return [[b.x, b.y, 0], [b.x, b.y, height]];
-    const h = ringHolePoint(boreOutline, t, rings.width);
+    const h = ringHolePoint(boreOutline, outline, t, rings.width);
     const bottom = rings.bottomThickness;
     const floor: Array<[number, number, number]> = rings.bottomRing ? [[h.x, h.y, 0], [h.x, h.y, bottom], [b.x, b.y, bottom]] : [[b.x, b.y, 0]];
     if (rings.topThickness === undefined) return [...floor, [b.x, b.y, height]];
@@ -505,7 +505,7 @@ export function buildOutlineRing(outerOutline: ShapeOutline, outerOffset: number
       const o = pointAt(outerOutline, t, row.offset);
       outer[r].push(push(o.x, o.y, row.z));
     });
-    const inner = pointAt(innerOutline, t, 0);
+    const inner = pointAlong(innerOutline, outerOutline, t, 0);
     innerBottom.push(push(inner.x, inner.y, zLo));
     innerTop.push(push(inner.x, inner.y, zHi));
   }
