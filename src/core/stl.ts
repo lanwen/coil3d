@@ -1,19 +1,21 @@
-// Binary STL writer. Format: 80-byte header, u32 triangle count, then per
-// triangle: 3x f32 normal, 3x (3x f32 vertex), u16 attribute byte count.
-
 import type { CoilMesh } from "./types";
+
+const STL_HEADER_BYTES = 80;
+const STL_TRIANGLE_COUNT_BYTES = 4;
+const STL_TRIANGLES_OFFSET = STL_HEADER_BYTES + STL_TRIANGLE_COUNT_BYTES;
+const STL_TRIANGLE_BYTES = 50;
 
 export function writeBinaryStl(mesh: CoilMesh, name = "coil3d"): Uint8Array<ArrayBuffer> {
   const { positions: v, indices: t } = mesh;
   const triCount = t.length / 3;
-  const buf = new ArrayBuffer(84 + triCount * 50);
+  const buf = new ArrayBuffer(STL_TRIANGLES_OFFSET + triCount * STL_TRIANGLE_BYTES);
   const dv = new DataView(buf);
 
-  const header = new TextEncoder().encode(name.padEnd(80, "\0").slice(0, 80));
-  new Uint8Array(buf, 0, 80).set(header);
-  dv.setUint32(80, triCount, true);
+  const header = new TextEncoder().encode(name.padEnd(STL_HEADER_BYTES, "\0").slice(0, STL_HEADER_BYTES));
+  new Uint8Array(buf, 0, STL_HEADER_BYTES).set(header);
+  dv.setUint32(STL_HEADER_BYTES, triCount, true);
 
-  let off = 84;
+  let off = STL_TRIANGLES_OFFSET;
   for (let i = 0; i < t.length; i += 3) {
     const a = t[i] * 3;
     const b = t[i + 1] * 3;
@@ -55,7 +57,7 @@ export function writeBinaryStl(mesh: CoilMesh, name = "coil3d"): Uint8Array<Arra
     dv.setFloat32(off + 40, cy, true);
     dv.setFloat32(off + 44, cz, true);
     dv.setUint16(off + 48, 0, true);
-    off += 50;
+    off += STL_TRIANGLE_BYTES;
   }
 
   return new Uint8Array(buf);

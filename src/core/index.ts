@@ -1,21 +1,3 @@
-// The headless coil core. This is the ONLY module the UI and renderer may
-// import from -- its public interface is exactly parseHash/toHash,
-// design(spec, resolution?) and exportDesign(design, fmt). No React, no
-// three.js.
-//
-// design() itself never touches a Worker or the DOM -- it's plain,
-// synchronous-under-the-hood business logic wrapped in a Promise. Running it
-// off the main thread is an orchestration-layer concern (issue #7,
-// src/geometry/), not this module's: the UI decides when to call it in a
-// Worker and at which `resolution` ("draft" while editing, "final" once
-// input settles and always for exports).
-//
-// exportDesign is async: "stl" resolves immediately, but "step" lazy-loads
-// replicad (OpenCascade WASM), in a Web Worker in the browser (see
-// core/step/index.ts), and only rejects/throws after failed validation.
-// Supporting types and presets are exported too, so the UI can construct a
-// well-typed CoilSpec; they carry no behaviour of their own.
-
 export type {
   BaseMode,
   CoilMesh,
@@ -69,11 +51,6 @@ export {
 } from "./constants";
 export { SHAPES } from "./shapes";
 export type { ShapePlugin } from "./shapes";
-// Issue #78: the print-layout view needs the EXACT per-part bed transform
-// the 3MF writer places, so the two can never independently drift (see
-// plate.ts's own doc comment) -- exported here rather than reimplemented in
-// the viewer, unlike the trivial rotate+translate application of one such
-// transform (src/guide/printOrientation.ts, src/viewer/printLayoutScene.ts).
 export { printPlacements } from "./plate";
 export type { PartPlacement } from "./plate";
 export { parseHash, toHash, DEFAULT_SPEC, DEFAULT_SHOW_WIRE } from "./hash";

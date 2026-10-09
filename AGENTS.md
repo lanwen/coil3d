@@ -30,10 +30,6 @@ STEP pitfalls in `docs/step-notes.md`.
 - `test/` and `e2e/` may keep short comments explaining why a fixture or
   threshold exists.
 - `scripts/check-no-comments.mjs` enforces this and runs in `pnpm build`.
-  `scripts/comment-allowlist.txt` lists the files that still have comments. It
-  is temporary and only shrinks: when you edit a function in a listed file,
-  remove its comments, and delete a file from the list once it has none (the
-  checker fails on a listed file with no comments). New files are never listed.
 
 ## Commands
 

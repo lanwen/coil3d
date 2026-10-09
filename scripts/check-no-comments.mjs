@@ -1,11 +1,10 @@
-import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const srcDir = join(root, 'src')
-const allowlistPath = join(root, 'scripts', 'comment-allowlist.txt')
 const allowedDirectives = [
   '// @ts-expect-error',
   '/// <reference',
@@ -53,37 +52,12 @@ export function findComments(fileName, text) {
   return found
 }
 
-function readAllowlist() {
-  if (!existsSync(allowlistPath)) return []
-  return readFileSync(allowlistPath, 'utf8')
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-}
-
 function main() {
-  const allowlist = readAllowlist()
-  const allowed = new Set(allowlist)
   const problems = []
   const files = listSources(srcDir).map((path) => relative(root, path).split('\\').join('/')).sort()
-  const checked = new Set(files)
 
-  if (allowlist.some((path, i) => i > 0 && allowlist[i - 1] >= path)) {
-    problems.push('scripts/comment-allowlist.txt must be sorted, without duplicates')
-  }
-  for (const path of allowlist) {
-    if (!checked.has(path)) problems.push(`${path}: allowlisted but does not exist; remove it from the allowlist`)
-  }
-
-  let skipped = 0
   for (const file of files) {
-    const comments = findComments(file, readFileSync(join(root, file), 'utf8'))
-    if (allowed.has(file)) {
-      skipped++
-      if (comments.length === 0) problems.push(`${file}: allowlisted but has no comments; remove it from the allowlist`)
-      continue
-    }
-    for (const { line, col, text } of comments) {
+    for (const { line, col, text } of findComments(file, readFileSync(join(root, file), 'utf8'))) {
       const preview = text.replace(/\s+/g, ' ').slice(0, previewLength)
       problems.push(`${file}:${line}:${col}  ${preview}`)
     }
@@ -95,7 +69,7 @@ function main() {
     process.exitCode = 1
     return
   }
-  console.log(`OK (${files.length} files checked, ${skipped} on allowlist)`)
+  console.log(`OK (${files.length} files checked)`)
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) main()
