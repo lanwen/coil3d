@@ -117,6 +117,15 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   layer count and the cap on, its run on at the last layer's own offset under
   the cap, at least 0.3 mm clear of the wall (a single layer sits half in the
   groove, which has faded out at the top). Only the free ends leave the plate.
+- **Channel blocker.** The inner-end channel's bore is as wide as the cable
+  needs and can exceed the wall's thickness for a heavy cord, and near the
+  groove start the cable is still in the groove. The cutter is therefore
+  clipped against the wall's outline offset by `INNER_CHANNEL_WALL_GUARD`
+  (not offset 0, which would risk a coincident seam). Without the clip a wide
+  bore reaches through the wall into the core's bore and wires the outside to
+  it a second way: an 8 mm cable on a 60 mm round core gave the bore a genus
+  of 2. The STEP backend uses the same offset on its blocker, where a
+  coincident seam is an invalid solid, not just a sliver.
 
 ### Bare core and its face channels (#254)
 
@@ -253,6 +262,12 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
   plate keeps a 1 mm vertical land. The through-hole mount keeps its holes
   1 mm further from the rim, so the screw head sits on the flat top. The
   exports keep the chamfer; the drawings leave it out (see Rendering).
+  The rim is described once, as rows of (offset from the core's outline, z), and
+  both backends turn the rows into surfaces. Where the flange is thinner than
+  its pads, a 45 degree frustum under the plate's top face keeps the chamfer
+  there: the mesh intersects the flange with it, STEP subtracts it from a slab
+  above the face. The slab starts below the chamfer's foot and the pads'
+  lowest level, so its bottom face lies on neither.
 - The flange is a thin plate (`FLANGE_PLATE_THICKNESS`, 3 mm) with its
   winding-side face flat. It is thicker only on pads under the wall, the
   inner-end channel and each mount cut (`flangePads.ts`).
@@ -275,6 +290,44 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
   - The keyhole pocket and the channel recess each need plate beside them
     (2 mm of roof, 1.5 mm of shelf). They sit on separate pads, so those only
     stack if the two footprints overlap.
+  - The outer (wall-facing) face stays flat: it is the face the part prints
+    on, the face every wall mount sits against, the face the SKÅDIS clips'
+    outer jaws rest on and the face the openGrid plate is glued to. So the
+    plate is the lowest 3 mm and the pads grow upward from its top to the
+    winding face at z = 0, where they print with no overhang and the channel
+    stays flush with the face. Every pad has a 45 degree chamfer down to the
+    plate. The wound cable only reaches the face on the collar and on the
+    channel pad, so the thinner plate changes nothing for the winding.
+  - Pads exist for the collar under the wall, the channel (with its clip, out
+    to the rim), the keyhole slot and each openGrid pin hole. The through-hole
+    mount and the SKÅDIS rim clips get none: a plain hole needs no relief, and
+    the clips' jaws grip the plain plate (their notches are cut through it).
+  - The backends subtract a "relief" (the slab above the plate top, minus the
+    pads) from the full-thickness flange ring before fusing the wall. Each
+    pad is a swept solid, so both backends build it from the same rings.
+  - On a big core the collar gets more columns, so the facets' chords stay
+    well inside the depth the channel pad's fillet dips into it. Where the
+    two came within a hair of each other, the booleans left a sliver folded
+    back over itself (#219).
+  - The channel pad follows the cable's lead-in as a coarse polyline with
+    mitred cross-sections. It blends into the collar on both sides, and every
+    level of the chamfer is the same curve offset by the chamfer, so nothing
+    overhangs. On the wall side a fillet fills the V where the pad's edge
+    leaves the collar: in plan a circle of the blend radius that dips 0.15 mm
+    into both edges (it crosses them at a hair of an angle, which no boolean
+    dislikes), and lower down the same circle shrinks as much as the edges
+    grow, so the fillet's face is a 45 degree cone. On the other side the pad
+    runs on along the wall as a tail, its outer edge easing down in a cubic
+    (matching value and slope at the pad, flat at the end) to just inside the
+    collar's edge. The tail's length keeps its concave end near the blend
+    radius (a cubic dropping D over T bends at about T^2 / 6D), and it ends
+    twice the dip inside the collar, so it crosses the collar's edge once,
+    never grazing along it where the collar's sampled polygon would cut it
+    into slivers.
+  - The through-hole layout keeps each hole clear of every pad's footprint
+    (collar, channel pad with fillet and tail), so each screw head sits on the
+    plain plate. The design and both backends call one function, so they cut
+    the same holes.
 - The label's ink must be at least 5 mm high, or it is hidden with a warning.
   Text with short ink for its font size (lowercase without ascenders, a lone
   "-") cannot reach that under the largest font size, so it is fitted at that
@@ -286,6 +339,23 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
   the pocket never breaks through to the collar side), flattens each glyph
   curve into 6 segments, and takes at most 40 characters: generous for one
   line, and short enough to keep the hash short.
+- The cap's through-hole runs straight through the plate and collar, so in the
+  cap's print orientation (face down) its walls rise from the bed with
+  nothing spanning them. The plate is solid under the collar, never a blind
+  pocket whose floor would print as a bridge.
+- Needle-thin triangles that the booleans leave (in flat faces, and where
+  curved surfaces cross on the collar and the plate rim) draw as dotted
+  lines. They are cleaned up after the build (`improveFlatFaces`,
+  `weldShortEdges`). Welding drops triangles, so the label's pocket
+  triangles are carried over through the weld's origin map, and edge flips
+  stay inside one flat face so the label's triangles stay the label's.
+- The label is cut as one `CrossSection` with the NonZero fill rule, which
+  turns a letter's outer and inner contour ("O") into a ring without any
+  separate hole bookkeeping. It is extruded from 1 mm above the cap's top
+  face down by `LABEL_DEPTH`. The cutter carries its own original ID so the
+  pocket's faces can be found in the result.
+- The rim's chamfer triangles are recorded on the mesh so the viewer can leave
+  them out of the drawing.
 - The default bed is 256 mm each way (`DEFAULT_BED_SIZE`: a Bambu X1C or P1S,
   a Prusa MK4). Most FDM printers this project targets are at or below it. The
   setting runs from 50 to 1000 mm, and the 3MF plate keeps 5 mm between parts.
@@ -318,6 +388,17 @@ defect.
   or snap features into a 3 mm wall without breaking through, so it gets the
   press collar.
 
+The collar's outline follows the bore's true shape, not a circle at the flat
+sides: it is the bore outline moved inward until its apothem equals the collar
+radius, so the gap to the wall is the same on the flats and at the corners (a
+circle sized at the flats leaves a large, uneven gap at a non-round bore's
+corners). Its corner radius is floored a hairline above 0 so an inward offset
+never inverts it. Every collar runs straight up into the plate by
+`WELD_OVERLAP`. The cap's centre hole is the collar outline moved inward by the
+collar wall and runs through the collar and the plate, so the collar is a tube
+and nothing prints as a bridge over a hollow; a collar whose hole would be
+under 1 mm across stays a plug.
+
 ## Shapes
 
 The capacity math needs convex outlines. Every shape is a regular n-gon with
@@ -347,6 +428,36 @@ corner radius, before the bend limit clamps it.
 For the same size, a triangle's corners reach further out than a square's,
 so its flange is larger. The footprint is the true offset outline, not a
 bounding circle across a sharp corner.
+
+- **Round is exact.** A bore whose outline is round stays a circle: the two
+  floors above can bite differently on a tiny core, and without this rule the
+  bore would turn very slightly square. Round's `t = 0` also sits at angle 0
+  (`pointAt` has a closed form for it). The general path starts `t = 0` at the
+  start of corner 0's arc, which would turn round's groove and seam by 45
+  degrees against the committed round designs.
+- **Exact radius at an angle.** `radiusAtAngle` gives the true
+  centre-to-boundary distance at one angle, for placing a keyhole slot tightly.
+  The cut-off between a corner arc and a flat side is the angle, seen from the
+  centre, of the arc's tangent point with the side. An earlier cut-off (the
+  half-angle of the cone in which a ray meets the arc's full circle) grew past
+  that angle as the corner radius grew, and returned the arc's smaller distance
+  for points that lie on the flat side: 24.6 mm instead of 35.7 mm for a
+  rounded square with apothem 31.45, corner radius 14.44, offset 4.2, at its
+  45-degree flat midpoint.
+- **Columns follow the corners.** A column split by arc length alone gave a 60
+  mm rounded square with an 8 mm corner radius about 5 of 96 columns per
+  corner, which looked faceted. `outlineColumnParams` gives every corner at
+  least `minCornerSegments` columns (scaled to the corner's sweep, so a
+  triangle's 120-degree corners get more than a square's 90-degree ones) and
+  splits the rest over the straight sides. The count can exceed the requested
+  one. A sharp corner gets exactly one column. Round, and any outline with no
+  straight side, keeps the plain even split.
+- **Helix phase.** A corner arc's length changes with the offset, a straight
+  side's does not. So a helix phased by the arc-length fraction at offset 0
+  runs about 6.5 % steeper where it crosses a corner of the groove floor, and
+  consecutive rings bunch up there. `arcLengthFractionAt` re-derives the
+  fraction at the floor's own offset, and the wall profile phases the helix
+  with it.
 
 ## Capacity math
 
@@ -456,6 +567,13 @@ candidates; it can't buy proportions with extra capacity.
 On the flat sides of a non-round core a stiff cable bows outward instead of
 lying flat. The app does not model this.
 
+`resolveFlangeSizing` and `resolveBoreOutline` (`flange.ts`) are closed-form,
+with no meshing, so `design()` and the solver's search share them and the
+solver can call them for every candidate. They are what keeps the solver's
+flange margin, thickness and overall height equal to what gets built, including
+the cap. The bore is the wall outline moved inward by the wall thickness;
+`reduced` tells `design()` to warn that the core is too small for a wall.
+
 ## Geometry
 
 ### Mesh backend
@@ -488,6 +606,9 @@ features: flange, joints, clips, mounts and label.
   too: there the surface sits at offset 0 whatever the groove's depth. That
   band's top is the land's middle under the next turn, which follows the
   helix, so the level run-in's band stops below the full turn's crest.
+  The fade and rim triangles recorded on the mesh (`CoilMesh.fadeTriangles`,
+  `rimTriangles`) are found by position in the finished mesh, since the booleans
+  and the clean-up passes do not track faces.
 - **Bore columns.** The wall's top and bottom faces and the flange ring are
   strips between the outer outline and the bore, one column of each per
   parameter. The bore's point is the one across from the outer's: the same
@@ -496,6 +617,10 @@ features: flange, joints, clips, mounts and label.
   cable's wall is as thick as the corner radius, so the bore's arc is much
   shorter than the outer one, the points drift millimetres apart, and the
   strips twist over each other at the corners into sheets of no thickness.
+  The flange ring uses the same pairing (`buildOutlineRing`): a round
+  outline's corner parameter starts 45 degrees round from its `t`, which paired
+  each outer column with an inner one 45 degrees away, and on a narrow annulus
+  the twisted strips folded back over each other.
 - **Resolution.** `draft` is coarse and is shown on the first load, and later
   only if a build is slow. `final` is used for the settled view and for every
   export. Both use the same code path, so they cannot drift apart. The
@@ -530,6 +655,30 @@ features: flange, joints, clips, mounts and label.
   surfaces at the same nominal radius need a real volume of overlap, 1 mm
   (`WELD_OVERLAP`), or the union leaves degenerate slivers. A cut shape that is open to an edge
   must be an outer-contour detour, not a hole.
+- **Blind pockets.** A blind cut (the keyhole recess) pokes `WELD_OVERLAP` out
+  of its mouth, so its mouth never shares a face with the flange's outer
+  face. An exactly coincident seam there once left the cutter behind as a
+  disconnected, inverted copy instead of cutting. The same fragility hit the
+  union of the keyhole's two depth levels at one flange thickness in a fine
+  thickness sweep, so `SCREW_MOUNT_LEVEL_OVERLAP` grows the slot level a
+  hairline past the seam. The recess's total depth does not change.
+- **Through-cuts** poke `WELD_OVERLAP` past both faces. A through-hole's
+  countersink cone is carried 0.5 mm down into the bore so its edge never
+  lies on the bore's surface.
+- **Cap collar and snap collar.** The straight prism of the snap collar runs
+  halfway up into its flare, so the two share no face: flush at the foot, the
+  union left zero-width slits along a straight side that came off the cap as
+  separate pieces at some column counts. Hulls use only the outline's corner
+  points: many points in one side's plane folded sheets of no thickness into
+  that face. The cap's collar is a straight tube run `WELD_OVERLAP` up into
+  the plate, so it never flares out to the bore and the seated cap does not
+  run into the core's rim.
+- **Collar columns.** A round collar's wall gets 2.5 degree facets
+  (`collarSegments.round`, 144): the line art draws a facet seam seen
+  almost edge-on beside the wall's outline as a depth step, 7.5 degree facets
+  left dotted vertical lines, and facets under about 3 degrees put every seam
+  in the outline. Other shapes keep 48: their corner arcs get their own
+  columns, and more only adds triangles on the flats.
 - **No COOP/COEP headers.** The host may not set them, so there is no
   `SharedArrayBuffer` and no threaded WASM. All WASM builds are
   single-threaded.
@@ -565,6 +714,13 @@ profile, the joint geometry, the label outlines, the mount and clip layouts).
 Each STEP builder in `src/core/step/build.ts` mirrors its mesh twin in
 `manifold.ts` primitive for primitive, with the same constants. Each STEP solid
 is checked against the part's mesh volume (see Export).
+
+Every bayonet and snap feature comes from one layout in `joints.ts`
+(`jointGeometry`, `bayonetLayout`, `snapLayout`) that both backends read. A
+joint the core cannot take (a bayonet on a non-round core, or a core too small)
+falls back to the press collar through `resolveCapJoint`, which `design()` and
+the STEP export both call, so both build the same joint and the warning is the
+same.
 
 ### Snap joint
 
@@ -609,6 +765,29 @@ cantilever strip, so compare them with each other, not with a force gauge.
 - **Finger wall.** 1.2 mm, three 0.4 mm extrusion widths. It is thinner than
   the press collar's 2 mm, so the cap's inner step is smaller and the fingers
   bend more easily. The relief slots between fingers are 2 mm wide.
+- **Lead-in angle.** The barb's lead-in face is `SNAP_LEAD_IN_ANGLE_DEG` from
+  the axis (30 degrees); its back face toward the plate is 45 degrees. Both
+  faces start `BARB_EMBED` (0.2 mm) inside the finger so they weld in instead
+  of meeting its surface at a tangent.
+- **Root flare.** The fingers' root flare reaches out as far as the barbs, so
+  it clears the bore by the same gap. It lies inside the core's relief.
+- **Rings.** The core-side ridge and seat follow the bore's shape, so they stay
+  parallel to the collar at every angle. Each is a lip welded into the wall,
+  with its relief cut from the lip on its own, never from the wall. The
+  relief's chamfers run out past the bore by `WELD_OVERLAP`, and the lip is
+  welded `WELD_OVERLAP / 2` into the wall (less, where the wall behind the
+  cable groove's floor is thin: never more than halfway through it). So a ring
+  meets the bore at 45 degrees instead of nearly tangent to it, which boolean
+  CSG handles poorly. A chamfer's rise is the widest horizontal step, at the
+  corners when an outline's corner radius is floored, so none is steeper than
+  45 degrees. The ridge sits `preload` lower than the barb's engagement point,
+  at most half the engagement.
+- **Rings take the wall's columns.** A lip with its own, finer facets poked out
+  through a coarse (draft) wall's chords behind the groove.
+- **No flush faces.** The prism of the collar's base runs halfway up into its
+  flare, so the two share no face: where they met flush at the flare's foot,
+  the union left zero-width slits along the straight sides that came off the
+  cap as separate pieces at some column counts.
 
 ### Bayonet joint
 
@@ -628,6 +807,18 @@ clockwise (seen from above) by 60 degrees to a hard stop.
   shrinks to keep it) and at least 1.5 mm between one groove's end stop and the
   next entry slot. With less land the cap gets the press fit.
 
+The lugs stand in the core's bore and the L-slots are cut into the cap's
+collar, not the other way round: the core's wall carries the cable groove,
+which runs up to about 2 mm under the rim, so cutting into the wall there would
+leave too little of it. The collar is solid plastic all round, and its centre
+hole is sized so `BAYONET_MIN_WALL` always stays behind the groove. Both parts
+print without overhangs: a lug has a 45-degree underside back to the wall (the
+core prints upright), and the cap's groove is the lug grown by the sliding gap,
+so in the cap's print orientation its ceiling is 45 degrees too. The slot is
+straight up from the collar's tip to the groove's top, as wide as the lug plus
+the gap on each side. Each groove runs from its slot to just past its lug,
+where its end face is the stop.
+
 ## Export
 
 | Format | How |
@@ -635,6 +826,14 @@ clockwise (seen from above) by 60 degrees to a hard stop.
 | STL | Binary STL. One file for a single part, a zip of STL files for several. Each part is in its print orientation, resting on the bed. |
 | 3MF | A hand-written core-spec writer on a small zip writer. One `<object>` and one `<build><item transform>` per part, laid out on the plate. Names and units are set. No colours: Bambu, Orca and PrusaSlicer ignore `basematerials` and read only a vendor `paint_color` attribute. It is not tested in a slicer in this repo. |
 | STEP | One file, one solid per part. The OpenCascade WASM is loaded lazily in a worker when the user asks for STEP. |
+
+`bedRestingTransform` corrects a part's `printTransform` so its lowest point
+lands exactly on z = 0. The transform only orients a part. It happens to rest
+the cap on the bed (its flip cancels the height), but not the core: the core's
+flange lies below the wall's z = 0, and its transform is the identity. The STL
+and the 3MF both place parts through it, and the 3MF and the viewer's print
+layout both use `printPlacements`, so a part sits in the same place in the
+export and on screen.
 
 ### STEP
 
@@ -740,6 +939,34 @@ plane (up to 0.01 mm) may not turn either new triangle more than a degree away
 from the plane: on the cap's 45 degree rim chamfer a flip beside the cable slot
 made a sliver 0.1 mm wide that leaned 46.6 degrees, past what a printer holds
 without support (#279).
+
+The edge cut comes first because a flip can only choose among the vertices a
+face already has, and a fan's spokes are one long edge each, with no vertex to
+flip to. Measured on the round cap in the print layout (27 views at 2x pixel
+density), stray dots were 107 with no pass, 24 with flips alone, 21 at a 25 mm
+edge cut, 8 at 15 mm, 2 at 10 mm, 5 at 6 mm, 10 at 3 mm and 1 at 2 mm. Below
+10 mm the count is noise, but the triangles are not (the cap has 9.3k at
+10 mm, 30k at 2 mm). A flip needs two triangles in one plane within 0.01 mm:
+the seams where a curved collar wall is cut by another curved surface sit
+0.005 mm off, and neighbouring facets of the collar wall (0.3 mm wide, 0.77
+degrees apart) sit 0.004 mm off. The planes are any, not only horizontal: such
+a seam leaves a strip of micro-triangles whose normals point 45 degrees away
+from the wall's, and the shader draws a dot where one lands on a pixel. A flip
+never moves a vertex, so the surface changes by at most that tolerance. Rules
+for a flip:
+
+- Only pairs with a triangle under 2 degrees are worth it. The collar's wall is
+  a skin of columns 0.06 mm wide (3 degrees at best), and thousands of flips
+  for nothing would follow otherwise.
+- The quad must be strictly convex and both old triangles must have area. A
+  flip across a corner a hair reflex leaves an inverted triangle that can cut
+  the part into pieces (the bayonet cap, #201), and across three points on a
+  line it reorders a zero-width slit that manifold-3d can then cut off (#208).
+- Triangles at coincident vertices, and the ends of an edge where the surface
+  folds back onto itself, stay as they are, for the same reason.
+- The new edge is at least the weld's limit long and does not exist already.
+- The pass uses typed arrays: it runs on every design, and the garbage of a
+  plain-array version showed in the memory test.
 
 Before that, `src/core/weld.ts` collapses every edge under 0.02 mm. A collapse
 that fails the link condition because a vertex across the edge has only three

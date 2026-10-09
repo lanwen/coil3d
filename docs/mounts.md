@@ -129,6 +129,28 @@ for both geometry backends.
 - **Chamfers.** The clip's outer corners (the jaw and lip tips, the spine's
   top and the stem's back) are cut at 45°, 0.5 mm, so they are not sharp to
   handle. The hook faces, the latch, the jaw faces and the stem are as before.
+- **Frame and seat.** Like the keyhole layout, "up" and "side" follow the
+  chosen axis. Every clip is one closed profile in the (up, z) plane, extruded
+  4.4 mm along side. "Seated" means each stem rests on the bottom of a nominal
+  5 x 15 mm slot, on its lower corners at the rounded end.
+- **The lips and the pads.** The lips lie on the plate, below the winding face.
+  There the pad under the wall has flared at 45 degrees to the collar's
+  2.5 mm plus the plate's depth below the face, and at the lip's underside (a
+  tolerance above the plate) that is a tolerance less. The lip keeps 0.5 mm
+  from that flare, and 0.05 mm from the channel pad's footprint (its widest,
+  half a millimetre inside the plate). With a plain flange there is no pad
+  and no flare.
+- **Clean-up.** A point closer than the weld's limit to the one before it is
+  dropped from a profile (a jaw's end and the stem's top fell 0.01 mm apart,
+  and both backends built an edge that short, #219). A chamfer skips a corner
+  whose neighbouring edge is too short to give up the chamfer's length (twice
+  that, if the corner at its other end is cut too).
+- **Fallbacks.** The default columns come first. When the inner-end channel is
+  in the way, the layout tries other columns, a top pair over one bottom clip,
+  or one clip above the other. Three or more clips if any arrangement allows
+  it; two in one column only as the last resort. The required flange margin is
+  found by bisection over the real layout, with a hairline added so the later,
+  independent recomputation never falls a few ULPs short.
 - **Print orientation.** Each clip prints lying on its flat face, so the
   weight, a pull and the tongue's bending all run along the layers. It has
   no overhangs or bridges. The old plate's clip legs were printed upright
@@ -220,6 +242,14 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
     under the recess plus 5.2 mm. That is tight on a painted 5.23 mm board,
     and leaves about 0.4 mm of play on an unpainted 4.82 mm one. There is
     one clamp length.
+- **Construction.** A clip is a fin, a stem and a T bar, each a convex prism with
+  its faces' edges chamfered. The mesh backend builds each as the hull of its
+  four levels and the STEP backend as a loft through them: the same solid. The
+  stem runs 0.5 mm into the fin and the bar so the pieces overlap. The slot
+  and recess cutters are two convex pieces each (a hull of both would bulge
+  over the lead-in's inner corner): the straight prism, then the 45 degree
+  mouth. The recess is a bow tie: the upright and across bars plus the two
+  quarter sectors their far corners sweep when the fin turns clockwise.
 - **The floor.** The bore's bottom is filled from the flange's wall face up
   to its winding face (at least 5 mm thick), one solid with the core and
   printed on the bed.
@@ -253,6 +283,13 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
 
   For 2 m of 3.8 mm cable: round 40-50 mm gets 1 clip, 60 mm gets 2, and
   70 mm and up gets 3; square 60 mm gets 2; triangle 50 mm gets 1.
+- **Seating.** Seated, the clip's axis sits below the slot's centre by the
+  turned stem's lowest points resting on the slot's rounded bottom.
+- **Search.** For 3 clips the top clip goes at column 0 as high as it can, the
+  pair below it at columns ±20 or ±40 (on the same 40 mm grid) as low as they
+  can; the arrangement with the widest spread wins, ties go to the one centred
+  on the bore. Pairs: one above the other, side by side, diagonal. A single
+  clip sits as high as it goes, so the coil hangs below it like a pendulum.
 - **Reaching the fins.** You reach through the core (and the cap's hole) and
   pinch the fin's top.
   - A fin rises to 1 mm below the wall's top (with a cap, below the cap's
@@ -317,6 +354,37 @@ of roof thick there), aligned on two separately printed pegs, then glued.
 - The plate keeps at most 4 clip positions each side of the centre per axis, so
   an oversized flange does not grow an absurd count, and it warns when fewer
   than 2 clip columns fit.
+
+- The clip mount plate is a separate part: a flat panel of the layout's
+  outline with no bore, in the assembly frame at z = -(flange thickness +
+  `MOUNT_PLATE_THICKNESS`) to -flange thickness, its front face flush against
+  the flange's outer face. Nothing protrudes from the front face (the plate
+  prints on it); a blind peg hole goes into the plate from it and a matching
+  one into the flange from its outer face. Each placeholder connector is built
+  in a canonical local frame (up = +X, side = +Y, reach = -Z) and rotated
+  by the layout's single axis angle, and its base is embedded by
+  `MOUNT_PLATE_EMBED` because a coincident base face unions unreliably.
+  Each peg hole's mouth pokes `MOUNT_PLATE_EMBED` out past its face.
+
+- **Pegs and holes.** The peg is an octagon (a square with its corners cut).
+  The hole is the same polygon offset outward by half the tolerance along every
+  edge, so the clearance is the tolerance on every flat and corner cut. A round
+  hole's clearance ballooned at the flats while it pinched the peg at its
+  corners (#143). The flats face ±X and ±Y so the peg lies on a wide flat in its
+  print pose. The hole's circular bound (its farthest corner) is what the pads
+  use, so the pad covers the whole octagon and not just its flats.
+- **Layout.** The board repeats its pattern, so only the vector between two
+  clips must be a lattice vector: the plate is centred on its own origin and
+  slid along the board until the holes line up. Candidate positions are
+  checked in the rotated up/side frame against the true outline, never against
+  an axis-aligned box. A row away from the centre needs the outline's actual
+  crossing at that height, which the single-ray radius of the keyhole layout
+  does not give. Each peg hole sits at the middle of its own side's annulus
+  (a triangle is much shorter from the centre to a flat than to the opposite
+  corner), on the side axis, or on the up axis if the channel is in the way.
+  The flange margin grows by bisection over the real clip count, because a
+  clip's footprint also extends along "up", where that single-ray radius is
+  not exact.
 
 - Grid pitch: 28 x 28 mm (`OPENGRID_PITCH`). This is stated in the
   [openGrid docs](https://github.com/openGrid-3D/openGrid-docs) (`board.mdx`):
