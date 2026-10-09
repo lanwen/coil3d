@@ -29,15 +29,18 @@
 
 import { computeCapacity, envelopeDiameter } from "./capacity";
 import type { CapacityResult } from "./capacity";
-import { faceEndsLength, minFaceChannelHeight, minFaceChannelOuterSize } from "./faceChannel";
+import { faceEndsLength, minFaceChannelHeight, minFaceChannelOuterSize, planFaceChannels } from "./faceChannel";
 import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
+import { jointGeometry, resolveCapJoint } from "./joints";
 import { isHeavyCable } from "./skadisClips";
+import { layoutSkadisTclips } from "./skadisTclips";
 import {
   CENTRE_CONNECTOR_PASSAGE,
   FLANGE_MARGIN,
   HEIGHT_HI,
   LAYERS_HI,
   MAX_WIRE_LENGTH,
+  MIN_FLANGE_THICKNESS_FOR_TCLIP,
   MIN_TURNS_PER_LAYER,
   SHAPE_ROUNDING_EPS,
   SIZE_HI,
@@ -291,6 +294,73 @@ function centreFloors(spec: CoilSpec): { size: number; height: number } {
   };
 }
 
+interface FitFloors {
+  size: number;
+  jointSize: number;
+  height: number;
+  sizeFor?: string;
+  heightFor?: string;
+}
+
+const NO_FIT_FLOORS: FitFloors = { size: 0, jointSize: 0, height: 0 };
+
+function smallestThat(fits: (value: number) => boolean, lo: number, hi: number): number | undefined {
+  if (fits(lo)) return lo;
+  if (!fits(hi)) return undefined;
+  let tooSmall = lo;
+  let works = hi;
+  for (let i = 0; i < 40; i++) {
+    const middle = (tooSmall + works) / 2;
+    if (fits(middle)) works = middle;
+    else tooSmall = middle;
+  }
+  return works;
+}
+
+function coreAt(spec: CoilSpec, outerSize: number, height: number) {
+  const outline = resolveOutline(spec.shape, outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
+  const boreOutline = resolveBoreOutline(outline, spec.wire.diameter).boreOutline;
+  return { outline, boreOutline, height, grooveDepth: grooveShape(spec.wire.diameter).depth };
+}
+
+function capJointFits(spec: CoilSpec, outerSize: number, height: number): boolean {
+  return resolveCapJoint(spec, coreAt(spec, outerSize, height)).warning === undefined;
+}
+
+function tclipsFit(spec: CoilSpec, outerSize: number): boolean {
+  const core = coreAt(spec, outerSize, HEIGHT_HI);
+  const d = spec.wire.diameter;
+  const capOn = resolveTopCap(spec);
+  const mayHaveTopRing = !capOn && !(spec.layers.locked && spec.layers.value > 1);
+  const faceChannels = mayHaveTopRing
+    ? planFaceChannels({ outline: core.outline, boreOutline: core.boreOutline, height: HEIGHT_HI, wireDiameter: d, tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * d, topFace: true, bottomFace: false })
+    : undefined;
+  return (
+    layoutSkadisTclips({
+      boreOutline: core.boreOutline,
+      capHole: capOn ? jointGeometry(core.boreOutline, resolveCapJoint(spec, core).joint, spec.tolerance).holeOutline : undefined,
+      ring: faceChannels?.topThickness !== undefined ? { holeOutline: faceChannels.holeOutline, funnelFloor: HEIGHT_HI } : undefined,
+      wallTop: HEIGHT_HI,
+      thickness: MIN_FLANGE_THICKNESS_FOR_TCLIP,
+      tolerance: spec.tolerance,
+    }).clips.length > 0
+  );
+}
+
+const JOINT_LABELS = { bayonet: "the twist lock", snap: "the snap clips" } as const;
+
+function fitFloors(spec: CoilSpec): FitFloors {
+  const wantsJoint = resolveTopCap(spec) && (spec.joint === "snap" || (spec.joint === "bayonet" && spec.shape.kind === "round"));
+  const wantsTclips = spec.mount === "skadis-tclip";
+  if (!wantsJoint && !wantsTclips) return NO_FIT_FLOORS;
+  const jointSize = wantsJoint ? smallestThat((s) => capJointFits(spec, s, HEIGHT_HI), SIZE_LO_FLOOR, SIZE_HI) ?? 0 : 0;
+  const jointHeight = wantsJoint ? smallestThat((h) => capJointFits(spec, SIZE_HI, h), 0, HEIGHT_HI) ?? 0 : 0;
+  const tclipSize = wantsTclips ? smallestThat((s) => (!wantsJoint || capJointFits(spec, s, HEIGHT_HI)) && tclipsFit(spec, s), SIZE_LO_FLOOR, SIZE_HI) ?? 0 : 0;
+  const size = Math.max(jointSize, tclipSize);
+  const jointLabel = wantsJoint ? JOINT_LABELS[spec.joint as keyof typeof JOINT_LABELS] : undefined;
+  return { size, jointSize, height: jointHeight, sizeFor: tclipSize > jointSize ? "the SKÅDIS T-clips" : jointLabel, heightFor: jointLabel };
+}
+
 /**
  * Multiplier that grows quickly once any layer's turn count falls below
  * `MIN_TURNS_PER_LAYER` (issue #23): a squat many-layer stack with only 1-2
@@ -514,6 +584,7 @@ function overshootNote(
   sizeLo: number,
   heightLo: number,
   deltaPct: number,
+  fit: FitFloors,
 ): string {
   const target = spec.wire.length;
   const current = lengthFor(spec, g);
@@ -540,6 +611,8 @@ function overshootNote(
     const floor =
       sizeLo <= SIZE_LO_FLOOR
         ? `the core can't be smaller than ${mm(sizeLo)}`
+        : fit.sizeFor && fit.size >= sizeLo - 1e-6
+          ? `the bore needs room for ${fit.sizeFor}, which takes a core of at least ${mm(sizeLo)}`
         : centreFloors(spec).size >= sizeLo - 1e-6
           ? `the cable's ends have to reach the centre hole at its ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius, which needs a core of at least ${mm(sizeLo)}`
         : spec.shape.kind === "round"
@@ -571,15 +644,18 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const centre = centreFloors(spec);
   const centreBinds = centre.size > shapeFloor + 1e-9;
   const minOuterSizeForShapeVal = Math.max(shapeFloor, centre.size);
-  const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal);
+  const sizeFree = !spec.coreSize.locked;
+  const heightFree = !spec.height.locked;
+  const fit = fitFloors(spec);
+  const jointHeightFloor = !spec.coreSize.locked || toOuterSize(spec.coreSize, spec.wire.diameter) >= fit.jointSize ? fit.height : 0;
+  const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal, sizeFree ? fit.size : 0);
   const sizeHi = SIZE_HI;
-  const heightLo = Math.max(groove.pitch - windingSpan(0, spec.wire.diameter), centre.height);
+  const baseHeightLo = Math.max(groove.pitch - windingSpan(0, spec.wire.diameter), centre.height);
+  const heightLo = Math.max(baseHeightLo, heightFree ? jointHeightFloor : 0);
   const heightHi = HEIGHT_HI;
   const layersLo = 1;
   const layersHi = LAYERS_HI;
 
-  const sizeFree = !spec.coreSize.locked;
-  const heightFree = !spec.height.locked;
   const layersFree = !spec.layers.locked;
   const freeVars: Array<"coreSize" | "height" | "layers"> = [
     ...(sizeFree ? (["coreSize"] as const) : []),
@@ -793,8 +869,17 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
 
   const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend, minOuterSizeForShapeVal);
   finished.solution.alternates = alternates;
-  if (finished.solution.lengthDeltaPct > OVERSHOOT_NOTE_PCT) {
-    note(overshootNote(spec, resolved, { size: !sizeFree, height: !heightFree, layers: !layersFree }, sizeLo, heightLo, finished.solution.lengthDeltaPct));
+  const overshoots = finished.solution.lengthDeltaPct > OVERSHOOT_NOTE_PCT;
+  if (overshoots) {
+    note(overshootNote(spec, resolved, { size: !sizeFree, height: !heightFree, layers: !layersFree }, sizeLo, heightLo, finished.solution.lengthDeltaPct, fit));
+  }
+  const sizeGrown = sizeFree && fit.sizeFor !== undefined && fit.size > minOuterSizeForShapeVal + 1e-9 && resolved.outerSize <= sizeLo + 1e-6;
+  if (sizeGrown && !overshoots) {
+    note(`Core size raised to ${mm(sizeLo)}: the bore needs room for ${fit.sizeFor}.`);
+  }
+  const heightGrown = heightFree && fit.heightFor !== undefined && heightLo > baseHeightLo + 1e-9 && resolved.height <= heightLo + 1e-6;
+  if (heightGrown) {
+    note(`Height raised to ${mm(heightLo)}: the bore needs room for ${fit.heightFor}.`);
   }
   return { solution: finished.solution, notices: [...notices, ...finished.notices] };
 }

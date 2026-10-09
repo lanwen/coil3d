@@ -290,6 +290,18 @@ candidates; it can't buy proportions with extra capacity.
   solver also keeps every flat side at least two cable diameters and 15 % of
   the perimeter long. It raises a locked size that is below this floor and
   warns, for a round core too (where the floor is the bend limit alone).
+- A free core size also keeps room for the chosen mount and joint. The
+  snap clips and the twist lock need a bore wide and tall enough for their
+  fingers or lugs, and the SKÅDIS T-clips need room in the bore for at least
+  one clip, so the solver raises a free size (and, for the joints, a free
+  height) to the smallest value at which the real layout fits, and says so in
+  a note. The through-holes, the SKÅDIS rim clips and the openGrid plate's
+  pegs depend on the flange margin more than on the size (the channel for the
+  inner cable end can block them at any size), so a free-size design grows
+  the margin instead, to the smallest value at which the layout fits. A locked
+  size keeps the old behaviour: the feature is skipped and a warning says so.
+  A twist lock on a square or triangle core falls back to the press-fit collar
+  at every size.
 - The whole drawn cable (lead-in, layer transitions, outer end) stays within
   the bend radius. Tests check this for every "ok" design, piece by piece
   (`test/cableBend.test.ts`).

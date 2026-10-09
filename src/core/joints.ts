@@ -54,6 +54,8 @@ import type { ShapeOutline } from "./shapes";
 import type { JointKind, ShapeKind } from "./types";
 import type { WallSpec } from "./wall";
 
+export type JointWall = Pick<WallSpec, "boreOutline" | "height" | "outline" | "grooveDepth">;
+
 export interface JointGeometry {
   /** The bore's own inscribed (flat-side) radius, mm -- the collar's absolute ceiling. */
   boreRadius: number;
@@ -175,7 +177,7 @@ const deg = (rad: number) => (rad * 180) / Math.PI;
  * groove runs from its slot to just past its lug, where its end face is
  * the stop.
  */
-export function bayonetLayout(shape: ShapeKind, wallSpec: WallSpec, tolerance: number): BayonetPlan {
+export function bayonetLayout(shape: ShapeKind, wallSpec: JointWall, tolerance: number): BayonetPlan {
   if (shape !== "round") return { warning: "Twist lock needs a round core, so the top cap uses a press-fit collar." };
   const tooSmall = { warning: "This core is too small for the twist lock, so the top cap uses a press-fit collar." };
 
@@ -248,7 +250,7 @@ export function bayonetLayout(shape: ShapeKind, wallSpec: WallSpec, tolerance: n
  */
 export function resolveCapJoint(
   spec: { joint: JointKind; tolerance: number; shape: { kind: ShapeKind } },
-  wallSpec: WallSpec,
+  wallSpec: JointWall,
 ): { joint: JointKind; bayonet?: BayonetLayout; snap?: SnapLayout; warning?: string } {
   if (spec.joint === "snap") {
     const snap = snapLayout(wallSpec, spec.tolerance);
@@ -339,7 +341,7 @@ function inset(o: ShapeOutline, amount: number): ShapeOutline {
 }
 
 /** Undefined when the bore or the core is too small for the snap clips (see JOINT_MIN_BORE_RADIUS): both parts then fall back to the plain press collar (`resolveCapJoint`). */
-export function snapLayout(wallSpec: WallSpec, tolerance: number): SnapLayout | undefined {
+export function snapLayout(wallSpec: JointWall, tolerance: number): SnapLayout | undefined {
   const { boreOutline, height: coreHeight } = wallSpec;
   const { boreRadius, collarOutline, holeOutline } = jointGeometry(boreOutline, "snap", tolerance);
   const depth = SNAP_FINGER_LENGTH;

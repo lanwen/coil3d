@@ -83,8 +83,7 @@ function partsOf(d: Design): { core: Manifold; cap: Manifold } {
 
 const ROUND_CASES: Array<{ label: string; overrides: Partial<CoilSpec> }> = [
   { label: "60 mm core, 2 layers", overrides: {} },
-  // A USB cable's free core is the 19 mm minimum now (2.6x bend radius), too small for the twist lock (press-fit fallback, with a warning), so the free repro uses a stiff cable.
-  { label: "the issue's repro (everything free)", overrides: { coreSize: { locked: false }, height: { locked: false }, layers: { locked: false }, wire: { length: 2000, diameter: 3.8, type: "stiff" }, topCap: "on" } },
+  { label: "the issue's repro (everything free)", overrides: { coreSize: { locked: false }, height: { locked: false }, layers: { locked: false }, wire: { length: 2000, diameter: 3.8, type: "usb" }, topCap: "on" } },
   { label: "tight tolerance 0.05", overrides: { tolerance: 0.05 } },
   { label: "loose tolerance 0.4", overrides: { tolerance: 0.4 } },
   { label: "loosest tolerance 0.8", overrides: { tolerance: 0.8 } },
@@ -95,7 +94,7 @@ describe("bayonet on a round core (issue #167)", () => {
   it.each(ROUND_CASES)("$label: each part is one solid, and the cap twists on and locks", async ({ overrides }) => {
     const d = await design(spec(overrides));
     expect(d.parts.map((p) => p.role)).toEqual(["core", "topCap"]);
-    expect(d.warnings.join("\n")).not.toMatch(/twist lock/i);
+    expect(d.warnings.join("\n")).not.toMatch(/too small for the twist lock|needs a round core/i);
     const { core, cap } = partsOf(d);
     try {
       for (const [name, m] of [["core", core], ["top-cap", cap]] as const) {
