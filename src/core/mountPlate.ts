@@ -11,6 +11,7 @@ import {
   OPENGRID_PLACEHOLDER_PEG_SIZE,
 } from "./constants";
 import { bestAxisDeg } from "./mount";
+import { basisFor, distanceToPolygon } from "./skadisClips";
 import { offsetOutline, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { SweepSolid } from "./innerEnd";
@@ -39,18 +40,7 @@ function clipRotationDeg(axisDeg: number): number {
   return 90 - axisDeg;
 }
 
-function basisFor(axisDeg: number) {
-  const a = (axisDeg * Math.PI) / 180;
-  const upVec = { x: Math.sin(a), y: Math.cos(a) };
-  const sideVec = { x: Math.cos(a), y: -Math.sin(a) };
-  return {
-    toXY: (up: number, side: number) => ({ x: up * upVec.x + side * sideVec.x, y: up * upVec.y + side * sideVec.y }),
-    project: (p: { x: number; y: number }) => ({ up: p.x * upVec.x + p.y * upVec.y, side: p.x * sideVec.x + p.y * sideVec.y }),
-  };
-}
-
 const BOUNDARY_SAMPLES = 512;
-const SEGMENT_EPSILON = 1e-12;
 const FLAT_SEGMENT_EPSILON = 1e-9;
 const MIN_PLATE_APOTHEM = 1;
 const ANCHOR_BAND_MARGIN = 1;
@@ -96,22 +86,6 @@ export function pegSweep(anchor: { x: number; y: number }, zSeam: number): Sweep
     start: { x: anchor.x, y: anchor.y, z: zBottom },
     end: { x: anchor.x, y: anchor.y, z: zTop },
   };
-}
-
-function distanceToPolygon(p: { x: number; y: number }, points: Array<{ x: number; y: number }>): number {
-  let best = Infinity;
-  let inside = false;
-  for (let i = 0; i < points.length; i++) {
-    const a = points[i];
-    const b = points[(i + 1) % points.length];
-    if (a.y > p.y !== b.y > p.y && p.x < a.x + ((p.y - a.y) * (b.x - a.x)) / (b.y - a.y)) inside = !inside;
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len2 = dx * dx + dy * dy;
-    const t = len2 > SEGMENT_EPSILON ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
-    best = Math.min(best, Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)));
-  }
-  return inside ? 0 : best;
 }
 
 function projectedBoundary(outline: ShapeOutline, axisDeg: number): Array<{ up: number; side: number }> {
