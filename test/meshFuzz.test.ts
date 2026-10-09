@@ -5,6 +5,7 @@ import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, JointKind, MountKind, Part, Resolution, ShapeSpec } from "../src/core";
 import { collarSegments } from "../src/core/manifold";
 import { WELD_EPSILON, weldShortEdges } from "../src/core/weld";
+import { yieldToEventLoop } from "./support/yieldToEventLoop";
 
 // Issue #208: the mesh clean-up passes (weld.ts, flatFaces.ts) must keep every
 // part one connected solid. Their failures only showed at a few fractional
@@ -444,6 +445,7 @@ describe("seeded fuzz: every part is one solid, with no short edges or folds, af
     const started = Date.now();
     try {
       for (let i = FROM; i < FROM + COUNT; i++) {
+        await yieldToEventLoop();
         const c = sample(i);
         Object.assign(collarSegments, c.segments);
         const what = `case ${i} (${c.resolution}, collar ${c.segments.round}/${c.segments.other}) ${JSON.stringify(c.spec)}`;
