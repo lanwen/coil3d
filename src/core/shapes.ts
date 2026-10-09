@@ -414,6 +414,11 @@ export function pointAt(o: ShapeOutline, t: number, offset: number): { x: number
   return evalOutline(o, paramAt(o, 0, t), offset);
 }
 
+export function pointAlong(o: ShapeOutline, along: ShapeOutline, t: number, offset: number): { x: number; y: number; nx: number; ny: number } {
+  if (o.cornerRadius === o.apothem || along.cornerRadius === along.apothem) return pointAt(o, t, offset);
+  return evalOutline(o, paramAt(along, 0, t), offset);
+}
+
 /** The (rc=0) sharp-corner polygon's vertex `i` (0..n-1), independent of
  * `cornerRadius`: every corner arc's midpoint sits on this same vertex once
  * rc -> 0 (see step/build.ts, which fillets this sharp polygon by

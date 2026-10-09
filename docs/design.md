@@ -364,6 +364,14 @@ features: flange, joints, clips, mounts and label.
   too: there the surface sits at offset 0 whatever the groove's depth. That
   band's top is the land's middle under the next turn, which follows the
   helix, so the level run-in's band stops below the full turn's crest.
+- **Bore columns.** The wall's top and bottom faces and the flange ring are
+  strips between the outer outline and the bore, one column of each per
+  parameter. The bore's point is the one across from the outer's: the same
+  corner arc or side, at the same fraction of it. The same fraction of the
+  bore's own perimeter is wrong on a rounded square or triangle. A thin
+  cable's wall is as thick as the corner radius, so the bore's arc is much
+  shorter than the outer one, the points drift millimetres apart, and the
+  strips twist over each other at the corners into sheets of no thickness.
 - **Resolution.** `draft` is coarse and is shown on the first load, and later
   only if a build is slow. `final` is used for the settled view and for every
   export. Both use the same code path, so they cannot drift apart. The

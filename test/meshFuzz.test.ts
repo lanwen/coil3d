@@ -438,6 +438,47 @@ describe("mesh clean-up reproductions (issue #227): every part is one solid, wit
   });
 });
 
+// Issue #304: a thin cable's wall is a few millimetres thick, about as thick as a triangle's corner radius, so the
+// bore's corner arc is much shorter than the outer one. The wall's top and bottom annuli and the flange ring paired
+// each outer column with the bore point at the same fraction of the bore's own perimeter, a few millimetres along from
+// the point across, and at the corners the strips between them twisted over each other: sheets of no thickness, in
+// the mesh before the weld or the flips touched it.
+const REPRODUCTIONS_304: Reproduction[] = [
+  {
+    name: "fuzz case 2639 (a bare triangle core, T-clips)",
+    spec: { wire: { length: 4835, diameter: 1.52, type: "flex" }, shape: { kind: "tri", cornerRadius: 3.08 }, windingQuality: 0.84, coreSize: { locked: true, dimension: "inner", value: 53.06 }, height: { locked: false }, layers: { locked: true, value: 4 }, tolerance: 0.38, mount: "skadis-tclip", plateJoint: "snap", throughHoleDiameter: 7.8, base: "off" },
+    segments: { round: 144, other: 96 },
+  },
+  {
+    name: "fuzz case 4513 (a bare triangle core, snap cap, keyhole)",
+    spec: { wire: { length: 4302, diameter: 1.65, type: "flex" }, shape: { kind: "tri", cornerRadius: 1.2 }, windingQuality: 0.86, coreSize: { locked: true, dimension: "outer", value: 67 }, height: { locked: false }, layers: { locked: true, value: 4 }, joint: "snap", tolerance: 0.37, mount: "keyhole", keyholeRotation: 45, throughHoleDiameter: 6.07, base: "off" },
+    segments: { round: 96, other: 144 },
+  },
+  {
+    name: "fuzz case 4892 (a triangle core with a flange, labelled)",
+    spec: { wire: { length: 827, diameter: 1.59, type: "flex" }, shape: { kind: "tri", cornerRadius: 2.49 }, windingQuality: 0.86, coreSize: { locked: true, dimension: "outer", value: 72.75 }, height: { locked: true, value: 37.7 }, layers: { locked: true, value: 1 }, objective: "aspectRatio", tolerance: 0.39, plateJoint: "snap", throughHoleDiameter: 4.22, label: "ok", base: "on" },
+    segments: { round: 144, other: 48 },
+  },
+  {
+    name: "fuzz case 6946 (a big triangle core with a sharp corner)",
+    spec: { wire: { length: 9079, diameter: 1.66, type: "usb" }, shape: { kind: "tri", cornerRadius: 0.62 }, windingQuality: 0.5, coreSize: { locked: true, dimension: "inner", value: 98.56 }, height: { locked: false }, layers: { locked: false }, tolerance: 0.35, plateJoint: "snap", keyholeRotation: 45, throughHoleDiameter: 5.42, label: "Lamp 5 m", base: "on" },
+    segments: { round: 144, other: 48 },
+  },
+];
+
+describe("mesh clean-up reproductions (issue #304): a thin cable on a triangle core has no zero-thickness folds", () => {
+  it.each(REPRODUCTIONS_304)("$name", async ({ spec: overrides, resolution, segments }) => {
+    const shipped = { ...collarSegments };
+    Object.assign(collarSegments, segments ?? shipped);
+    try {
+      const d = await design(spec(overrides), resolution);
+      expect(d.parts.flatMap(problems)).toEqual([]);
+    } finally {
+      Object.assign(collarSegments, shipped);
+    }
+  });
+});
+
 describe("seeded fuzz: every part is one solid, with no short edges or folds, after the mesh clean-up (issues #208, #219)", () => {
   it(`cases ${FROM} to ${FROM + COUNT - 1}`, async () => {
     const shipped = { ...collarSegments };
