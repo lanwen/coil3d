@@ -747,6 +747,13 @@ triangles drops that tip first, when it lies within 0.04 mm of the plane its
 neighbours span. A channel's side wall crossing the wall's rim beside a rim
 vertex leaves a tip 0.03 mm off a steep wall triangle (#292).
 
+When neither end of a short edge can move onto the other (the slope of a
+channel lip meets its wall 0.02 mm above the wall's foot, and moving either end
+turns a sliver over the bottom face), the weld slides one end along a longer
+edge to a neighbour instead, when the end lies within 0.01 mm of the planes of
+the triangles it leaves. A closed piece of two triangles with every corner
+within 0.02 mm of the others has no volume, and is dropped whole (#303).
+
 The camera is refitted to the projected bounds when the geometry changes.
 The wound cable is drawn as one merged tube per layer, with smooth normals so
 the tube's facets do not draw lines. When the wire's on-screen diameter falls

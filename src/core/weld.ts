@@ -32,6 +32,8 @@ export const WELD_EPSILON = 0.02;
 
 const TIP_HEIGHT_EPSILONS = 2;
 
+const SLIDE_DEVIATION_DIVISOR = 2;
+
 /** A triangle may turn by at most this angle (cosine) when its corner moves. */
 const MIN_NORMAL_COS = 0.2;
 
@@ -114,6 +116,14 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
     const ofV = trianglesOf(v);
     const onEdge = ofU.filter((t) => ofV.includes(t)); // the two triangles on the edge
     if (onEdge.length !== 2) return false; // a border or a non-manifold edge
+    if (ofU.length === 2 && ofV.length === 2) {
+      const x = [tr[3 * onEdge[0]], tr[3 * onEdge[0] + 1], tr[3 * onEdge[0] + 2]].find((y) => y !== u && y !== v)!;
+      if (trianglesOf(x).length === 2 && squared(u, x) < limit && squared(v, x) < limit) {
+        for (const t of onEdge) alive[t] = 0;
+        for (const w of [u, v, x]) gone[w] = 1;
+        return true;
+      }
+    }
     // Link condition: u and v share no neighbour but the two across the edge, or the collapse pinches the surface.
     const across = onEdge.map((t) => [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]].find((x) => x !== u && x !== v)!);
     const neighboursOfV = new Set<number>(ofV.flatMap((t) => [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]]));
@@ -202,6 +212,20 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
     return true;
   };
 
+  const slideDeviation = (p: number, q: number): number => {
+    let worst = 0;
+    for (const t of trianglesOf(p)) {
+      const [a, b, c] = [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]];
+      if (a === q || b === q || c === q) continue;
+      const n = normalOf(a, b, c);
+      const len = Math.hypot(...n);
+      if (len <= NEEDLE_HEIGHT * Math.sqrt(Math.max(squared(a, b), squared(b, c), squared(c, a)))) continue;
+      const off = Math.abs((pos[3 * q] - pos[3 * p]) * n[0] + (pos[3 * q + 1] - pos[3 * p + 1]) * n[1] + (pos[3 * q + 2] - pos[3 * p + 2]) * n[2]) / len;
+      worst = Math.max(worst, off);
+    }
+    return worst;
+  };
+
   const dropTip = (u: number, v: number): boolean => {
     const ofV = trianglesOf(v);
     for (const t of trianglesOf(u)) {
@@ -216,6 +240,19 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
       const height = len === 0 ? 0 : Math.abs((pos[3 * x] - pos[3 * u]) * n[0] + (pos[3 * x + 1] - pos[3 * u + 1]) * n[1] + (pos[3 * x + 2] - pos[3 * u + 2]) * n[2]) / len;
       const [near, far] = squared(x, u) < squared(x, v) ? [u, v] : [v, u];
       if (height < TIP_HEIGHT_EPSILONS * epsilon && (collapse(x, near) || collapse(x, far))) return true;
+    }
+    return false;
+  };
+
+  const slide = (u: number, v: number): boolean => {
+    const reach: Array<[number, number]> = [];
+    for (const [p, other] of [[u, v], [v, u]]) {
+      const neighbours = new Set<number>(trianglesOf(p).flatMap((t) => [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]]));
+      for (const q of neighbours) if (q !== p && q !== other) reach.push([p, q]);
+    }
+    reach.sort(([a, b], [c, d]) => squared(a, b) - squared(c, d));
+    for (const [p, q] of reach) {
+      if (slideDeviation(p, q) <= epsilon / SLIDE_DEVIATION_DIVISOR && collapse(p, q)) return true;
     }
     return false;
   };
@@ -242,6 +279,10 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
         if (collapse(u, v) || collapse(v, u)) continue;
       }
       if (collapse(u, v, true)) {
+        round++;
+        continue;
+      }
+      if (slide(u, v)) {
         round++;
         continue;
       }

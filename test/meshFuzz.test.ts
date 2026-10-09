@@ -479,6 +479,41 @@ describe("mesh clean-up reproductions (issue #304): a thin cable on a triangle c
   });
 });
 
+// Issue #303: the weld refused to collapse an edge under its limit when neither end could move onto the other
+// without folding a sliver over, or when the edge was all that was left of a closed piece. Which designs it
+// refused moved with the facet phase.
+const REPRODUCTIONS_303: Reproduction[] = [
+  {
+    // The channel lip's slope face meets the wall 0.019 mm above the foot of the wall, on a line that the wall's
+    // two corner vertices (the foot's and the lip's) both lie on. Neither moves onto the other without folding the
+    // slope sliver back over the bottom face, but the lip's vertex can slide along the line to the next one.
+    name: "a channel lip beside a wall foot on a bare square core (fuzz case 8243)",
+    spec: { wire: { length: 4615, diameter: 4.6, type: "flex" }, shape: { kind: "sq", cornerRadius: 1.15 }, windingQuality: 0.85, coreSize: { locked: true, dimension: "outer", value: 33.94 }, height: { locked: false }, layers: { locked: true, value: 4 }, topCap: "auto", joint: "bayonet", tolerance: 0.32, base: "off" },
+    resolution: "draft",
+    segments: { round: 120, other: 120 },
+  },
+];
+
+describe("mesh clean-up reproductions (issue #303): every part is one solid, with no short edges or folds", () => {
+  it.each(REPRODUCTIONS_303)("$name", async ({ spec: overrides, resolution, segments }) => {
+    const shipped = { ...collarSegments };
+    Object.assign(collarSegments, segments ?? shipped);
+    try {
+      const d = await design(spec(overrides), resolution);
+      expect(d.parts.flatMap(problems)).toEqual([]);
+    } finally {
+      Object.assign(collarSegments, shipped);
+    }
+  });
+
+  it("the weld drops a closed piece of two triangles whose corners all lie within its limit", () => {
+    const mesh: CoilMesh = { positions: new Float32Array([0, 0, 0, 0.004, 0, 0, 0, 0.004, 0]), indices: new Uint32Array([0, 1, 2, 1, 0, 2]) };
+    const welded = weldShortEdges(mesh);
+    expect(welded.mesh.indices.length).toBe(0);
+    expect(welded.stuck).toBe(0);
+  });
+});
+
 describe("seeded fuzz: every part is one solid, with no short edges or folds, after the mesh clean-up (issues #208, #219)", () => {
   it(`cases ${FROM} to ${FROM + COUNT - 1}`, async () => {
     const shipped = { ...collarSegments };
