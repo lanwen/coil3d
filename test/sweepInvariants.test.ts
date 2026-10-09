@@ -96,8 +96,8 @@ describe("every printed part prints without supports, over the swept designs (is
   });
 });
 
-describe("found by the sweep, still open (issue #274)", () => {
-  it.skip("sq (corner radius 8.3), 2 layers, cap on, base off, press joint, 2.75 mm usb cable of 2475 mm, core outer 66.1 locked: the cap's top rim chamfer beside the rim slot leans 46.6 deg, 0.1 deg over the 46.5 deg limit", async () => {
+describe("found by the sweep (issue #279)", () => {
+  it("sq (corner radius 8.3), 2 layers, cap on, base off, press joint, 2.75 mm usb cable of 2475 mm, core outer 66.1 locked: the cap's top rim chamfer beside the rim slot prints without supports", async () => {
     const spec = caseSpec({ kind: "sq", cornerRadius: 8.3 }, 2, "on", "off", 2.75, "none", { locked: true, dimension: "outer", value: 66.1 });
     expect(unsupportedOverhangs(await design(spec, "final"), "found case")).toEqual([]);
   });
