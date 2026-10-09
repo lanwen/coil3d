@@ -3,6 +3,8 @@ import {
   CABLE_BEND_CHECK,
   CABLE_BRIDGE_STEP,
   CENTRE_CONNECTOR_PASSAGE,
+  CLIMB_BULGE_SPANS,
+  CLIMB_TURNS_STEP,
   CROSSING_MIN_LAYERS,
   FACE_BEND_MARGIN,
   FACE_CUT_BACK,
@@ -20,6 +22,7 @@ import {
   FACE_TAIL_HANG,
   FACE_WEB,
   HEIGHT_HI,
+  LEAD_OUT_TURNS_MAX,
   MARGIN_BOTTOM,
   MARGIN_TOP_FACTOR,
   RAMP_BULGE_SPANS,
@@ -49,6 +52,10 @@ export interface OuterStart {
   neighbourTurns: number[];
   neighbourSlope: number;
   stackTop: number;
+}
+
+function climbsOutside(start: OuterStart): boolean {
+  return start.slope < 0;
 }
 
 export interface FaceChannelSpec {
@@ -126,7 +133,7 @@ function arcRadiusFloor(bendRadius: number): number {
 }
 
 export function crossingActive(layers: number, topCap: boolean): boolean {
-  return !topCap && layers >= CROSSING_MIN_LAYERS && layers % 2 === 1;
+  return !topCap && layers >= CROSSING_MIN_LAYERS;
 }
 
 export function crossingReserve(wireDiameter: number, tolerance: number): number {
@@ -137,21 +144,24 @@ export function crossingReserve(wireDiameter: number, tolerance: number): number
 }
 
 export function nominalOuterStart(layers: number, wireDiameter: number, quality: number, height: number, reserve: number): OuterStart | undefined {
-  if (layers < CROSSING_MIN_LAYERS || layers % 2 === 0) return undefined;
+  if (layers < CROSSING_MIN_LAYERS) return undefined;
   const groove = grooveShape(wireDiameter);
   const zStart = grooveStartHeight(groove, MARGIN_BOTTOM);
   const span = Math.max(0, windingSpan(height, wireDiameter) - reserve);
   const turns = (layer: number) => turnsForLayer(span, groove.pitch, layer, quality);
   const step = radialPitch(wireDiameter, quality);
   const first = wireDiameter / 2 - groove.depth;
+  const ascends = layers % 2 === 1;
   let t = 0;
   let stackTop = 0;
-  for (let layer = 1; layer < layers; layer++) {
+  for (let layer = 1; layer <= layers; layer++) {
     t += turns(layer);
-    stackTop = Math.max(stackTop, zStart + groove.pitch * (phaseShiftTurns(layer, quality) + turns(layer)));
+    if (layer < layers || !ascends) stackTop = Math.max(stackTop, zStart + groove.pitch * (phaseShiftTurns(layer, quality) + turns(layer)));
   }
-  t += turns(layers);
-  return { t: t - RAMP_TURNS_MIN, z: zStart + groove.pitch * turns(layers), slope: groove.pitch, offset: first + (layers - 1) * step, neighbourOffset: first + (layers - 2) * step, neighbourTurns: [], neighbourSlope: -groove.pitch, stackTop };
+  const offset = first + (layers - 1) * step;
+  const end = { t: t - RAMP_TURNS_MIN, offset, stackTop, neighbourTurns: [] };
+  if (!ascends) return { ...end, z: zStart + groove.pitch * phaseShiftTurns(layers, quality), slope: -groove.pitch, neighbourOffset: offset, neighbourSlope: -groove.pitch };
+  return { ...end, z: zStart + groove.pitch * turns(layers), slope: groove.pitch, neighbourOffset: first + (layers - 2) * step, neighbourSlope: -groove.pitch };
 }
 
 function windingFacts(wireDiameter: number, tolerance: number, height: number, reserve: number, outerStart: OuterStart | undefined): WindingFacts {
@@ -454,7 +464,10 @@ function* crossingOptions(spec: FaceChannelSpec, start: OuterStart, level: numbe
   const bp = pointAt(spec.outline, start.t - back, start.offset);
   const before: [number, number, number] = [bp.x, bp.y, start.z - start.slope * back];
   const failed = new Set<number>();
-  for (let turns = RAMP_TURNS_MIN; turns <= RAMP_TURNS_MAX + 1e-9; turns += RAMP_TURNS_STEP) {
+  const climbs = climbsOutside(start);
+  const spans = climbs ? CLIMB_BULGE_SPANS : RAMP_BULGE_SPANS;
+  const turnsMax = climbs ? LEAD_OUT_TURNS_MAX : RAMP_TURNS_MAX;
+  for (let turns = RAMP_TURNS_MIN; turns <= turnsMax + 1e-9; turns += climbs ? CLIMB_TURNS_STEP : RAMP_TURNS_STEP) {
     const phase = isCircular(spec.outline) ? 0 : Math.round((((start.t + turns) * spec.outline.n) % 1) * 1e6);
     if (failed.has(phase)) continue;
     const plan = planEndCached(spec.outline, start.t + turns, startOffset, true, bendRadius, hole, inset);
@@ -463,9 +476,11 @@ function* crossingOptions(spec: FaceChannelSpec, start: OuterStart, level: numbe
       failed.add(phase);
       continue;
     }
-    for (const span of RAMP_BULGE_SPANS) {
+    for (const span of spans) {
       const points = outlineBlend(spec.outline, start.t, turns, (sigma) => start.offset + bulge * unitRamp(Math.min(1, sigma / span)), start.z, start.slope, level, 0);
-      if (maxCurvature(withNeighbours(before, points)) > limit || !rampClears(spec, start, points, turns)) continue;
+      const bent = maxCurvature(withNeighbours(before, points)) > limit;
+      if (bent && climbs) break;
+      if (bent || !rampClears(spec, start, points, turns)) continue;
       const ramp: XYZ[] = Array.from({ length: points.length / 3 }, (_, i) => ({ x: points[i * 3], y: points[i * 3 + 1], z: points[i * 3 + 2] }));
       let length = 0;
       for (let i = 1; i < ramp.length; i++) length += Math.hypot(ramp[i].x - ramp[i - 1].x, ramp[i].y - ramp[i - 1].y, ramp[i].z - ramp[i - 1].z);

@@ -18,7 +18,7 @@ import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
 import { ViewControls } from "./ViewControls";
 import { useThrowOnContextLoss } from "./ViewerBoundary";
 import { WALL_MOUNT_VIEW_ROTATION, WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
-import { buildCableTube, buildWireGeometries, needsEnvelope } from "./wireGeometry";
+import { buildCableTube, buildWireGeometries, needsEnvelope, reachFramePoints } from "./wireGeometry";
 
 const CREASE_ANGLE = (30 * Math.PI) / 180;
 
@@ -36,6 +36,7 @@ export interface CoilViewerProps {
   innerEndLeadIn?: Float32Array;
   layerTransitions?: Float32Array[];
   outerEndLeadOut?: Float32Array;
+  outerEndReach?: boolean;
   cablePath?: Float32Array;
   wireDiameter?: number;
   showWire?: boolean;
@@ -214,6 +215,7 @@ export function CoilViewer({
   innerEndLeadIn,
   layerTransitions,
   outerEndLeadOut,
+  outerEndReach = false,
   cablePath,
   wireDiameter,
   showWire = true,
@@ -425,6 +427,11 @@ export function CoilViewer({
       new THREE.BufferAttribute(points, 3).applyMatrix4(dimensionMatrix);
       chunks.push(points);
     }
+    if (!exploded && showWire && outerEndReach && wireDiameter && outerEndLeadOut) {
+      const points = reachFramePoints(outerEndLeadOut, wireDiameter / 2);
+      if (viewRotation) new THREE.BufferAttribute(points, 3).applyMatrix4(viewRotation);
+      chunks.push(points);
+    }
     const merged = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
     let at = 0;
     for (const c of chunks) {
@@ -434,7 +441,7 @@ export function CoilViewer({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionAxes, dimensionMatrix, viewMode]);
+  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionAxes, dimensionMatrix, viewMode, showWire, outerEndReach, wireDiameter, outerEndLeadOut, viewRotation]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
   const focusFramingGeometry = useMemo(() => {

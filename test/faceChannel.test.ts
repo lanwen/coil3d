@@ -218,33 +218,36 @@ describe.each(FLOOR_SHAPES.flatMap(([name, shape]) => (["usb", "stiff"] as const
   }, 60_000);
 });
 
-const ODD_CABLES: Array<[string, WireSpec]> = [
+const STACK_CABLES: Array<[string, WireSpec]> = [
   ["3 mm", { length: 2400, diameter: 3, type: "usb" }],
   ["6 mm", { length: 4800, diameter: 6, type: "usb" }],
 ];
 
-const oddDesigns = new Map<string, Promise<Design>>();
+const stackDesigns = new Map<string, Promise<Design>>();
 function stacked(shapeName: string, cableName: string, layers: number, base: "on" | "off" = "off"): Promise<Design> {
   const key = [shapeName, cableName, layers, base].join("/");
-  let d = oddDesigns.get(key);
+  let d = stackDesigns.get(key);
   if (!d) {
     const shape = SHAPES.find(([n]) => n === shapeName)![1];
-    const wire = ODD_CABLES.find(([n]) => n === cableName)![1];
-    oddDesigns.set(key, (d = design({ ...spec(shape, wire, layers, "off"), base }, "draft")));
+    const wire = STACK_CABLES.find(([n]) => n === cableName)![1];
+    stackDesigns.set(key, (d = design({ ...spec(shape, wire, layers, "off"), base }, "draft")));
   }
   return d;
 }
 
 function topTurnZ(d: Design): number {
+  const under = d.wirePaths.length % 2 === 1 ? -1 : undefined;
   let top = -Infinity;
-  for (const wire of d.wirePaths.slice(0, -1)) for (let i = 2; i < wire.points.length; i += 3) top = Math.max(top, wire.points[i]);
-  for (const step of d.layerTransitions.slice(0, -1)) for (let i = 2; i < step.length; i += 3) top = Math.max(top, step[i]);
+  for (const wire of d.wirePaths.slice(0, under)) for (let i = 2; i < wire.points.length; i += 3) top = Math.max(top, wire.points[i]);
+  for (const step of d.layerTransitions.slice(0, under)) for (let i = 2; i < step.length; i += 3) top = Math.max(top, step[i]);
   return top;
 }
 
-describe.each(SHAPES.flatMap(([shapeName]) => ODD_CABLES.map(([cableName]) => [shapeName, cableName] as const)))("an odd layer count leads the outer end over the stack into the hole (issue #286): %s core, %s cable", (shapeName, cableName) => {
-  it("gives three layers an outer channel on the top face, with its seat inside the hole and apart from the inner seat", async () => {
-    const d = await stacked(shapeName, cableName, 3);
+const STACK_LAYERS = [2, 3, 4];
+
+describe.each(SHAPES.flatMap(([shapeName]) => STACK_CABLES.flatMap(([cableName]) => STACK_LAYERS.map((layers) => [shapeName, cableName, layers] as const))))("a stacked coil leads the outer end over the stack into the hole (issue #286): %s core, %s cable, %i layers", (shapeName, cableName, layers) => {
+  it("gives the stack an outer channel on the top face, with its seat inside the hole and apart from the inner seat", async () => {
+    const d = await stacked(shapeName, cableName, layers);
     const layout = d.faceChannels!;
     expect(layout.outer, "the outer end's channel").toBeDefined();
     expect(layout.outer!.ramp!.length, "the ramp over the stack").toBeGreaterThan(8);
@@ -257,7 +260,7 @@ describe.each(SHAPES.flatMap(([shapeName]) => ODD_CABLES.map(([cableName]) => [s
   });
 
   it("runs the channel over the top turns of every lower layer, by at least one cable diameter", async () => {
-    const d = await stacked(shapeName, cableName, 3);
+    const d = await stacked(shapeName, cableName, layers);
     const { outer } = d.faceChannels!;
     expect(outer!.level).toBeGreaterThanOrEqual(topTurnZ(d) + d.spec.wire.diameter);
     const lead = d.outerEndLeadOut;
@@ -269,7 +272,7 @@ describe.each(SHAPES.flatMap(([shapeName]) => ODD_CABLES.map(([cableName]) => [s
   });
 
   it("starts the lead-out on the last turn's end and ends inside the hole, hanging down", async () => {
-    const d = await stacked(shapeName, cableName, 3);
+    const d = await stacked(shapeName, cableName, layers);
     const last = d.wirePaths.at(-1)!.points;
     const out = d.outerEndLeadOut;
     expect(point(out, 0)).toEqual(point(last, count(last) - 1));
@@ -279,14 +282,14 @@ describe.each(SHAPES.flatMap(([shapeName]) => ODD_CABLES.map(([cableName]) => [s
   });
 
   it("bends the whole cable within its bend radius, ramp included", async () => {
-    const d = await stacked(shapeName, cableName, 3);
+    const d = await stacked(shapeName, cableName, layers);
     const mbr = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
     expectWithinBendLimit(d.outerEndLeadOut, mbr, "outer end");
     expectWithinBendLimit(d.cablePath, mbr, "the whole cable");
   });
 
   it("keeps 1.2 mm of material under the channel's floor, in the ring and in the grooved wall", async () => {
-    const d = await stacked(shapeName, cableName, 3);
+    const d = await stacked(shapeName, cableName, layers);
     const { floor } = faceWebs(d);
     expect(floor.length).toBeGreaterThan(2);
     expect(Math.min(...floor), "under the top channel's floor").toBeGreaterThanOrEqual(MIN_WEB - WEB_TOLERANCE);
@@ -306,7 +309,7 @@ describe.each(SHAPES.flatMap(([shapeName]) => ODD_CABLES.map(([cableName]) => [s
   });
 
   it("keeps the whole outer end clear of the core, from the ramp to its free end", async () => {
-    const d = await stacked(shapeName, cableName, 3);
+    const d = await stacked(shapeName, cableName, layers);
     const core = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: d.mesh.positions, triVerts: d.mesh.indices }));
     const path = d.outerEndLeadOut;
     const r = d.spec.wire.diameter / 2;
@@ -319,30 +322,54 @@ describe.each(SHAPES.flatMap(([shapeName]) => ODD_CABLES.map(([cableName]) => [s
   });
 });
 
-describe("an odd layer count on a bare core (issue #286)", () => {
+describe.each(SHAPES.flatMap(([shapeName]) => STACK_CABLES.flatMap(([cableName]) => [2, 4].map((layers) => [shapeName, cableName, layers] as const))))("an even layer count climbs outside the stack (issue #286): %s core, %s cable, %i layers", (shapeName, cableName, layers) => {
+  it("leaves the bottom turn, climbs a cable diameter outside the last layer and tops out at the channel level", async () => {
+    const d = await stacked(shapeName, cableName, layers);
+    const wire = d.spec.wire.diameter;
+    const { outer } = d.faceChannels!;
+    expect(outer, "the outer end's channel").toBeDefined();
+    const last = d.wirePaths.at(-1)!.points;
+    const end = point(last, count(last) - 1);
+    const layerOffset = outlineOffsetAt(d.wallSpec.outline, end[0], end[1]).offset;
+    const first = point(d.wirePaths[0].points, 0);
+    expect(end[2], "the last layer ends at the bottom").toBeLessThan(first[2] + 2 * wire);
+    const ramp = outer!.ramp!;
+    expect(ramp[0].z).toBeCloseTo(end[2], 3);
+    expect(ramp.at(-1)!.z).toBeCloseTo(outer!.level, 3);
+    const lifted = ramp.filter((p) => p.z >= end[2] + wire);
+    expect(lifted.length, "the climb rises past the last layer's own turns").toBeGreaterThan(5);
+    for (const p of lifted) expect(outlineOffsetAt(d.wallSpec.outline, p.x, p.y).offset, "outside the last layer").toBeGreaterThanOrEqual(layerOffset + wire - 0.15);
+    expect(Math.min(...ramp.map((p) => p.z)), "never dips under the bottom turn").toBeGreaterThanOrEqual(end[2] - wire / 2);
+  });
+});
+
+describe("a stacked coil on a bare core (issue #286)", () => {
   it("holds back the winding height for the crossing: at most a cable diameter or two of turns", async () => {
-    const locked = (layers: number) => design({ ...spec({ kind: "round" }, ODD_CABLES[0][1], layers, "off"), coreSize: { locked: true, dimension: "outer", value: 50 }, height: { locked: true, value: 60 } }, "draft");
-    const [one, three] = [await locked(1), await locked(3)];
-    const gap = one.solution.layerResults[0].turns - three.solution.layerResults[0].turns;
-    expect(gap, "turns given up on layer 1").toBeGreaterThanOrEqual(1);
-    expect(gap).toBeLessThanOrEqual(2);
-    expect(three.faceChannels!.outer!.level + 1.5).toBeLessThan(three.solution.height);
+    const locked = (layers: number) => design({ ...spec({ kind: "round" }, STACK_CABLES[0][1], layers, "off"), coreSize: { locked: true, dimension: "outer", value: 50 }, height: { locked: true, value: 60 } }, "draft");
+    const one = await locked(1);
+    for (const layers of STACK_LAYERS) {
+      const stack = await locked(layers);
+      const gap = one.solution.layerResults[0].turns - stack.solution.layerResults[0].turns;
+      expect(gap, `turns given up on layer 1 with ${layers} layers`).toBeGreaterThanOrEqual(1);
+      expect(gap).toBeLessThanOrEqual(2);
+      expect(stack.faceChannels!.outer!.level + 1.5).toBeLessThan(stack.solution.height);
+    }
   });
 
   it("builds a single-solid, supportless core with the crossing, in every shape and at both diameters", async () => {
     for (const [shapeName] of SHAPES) {
-      for (const [cableName] of ODD_CABLES) {
-        const d = await stacked(shapeName, cableName, 3);
-        expect(unsupportedOverhangs(d, `${shapeName}, ${cableName}`)).toEqual([]);
-        expect(d.notices.filter((n) => n.severity === "problem")).toEqual([]);
+      for (const [cableName] of STACK_CABLES) {
+        for (const layers of STACK_LAYERS) {
+          const d = await stacked(shapeName, cableName, layers);
+          expect(unsupportedOverhangs(d, `${shapeName}, ${cableName}, ${layers} layers`)).toEqual([]);
+          expect(d.notices.filter((n) => n.severity === "problem")).toEqual([]);
+        }
       }
     }
-  }, 120_000);
+  }, 240_000);
 
-  it("keeps a straight tail where the cap is on, or the layer count is even", async () => {
-    const even = await stacked("round", "3 mm", 2);
-    expect(even.faceChannels!.outer).toBeUndefined();
-    const capped = await design({ ...spec({ kind: "round" }, ODD_CABLES[0][1], 3, "on") }, "draft");
+  it("keeps a straight tail where the cap is on", async () => {
+    const capped = await design({ ...spec({ kind: "round" }, STACK_CABLES[0][1], 3, "on") }, "draft");
     expect(capped.faceChannels?.outer).toBeUndefined();
   });
 });

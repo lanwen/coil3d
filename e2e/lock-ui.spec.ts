@@ -70,7 +70,7 @@ test("switching the locked core-size dimension to inner and reloading reproduces
 });
 
 test("unlocking layers (2 free: height + layers) shows an alternate candidate", async ({ page }) => {
-  await page.goto(`/${encodeHashDoc({ size: 60 })}`);
+  await page.goto(`/${encodeHashDoc({ size: 60, L: 2500 })}`);
   // The default state locks outer size + layers, leaving height free (1 free); a 60 mm core is above the bare core's own size floor, so both options differ.
   // Unlocking layers too leaves outer size locked and height + layers free.
   await page.getByTestId("lock-layers").uncheck();

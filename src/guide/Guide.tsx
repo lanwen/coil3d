@@ -233,6 +233,14 @@ function StepFitCap({ design, n }: { design: Design; n: number }) {
   );
 }
 
+const OUTER_END_HANGS = "Let the connector hang down through the hole.";
+
+function outerEndLine(design: Design): string {
+  if (!design.faceChannels!.outer!.ramp) return `Press the outer end into the channel on the top face, from the last turn in to the centre hole. ${OUTER_END_HANGS}`;
+  if (design.wirePaths.length % 2 === 0) return `Lead the outer end up the outside of the coil, over the top turns, and press it into the channel on the top face, in to the centre hole. ${OUTER_END_HANGS}`;
+  return `Lift the outer end over the top turns and press it into the channel on the top face, in to the centre hole. ${OUTER_END_HANGS}`;
+}
+
 function StepLayOuterEndFace({ design, n }: { design: Design; n: number }) {
   const core = corePart(design);
   const outer = design.faceChannels!.outer!;
@@ -244,9 +252,7 @@ function StepLayOuterEndFace({ design, n }: { design: Design; n: number }) {
         <Figure parts={[core]} wirePaths={[...design.wirePaths, outerEnd]} wireDiameter={design.spec.wire.diameter} showWire testId="guide-secure-outer" zoomInsetAt={anchor} zoomInsetWindowMm={faceWindowMm(design)} />
       </div>
       <Callout icons={<KeyholeIcon label="Press the cable into the channel on the top face" />}>
-        {outer.ramp
-          ? "Lift the outer end over the top turns and press it into the channel on the top face, in to the centre hole. Let the connector hang down through the hole."
-          : "Press the outer end into the channel on the top face, from the last turn in to the centre hole. Let the connector hang down through the hole."}
+        {outerEndLine(design)}
       </Callout>
     </StepCard>
   );

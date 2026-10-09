@@ -36,10 +36,13 @@ import {
   CABLE_TAIL_FACTOR,
   CABLE_TAIL_MIN,
   CAP_LEAD_OUT_WALL_GAP,
+  CLIMB_OFFSET_SPAN,
+  CROSSING_MIN_LAYERS,
   DRAFT_WIRE_MAX_ARC_LENGTH,
   DRAFT_WIRE_MIN_SAMPLES_PER_TURN,
   FINAL_WIRE_MAX_ARC_LENGTH,
   FINAL_WIRE_MIN_SAMPLES_PER_TURN,
+  LEAD_OUT_TURNS_MAX,
   MARGIN_BOTTOM,
 } from "./constants";
 import { phaseShiftTurns } from "./capacity";
@@ -61,7 +64,6 @@ const MAX_TOTAL_SAMPLES_PER_LAYER = 300_000;
 const MIN_SAMPLES_PER_TURN_FLOOR = 8;
 
 const TRANSITION_TURNS_MAX = 1.5;
-const LEAD_OUT_TURNS_MAX = 4;
 
 /**
  * Samples per turn for the given per-turn helix length: at least
@@ -133,8 +135,8 @@ function sampleLayer(outline: ShapeOutline, run: LayerRun, perimeter: number, pi
  * there). The flange and cap must cover this, not just the envelope.
  */
 export function woundReachOffset(envelopeOffset: number, wireDiameter: number, woundLayers: number, topCap: boolean): number {
+  if (woundLayers % 2 === 0 && (topCap || woundLayers > 0)) return envelopeOffset + wireDiameter;
   if (!topCap) return envelopeOffset;
-  if (woundLayers % 2 === 0) return envelopeOffset + wireDiameter;
   return Math.max(envelopeOffset, wireDiameter + CAP_LEAD_OUT_WALL_GAP);
 }
 
@@ -237,21 +239,23 @@ export function windLayers(layerResults: LayerResult[], outline: ShapeOutline, w
 
 export function outerStartOf(wound: WoundLayers): OuterStart | undefined {
   const { runs, wirePaths, layerTransitions } = wound;
-  if (runs.length < 3 || runs.length % 2 === 0) return undefined;
+  if (runs.length < CROSSING_MIN_LAYERS) return undefined;
   const last = runs.at(-1)!;
-  const below = runs.at(-2)!;
+  const ascends = last.slope > 0;
+  const neighbour = ascends ? runs.at(-2)! : last;
+  const under = ascends ? -1 : undefined;
   let stackTop = -Infinity;
-  for (const points of [...wirePaths.slice(0, -1).map((p) => p.points), ...layerTransitions.slice(0, -1)]) {
+  for (const points of [...wirePaths.slice(0, under).map((p) => p.points), ...layerTransitions.slice(0, under)]) {
     for (let i = 2; i < points.length; i += 3) stackTop = Math.max(stackTop, points[i]);
   }
   const t = last.start + last.turns;
   const z = last.z(last.turns);
-  const phase = (((t - below.start) % 1) + 1) % 1;
+  const phase = (((t - neighbour.start) % 1) + 1) % 1;
   const neighbourTurns: number[] = [];
-  for (let local = phase; local <= below.turns; local += 1) {
-    if (below.z(local) >= z - Math.abs(below.slope)) neighbourTurns.push(below.z(local));
+  for (let local = phase; local <= neighbour.turns; local += 1) {
+    if (neighbour.z(local) >= z - Math.abs(neighbour.slope)) neighbourTurns.push(neighbour.z(local));
   }
-  return { t, z, slope: last.slope, offset: last.offsetAt(last.turns), neighbourOffset: below.offsetAt(below.turns), neighbourTurns, neighbourSlope: below.slope, stackTop };
+  return { t, z, slope: last.slope, offset: last.offsetAt(last.turns), neighbourOffset: neighbour.offsetAt(neighbour.turns), neighbourTurns, neighbourSlope: neighbour.slope, stackTop };
 }
 
 export function buildCable(wound: WoundLayers, outline: ShapeOutline, wireDiameter: number, ends: CableEnds): WoundCable {
@@ -298,7 +302,7 @@ export function buildCable(wound: WoundLayers, outline: ShapeOutline, wireDiamet
     const o0 = lastOffset;
     const climbsAll = last.slope < 0;
     const oKey = climbsAll ? o0 + d : Math.max(o0, d / 2 + CAP_LEAD_OUT_WALL_GAP);
-    const offsetAt = climbsAll ? (s: number) => o0 + (oKey - o0) * unitRamp(Math.min(1, s / 0.2)) : (s: number) => o0 + (oKey - o0) * unitRamp(s);
+    const offsetAt = climbsAll ? (s: number) => o0 + (oKey - o0) * unitRamp(Math.min(1, s / CLIMB_OFFSET_SPAN)) : (s: number) => o0 + (oKey - o0) * unitRamp(s);
     const found = searchBlend(
       (turns) => {
         const points = outlineBlend(outline, uEnd, turns, offsetAt, zEnd, last.slope, zKey, 0);

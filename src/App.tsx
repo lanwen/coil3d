@@ -164,6 +164,7 @@ export default function App() {
                   innerEndLeadIn={result.innerEndLeadIn}
                   layerTransitions={result.layerTransitions}
                   outerEndLeadOut={result.outerEndLeadOut}
+                  outerEndReach={result.faceChannels?.outer !== undefined}
                   cablePath={result.cablePath}
                   wireDiameter={result.spec.wire.diameter}
                   showWire={showWire}
