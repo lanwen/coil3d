@@ -32,7 +32,6 @@ import type { OutlineStack, RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
-import { faceCutArcs } from "../faceChannel";
 import type { FaceChannelLayout, FaceCutArc, FaceEnd } from "../faceChannel";
 import type { InnerEndLayout, SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
@@ -304,7 +303,7 @@ function faceChannelTube(kernel: OpenCascadeInstance, layout: FaceChannelLayout,
   const shrink = (Math.hypot(x, y) - WALL_PROBE_DEPTH) / Math.hypot(x, y);
   const oriented = isInside(kernel, tube, { x: x * shrink, y: y * shrink, z }) ? tube : reversedSolid(tube);
   const ends = [layout.inner, layout.outer].filter((end): end is FaceEnd => end !== undefined);
-  const tools = ends.map((end) => faceCutArcs(end).map((arc) => faceArcCutterSolid(arc, end, layout)).reduce((all, piece) => all.fuse(piece)));
+  const tools = ends.map((end) => end.arcs.map((arc) => faceArcCutterSolid(arc, end, layout)).reduce((all, piece) => all.fuse(piece)));
   const channelled = cutSolid(kernel, oriented, tools);
   for (const solid of [...rings, ...tools, hollow, tube, oriented]) solid.delete();
   return channelled;

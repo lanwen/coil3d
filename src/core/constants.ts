@@ -702,7 +702,6 @@ export const FACE_REVOLVE_SEGMENTS = 120;
 export const FACE_DOME_SEGMENTS = 14;
 export const FACE_TAIL_HANG = 20;
 export const FACE_BEND_MARGIN = 2;
-export const FACE_CUT_BACK = 0.3;
 export const FACE_MIN_CROSSING = 0.4;
 export const FACE_MARCH_STEP = 0.5;
 export const FACE_ARC_STEP = 1;

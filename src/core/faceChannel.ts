@@ -7,7 +7,6 @@ import {
   CLIMB_TURNS_STEP,
   CROSSING_MIN_LAYERS,
   FACE_BEND_MARGIN,
-  FACE_CUT_BACK,
   FACE_EASE_LENGTH,
   FACE_FUNNEL_FIT_STEPS,
   FACE_WIDTH_STEPS,
@@ -569,15 +568,6 @@ export function planFaceChannels(spec: FaceChannelSpec): FaceChannelLayout | und
   const layout = planUncached(spec);
   planCache.set(key, layout);
   return layout;
-}
-
-export function faceCutArcs(end: FaceEnd): FaceCutArc[] {
-  return end.arcs.map((arc, k) => {
-    const sign = Math.sign(arc.sweep);
-    const back = k === 0 ? (sign * FACE_CUT_BACK) / arc.radius : 0;
-    const ahead = k < end.arcs.length - 1 ? (sign * FACE_CUT_BACK) / arc.radius : 0;
-    return { ...arc, from: arc.from - back, sweep: arc.sweep + back + ahead };
-  });
 }
 
 function easeAt(s: number): number {

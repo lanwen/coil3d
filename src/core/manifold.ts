@@ -55,9 +55,8 @@ import type { RimRow } from "./edgeChamfer";
 import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd, sweepMesh } from "./innerEnd";
 import { FACE_CUT_OVERSHOOT, FACE_DOME_SEGMENTS, FACE_REVOLVE_SEGMENTS } from "./constants";
-import { faceCutArcs } from "./faceChannel";
 import type { FaceCutArc, FaceChannelLayout, FaceEnd } from "./faceChannel";
-import type { InnerEndLayout, RimSlot, SweepSolid } from "./innerEnd";
+import type { InnerEndLayout, RimSlot, SweepSolid, XYZ } from "./innerEnd";
 import { layoutKeyholeMount, throughHoleCountersink } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
@@ -476,19 +475,29 @@ function channelProfile(face: FaceEnd["face"], offset: number, halfWidth: number
   return [...dome(Math.PI, 2 * Math.PI), [offset + halfWidth, height + FACE_CUT_OVERSHOOT], [offset - halfWidth, height + FACE_CUT_OVERSHOOT]];
 }
 
-function faceArcCutter(wasm: ManifoldToplevel, track: Track, arc: FaceCutArc, end: FaceEnd, layout: FaceChannelLayout): Manifold {
-  const profile = channelProfile(end.face, arc.radius, layout.channelRadius, end.level, layout.height);
-  const degrees = (Math.abs(arc.sweep) * 180) / Math.PI;
-  const lowest = (Math.min(arc.from, arc.from + arc.sweep) * 180) / Math.PI;
-  const solid = track(wasm.Manifold.revolve([profile], FACE_REVOLVE_SEGMENTS, degrees));
-  const turned = track(solid.rotate([0, 0, lowest]));
-  return track(turned.translate([arc.centre.x, arc.centre.y, 0]));
+function ringStations(end: FaceEnd): Array<{ arc: FaceCutArc; angle: number }> {
+  return end.arcs.flatMap((arc, k) => {
+    const steps = Math.max(1, Math.ceil((FACE_REVOLVE_SEGMENTS * Math.abs(arc.sweep)) / (2 * Math.PI)));
+    return Array.from({ length: steps + 1 }, (_, i) => ({ arc, angle: arc.from + (arc.sweep * i) / steps })).slice(k === 0 ? 0 : 1);
+  });
+}
+
+function faceEndSweep(end: FaceEnd, layout: FaceChannelLayout): SweepSolid {
+  const at = (arc: FaceCutArc, angle: number, offset: number, z: number): XYZ => ({
+    x: arc.centre.x + offset * Math.cos(angle),
+    y: arc.centre.y + offset * Math.sin(angle),
+    z,
+  });
+  const stations = ringStations(end);
+  const rings = stations.map(({ arc, angle }) => channelProfile(end.face, arc.radius, layout.channelRadius, end.level, layout.height).map(([offset, z]) => at(arc, angle, offset, z)));
+  const first = stations[0];
+  const last = stations[stations.length - 1];
+  return { rings, start: at(first.arc, first.angle, first.arc.radius, end.level), end: at(last.arc, last.angle, last.arc.radius, end.level) };
 }
 
 function faceChannelCutter(wasm: ManifoldToplevel, track: Track, layout: FaceChannelLayout): Manifold {
   const ends = [...(layout.inner ? [layout.inner] : []), ...(layout.outer ? [layout.outer] : [])];
-  const pieces = ends.flatMap((end) => faceCutArcs(end).map((arc) => faceArcCutter(wasm, track, arc, end, layout)));
-  return track(wasm.Manifold.union(pieces));
+  return track(wasm.Manifold.union(ends.map((end) => track(sweepSolid(wasm, faceEndSweep(end, layout))))));
 }
 
 export async function fuseFlange(
