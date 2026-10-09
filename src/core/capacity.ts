@@ -14,6 +14,10 @@ export function clamp01(x: number): number {
   return Math.max(0, Math.min(1, x));
 }
 
+export function phaseShiftTurns(layer: number, quality: number): number {
+  return ((layer - 1) % 2) * clamp01(quality) * 0.5;
+}
+
 /** h(q): radial pitch between layer centerlines. q=1 -> d*sqrt(3)/2 (ideal orthocyclic), q=0 -> d (stacked). */
 export function radialPitch(d: number, quality: number): number {
   const ideal = (d * SQRT3) / 2;

@@ -29,7 +29,7 @@
 
 import { computeCapacity, envelopeDiameter } from "./capacity";
 import type { CapacityResult } from "./capacity";
-import { faceEndsLength, minFaceChannelHeight, minFaceChannelOuterSize, planFaceChannels } from "./faceChannel";
+import { crossingActive, crossingReserve, faceEndsLength, minFaceChannelHeight, minFaceChannelOuterSize, nominalOuterStart, planFaceChannels } from "./faceChannel";
 import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
 import { jointGeometry, resolveCapJoint } from "./joints";
 import { isHeavyCable } from "./skadisClips";
@@ -240,10 +240,14 @@ function toOuterSize(lock: Extract<CoilSpec["coreSize"], { locked: true }>, wire
   return lock.dimension === "outer" ? lock.value : lock.value + 2 * wallThickness(wireDiameter);
 }
 
+function reserveFor(spec: CoilSpec, layers: number): number {
+  return crossingActive(layers, resolveTopCap(spec)) ? crossingReserve(spec.wire.diameter, spec.tolerance) : 0;
+}
+
 function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
   const wire = spec.wire;
   const groove = grooveShape(wire.diameter);
-  const usableHeight = Math.max(0, windingSpan(g.height, wire.diameter));
+  const usableHeight = Math.max(0, windingSpan(g.height, wire.diameter) - reserveFor(spec, g.layers));
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(wire), wire);
   return computeCapacity({
     outline,
@@ -257,10 +261,12 @@ function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
 }
 
 function endsLengthFor(spec: CoilSpec, g: Resolved, cap: CapacityResult): number {
-  const topFace = cap.layerResults.filter((r) => r.turns > 0).length === 1 && !resolveTopCap(spec);
+  const woundLayers = cap.layerResults.filter((r) => r.turns > 0).length;
+  const topFace = woundLayers % 2 === 1 && !resolveTopCap(spec);
   const bottomFace = !baseEnabled(spec);
   if (!bottomFace && !topFace) return 0;
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
+  const reserve = reserveFor(spec, g.layers);
   return faceEndsLength({
     outline,
     boreOutline: resolveBoreOutline(outline, spec.wire.diameter).boreOutline,
@@ -270,6 +276,8 @@ function endsLengthFor(spec: CoilSpec, g: Resolved, cap: CapacityResult): number
     bendRadius: bendMultiplierOf(spec.wire) * spec.wire.diameter,
     topFace,
     bottomFace,
+    reserve,
+    outerStart: topFace ? nominalOuterStart(woundLayers, spec.wire.diameter, spec.windingQuality, g.height, reserve) : undefined,
   });
 }
 
@@ -288,8 +296,9 @@ function centreFloors(spec: CoilSpec): { size: number; height: number } {
   const d = spec.wire.diameter;
   const mbr = bendMultiplierOf(spec.wire) * d;
   const rcMin = bendCornerRadiusFloor(spec.wire);
+  const stack = spec.layers.locked ? { layers: spec.layers.value, quality: spec.windingQuality } : undefined;
   return {
-    size: minFaceChannelOuterSize((outerSize) => resolveOutline(spec.shape, outerSize, rcMin, spec.wire), (outline) => resolveBoreOutline(outline, d).boreOutline, d, spec.tolerance, mbr),
+    size: minFaceChannelOuterSize((outerSize) => resolveOutline(spec.shape, outerSize, rcMin, spec.wire), (outline) => resolveBoreOutline(outline, d).boreOutline, d, spec.tolerance, mbr, stack),
     height: minFaceChannelHeight(d, spec.tolerance, mbr, bottomFace),
   };
 }
@@ -331,9 +340,11 @@ function tclipsFit(spec: CoilSpec, outerSize: number): boolean {
   const core = coreAt(spec, outerSize, HEIGHT_HI);
   const d = spec.wire.diameter;
   const capOn = resolveTopCap(spec);
-  const mayHaveTopRing = !capOn && !(spec.layers.locked && spec.layers.value > 1);
+  const mayHaveTopRing = !capOn && !(spec.layers.locked && spec.layers.value % 2 === 0);
+  const reserve = spec.layers.locked ? reserveFor(spec, spec.layers.value) : 0;
+  const outerStart = spec.layers.locked && reserve > 0 ? nominalOuterStart(spec.layers.value, d, spec.windingQuality, HEIGHT_HI, reserve) : undefined;
   const faceChannels = mayHaveTopRing
-    ? planFaceChannels({ outline: core.outline, boreOutline: core.boreOutline, height: HEIGHT_HI, wireDiameter: d, tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * d, topFace: true, bottomFace: false })
+    ? planFaceChannels({ outline: core.outline, boreOutline: core.boreOutline, height: HEIGHT_HI, wireDiameter: d, tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * d, topFace: true, bottomFace: false, reserve, outerStart })
     : undefined;
   return (
     layoutSkadisTclips({
@@ -650,7 +661,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const jointHeightFloor = !spec.coreSize.locked || toOuterSize(spec.coreSize, spec.wire.diameter) >= fit.jointSize ? fit.height : 0;
   const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal, sizeFree ? fit.size : 0);
   const sizeHi = SIZE_HI;
-  const baseHeightLo = Math.max(groove.pitch - windingSpan(0, spec.wire.diameter), centre.height);
+  const baseHeightLo = Math.max(groove.pitch - windingSpan(0, spec.wire.diameter) + (spec.layers.locked ? reserveFor(spec, spec.layers.value) : 0), centre.height);
   const heightLo = Math.max(baseHeightLo, heightFree ? jointHeightFloor : 0);
   const heightHi = HEIGHT_HI;
   const layersLo = 1;

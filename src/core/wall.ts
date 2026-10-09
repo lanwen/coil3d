@@ -181,6 +181,10 @@ export function grooveStartHeight(groove: Pick<GrooveShape, "radius" | "depth">,
   return marginBottom + grooveReach(groove.radius, groove.depth).down;
 }
 
+export function grooveCrest(groove: Pick<GrooveShape, "radius" | "depth">): number {
+  return grooveReach(groove.radius, groove.depth).up;
+}
+
 export function createWallProfile(spec: WallSpec): WallProfile {
   const { outline, pitch, grooveRadius: rho, grooveDepth: g, marginBottom, taperTurns: tau, runInTurns: tauIn, turns } = spec;
 

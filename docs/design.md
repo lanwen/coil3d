@@ -93,8 +93,8 @@ stands on its own bottom face, with no flange, no inner-end channel and no base
 rim slot. The top cap stays optional, and `auto` means off, with or without a
 base, so a core has no cap until the user switches it on. An explicit cap is
 still built, sized to the wound cable. A link that sets `base` or `cap` keeps
-its choice. Multi-layer outer ends on a bare core
-continue in #286.
+its choice. The outer end of a coil with an even number
+of layers continues in #286.
 
 Both cable ends leave the winding onto an end face (`faceChannel.ts`). Layer 1
 starts on the bottom turn and climbs, so the inner end uses the bottom face. An
@@ -137,11 +137,24 @@ odd last layer finishes on the top turn; an even one on the bottom turn.
   bottom ring's thickness and the inner end's seat in both cases. With the base
   on there is no bottom ring and no bottom channel: the inner end keeps the
   flange's channel and clip.
-- **One layer, no cap.** Only then does the outer end use the top face. With
-  more layers the outer end cannot reach the centre: it would cross the lower
-  layers' turns at the same height. It keeps its straight tail, or the cap's
-  rim slot. The even-layer outer end therefore stays outside (decision 6 of
-  #254 needs an answer for the crossing).
+- **One layer, or an odd count, no cap (#286).** The outer end uses the top face
+  when the last layer is odd and the cap is off. Layers 1 to L-1 fill the band
+  around the whole core, so the outer end cannot reach the core at its own
+  height: it would cross their turns. Instead it rises in a ramp over the
+  stack, then runs level into the channel. Nothing is printed under the
+  crossing: the cable rests on the lower turns, so the base-on top stays the
+  bare core's. The ramp is the same blend as the cap's lead-out, searched in
+  length until its bend passes. It starts at the last turn's own offset. It
+  moves out by the gap the nested layers leave (about 0.1 d), so it passes the
+  turn beside it at a cable's width. The channel's level is one cable diameter
+  above the highest lower turn and clear of the groove's top flank by 1.2 mm
+  of web (the groove fades out over its last 0.15 turn), so the channel never
+  cuts the grooved wall. The solver takes `crossingReserve` (about
+  1.4 d) off the winding span, so for the same turns the core is that much
+  taller. The ramp ends where the in-plane
+  arc can reach the hole: for a square or a triangle the arc may start inside a
+  corner, so the arc follows only the rest of that corner. Where no ramp fits,
+  the outer end keeps its straight tail and a note says so.
 - **Clearances.** Channel arcs reach the hole at least 0.4 square-on (a
   grazing crossing leaves a sliver of ring beside the channel); the standing
   cable keeps 0.5 mm clear of the hole's edge; the two cables stand at least

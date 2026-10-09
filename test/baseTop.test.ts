@@ -26,7 +26,7 @@ const CABLES: Array<[string, WireSpec]> = [
   ["flex 2.6 mm", { length: 2500, diameter: 2.6, type: "usb" }],
 ];
 
-const GRID = SHAPES.flatMap(([shape]) => CABLES.flatMap(([cable]) => [1, 2].flatMap((layers) => (["on", "off"] as const).map((cap) => [shape, cable, layers, cap] as const))));
+const GRID = SHAPES.flatMap(([shape]) => CABLES.flatMap(([cable]) => [1, 2, 3].flatMap((layers) => (["on", "off"] as const).map((cap) => [shape, cable, layers, cap] as const))));
 
 function spec(shape: ShapeSpec, wire: WireSpec, layers: number, topCap: "on" | "off", base: "on" | "off", fixed?: Design): CoilSpec {
   return {
@@ -96,6 +96,7 @@ describe.each(GRID)("%s core, %s, %i layers, cap %s: the top with the base on", 
     const { bare, based } = await pair(shapeName, cableName, layers, cap);
     const [a, b] = [bare.faceChannels, based.faceChannels];
     expect(b?.outer, "the outer end's top channel").toEqual(a?.outer);
+    if (cap === "off" && layers % 2 === 1) expect(a?.outer, "an odd layer count's outer end is in the top channel").toBeDefined();
     expect(b?.topThickness).toEqual(a?.topThickness);
     if (a?.topThickness !== undefined) {
       expect(b?.holeOutline).toEqual(a.holeOutline);

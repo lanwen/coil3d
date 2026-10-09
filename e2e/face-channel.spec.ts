@@ -7,6 +7,7 @@ import { encodeHashDoc, withHashDoc } from "./hashDoc";
 // builds and downloads, through the URL hash and the UI.
 
 const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 60 });
+const THREE_LAYER = encodeHashDoc({ L: 2400, d: 3, ly: 3, lock: ["ly"] });
 const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, size: 60, ly: 2, cap: "on" });
 
 const GUIDE_TIMEOUT = process.env.CI ? 120_000 : 25_000;
@@ -23,6 +24,13 @@ test.describe("a bare core's face channels (issue #254)", () => {
     await expect(page.getByTestId("guide-step-2")).toContainText("Lay in the inner cable end");
     await expect(page.getByTestId("guide-step-2")).toContainText("bottom face");
     await expect(page.getByTestId("guide-step-4")).toContainText("Lay in the outer cable end");
+    await expect(page.getByTestId("guide-step-4")).toContainText("top face");
+  });
+
+  test("three layers, no cap: the guide lifts the outer end over the top turns into the top face's channel (issue #286)", async ({ page }) => {
+    await gotoGuide(page, THREE_LAYER);
+    await expect(page.getByTestId("guide-step-4")).toContainText("Lay in the outer cable end");
+    await expect(page.getByTestId("guide-step-4")).toContainText("over the top turns");
     await expect(page.getByTestId("guide-step-4")).toContainText("top face");
   });
 
