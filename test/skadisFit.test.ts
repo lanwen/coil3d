@@ -447,7 +447,7 @@ const TCLIP_CASES: Array<{ label: string; overrides: Partial<CoilSpec>; clips: n
   { label: "square 85", overrides: tclip({ shape: { kind: "sq", cornerRadius: 10 } }), clips: 3 },
   { label: "triangle 50", overrides: tclip({ shape: { kind: "tri", cornerRadius: 10 }, ...size(50) }), clips: 1 },
   { label: "triangle 85", overrides: tclip({ shape: { kind: "tri", cornerRadius: 10 } }), clips: 3 },
-  { label: "round 85, heavy cable (still 3)", overrides: tclip({ wire: { length: 10000, diameter: 8, type: "flex" }, layers: { locked: true, value: 4 } }), clips: 3 },
+  { label: "round 85, heavy cable (still 3)", overrides: tclip({ wire: { length: 10000, diameter: 8, type: "flex" }, layers: { locked: true, value: 4 }, topCap: "on" }), clips: 3 },
 ];
 
 /** A T-clip's stem, sliced through the board: its axis (the middle of its extent) and its outline round that axis, in (side, up). */

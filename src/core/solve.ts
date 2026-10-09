@@ -262,7 +262,7 @@ function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
 
 function endsLengthFor(spec: CoilSpec, g: Resolved, cap: CapacityResult): number {
   const woundLayers = cap.layerResults.filter((r) => r.turns > 0).length;
-  const topFace = woundLayers % 2 === 1 && !resolveTopCap(spec);
+  const topFace = woundLayers > 0 && !resolveTopCap(spec);
   const bottomFace = !baseEnabled(spec);
   if (!bottomFace && !topFace) return 0;
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
@@ -340,7 +340,7 @@ function tclipsFit(spec: CoilSpec, outerSize: number): boolean {
   const core = coreAt(spec, outerSize, HEIGHT_HI);
   const d = spec.wire.diameter;
   const capOn = resolveTopCap(spec);
-  const mayHaveTopRing = !capOn && !(spec.layers.locked && spec.layers.value % 2 === 0);
+  const mayHaveTopRing = !capOn;
   const reserve = spec.layers.locked ? reserveFor(spec, spec.layers.value) : 0;
   const outerStart = spec.layers.locked && reserve > 0 ? nominalOuterStart(spec.layers.value, d, spec.windingQuality, HEIGHT_HI, reserve) : undefined;
   const faceChannels = mayHaveTopRing

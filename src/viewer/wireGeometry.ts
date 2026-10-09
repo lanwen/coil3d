@@ -96,6 +96,15 @@ export function needsEnvelope(wirePaths: WireLayerPath[], wireRadius: number, ca
   return tubeDiameterPx < MIN_TUBE_DIAMETER_PX;
 }
 
+export function reachFramePoints(path: ArrayLike<number>, wireRadius: number): Float32Array {
+  const out: number[] = [];
+  for (let i = 0; i + 2 < path.length; i += 3) {
+    const [x, y, z] = [path[i], path[i + 1], path[i + 2]];
+    out.push(x + wireRadius, y, z, x - wireRadius, y, z, x, y + wireRadius, z, x, y - wireRadius, z, x, y, z + wireRadius, x, y, z - wireRadius);
+  }
+  return new Float32Array(out);
+}
+
 export function buildCableTube(cablePath: Float32Array, wireRadius: number): THREE.BufferGeometry {
   return fullTube({ layer: 0, turns: 1, points: cablePath }, wireRadius);
 }

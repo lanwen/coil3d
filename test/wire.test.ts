@@ -569,38 +569,6 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
     expectBridgeSweepIsBounded(d.outerEndLeadOut, "outer lead-out", MAX_LEAD_OUT_SWEEP_DEG);
   });
 
-  it("with the top cap off and an even layer count, the cable leaves the last turn along a straight tangential tail (issue #115)", async () => {
-    for (const layers of [2]) {
-      const d = await design(
-        baseSpec({
-          wire: { length: 3000, diameter: 3.8, type: "usb" },
-          coreSize: { locked: true, dimension: "outer", value: 30 },
-          height: { locked: true, value: 40 },
-          layers: { locked: true, value: layers },
-          topCap: "off",
-        }),
-      );
-      expect(d.parts.some((p) => p.role === "topCap")).toBe(false);
-      expect(d.rimSlots.cap).toBeUndefined();
-      const tail = d.outerEndLeadOut;
-      const n = tail.length / 3;
-      expect(n).toBeGreaterThanOrEqual(2);
-      // Straight: every sample on the line through the first two.
-      const dir = unitVector(pointAt3(tail, 0), pointAt3(tail, 1));
-      for (let i = 2; i < n; i++) {
-        expect(angleBetweenDeg(dir, unitVector(pointAt3(tail, 0), pointAt3(tail, i))), `layers=${layers}: sample ${i} off the straight tail`).toBeLessThan(0.01);
-      }
-      // Tangential: it continues the last turn's own direction (no upward
-      // stub toward a cap keyhole that isn't there).
-      const last = d.wirePaths.at(-1)!.points;
-      const lastCount = last.length / 3;
-      expect(angleBetweenDeg(unitVector(pointAt3(last, lastCount - 2), pointAt3(last, lastCount - 1)), dir)).toBeLessThan(2);
-      expect(Math.abs(dir[2])).toBeLessThan(0.1);
-      // Long enough to read as a free cable end.
-      expect(distance(pointAt3(tail, 0), pointAt3(tail, n - 1))).toBeGreaterThanOrEqual(20);
-    }
-  });
-
   it("with the top cap on, the cable runs level just under the cap, under the cap's rim slot, and out past the rim (issues #117, #241)", async () => {
     for (const layers of [2, 3]) {
       const d = await design(

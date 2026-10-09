@@ -167,9 +167,10 @@ describe("a bare core's face channels keep their roof and floor, over the swept 
   });
 });
 
-const CROSSING_CASES = CASES.filter((c) => c.spec.layers.locked && c.spec.layers.value === 3 && c.spec.topCap === "off");
+const STACK_CASES = SHAPES.flatMap((shape) => (["off", "on"] as const).map((base) => ({ name: `${shape.kind} layers=4 cap=off base=${base} d=3.4`, spec: caseSpec(shape, 4, "off", base, 3.4, "none") })));
+const CROSSING_CASES = [...CASES.filter((c) => c.spec.layers.locked && c.spec.layers.value >= 2 && c.spec.topCap === "off"), ...STACK_CASES];
 
-describe("the outer end's crossing over an odd stack clears the cable and the core, over the swept designs (issue #286)", () => {
+describe("the outer end's crossing over the stack clears the cable and the core, over the swept designs (issue #286)", () => {
   let wasm: ManifoldToplevel;
   beforeAll(async () => {
     wasm = await Module();
@@ -189,7 +190,8 @@ describe("the outer end's crossing over an odd stack clears the cable and the co
     expect(outer, "the outer end is in the top channel").toBeDefined();
     const wire = d.spec.wire.diameter;
     const lead = d.outerEndLeadOut;
-    const lowerTop = Math.max(...d.wirePaths.slice(0, -1).flatMap((w) => Array.from({ length: w.points.length / 3 }, (_, i) => w.points[3 * i + 2])));
+    const under = d.solution.layers % 2 === 1 ? -1 : undefined;
+    const lowerTop = Math.max(...d.wirePaths.slice(0, under).flatMap((w) => Array.from({ length: w.points.length / 3 }, (_, i) => w.points[3 * i + 2])));
     expect(outer!.level, "the crossing rides over the lower layers' top turns").toBeGreaterThanOrEqual(lowerTop + wire);
 
     const lower = d.wirePaths.slice(0, -1);
