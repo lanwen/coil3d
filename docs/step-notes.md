@@ -133,6 +133,44 @@ Cost, with one layer and no cap: a 36 mm round core takes 0.9 s, a 60 mm rounded
 square 1.3 s and a 90 mm triangle 1.25 s. Without channels they took 0.9, 1.2 and
 1.0 s, and with the channels cut from the wall 2.4, 5.6 and 6.6 s.
 
+## Build details
+
+- `build.ts` is reached only through a dynamic `import()` (`index.ts` and
+  `worker.ts`), so replicad's WASM stays out of the main chunk. Node has no
+  `Worker` and builds inline. `worker.ts` types its own scope instead of adding
+  the `webworker` lib to the whole project.
+- The fit's U samples are the mesh's own corner-favouring columns
+  (`outlineColumnParams`), so the fit is a non-uniform periodic cubic. Its
+  collocation coefficients are Cox-de-Boor values per row, not the constant
+  1/6, 4/6, 1/6. Raising a uniform column count to the same corner density
+  also works, but a shape needing 4 times the columns took 3.3 times as long to
+  build, because booleans against the surface scale badly with it.
+- The periodic U system is cyclic tridiagonal. It is solved by Sherman-Morrison
+  (two plain tridiagonal solves). The two corner entries are row 0's wrap
+  entry (column n-1) and row n-1's wrap entry (column 0). Swapping them goes
+  unnoticed while the coefficients are constant and shows once they are not.
+- The volume tolerance is 1.5 %, not 1 %. A 60 mm rounded square (15 mm
+  corners, one layer) has a fitted tube about 0.9 % under the mesh wall, and
+  its fuse with the flange loses a little more, because the fitted wall reaches
+  a hair below z=0.
+- `checkedCut` compares the first cut with the next fuzzy value's. The
+  inner-end channel on one wide flange removed 7 mm^3 of 2958 at the smallest
+  fuzzy value and all of it at the next. Two results within 1 % settle it;
+  otherwise the cut that removes most wins.
+- A swept solid is built from its own planar faces, the triangles the mesh
+  uses (a quad stays one face where it is flat). A ruled loft through the same
+  rings gave the same shape and was several times slower.
+- The inner-end cutter is clipped against the wall's outline grown by
+  `INNER_CHANNEL_WALL_GUARD`. Clipping against the exact outline risks a
+  razor-thin coincident seam.
+- The countersink cone reaches 0.5 mm into the bore and 1 mm above the face, so
+  its cut leaves no coincident faces.
+- Glyph and mount outlines are built with `makePolygon` in one call. A long
+  `draw().lineTo()` chain let replicad's `FinalizationRegistry` collect a curve
+  still in use (`This object has been deleted`).
+- A label is the fused solid loops minus the hole loops (an "O" is a ring),
+  since replicad has no face primitive with several contours.
+
 ## Open
 
 - STEP output has been read back by OCCT only. Open it in FreeCAD and in a CAD

@@ -411,7 +411,9 @@ features: flange, joints, clips, mounts and label.
 
 The mesh and STEP backends build from the same shared layouts (the wall
 profile, the joint geometry, the label outlines, the mount and clip layouts).
-Each STEP solid is checked against the part's mesh volume (see Export).
+Each STEP builder in `src/core/step/build.ts` mirrors its mesh twin in
+`manifold.ts` primitive for primitive, with the same constants. Each STEP solid
+is checked against the part's mesh volume (see Export).
 
 ### Snap joint
 
