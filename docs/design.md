@@ -549,7 +549,11 @@ wide) as isolated pixels, which show as a dotted line on a flat face. The
 booleans leave such triangles in the flat faces of the top cap and of the
 core's flange, so those meshes have every edge cut to 10 mm and the edges
 inside each horizontal flat face flipped to the triangulation with the best
-smallest angle (`src/core/flatFaces.ts`).
+smallest angle (`src/core/flatFaces.ts`). A flip across a corner a hair off the
+plane (up to 0.01 mm) may not turn either new triangle more than a degree away
+from the plane: on the cap's 45 degree rim chamfer a flip beside the cable slot
+made a sliver 0.1 mm wide that leaned 46.6 degrees, past what a printer holds
+without support (#279).
 
 Before that, `src/core/weld.ts` collapses every edge under 0.02 mm. A collapse
 that fails the link condition because a vertex across the edge has only three

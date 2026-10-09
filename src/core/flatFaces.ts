@@ -57,6 +57,8 @@ const WORST_ANGLE_TO_FLIP = (2 * Math.PI) / 180;
 /** Two triangles on an edge fold back onto each other when their normals are this close to opposite (cosine; 8 degrees). */
 const FOLD_COS = 0.99;
 
+const MAX_TILT_COS = Math.cos(Math.PI / 180);
+
 /** A quad whose fourth corner is this close (mm) to the other three's plane is flat: a flip in it turns no triangle. */
 const COPLANAR = 1e-4;
 
@@ -251,6 +253,10 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
   };
   const opposite = (n: [number, number, number] | undefined, m: [number, number, number] | undefined) =>
     n !== undefined && m !== undefined && n[0] * m[0] + n[1] * m[1] + n[2] * m[2] < -FOLD_COS * Math.hypot(...n) * Math.hypot(...m);
+  const tiltsAway = (corners: number[], nx: number, ny: number, nz: number) => {
+    const n = realNormal(corners);
+    return n !== undefined && n[0] * nx + n[1] * ny + n[2] * nz < MAX_TILT_COS * Math.hypot(...n) * Math.hypot(nx, ny, nz);
+  };
   const foldsBetween = (a: number[], b: number[]) => opposite(realNormal(a), realNormal(b));
   /** Whether the triangle on `corners` would fold back over any of the triangles in `others` (-1 for a border: none). */
   const foldsBack = (corners: number[], others: number[]) => {
@@ -349,6 +355,7 @@ export function improveFlatFaces(mesh: CoilMesh, { horizontalOnly = false } = {}
       if (u === p && v === d) C = nbr[3 * t2 + k];
       if (u === d && v === q) D = nbr[3 * t2 + k];
     }
+    if (Math.abs(offPlane) > COPLANAR && (tiltsAway([p, d, c], nx, ny, nz) || tiltsAway([d, q, c], nx, ny, nz))) continue;
     // Issue #219: and in 3D, where a corner sits off the plane (up to PLANE_TOLERANCE), neither new triangle may lie
     // back over the other or a neighbour: a fold of no thickness. (Four corners in one plane can't make a new one.)
     if (Math.abs(offPlane) > COPLANAR && (foldsBack([p, d, c], [C, B]) || foldsBack([d, q, c], [D, A]) || foldsBetween([p, d, c], [d, q, c]))) continue;
