@@ -12,13 +12,7 @@ import { fileURLToPath } from "url";
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const bytes = fs.readFileSync(path.join(dir, "ArchivoBlack-Regular.ttf"));
 const base64 = bytes.toString("base64");
-const out = `// Generated from ../assets/fonts/ArchivoBlack-Regular.ttf (SIL Open Font License 1.1,
-// see ../assets/fonts/OFL.txt) by ../assets/fonts/generate-base64.mjs. Base64, not a raw
-// asset import, so the exact same bytes load identically in the browser main thread, the
-// geometry worker (src/geometry/worker.ts) and vitest/Node -- no fetch(), no bundler-specific
-// asset URL handling to keep in sync across those three run targets (issue #12, label.ts).
-// Regenerate with: node src/assets/fonts/generate-base64.mjs
-export const ARCHIVO_BLACK_TTF_BASE64 =
+const out = `export const ARCHIVO_BLACK_TTF_BASE64 =
   "${base64}";
 `;
 const outPath = path.join(dir, "..", "..", "core", "label-font-data.ts");

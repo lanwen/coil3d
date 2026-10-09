@@ -1,32 +1,3 @@
-// Main solver orchestrator: "lock what you know, solve the rest"
-// (docs/design.md, Decisions and Capacity math).
-// Adapted from an early prototype: connector-pocket sizing is dropped (out
-// of scope, see docs/design.md, Roadmap); the flexible-cord bend multiplier
-// is fixed to 2.6x (the prototype used 6x); the
-// bound-hit check only looks at the actual free variable, not all three;
-// and the freeCount===2/3 alternate candidates are picked from an
-// already-computed candidate pool instead of a second `solve()` call,
-// which in the prototype recursed into itself forever (freeCount stays 2 for
-// the recursive call, which then computes its own alternate, forever).
-//
-// Status rule (issue #199): a design that holds the cable is "ok" (or
-// "under-constrained" with all three free), whatever the number of free
-// dimensions -- even when the locks or the bend limit force more room than
-// the cable needs; that overshoot is a note naming its cause
-// (`overshootNote`). "infeasible" (and, fully locked, "over-constrained")
-// means the capacity falls short of the target.
-//
-// Capacity invariant: whenever a dimension is free (freeCount 1-3) and the
-// solver reports "ok" or "under-constrained" (not "infeasible"), the
-// resolved geometry's capacity covers the target cable length (tail >= 0),
-// with the smallest overshoot achievable for that candidate. `bisect`
-// below is the mechanism this leans on: it returns the upper bracket `b`,
-// which the loop invariant keeps at f(b) >= target throughout, not the
-// naive midpoint (which can round down across an integer-turns step and
-// silently undershoot -- this bit a height/layers search in practice,
-// since turns-per-layer is a step function of height, unlike a
-// continuous "size" search).
-
 import { computeCapacity, envelopeDiameter } from "./capacity";
 import type { CapacityResult } from "./capacity";
 import { crossingActive, crossingReserve, faceEndsLength, minFaceChannelHeight, minFaceChannelOuterSize, nominalOuterStart, planFaceChannels } from "./faceChannel";
@@ -52,25 +23,12 @@ import { bendMultiplierOf, noticeCollector } from "./types";
 import { grooveShape, wallThickness, windingSpan } from "./wall";
 import type { CoilSpec, Diagnosis, Notice, Objective, ShapeSpec, Solution } from "./types";
 
-/**
- * Bend-limit floor on the corner radius (issue #6): the innermost wound
- * layer's corner must clear the wire's minimum bend radius, exactly like
- * round's `minOuterSizeForBend` below but expressed as a corner-radius floor
- * instead of a size floor -- it's what a non-round shape's corner radius
- * gets clamped UP to (docs/design.md, Capacity math: constraints). Independent of the resolved size.
- */
 function bendCornerRadiusFloor(wire: CoilSpec["wire"]): number {
   const mbr = bendMultiplierOf(wire) * wire.diameter;
   const o1 = wire.diameter / 2 - grooveShape(wire.diameter).depth;
   return Math.max(0, mbr - o1);
 }
 
-/** The shape outline actually used for a candidate outer size: round is
- * always fully round; sq/tri clamp the requested corner radius into
- * [bend-limit floor, useful max] (see `bendCornerRadiusFloor` and
- * `usefulMaxCornerRadius` below -- issue #134 tightened the old ceiling,
- * literally `outerSize/2` [an exact circle], down to the largest corner
- * radius that still reads as a square/triangle). */
 function resolveOutline(shape: ShapeSpec, outerSize: number, rcMin: number, wire: CoilSpec["wire"]): ShapeOutline {
   if (shape.kind === "round") return makeOutline("round", outerSize, outerSize / 2);
   const rcMax = usefulMaxCornerRadius(shape.kind, outerSize, wire);
@@ -78,130 +36,51 @@ function resolveOutline(shape: ShapeSpec, outerSize: number, rcMin: number, wire
   return makeOutline(shape.kind, outerSize, rc);
 }
 
-/** Fraction of the outline's own perimeter a straight side must keep to stay meaningfully distinct from round (issue #54). */
 const MIN_FLAT_PERIMETER_FRACTION = 0.15;
-/** Minimum straight-side length in wire diameters (issue #54): "each flat >= max(2*d, 15% of perimeter)". */
 const MIN_FLAT_WIRE_DIAMETERS = 2;
 
-/**
- * Minimum outer size for sq/tri to keep a MEANINGFULLY long straight flat at
- * the bend-limited corner radius (issue #54): with a small core (or a stiff
- * cable whose bend limit alone forces a big corner radius), the corner
- * radius can get clamped up close to the apothem well before it technically
- * hits the "effectively round" floor (`finishSolution`'s own `rcMin >=
- * rcMaxHard`, the TRUE geometric ceiling -- see `usefulMaxCornerRadius`
- * below for the tighter, cosmetic ceiling issue #134 adds on the corner
- * radius's own axis) -- the shape choice becomes invisible even though the
- * solver hasn't (yet) reported it as literally round.
- *
- * At a FIXED corner radius (`rcMin`, the bend limit -- independent of size),
- * a straight side's length grows 1:1 with the apothem (`sideLength =
- * (outerSize/2 - rcMin) * 2 * tan(pi/n)`, shapes.ts), and so does the
- * outline's own perimeter (`straightLength + 2*pi*rcMin`) -- both linear in
- * `outerSize`, so the crossover against each threshold ("2 wire diameters",
- * "15% of perimeter") is a closed-form solve, not a search. The true minimum
- * is whichever crossover is larger: below it, the OTHER threshold is already
- * satisfied (both are monotonic in `outerSize` for n=3,4), so this is exact,
- * not just a safe overestimate.
- */
 function minOuterSizeForShapeFlats(kind: Extract<ShapeSpec["kind"], "sq" | "tri">, wire: CoilSpec["wire"]): number {
   const n = shapePlugin(kind).corners;
   const k = Math.tan(Math.PI / n);
   const rcMin = bendCornerRadiusFloor(wire);
-  // sideLength(outerSize) >= MIN_FLAT_WIRE_DIAMETERS * d
-  //   => (outerSize/2 - rcMin) * 2 * k >= MIN_FLAT_WIRE_DIAMETERS * d
   const sizeForDiameterFloor = 2 * rcMin + (MIN_FLAT_WIRE_DIAMETERS * wire.diameter) / k;
-  // sideLength(outerSize) >= MIN_FLAT_PERIMETER_FRACTION * (n*sideLength + 2*pi*rcMin)
-  //   => sideLength * (1 - MIN_FLAT_PERIMETER_FRACTION*n) >= MIN_FLAT_PERIMETER_FRACTION * 2*pi*rcMin
-  const perimeterMargin = 1 - MIN_FLAT_PERIMETER_FRACTION * n; // > 0 for n=3,4
+  const perimeterMargin = 1 - MIN_FLAT_PERIMETER_FRACTION * n;
   const sideLengthForPerimeterFloor = (MIN_FLAT_PERIMETER_FRACTION * 2 * Math.PI * rcMin) / perimeterMargin;
   const sizeForPerimeterFloor = 2 * rcMin + sideLengthForPerimeterFloor / k;
   return Math.max(sizeForDiameterFloor, sizeForPerimeterFloor);
 }
 
-/** `minOuterSizeForShapeFlats` for round too (a no-op: round has no flats to keep, so its own bend-limit floor is the whole story) -- one call site for both, so callers never need their own round/non-round branch. */
 function minOuterSizeForShape(shape: ShapeSpec, wire: CoilSpec["wire"], minOuterSizeForBend: number): number {
   return shape.kind === "round" ? minOuterSizeForBend : minOuterSizeForShapeFlats(shape.kind, wire);
 }
 
-/**
- * Useful maximum corner radius for sq/tri at an already-resolved outer size
- * (issue #134): "with the square or triangle shape, corner radius after
- * some point doesn't change anything and makes it look like a circle" --
- * because the OLD ceiling `resolveOutline` clamped into was literally
- * `outerSize/2 - SHAPE_ROUNDING_EPS`, a hair short of an EXACT circle. Long
- * before a slider reaches that point, the straight sides have already
- * shrunk to an imperceptible sliver, so most of the slider's own range did
- * nothing anyone would notice -- exactly issue #54's "the shape choice
- * becomes invisible" problem, just approached from the corner-radius axis
- * instead of the size axis.
- *
- * This reuses issue #54's own "still distinguishable from round" criterion
- * verbatim (`MIN_FLAT_WIRE_DIAMETERS`/`MIN_FLAT_PERIMETER_FRACTION` above:
- * "each flat >= max(2 wire diameters, 15% of the outline's own perimeter)"),
- * just solved for the OTHER unknown: `minOuterSizeForShapeFlats` fixes the
- * corner radius at the bend floor and searches for the smallest legal outer
- * size; this fixes the outer size (already resolved) and searches for the
- * largest legal corner radius. Both trace the SAME joint (size,
- * cornerRadius) feasibility boundary -- `sideLength` (shapes.ts) grows
- * linearly with size and shrinks linearly with corner radius, and so does
- * the perimeter threshold it's compared against -- so a shape sitting on
- * either boundary reads identically "still a square/triangle". One
- * consequence of sharing the boundary: a resolved size (already raised to
- * >= `minOuterSizeForShapeFlats` at the bend floor, by the solver's own
- * invariant elsewhere) always keeps this useful max at or above that same
- * bend floor -- the two criteria never disagree about which corner radius
- * is legal.
- *
- * Closed form, not a search: `sideLength(cr) = 2*(apothem-cr)*tan(pi/n)`
- * and `perimeter(cr) = n*sideLength(cr) + 2*pi*cr` are both affine in `cr`,
- * so each inequality solves directly to an upper bound on `cr`; the
- * tighter (smaller) one binds, since either threshold can dominate
- * depending on `n` and `outerSize` (matching `minOuterSizeForShapeFlats`'s
- * own `Math.max` of its two crossovers -- there the larger size wins,
- * here the smaller corner radius does, because corner radius and size
- * move in OPPOSITE directions along the same boundary).
- *
- * Doesn't take `layers` as a parameter, unlike the ticket's own phrasing
- * ("a pure core function of shape, core size, cable, bend limit and
- * layers") -- layers only ever affects this indirectly, through the outer
- * size the solver already resolved around them; once `outerSize` is known,
- * this criterion needs nothing else about how it got there.
- */
 function usefulMaxCornerRadius(kind: Extract<ShapeSpec["kind"], "sq" | "tri">, outerSize: number, wire: CoilSpec["wire"]): number {
   const n = shapePlugin(kind).corners;
   const k = Math.tan(Math.PI / n);
   const apothem = outerSize / 2;
 
-  // sideLength(cr) >= MIN_FLAT_WIRE_DIAMETERS * d
-  //   2*(apothem-cr)*k >= MIN_FLAT_WIRE_DIAMETERS*d
-  //   cr <= apothem - (MIN_FLAT_WIRE_DIAMETERS*d) / (2*k)
   const diameterFloorCr = apothem - (MIN_FLAT_WIRE_DIAMETERS * wire.diameter) / (2 * k);
 
-  // sideLength(cr) >= MIN_FLAT_PERIMETER_FRACTION * (n*sideLength(cr) + 2*pi*cr)
-  //   Let A = 2*k*(1 - f*n) (f = MIN_FLAT_PERIMETER_FRACTION; positive for n=3,4):
-  //   A*(apothem-cr) >= 2*pi*f*cr  =>  cr <= A*apothem / (A + 2*pi*f)
-  const f = MIN_FLAT_PERIMETER_FRACTION;
-  const A = 2 * k * (1 - f * n);
-  const perimeterFloorCr = (A * apothem) / (A + 2 * Math.PI * f);
-
-  // Never above the hard geometric ceiling (a hairline short of an exact
-  // circle, same margin `resolveOutline` always kept -- see
-  // SHAPE_ROUNDING_EPS): both closed-form bounds above are already strictly
-  // below `apothem` for any physically sane wire diameter, but this keeps
-  // that invariant explicit rather than relying on it always holding.
+  const minFlatFraction = MIN_FLAT_PERIMETER_FRACTION;
+  const flatSlope = 2 * k * (1 - minFlatFraction * n);
+  const perimeterFloorCr = (flatSlope * apothem) / (flatSlope + 2 * Math.PI * minFlatFraction);
   const hardCeiling = Math.max(0, apothem - SHAPE_ROUNDING_EPS);
   return Math.min(diameterFloorCr, perimeterFloorCr, hardCeiling);
 }
 
-/** Relative tolerance on "capacity >= target", to absorb floating-point noise only. */
 const CAPACITY_EPS = 1e-6;
-/** Overshoot (%) above which the solver says what keeps the coil from getting smaller (the result panel's "more than you need" uses the same 10%). */
+const AT_FLOOR_TOLERANCE = 1e-6;
+const FLOOR_CEILING_TOLERANCE = 1e-9;
+const ENVELOPE_BED_WARNING_MM = 500;
+const BISECTION_ITERATIONS = 60;
+const FIT_SEARCH_ITERATIONS = 40;
+const SIZE_HEIGHT_SAMPLES_TWO_FREE = 48;
+const SIZE_HEIGHT_SAMPLES_THREE_FREE = 32;
+const CAPACITY_SHORTFALL_NOTE_PCT = 10;
 const OVERSHOOT_NOTE_PCT = 10;
-/** Practical layer-count bound for the (size, height) grid search (freeCount 2's third branch, and freeCount 3). */
 const PRACTICAL_LAYERS_HI = 6;
 
-function bisect(f: (x: number) => number, lo: number, hi: number, target: number, iters = 60): number {
+function bisect(f: (x: number) => number, lo: number, hi: number, target: number, iters = BISECTION_ITERATIONS): number {
   let a = lo;
   let b = hi;
   if (f(a) >= target) return a;
@@ -211,9 +90,6 @@ function bisect(f: (x: number) => number, lo: number, hi: number, target: number
     if (f(m) < target) a = m;
     else b = m;
   }
-  // Return the upper bracket, not the midpoint: the loop invariant guarantees
-  // f(b) >= target, so this is the smallest-overshoot point that still
-  // covers the target. The midpoint has no such guarantee (see file header).
   return b;
 }
 
@@ -230,9 +106,11 @@ function coversTarget(length: number, target: number): boolean {
   return length >= target * (1 - CAPACITY_EPS);
 }
 
+type FullCoreHeight = number;
+
 interface Resolved {
   outerSize: number;
-  height: number; // full core height, including top/bottom margins
+  height: FullCoreHeight;
   layers: number;
 }
 
@@ -251,7 +129,7 @@ function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(wire), wire);
   return computeCapacity({
     outline,
-    height: usableHeight,
+    usableHeight,
     layers: g.layers,
     wireDiameter: wire.diameter,
     grooveDepth: groove.depth,
@@ -318,7 +196,7 @@ function smallestThat(fits: (value: number) => boolean, lo: number, hi: number):
   if (!fits(hi)) return undefined;
   let tooSmall = lo;
   let works = hi;
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < FIT_SEARCH_ITERATIONS; i++) {
     const middle = (tooSmall + works) / 2;
     if (fits(middle)) works = middle;
     else tooSmall = middle;
@@ -372,16 +250,6 @@ function fitFloors(spec: CoilSpec): FitFloors {
   return { size, jointSize, height: jointHeight, sizeFor: tclipSize > jointSize ? "the SKÅDIS T-clips" : jointLabel, heightFor: jointLabel };
 }
 
-/**
- * Multiplier that grows quickly once any layer's turn count falls below
- * `MIN_TURNS_PER_LAYER` (issue #23): a squat many-layer stack with only 1-2
- * turns per layer can score as "small volume" purely because height shrinks
- * faster than the envelope grows as layers are added, even though nobody
- * would wind a coil that way. Quadratic in the shortfall so the penalty
- * dominates the volume score well before the shortfall reaches this floor,
- * without hard-excluding the candidate (it can still win if nothing better
- * covers the target length).
- */
 function turnsPerLayerPenalty(cap: CapacityResult): number {
   const minTurns = cap.layerResults.reduce((m, l) => Math.min(m, l.turns), Infinity);
   const shortfall = Math.max(0, MIN_TURNS_PER_LAYER - minTurns);
@@ -411,12 +279,6 @@ function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap:
 function envelopeVolumeFor(spec: CoilSpec, g: Resolved): number {
   const cap = capacityOf(spec, spec.windingQuality, g);
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
-  // Real printed-volume proxy (issue #63): the flange's own true footprint
-  // area (shapes.ts's `offsetArea`, at the REAL flange margin -- not the
-  // wound envelope's own offset) times the REAL overall assembled height
-  // (flange bottom to cap top), so the objective optimizes the dimensions
-  // that actually end up printed, not an internal estimate that silently
-  // omitted the flange margin/thickness and any cap.
   const { margin, overallHeight } = realExtentsFor(spec, g, outline, cap);
   const trueVolume = offsetArea(outline, margin) * overallHeight;
   return trueVolume * turnsPerLayerPenalty(cap);
@@ -426,10 +288,6 @@ function aspectScoreFor(spec: CoilSpec, g: Resolved): number {
   const cap = capacityOf(spec, spec.windingQuality, g);
   const outline = resolveOutline(spec.shape, g.outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
   const { margin, overallHeight } = realExtentsFor(spec, g, outline, cap);
-  // The real flange's own "across flats" extent (shapes.ts sizeSemantics:
-  // round=diameter, square=across flats, triangle=inscribed diameter) --
-  // the real, built counterpart of the wound envelope diameter this used to
-  // compare against.
   const flangeWidth = flangeExtentOf(outline, margin).acrossFlats;
   return Math.abs(overallHeight - flangeWidth);
 }
@@ -473,10 +331,10 @@ function finishSolution(
   if (innerBore <= 0) {
     problem(`Wall thickness (${Number(wall.toFixed(1))} mm) leaves no bore at outer size ${resolved.outerSize.toFixed(1)} mm -- increase outer size.`);
   }
-  if (env > 500) {
+  if (env > ENVELOPE_BED_WARNING_MM) {
     note(`Envelope footprint is ${env.toFixed(0)} mm -- check this fits your print bed.`);
   }
-  if (deltaPct < -10) {
+  if (deltaPct < -CAPACITY_SHORTFALL_NOTE_PCT) {
     note(`Resulting capacity is ${deltaPct.toFixed(0)}% vs. the target cable length.`);
   }
   const capacityLo = Math.min(lengthLo, lengthHi);
@@ -493,9 +351,9 @@ function finishSolution(
       problem(
         `The bend limit needs at least a ${rcMin.toFixed(1)} mm corner radius, but the core is only ${resolved.outerSize.toFixed(1)} mm across -- the ${label} core is effectively round.`,
       );
-    } else if (requested < rcMin - 1e-9) {
+    } else if (requested < rcMin - FLOOR_CEILING_TOLERANCE) {
       note(`Corner radius clamped up to ${rcMin.toFixed(1)} mm (requested ${requested.toFixed(1)} mm) to respect the bend limit.`);
-    } else if (requested > rcMax + 1e-9) {
+    } else if (requested > rcMax + FLOOR_CEILING_TOLERANCE) {
       note(`Corner radius clamped down to ${rcMax.toFixed(1)} mm (the largest that still reads as a ${label}, not a circle).`);
     }
   }
@@ -526,38 +384,20 @@ function finishSolution(
 }
 
 interface SizeHeightSearchResult {
-  /** The lowest-score candidate whose capacity covers the target, if any. */
   feasible?: { g: Resolved; length: number; score: number };
-  /** The candidate that comes closest to the target (by length), even if it falls short -- used only to report a shortfall when nothing is feasible. */
   closest: { g: Resolved; length: number };
 }
 
-/**
- * The tight candidate for one height sample (issue #195): the smallest size
- * that covers the target at this height and layer count, and -- when even
- * the size floor already overshoots -- the smallest height that still covers
- * it at that floor. Without the second step a tall sample at the size floor
- * kept every surplus turn (the default cable with all three dimensions free
- * and the "aspectRatio" objective picked +111%), so the overshoot is now at
- * most one turn per layer there, and ~0 wherever the size is free to shrink.
- */
 function sizeThenHeight(spec: CoilSpec, height: number, layers: number, sizeLo: number, sizeHi: number, heightLo: number, target: number): Resolved {
   const outerSize = bisect((s) => lengthFor(spec, { outerSize: s, height, layers }), sizeLo, sizeHi, target);
   if (outerSize > sizeLo) return { outerSize, height, layers };
   return { outerSize, height: bisect((h) => lengthFor(spec, { outerSize, height: h, layers }), heightLo, height, target), layers };
 }
 
-/**
- * With a free layer count, a candidate only counts when one layer fewer at
- * the same size and height falls short (issue #195): otherwise its last
- * layer is pure overshoot -- e.g. a second layer at the bend-limited size
- * floor, which an "aspectRatio" pick liked for its wider flange.
- */
 function needsEveryLayer(spec: CoilSpec, g: Resolved, target: number): boolean {
   return g.layers <= 1 || !coversTarget(lengthFor(spec, { ...g, layers: g.layers - 1 }), target);
 }
 
-/** Grid-search height, with the tight size (and, at the size floor, height) per sample, for one layer count of freeCount 3's per-layer-count search. */
 function searchSizeAndHeight(
   spec: CoilSpec,
   layers: number,
@@ -585,7 +425,6 @@ function searchSizeAndHeight(
   return { feasible, closest: closest! };
 }
 
-/** A length in mm without trailing zeros ("80", "70.6"). */
 const mm = (v: number) => `${Number(v.toFixed(1))} mm`;
 
 function overshootNote(
@@ -618,13 +457,13 @@ function overshootNote(
     const list = causes.length === 1 ? causes[0] : `${causes.slice(0, -1).join(", ")} and ${causes.at(-1)}`;
     return `${room}, because of the locked ${list}. Unlock ${causes.length === 1 ? "it" : "them"} to let the coil get smaller.`;
   }
-  if (g.outerSize <= sizeLo + 1e-6) {
+  if (g.outerSize <= sizeLo + AT_FLOOR_TOLERANCE) {
     const floor =
       sizeLo <= SIZE_LO_FLOOR
         ? `the core can't be smaller than ${mm(sizeLo)}`
-        : fit.sizeFor && fit.size >= sizeLo - 1e-6
+        : fit.sizeFor && fit.size >= sizeLo - AT_FLOOR_TOLERANCE
           ? `the bore needs room for ${fit.sizeFor}, which takes a core of at least ${mm(sizeLo)}`
-        : centreFloors(spec).size >= sizeLo - 1e-6
+        : centreFloors(spec).size >= sizeLo - AT_FLOOR_TOLERANCE
           ? `the cable's ends have to reach the centre hole at its ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius, which needs a core of at least ${mm(sizeLo)}`
         : spec.shape.kind === "round"
           ? `this cable's ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius needs a core of at least ${mm(sizeLo)}`
@@ -653,7 +492,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const minOuterSizeForBend = 2 * rcMin;
   const shapeFloor = minOuterSizeForShape(spec.shape, spec.wire, minOuterSizeForBend);
   const centre = centreFloors(spec);
-  const centreBinds = centre.size > shapeFloor + 1e-9;
+  const centreBinds = centre.size > shapeFloor + FLOOR_CEILING_TOLERANCE;
   const minOuterSizeForShapeVal = Math.max(shapeFloor, centre.size);
   const sizeFree = !spec.coreSize.locked;
   const heightFree = !spec.height.locked;
@@ -676,7 +515,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const freeCount = freeVars.length as 0 | 1 | 2 | 3;
 
   let lockedOuterSize = spec.coreSize.locked ? toOuterSize(spec.coreSize, spec.wire.diameter) : undefined;
-  if (lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - 1e-9) {
+  if (lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - FLOOR_CEILING_TOLERANCE) {
     const why = centreBinds
       ? `the cable's ends have to reach the centre hole at its ${mbr.toFixed(1)} mm bend radius, and the hole has to pass a ${CENTRE_CONNECTOR_PASSAGE} mm connector`
       : spec.shape.kind === "round"
@@ -686,7 +525,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
     lockedOuterSize = minOuterSizeForShapeVal;
   }
   let lockedHeight = spec.height.locked ? spec.height.value : undefined;
-  if (lockedHeight !== undefined && lockedHeight < centre.height - 1e-9) {
+  if (lockedHeight !== undefined && lockedHeight < centre.height - FLOOR_CEILING_TOLERANCE) {
     note(`Height raised from ${lockedHeight.toFixed(1)} mm to ${centre.height.toFixed(1)} mm: the end rings at the bottom and top of a bare core take the cable's ends, and the inner end bends up to the top at its ${mbr.toFixed(1)} mm bend radius.`);
     lockedHeight = centre.height;
   }
@@ -761,7 +600,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
         candidates.push({ g, length: lengthFor(spec, g) });
       }
     } else {
-      const SAMPLES = 48;
+      const SAMPLES = SIZE_HEIGHT_SAMPLES_TWO_FREE;
       for (let i = 0; i <= SAMPLES; i++) {
         const height = heightLo + ((heightHi - heightLo) * i) / SAMPLES;
         const g = sizeThenHeight(spec, height, lockedLayers!, sizeLo, sizeHi, heightLo, target);
@@ -819,7 +658,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   } else {
     const objective = spec.objective;
     objectiveUsed = objective;
-    const SAMPLES = 32;
+    const SAMPLES = SIZE_HEIGHT_SAMPLES_THREE_FREE;
 
     const perLayer: Array<{ n: number; result: SizeHeightSearchResult }> = [];
     for (let n = 1; n <= PRACTICAL_LAYERS_HI; n++) {
@@ -884,11 +723,11 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   if (overshoots) {
     note(overshootNote(spec, resolved, { size: !sizeFree, height: !heightFree, layers: !layersFree }, sizeLo, heightLo, finished.solution.lengthDeltaPct, fit));
   }
-  const sizeGrown = sizeFree && fit.sizeFor !== undefined && fit.size > minOuterSizeForShapeVal + 1e-9 && resolved.outerSize <= sizeLo + 1e-6;
+  const sizeGrown = sizeFree && fit.sizeFor !== undefined && fit.size > minOuterSizeForShapeVal + FLOOR_CEILING_TOLERANCE && resolved.outerSize <= sizeLo + AT_FLOOR_TOLERANCE;
   if (sizeGrown && !overshoots) {
     note(`Core size raised to ${mm(sizeLo)}: the bore needs room for ${fit.sizeFor}.`);
   }
-  const heightGrown = heightFree && fit.heightFor !== undefined && heightLo > baseHeightLo + 1e-9 && resolved.height <= heightLo + 1e-6;
+  const heightGrown = heightFree && fit.heightFor !== undefined && heightLo > baseHeightLo + FLOOR_CEILING_TOLERANCE && resolved.height <= heightLo + AT_FLOOR_TOLERANCE;
   if (heightGrown) {
     note(`Height raised to ${mm(heightLo)}: the bore needs room for ${fit.heightFor}.`);
   }

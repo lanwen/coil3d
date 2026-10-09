@@ -1,40 +1,3 @@
-// Versioned URL hash codec (docs/design.md, URL hash; issue #56). The hash is
-// `#s=<base64url(JSON)>`: a compact, schema-validated (zod) document that
-// omits defaults and always stamps a numeric `v`. Falls back to defaults
-// with a notice on garbage input.
-//
-// The document holds the WHOLE hash-worthy app state, not just `CoilSpec`:
-// the top-level keys mirror `CoilSpec` (lengths stay mm; the cm display in
-// the controls is a UI-only conversion, see ControlsForm), and a nested
-// `ui` object carries the view-only state that isn't part of the spec at
-// all -- the wire-visibility toggle (`ui.wire`) and the design/guide screen
-// switch (`ui.view`), both omitted when at their default. Neither changes
-// what `design()` computes; they only round-trip here because a shared link
-// should be able to reproduce the exact screen the user was looking at.
-//
-// There is no compatibility layer for older link formats (the project is in
-// beta): anything that isn't a readable `#s=` document, including the old
-// flat key=value query string, falls back to defaults with a notice.
-//
-// Compression: deliberately NOT applied. `CompressionStream` is a streaming,
-// async API, which would make this codec's public interface async too (every
-// other seam -- `design()`, `exportDesign()` -- already draws exactly that
-// line between sync business logic and async I/O, see core/index.ts); a
-// synchronous alternative would mean adding `fflate` as a new dependency,
-// which this repo already chose not to do for 3MF's own zip (see
-// threeMf.ts's file header) in favour of hand-rolling the little it needed.
-// Given links are already short once defaults are omitted (see the vitest
-// "typical links stay short" case, and the 3 example lengths reported on
-// the PR), a compression step would only add a dependency and a few bytes
-// of deflate-stream overhead for no measurable win.
-//
-// `label` (issue #12) is the top cap's engraved text -- a real `CoilSpec`
-// field (unlike `ui.wire`/`ui.view`: it changes the geometry, not just the
-// view). It survives the JSON + UTF-8 + base64url round trip losslessly,
-// unlike the old `URLSearchParams`-encoded query string -- see
-// `bytesToBase64Url`/`base64UrlToBytes` below -- so unicode labels (issue
-// #56 AC) need no special-casing here at all.
-
 import { z } from "zod";
 import {
   BED_SIZE_MAX,
@@ -54,7 +17,6 @@ import {
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
 import type { BaseMode, CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
 
-/** The current (`#s=`) document version. Bump this and add a migration branch if the shape ever changes incompatibly. */
 const DOC_VERSION = 2;
 
 const DEFAULT_OUTER_SIZE = 36;
@@ -83,7 +45,6 @@ export const DEFAULT_SPEC: CoilSpec = {
 
 export const DEFAULT_SHOW_WIRE = true;
 
-/** The design/guide screen switch (issue #17). `"design"` is the default, never written to `ui.view`. */
 export type ViewMode = "design" | "guide";
 const DEFAULT_VIEW: ViewMode = "design";
 
@@ -93,11 +54,8 @@ type LockToken = (typeof LOCK_TOKENS)[number];
 
 export interface ParsedHash {
   spec: CoilSpec;
-  /** Whether the schematic wound-cable render should be shown (issue #4). */
   showWire: boolean;
-  /** Which screen the app should show (issue #17). */
   view: ViewMode;
-  /** Set when the hash was unreadable and defaults were substituted. */
   notice?: string;
 }
 
@@ -128,18 +86,6 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
   };
 }
 
-// --- base64url <-> bytes -----------------------------------------------
-//
-// Plain `btoa`/`atob` (available as globals in both the browser and Node 22,
-// no import needed) only round-trip a "binary string" (one Latin-1 code
-// point per byte); JSON labels can carry any unicode character, so the JSON
-// string is first turned into UTF-8 bytes (`TextEncoder`/`TextDecoder`,
-// also global) and those bytes -- not the string itself -- are what gets
-// base64-encoded. The base64 alphabet's `+`/`/` (and its `=` padding, which
-// would otherwise collide with `URLSearchParams`' own `key=value` split) are
-// swapped/stripped for the URL-safe "base64url" variant, restored before
-// decoding.
-
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
@@ -159,7 +105,6 @@ function encodeDoc(doc: unknown): string {
   return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(doc)));
 }
 
-/** Returns `undefined` on any malformed input (bad base64, bad UTF-8, bad JSON) -- callers fall back to defaults. */
 function decodeDoc(encoded: string): unknown | undefined {
   try {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(base64UrlToBytes(encoded)));
@@ -167,11 +112,6 @@ function decodeDoc(encoded: string): unknown | undefined {
     return undefined;
   }
 }
-
-// --- the `#s=` document schema ------------------------------------------
-//
-// Flat, with short keys (nesting `lock` as a real JSON array is the only
-// structural win worth taking here -- see the header comment).
 
 const DocSchema = z
   .object({
@@ -184,19 +124,9 @@ const DocSchema = z
     obj: z.literal("ar").optional(),
     shape: z.enum(["sq", "tri"]).optional(),
     rc: z.number().finite().min(0).max(1000).optional(),
-    // "opengrid" is deliberately NOT in this list (issue #14 PR review, issue
-    // #38): the underlying mount kind is implemented, but its connector
-    // geometry is a placeholder, so a shared link can't be allowed to
-    // silently produce it -- any value other than "keyhole"/"through"/
-    // "skadis" fails this schema, the same as any other garbage input
-    // (defaults + notice).
     mount: z.enum(["keyhole", "through", "skadis", "skadis-tclip"]).optional(),
-    // Issue #207: the SKÅDIS rim clips' anti-lift latch, written only when off.
     latch: z.literal(false).optional(),
-    // Issue #71: only ever one of KEYHOLE_ROTATION_OPTIONS (90 is not
-    // offered -- see that constant's own doc comment).
     kr: z.union([z.literal(0), z.literal(45)]).optional(),
-    // Issue #70: through-hole (screw-shank clearance) diameter, mm.
     thd: z.number().finite().min(THROUGH_HOLE_DIAMETER_MIN).max(THROUGH_HOLE_DIAMETER_MAX).optional(),
     lock: z.array(z.enum(LOCK_TOKENS)).max(LOCK_TOKENS.length).optional(),
     size: z.number().finite().min(1).max(1000).optional(),
@@ -210,12 +140,6 @@ const DocSchema = z
     by: z.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
     bz: z.number().finite().min(BED_SIZE_MIN).max(BED_SIZE_MAX).optional(),
     label: z.string().max(LABEL_MAX_LENGTH).optional(),
-    // View-only state (issue #17's design/guide switch, issue #4's wire
-    // toggle): NOT `CoilSpec` fields, but still part of "the whole hash
-    // worthy state" this document holds -- nested here rather than flattened
-    // alongside the spec keys above so the two categories stay visually
-    // distinct. Omitted entirely (not just its own keys) when both are at
-    // their default -- see `toHash`.
     ui: z
       .object({
         wire: z.literal(false).optional(),
@@ -224,15 +148,10 @@ const DocSchema = z
       .strict()
       .optional(),
   })
-  // Reject unrecognised keys outright (rather than silently ignoring them):
-  // a hand-crafted/corrupted `#s=` payload with stray keys is exactly the
-  // "garbage payload" case the AC asks to fall back on, and there's no
-  // forward-compat reason yet to be lenient.
   .strict();
 
 type Doc = z.infer<typeof DocSchema>;
 
-/** Validates the lock-token set, returning a notice on failure. */
 function validateLockTokens(tokens: Iterable<string>): string | undefined {
   const set = new Set(tokens);
   for (const t of set) {
@@ -246,18 +165,6 @@ function validateLockTokens(tokens: Iterable<string>): string | undefined {
   return undefined;
 }
 
-/**
- * Issue #119: the UI now enforces "at most 2 of {core size, height, layers}
- * locked at once" (something has to stay free to fit the cable length), so
- * a link asking to lock all three is no longer a state the app can produce
- * itself. Rather than fail the whole link (`fallback`, which would also
- * discard every OTHER field the link set), this drops one lock and keeps
- * going: a documented, deterministic tie-break -- always "ly" (layers),
- * since a locked core size + height already pins the tube's own geometry,
- * and letting the solver pick the layer count is the same "free" that
- * choosing objective="minVolume" already defaults to elsewhere. Only ever
- * called from `parseDocHash`.
- */
 function capMaxTwoLocked(tokens: Set<string>): { tokens: Set<string>; droppedLayers: boolean } {
   const sizeLocked = tokens.has("outer") || tokens.has("inner");
   if (sizeLocked && tokens.has("h") && tokens.has("ly")) {
@@ -409,18 +316,10 @@ function parseDocHash(encoded: string): ParsedHash {
     : parsed;
 }
 
-/**
- * Parse a `location.hash`-style string (with or without the leading `#`).
- * Reads the `#s=<base64url(JSON)>` format; anything else falls back to
- * defaults with a notice.
- */
 export function parseHash(hash: string): ParsedHash {
   const qs = hash.replace(/^#/, "");
   if (!qs) return { spec: cloneSpec(DEFAULT_SPEC), showWire: DEFAULT_SHOW_WIRE, view: DEFAULT_VIEW };
 
-  // Only the `s` param is read: a hash without it (e.g. an old flat
-  // query-string link) decodes as garbage and falls back like any other
-  // unreadable link, and any other param next to `s` is ignored.
   return parseDocHash(new URLSearchParams(qs).get("s") ?? "");
 }
 

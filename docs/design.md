@@ -84,6 +84,15 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   millimetre of flat face. Without it the chamfer trimmed the outer lip's
   lead-in once the inner end set a slim margin, and left a sliver that the
   line art drew as a dark blob.
+- The lips are rigid stubs on a thick wall and PLA does not flex, so the cable's
+  jacket takes all of the interference. The opening is the cable's diameter
+  less 8 %, but never under 0.75 of the bore, which keeps the lip underside
+  within the 45 degree overhang limit. The lips' mouth is a 45 degree funnel:
+  from the 0.3 mm land above the edge where the opening meets the bore, the
+  wall flares out until it meets the plain channel's wall and runs up from
+  there. Outside the clip the flare is a hairline on that wall, so no two
+  vertices of a ring coincide. The clip sits where both lips are still inside
+  the rim, with 1.5 mm of flange beyond them, and after the drop.
 - Channel details. The inner-end channel is one cable diameter deep, so the
   first turn lies flush with the flange face. The wall's own groove needs only
   0.4 d, because later turns nest in the groove's own profile; here they pass
@@ -93,6 +102,50 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   outside the wall's outline: less than the 0.4 mm skin, so the clip never
   flattens the round channel's wall-side flank, but never exactly on the
   wall's surface either.
+- Lead-in route (`src/core/innerEnd.ts`). The cable leaves the groove start
+  backwards along the helix's own tangent, as a straight chord across the flange
+  margin: a cable at its bend radius can follow a straight line. Two gentle
+  blends ride on that chord, one after the other, because the first turn starts
+  on the face and cannot drop while it is still beside the wall. First it shifts
+  sideways until the channel sits a skin clear of the wall, while the helix's
+  slope eases off with the cable's bottom on the face. Then it drops into the
+  channel, top flush with the face. Each blend is the lowest-peak-curvature C1
+  ramp (two parabolas), sized so the curvature stays within the bend budget.
+  The channel's depth is the cable diameter, capped to what the flange's
+  thickness leaves under a small shelf. The keyhole pocket on the other face
+  sits on its own pad, so it takes nothing from this depth.
+- On a square or triangle the straight chord runs along the flat side that ends
+  at the groove start and meets the rim only past the next corner, right where
+  a through-hole mount puts that corner's screw hole. So the chord bends
+  gently outward (up to 80 % of the bend budget) until the clip's rim end
+  reaches its limit by the flat side's middle, or at the end of the drop plus
+  the clip if that is further. Past the clip the cable keeps bending outward
+  with what is left of the budget, because a chord that meets the rim at a
+  grazing angle leaves a long knife-edge sliver of rim beside the channel. Past
+  the rim it goes straight on.
+- If the flange margin is too narrow to hold the clip past the end of the drop,
+  the drop is squeezed into the length the rim leaves and the layout warns. A
+  real design never gets there: the margin grows to the narrowest width that
+  fits (`requiredInnerEndMargin`), which is cheap and independent of the margin,
+  so the solver can ask for it on every candidate.
+- The channel is swept along the drawn cable, not cut as a flat-bottomed box.
+  Every cross-section is a round bore of one cable diameter plus tolerance
+  around the cable's centre, open straight up to the face (a "U"). Its depth
+  follows the cable's drop: zero where the cable's bottom reaches the face, full
+  depth once it lies in the channel, with no step and no square corners. The
+  cut starts where the bore's bottom is still 0.3 mm above the face, but not
+  beside the wall, where the cable shifts clear of it and the bore only touches
+  the face. It ends when the whole bore is past the rim. The old vertical rim
+  keyhole needed a 90 degree turn; the clip lies along the cable's own
+  direction and the cable leaves through the rim along the same chord.
+- Every ring of a sweep puts its vertices at the same angles round the circle,
+  whatever its slots' widths: from where the narrowest up slot meets the circle
+  to where the narrowest down slot does, with a break at each slot's widest
+  foot too. A vertex inside a slot sits on the slot's wall, level with its
+  angle. So where a lip starts, each vertex only moves straight across and the
+  strips between the two rings tile the lip's end face. With the angles spread
+  over each ring's own arc, the vertices slid round the circle there and the
+  strips folded back over themselves.
 - Outer end details. Under the cap the cable runs 0.1 mm below the plate's
   underside: its top would otherwise sit exactly on that face, which the line
   art draws as a dashed seam. A clipped end leaves a free tail past the rim
@@ -102,11 +155,35 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   base slot keeps 1 mm of flange from the inner-end channel, the mount's cuts
   and the pads; the cap slot keeps 1 mm of plate from the label. The seat is
   a 32-sided circle.
+- The rim slot is a keyhole cut straight through the plate. The seat is a print
+  tolerance wider than the cable, so it holds it without clamping it, and a
+  connector behind it stops it pulling through. The neck is narrower than the
+  cable by the same 8 % as the clip, because the plate beside it is rigid and
+  the jacket takes the squeeze. The walls are vertical, so it needs no support
+  either way up. The slot runs straight in along the rim's normal: the coil is
+  inboard of the seat, so its pull on the cable draws it away from the neck.
+  The seat sits as far out as the rim allows, with the neck ending at the foot
+  of the rim chamfer, so the neck keeps the plate's full thickness.
+- The slot is placed as near the cable's lead-out as it fits: half a
+  millimetre at a time either way round the rim, the first position whose cut
+  keeps its clearance from every keep-out polygon and has none of them inside it.
+  If none fits there is no slot.
+- The cable's cap end runs level under the cap, then curves outward with 80 %
+  of the bend budget and leaves past the rim, with a straight free tail beyond
+  it. The curve never keeps turning until the tail points back round the axis,
+  which a small bend radius would allow.
 - Sweeps. A channel or clip is swept with a cross-section every 2.5 mm and 16
   samples on each arc. The floor may sag at most 0.08 mm between two
   sections, so on a tight bend the step shrinks to
   `sqrt(8 * sag * bend radius)`. The lead-in, the transitions and the outer
   end are sampled every 0.5 mm.
+- A swept solid is one closed cross-section polygon per station, all with the
+  same vertex count and order, each in the vertical plane across the cable.
+  Consecutive rings join with straight edges and each end is capped by a fan
+  from an interior point. The mesh and STEP backends both build from these same
+  rings (the mesh meshes them, STEP lofts them). The mesh is valid as long as
+  consecutive rings do not cross, which holds for any path that bends far more
+  gently than the bore is wide: the cable's bend radius is several diameters.
 - The flange and cap margins grow when the inner end's lead-in or the base
   slot needs more room (the slot's seat stays 0.4 mm clear of the wall, and
   may cut through the collar pad beside it).
@@ -126,6 +203,25 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   it a second way: an 8 mm cable on a 60 mm round core gave the bore a genus
   of 2. The STEP backend uses the same offset on its blocker, where a
   coincident seam is an invalid solid, not just a sliver.
+- The drawn cable (`src/core/wire.ts`) is traverse-wound: the core keeps
+  turning the same way while the climb reverses every layer, odd layers
+  climbing and even layers descending, so each layer picks up where the one
+  below finished. It reuses the solver's and the wall's numbers (each layer's
+  offset, turns and perimeter, the groove's pitch and start), so layer 1 sits
+  centred in the printed groove, and a square or triangle core's cable follows
+  the real offset outline, not a circle.
+- The whole cable is one path from the inner end to the outer end, with a
+  curvature of at most 1 / bend radius. Each layer starts at the angle where
+  the previous transition ended, because a fixed start made the transition
+  turn back on itself. A transition is a blend in the outline's own (position
+  along the outline, offset, z) space, lengthened until its curvature passes.
+  The inner end is the lead-in's straight chord. With the cap on, the outer end
+  is a blend, searched the same way, to just under the cap and then out past the
+  rim; with the cap off it is a straight tail along the last turn's tangent.
+- Sampling is at least a minimum number of points per turn and at most a
+  maximum arc length apart. A layer is capped at 300 000 samples, so an input
+  far outside the solver's bounds cannot exhaust memory: the density scales
+  back instead, never below 8 per turn.
 
 ### Bare core and its face channels (#254)
 
@@ -349,6 +445,43 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
   `weldShortEdges`). Welding drops triangles, so the label's pocket
   triangles are carried over through the weld's origin map, and edge flips
   stay inside one flat face so the label's triangles stay the label's.
+- The weld (`src/core/weld.ts`). Where two faceted curved surfaces meet in a
+  boolean (the bayonet's L-slot cutters against the collar, the chamfer of the
+  plate rim, the core's grooved wall), the intersection curve passes a few
+  thousandths of a millimetre from vertices that are already there. A facet
+  with such a short edge on its border has a needle whose third corner is
+  millimetres away, and no edge flip can fix it, because the short edge is on
+  the border. The line-art renderer draws needles as isolated pixels. So every
+  edge shorter than `WELD_EPSILON` (0.02 mm: far below what a printer
+  resolves, above the 0.0055 mm gaps the booleans leave) is collapsed onto one
+  of its ends, as long as the mesh stays a closed manifold and no triangle
+  folds over. Each collapse moves a vertex by less than the epsilon and drops
+  two triangles; what the collapses leave behind is for `flatFaces.ts` to flip.
+  - A collapse must pass the link condition: the ends' only shared neighbours
+    are the two vertices across the edge. Otherwise it would pinch the surface
+    or make a non-manifold edge. A closed piece smaller than the epsilon, a
+    tetrahedron of no volume that the booleans leave, may flatten into a
+    double-sided triangle, which manifold-3d drops when it reads the mesh.
+  - A triangle may turn by at most about 78 degrees (cosine 0.2) when its
+    corner moves. A triangle thinner than the epsilon is itself a needle: its
+    facing means nothing and it may turn freely. A triangle lower than 1 µm has
+    no facing to trust, because float32 rounding can turn it, so it cannot fold.
+    A triangle that turned, or a needle that grows, must not end up lying back
+    over its neighbour (within 8 degrees of opposite), a fold of no thickness:
+    a needle a few thousandths of a millimetre high that turned face down in a
+    flat face did.
+  - When neither end is safe, the merged vertex goes halfway between them: a
+    sliver beside the edge can turn over when the vertex lands on either end,
+    and not when it lands in between. Then both ends' triangles are checked,
+    and a refused collapse puts the vertex back.
+  - A tip, a triangle's third corner that sits within twice the epsilon of
+    the plane of its two neighbours, is dropped first. Failing that, a vertex
+    slides along a neighbouring edge, provided it stays within half the epsilon
+    of every triangle it leaves.
+  - The pass repeats until no short edge is left or a round collapses none,
+    because an edge refused once may be safe after its neighbours collapse. It
+    reports how many it could not collapse (`stuck`: 0 on every design the
+    tests sample).
 - The label is cut as one `CrossSection` with the NonZero fill rule, which
   turns a letter's outer and inner contour ("O") into a ring without any
   separate hole bookkeeping. It is extruded from 1 mm above the cap's top
@@ -356,6 +489,26 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
   pocket's faces can be found in the result.
 - The rim's chamfer triangles are recorded on the mesh so the viewer can leave
   them out of the drawing.
+- The label is placed along a bearing: 90 degrees for a round cap, and the
+  outward normal of flat side 0 for a square or triangle. Along it the cap's
+  bore and rim distances are exactly the apothems, not conservative bounds, and
+  the text sits centred on a flat side instead of running toward a corner. The
+  largest font size that fits is found by bisection, because both the ink's
+  height and width grow with the size while the room left for the width
+  shrinks. The glyph loops are mirrored in Y: the cap's room-facing side is
+  seen from above, and a font's own orientation reads upside down there (both
+  axes flipped) or backwards (X only). Mirroring flips every loop's winding,
+  so a loop with a negative signed area is a solid and a positive one a hole.
+  That lets the STEP backend union the solids and cut the holes in one pass,
+  without testing which loop nests in which. A glyph contour often ends with a
+  line back to its own start point. That zero-length closing edge is dropped
+  once in the shared outline, since manifold-3d tolerates it but OpenCascade
+  throws with no readable message.
+- The font is Archivo Black (SIL Open Font License 1.1, `src/assets/fonts/`):
+  one very bold weight, so a shallow engraved stroke stays legible. It is
+  embedded as base64 by `src/assets/fonts/generate-base64.mjs`, which writes
+  `src/core/label-font-data.ts`, so the same bytes load in the main thread, the
+  geometry worker and Node with no fetch and no bundler asset URL.
 - The default bed is 256 mm each way (`DEFAULT_BED_SIZE`: a Bambu X1C or P1S,
   a Prusa MK4). Most FDM printers this project targets are at or below it. The
   setting runs from 50 to 1000 mm, and the 3MF plate keeps 5 mm between parts.
@@ -507,6 +660,9 @@ but not absolutely: nobody winds one or two turns per layer, six layers deep,
 just to shrink a bounding-cylinder estimate, yet such a candidate is still
 picked when nothing better-shaped covers the target. The search covers a core
 size of 5 to 500 mm, a height up to 400 mm and up to 40 layers.
+`minVolume` scores what is printed: the flange's real footprint, at its real
+margin, times the real overall height, flange bottom to cap top. `aspectRatio`
+compares that height with the flange's real width across flats.
 With three free variables it tries a few layer counts, returns
 two or three candidates and warns that defaults were applied. The solver never
 reports "ok" when the capacity is below the target length. A design that holds
@@ -538,6 +694,14 @@ candidates; it can't buy proportions with extra capacity.
   solver also keeps every flat side at least two cable diameters and 15 % of
   the perimeter long. It raises a locked size that is below this floor and
   warns, for a round core too (where the floor is the bend limit alone).
+- The corner radius of a square or triangle has a ceiling too, so the slider
+  does not spend most of its range on shapes that already read as a circle.
+  It is the largest radius at which every flat is still at least two cable
+  diameters and 15 % of the perimeter long. Both limits are affine in the
+  radius, so each one solves in closed form and the tighter binds. The size
+  floor above is the same boundary solved for the size at the bend limit's
+  radius. A size already raised to that floor keeps this ceiling at or above
+  the bend limit. A radius outside the two is clamped with a note.
 - A free core size also keeps room for the chosen mount and joint. The
   snap clips and the twist lock need a bore wide and tall enough for their
   fingers or lugs, and the SKÅDIS T-clips need room in the bore for at least
@@ -722,6 +886,11 @@ falls back to the press collar through `resolveCapJoint`, which `design()` and
 the STEP export both call, so both build the same joint and the warning is the
 same.
 
+`Design` carries the `wallSpec` and `flangeSpec` the mesh was built from, so the
+STEP exporter fits its B-spline on the exact parametric grid of the mesh.
+`resolution` only changes the mesh's column and row density: the solved
+numbers, notices and the two specs are the same for `draft` and `final`.
+
 ### Snap joint
 
 `snapLayout` in `src/core/joints.ts` lays out both parts. The numbers below
@@ -835,6 +1004,17 @@ and the 3MF both place parts through it, and the 3MF and the viewer's print
 layout both use `printPlacements`, so a part sits in the same place in the
 export and on screen.
 
+- The zip writer stores without compression and stamps a fixed date
+  (2026-01-01), so a design always exports the same bytes. It is hand-written
+  because the multi-part STL bundle and the 3MF are all it serves, and a
+  dependency would cost more than it saves.
+- In the 3MF every object's mesh is in the part's own frame, the same
+  `part.mesh` the viewer, the STL and STEP read. The print orientation and
+  plate position are the `<item>`'s transform, a row-major 4 x 3 matrix
+  (`P' = P * M`) for a turn about Z, then about X, then the translation.
+  Parts are separate build items, not `<components>`, which build one object
+  out of sub-parts.
+
 ### STEP
 
 STEP uses replicad (OpenCascade WASM). The grooved wall is a periodic cubic
@@ -895,6 +1075,20 @@ The hash is `#s=<base64url(JSON)>` (`src/core/hash.ts`).
   there is no migration code. A link that is not a readable `#s=` document
   (including the old flat query-string form) falls back to the defaults.
 - The hash never reaches the server.
+- The JSON is encoded as UTF-8 bytes before the base64url step, because
+  `btoa` only takes Latin-1 and a label can hold any character. The `=`
+  padding is stripped, since it would collide with the `key=value` split of
+  `URLSearchParams`. Only the `s` parameter is read; any other one next to it
+  is ignored.
+- `ui` holds view-only state (the wire toggle, the design or guide screen). It
+  does not change what `design()` computes, but a shared link reproduces the
+  screen the sender saw. The top-level keys otherwise mirror `CoilSpec`.
+- A link that locks the core size, the height and the layers at once (the UI
+  cannot produce it, because something has to stay free to fit the cable) keeps
+  every other field: the layers lock is dropped, with a notice.
+- The keyhole rotation is 0 or 45 degrees only. A key that only applies to one
+  mount (`kr`, `thd`, `latch`) or one shape (`rc`) or cable type (`mbr`) is
+  rejected when its mount, shape or type is not selected.
 
 ## Rendering
 

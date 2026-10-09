@@ -1,36 +1,3 @@
-// Hand-written 3MF (Core spec) writer -- issue #10 (docs/design.md, Export).
-// Reuses this project's own zip.ts (STORE method, no compression) instead
-// of adding `fflate` as a dependency: this repo already hand-rolls its own
-// zip writer for the multi-part STL bundle (see zip.ts's header
-// comment), so a second zip implementation would be pure duplication for a
-// format this small.
-//
-// One <object> + one <build><item> pair per part -- NOT nested via
-// <components>, which is for building one object out of sub-parts, not
-// independent build-plate items. Units are
-// always millimeter. No <basematerials>/color: Bambu/Orca/Prusa ignore the spec's basematerials/pid
-// color and read only a per-triangle `paint_color` vendor attribute, so v1
-// ships single-color named objects only (issue #10 AC) -- name and
-// placement are all a plain core-spec 3MF needs for slicers to show
-// separate, correctly-placed objects.
-//
-// Each object's mesh is written in the part's OWN (unrotated, untranslated)
-// frame -- the exact same `part.mesh` the viewer and STL/STEP exporters
-// use -- and the print orientation + plate position are folded into the
-// <item>'s transform matrix instead (see `transformAttr`). This keeps every
-// export backend reading the identical vertex data, so they can never
-// drift apart from one another.
-//
-// Z placement goes through `plate.ts`'s `bedRestingTransform`, not
-// `part.printTransform` directly (issue #10 review: a plain `printTransform`
-// does not promise the part's min Z is 0 -- see that function's doc
-// comment). `export.ts`'s STL branch uses the exact same function, so STL
-// and 3MF can never independently drift on what "resting on the bed"
-// means. Both the Z-resting transform and the X/Y plate layout go through
-// `plate.ts`'s `printPlacements` (issue #78), the same function the viewer's
-// print-layout view calls, so the export and that on-screen preview can
-// never drift apart either.
-
 import { printPlacements } from "./plate";
 import { writeZip } from "./zip";
 import type { CoilMesh, Design, RigidTransform } from "./types";
@@ -46,7 +13,6 @@ const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8"?>
   <Relationship Id="rId1" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" Target="/3D/3dmodel.model"/>
 </Relationships>`;
 
-/** Trim float noise and avoid scientific notation -- both trip up some XML parsers. */
 function fmt(n: number): string {
   return Number(n.toFixed(6)).toString();
 }
@@ -68,24 +34,13 @@ function meshXml(mesh: CoilMesh): string {
   return `<mesh><vertices>${verts.join("")}</vertices><triangles>${tris.join("")}</triangles></mesh>`;
 }
 
-/**
- * A `RigidTransform` (rotate about Z, then about X, then translate -- types.ts) as a 3MF
- * `<item transform="...">` matrix: 12 numbers, row-major over a 4x3 matrix
- * (3x3 linear part + a translation row), applied as `P' = P * M` (the OPC/
- * 3MF row-vector convention). Working out
- * `P'.y = y*cos - z*sin` and `P'.z = y*sin + z*cos` (transform.ts's own
- * rotation) in that convention gives the middle two rows below; `rotateX
- * === 0` reduces this to a plain identity+translate matrix.
- */
 function transformAttr(t: RigidTransform): string {
-  const cos = Math.cos(t.rotateX);
-  const sin = Math.sin(t.rotateX);
-  // Issue #207: an optional turn about Z first. Each row is the image of one
-  // axis: Rz then Rx.
-  const cz = Math.cos(t.rotateZ ?? 0);
-  const sz = Math.sin(t.rotateZ ?? 0);
+  const cosX = Math.cos(t.rotateX);
+  const sinX = Math.sin(t.rotateX);
+  const cosZ = Math.cos(t.rotateZ ?? 0);
+  const sinZ = Math.sin(t.rotateZ ?? 0);
   const [dx, dy, dz] = t.translate;
-  return [cz, sz * cos, sz * sin, -sz, cz * cos, cz * sin, 0, -sin, cos, dx, dy, dz].map(fmt).join(" ");
+  return [cosZ, sinZ * cosX, sinZ * sinX, -sinZ, cosZ * cosX, cosZ * sinX, 0, -sinX, cosX, dx, dy, dz].map(fmt).join(" ");
 }
 
 export function write3mf(design: Design): Uint8Array<ArrayBuffer> {

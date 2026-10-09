@@ -1,25 +1,3 @@
-// The coil core orchestrator: solves the spec (solve.ts) then builds the
-// round, grooved wall and fuses the bottom flange (docs/design.md, Geometry).
-// The geometry itself is unchanged from the tracer bullet (#2): it still
-// renders only the layer-1 groove on a single wall; layers beyond the first
-// only affect the solved numbers and the flange size (the flange must clear
-// every wound layer, not just the core's own wall). The top cap for
-// multi-layer coils is ticket #9.
-//
-// `wallSpec`/`flangeSpec` are stashed on the returned Design so the STEP
-// exporter (issue #11, src/core/step/build.ts) can fit its B-spline from
-// the exact same parametric grid the mesh backend used -- the two backends
-// must never drift apart (docs/design.md, Export).
-//
-// `resolution` (issue #7) only ever changes the mesh's column/row density
-// (see constants.ts); the solved numbers, warnings and wall/flange specs are
-// identical between draft and final for the same spec.
-//
-// `wirePaths` (issue #4) is the schematic wound-cable centerline per layer,
-// built from the exact same wallSpec/layerResults used above so it can never
-// drift from the printed groove or the solved turns/offsets (see wire.ts).
-// It doesn't depend on `resolution` beyond the wallSpec fields it reads.
-
 import {
   CAP_THICKNESS,
   FACE_BRIDGE_NOTE_WIDTH,
@@ -65,6 +43,8 @@ import type { CoilMesh, CoilSpec, Design, Part, Resolution, Solution } from "./t
 import { buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
 import { crossingActive, crossingReserve, faceTopFloor, planFaceChannels } from "./faceChannel";
 import { buildCable, outerStartOf, windLayers } from "./wire";
+
+const STADIUM_ARC_SEGMENTS = 12;
 
 function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, boreOutline: ShapeOutline) {
   const wireDiameter = spec.wire.diameter;
@@ -177,7 +157,6 @@ function growMargin(from: number, fits: (margin: number) => boolean): number | u
   return works;
 }
 
-/** An alternate candidate with its real flange width and overall height filled in (issue #192), from the same `planFlange` design() builds the parts from. */
 function withRealExtents(spec: CoilSpec, alt: Solution): Solution {
   const outline = makeOutline(spec.shape.kind, alt.outerSize, alt.cornerRadius);
   const { boreOutline } = resolveBoreOutline(outline, spec.wire.diameter);
@@ -370,8 +349,8 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     innerEnd: innerEndLayout,
     faceChannels,
     topCapEnabled,
-    height: solution.height,
-    margin,
+    wallHeight: solution.height,
+    flangeMargin: margin,
     tolerance: spec.tolerance,
     bendRadius,
   });
@@ -497,19 +476,20 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   };
 }
 
-/** The stadium from `a` to `b` at radius `r`, as a closed polygon. */
 function stadiumPolygon(a: XY, b: XY, r: number): XY[] {
   const base = Math.atan2(b.y - a.y, b.x - a.x);
-  const half = (c: XY, from: number) => Array.from({ length: 13 }, (_, i) => ({ x: c.x + r * Math.cos(from + (Math.PI * i) / 12), y: c.y + r * Math.sin(from + (Math.PI * i) / 12) }));
-  return [...half(b, base - Math.PI / 2), ...half(a, base + Math.PI / 2)];
+  const semicircle = (c: XY, from: number) =>
+    Array.from({ length: STADIUM_ARC_SEGMENTS + 1 }, (_, i) => ({
+      x: c.x + r * Math.cos(from + (Math.PI * i) / STADIUM_ARC_SEGMENTS),
+      y: c.y + r * Math.sin(from + (Math.PI * i) / STADIUM_ARC_SEGMENTS),
+    }));
+  return [...semicircle(b, base - Math.PI / 2), ...semicircle(a, base + Math.PI / 2)];
 }
 
-/** Each through-hole with the screw head's bearing ring round it, as a polygon. */
 function throughHoleKeepOut(layout: ThroughMountLayout): XY[][] {
   return layout.holes.map((hole) => stadiumPolygon(hole, hole, layout.holeRadius + THROUGH_MOUNT_EDGE_MARGIN));
 }
 
-/** Each SKÅDIS rim clip's footprint on the flange (its notch and the jaws beside it), as a polygon. */
 function skadisClipFootprints(layout: SkadisClipLayout): XY[][] {
   return layout.clips.map((clip) => {
     const ups = clip.profile.map(([u]) => u);
@@ -520,7 +500,6 @@ function skadisClipFootprints(layout: SkadisClipLayout): XY[][] {
   });
 }
 
-/** A copy of `mesh` with every vertex shifted by [dx, dy, dz]; `indices` is shared (never mutated). */
 function translateMesh(mesh: CoilMesh, [dx, dy, dz]: [number, number, number]): CoilMesh {
   const positions = new Float32Array(mesh.positions.length);
   for (let i = 0; i < positions.length; i += 3) {

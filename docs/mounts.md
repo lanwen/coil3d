@@ -46,6 +46,41 @@ coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
     horizontal once hung level, with no gravity along it (cos 90 = 0), so
     nothing would stop the screw sliding. Even 60 degrees (cos = 0.5) is the
     outer limit of tilt, so 90 would just clamp to 60.
+  - "Up" is local +Y in the flange's frame (`WALL_UP`, `src/core/mount.ts`). The
+    viewer's wall preset rotates the geometry so that same axis lands on the
+    camera's up vector, so the core and the viewer agree on which way is up.
+    The slots sit above the centre, with the narrow shank end higher than the
+    head end: the screw goes in at the wide hole, the part is lowered, and
+    gravity seats the shank at the far end against the roof.
+  - Both channels run parallel to "up", not radially. The part is rigid, so for
+    two slots to hang level they must already point the same way; a radial fan
+    cannot be vertical at both once installed.
+  - A slot or a pair is placed on a genuine mirror axis of the outline, so the
+    centre of mass hangs straight below it. A regular n-gon has 2n such axes
+    (n through a corner, n through a side's midpoint), 180/n degrees apart.
+    Round and square have one at vertical; a triangle's are 60 degrees apart,
+    so it tilts onto the nearest. The search window (60 degrees from vertical)
+    is fixed and is never re-centred on the rotation request: the request only
+    picks among the same safe axes. Without a request the cheapest axis wins
+    (the smallest exact radius at the slot's own fanned position, a side's
+    midpoint having no corner bulge), ties going to the one nearest vertical.
+    With 45 the axis closest to 45 wins, but never the automatic axis when
+    another is reachable: a triangle has only two axes (30 degrees either side),
+    and the one nearest 45 is also its cheapest, so without that rule the
+    rotation did nothing for triangles. With a single reachable axis it stays on
+    that one. The two-slot fan is costed too, because fanning away from a
+    corner can be cheaper than fanning away from a side.
+  - The slots stay clear of the wall's own outline, not of the bore. The
+    flange's inner annulus, bore to outline, sits directly under the solid wall
+    tube, so a cut there would undermine the wall's support. Only the outer
+    annulus, outline to rim, is safe.
+  - The required margin is found by bisection, not a closed form, because the
+    shape's radius at an angle is not additive in the margin away from an exact
+    corner or side centre. The target gets a hairline (1e-6 mm) so that the
+    layout's own later fit check cannot read a few ULPs short.
+  - The layout reports the axis it used (`axisDeg`), so the viewer can show the
+    real hung orientation: a triangle hangs level with that axis vertical, not
+    local +Y.
   - The mesh overlaps the slot and the undercut by 0.05 mm: with the two levels
     meeting exactly on one plane, a fine flange-thickness sweep hit a stray
     sliver at one thickness. Only manifold needs it; the exact kernel in STEP
@@ -72,6 +107,15 @@ coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
   channel or a pad moves outward in 0.25 mm steps. The screw head bears on the
   flat top of the plate, so a hole sits 1 mm further from the rim than the
   2 mm edge margin, past the rim's chamfer.
+  The holes are at fixed angles (a corner's centre for a square or triangle,
+  evenly spaced for round), never searched. At a corner the shape's radius is
+  additive in the margin, so the required flange margin is a closed form. The
+  hole sits clear of the wall by the bearing ring, and of the collar pad by
+  0.5 mm plus a hair. Off a corner's bisector the wall and the rim are nearer
+  than along the radius, so the hole's true offset is checked as well. A round
+  ring that collides is rotated, in whole degrees, to the middle of the widest
+  range of rotations that clears, so the holes either side of the channel pad
+  keep about the same room.
 
 ## SKÅDIS
 
