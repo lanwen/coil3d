@@ -7,7 +7,7 @@ import {
   CLIMB_TURNS_STEP,
   CROSSING_MIN_LAYERS,
   FACE_BEND_MARGIN,
-  FACE_CUT_BACK,
+  FACE_ARC_JOINT_OVERLAP,
   FACE_EASE_LENGTH,
   FACE_FUNNEL_FIT_STEPS,
   FACE_WIDTH_STEPS,
@@ -574,8 +574,8 @@ export function planFaceChannels(spec: FaceChannelSpec): FaceChannelLayout | und
 export function faceCutArcs(end: FaceEnd): FaceCutArc[] {
   return end.arcs.map((arc, k) => {
     const sign = Math.sign(arc.sweep);
-    const back = k === 0 ? (sign * FACE_CUT_BACK) / arc.radius : 0;
-    const ahead = k < end.arcs.length - 1 ? (sign * FACE_CUT_BACK) / arc.radius : 0;
+    const back = k === 0 ? (sign * FACE_ARC_JOINT_OVERLAP) / arc.radius : 0;
+    const ahead = k < end.arcs.length - 1 ? (sign * FACE_ARC_JOINT_OVERLAP) / arc.radius : 0;
     return { ...arc, from: arc.from - back, sweep: arc.sweep + back + ahead };
   });
 }

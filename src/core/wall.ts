@@ -9,7 +9,7 @@
 // outer wall, the bore, and the flat annuli at z=0 and z=height are all
 // connected. Fusing the bottom flange (see manifold.ts) only extends it.
 
-import { FACE_HOLE_CORNER_MIN, GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
+import { FACE_HOLE_CORNER_MIN, GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE_DEG, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
 import { chamferedRim } from "./edgeChamfer";
 import { arcLengthFractionAt, evalOutline, outlineColumnParams, outlineOffsetAt, paramAt, pointAlong, pointAt, polygonVertex } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -33,15 +33,8 @@ function grooveReach(radius: number, depth: number): { down: number; up: number 
   return { down, up: radius * Math.SQRT2 - c };
 }
 
-/**
- * Where the groove circle's lower flank would leave the ridge steeper than
- * GROOVE_LIP_ANGLE from the axis, it runs on as a straight chamfer instead,
- * tangent to the circle `dz` below its centre and `x` (< 0) from the
- * surface, rising `slope` mm outward per mm down. A deep groove's circle
- * would otherwise meet the ridge almost flat, in a near knife-edge corner.
- */
 function lipChamfer(radius: number, depth: number): { dz: number; x: number; slope: number } | undefined {
-  const a = (GROOVE_LIP_ANGLE * Math.PI) / 180;
+  const a = (GROOVE_LIP_ANGLE_DEG * Math.PI) / 180;
   const x = radius - depth - radius * Math.cos(a);
   return x < 0 ? { dz: radius * Math.sin(a), x, slope: Math.tan(a) } : undefined;
 }

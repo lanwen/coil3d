@@ -100,7 +100,7 @@ import {
   SCREW_MOUNT_HEAD_RADIUS,
   SCREW_MOUNT_RECESS_DEPTH,
   SCREW_MOUNT_SLOT_TRAVEL,
-  SCREW_MOUNT_TWO_SLOT_ANGLE,
+  SCREW_MOUNT_TWO_SLOT_ANGLE_DEG,
   SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD,
   THROUGH_MOUNT_CORNER_NUDGE_DEG,
   THROUGH_MOUNT_COUNTERSINK_LAND,
@@ -287,7 +287,7 @@ export function requiredFlangeMargin(outline: ShapeOutline, boreOutline: ShapeOu
     }
     return hi;
   };
-  return Math.max(requiredAnnulusAt(0), requiredAnnulusAt(SCREW_MOUNT_TWO_SLOT_ANGLE));
+  return Math.max(requiredAnnulusAt(0), requiredAnnulusAt(SCREW_MOUNT_TWO_SLOT_ANGLE_DEG));
 }
 
 export interface KeyholeSlot {
@@ -375,9 +375,9 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
   const wantsTwoSlots = flangeDiameter >= SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD;
 
   if (wantsTwoSlots) {
-    const axis = bestAxisDeg(boreOutline, SCREW_MOUNT_TWO_SLOT_ANGLE, keyholeRotation);
-    const left = slotAt(axis - SCREW_MOUNT_TWO_SLOT_ANGLE);
-    const right = slotAt(axis + SCREW_MOUNT_TWO_SLOT_ANGLE);
+    const axis = bestAxisDeg(boreOutline, SCREW_MOUNT_TWO_SLOT_ANGLE_DEG, keyholeRotation);
+    const left = slotAt(axis - SCREW_MOUNT_TWO_SLOT_ANGLE_DEG);
+    const right = slotAt(axis + SCREW_MOUNT_TWO_SLOT_ANGLE_DEG);
     if (left && right) return { slots: [left, right], recessDepth: SCREW_MOUNT_RECESS_DEPTH, axisDeg: axis };
     // Fall through to the single-slot layout below rather than ever emit
     // invalid (or asymmetric, one-sided) geometry.

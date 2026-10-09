@@ -23,7 +23,7 @@ This file records why the app works the way it does. The mount geometry is in
 | Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core; elsewhere the cap gets the press-fit collar, with a warning. The snap cap has one 12 mm finger per side of the bore (slots at the corners: four on round and square cores, three on triangles), each with a barb along its whole width that clicks under a ridge ring inside the core's bore: a 30° lead-in, so it goes on with about half the pull-off force, and a 45° retaining face (the print overhang limit). Seated, the barbs sit 0.2 mm into the ridge, so the fingers stay a little bent, pull the cap onto the rim and centre it: no radial or tilt play. Under the finger tips a seat ring narrows the bore to the cap's hole, so there is no step inside the seated cap. Nothing is cut into the core's wall. A core too small for the clips gets the press-fit collar, with a warning; see [Snap joint](#snap-joint). |
 | Label | Text engraved into the top cap's room-facing face. It is hidden, with a warning, when it does not fit. |
 | Printer | A bed-size setting. It only produces warnings. The app never rearranges parts to fit. |
-| Units | Metric only. English only. |
+| Units | Metric only. English only. In `src/core/constants.ts`, lengths are in mm unless the name says otherwise: `_DEG` is degrees, `_KG` and `_G_PER_MM3` are mass units, and `_TURNS`, `_FACTOR` and `_SEGMENTS` are counts or ratios. |
 | Persistence | No local storage. All state is in the URL hash. |
 
 ### Orientation
@@ -72,6 +72,41 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   needed 6 to 8 mm of margin beside the wound cable, so they were removed.)
   With no top cap, the outer end goes into the top face's channel (see the
   bare core below).
+- Clip details. The lips are 1.5 times the wire diameter long (at least
+  5 mm): short, so the cable is easy to press in and the lips sit only near
+  the rim. They may start where the cable is still 0.25 mm above its final
+  channel depth (the very end of its drop), which puts the clip a few mm
+  further from the rim and saves flange margin. They start and end square,
+  because the cable presses in from above and needs no lead-in chamfer, and a
+  square end reads cleanly in the line art. A 0.05 mm ramp only keeps two
+  cross-sections from sharing one station. The flange keeps 1.5 mm of
+  material on each side of the clip's bore: the rim chamfer plus half a
+  millimetre of flat face. Without it the chamfer trimmed the outer lip's
+  lead-in once the inner end set a slim margin, and left a sliver that the
+  line art drew as a dark blob.
+- Channel details. The inner-end channel is one cable diameter deep, so the
+  first turn lies flush with the flange face. The wall's own groove needs only
+  0.4 d, because later turns nest in the groove's own profile; here they pass
+  straight over a flat annulus, so no bump can be tolerated. The plate keeps
+  1.5 mm under the recess and 0.4 mm between the channel's side and the wall,
+  so the cable lies in a full-width trench. The cutter is clipped 0.2 mm
+  outside the wall's outline: less than the 0.4 mm skin, so the clip never
+  flattens the round channel's wall-side flank, but never exactly on the
+  wall's surface either.
+- Outer end details. Under the cap the cable runs 0.1 mm below the plate's
+  underside: its top would otherwise sit exactly on that face, which the line
+  art draws as a dashed seam. A clipped end leaves a free tail past the rim
+  of three wire diameters (at least 10 mm). With the cap off and no face
+  channel, the straight tail along the last turn is six diameters (at least
+  20 mm). The rim slot's neck is 1 mm long, then the 45-degree lead-in. The
+  base slot keeps 1 mm of flange from the inner-end channel, the mount's cuts
+  and the pads; the cap slot keeps 1 mm of plate from the label. The seat is
+  a 32-sided circle.
+- Sweeps. A channel or clip is swept with a cross-section every 2.5 mm and 16
+  samples on each arc. The floor may sag at most 0.08 mm between two
+  sections, so on a tight bend the step shrinks to
+  `sqrt(8 * sag * bend radius)`. The lead-in, the transitions and the outer
+  end are sampled every 0.5 mm.
 - The flange and cap margins grow when the inner end's lead-in or the base
   slot needs more room (the slot's seat stays 0.4 mm clear of the wall, and
   may cut through the collar pad beside it).
@@ -159,6 +194,20 @@ odd last layer finishes on the top turn; an even one on the bottom turn.
   hole: for a square or a triangle the arc may start inside a corner, so the
   arc follows only the rest of that corner. Where no ramp fits, the outer end
   keeps its straight tail and a note says so.
+- **Arc joints.** A channel is a few arcs. Each cutter overlaps the next arc
+  by `FACE_ARC_JOINT_OVERLAP` (0.3 mm along the arc), and the first arc's
+  start extends back by the same amount. The forward overlap is needed: with
+  none, about 70 of 3000 fuzz designs fold at the arc joints on square and
+  triangle cores, where the two arcs' walls are tangent and differ by under
+  a micrometre. The backward extension is not needed. The 0.3 mm is not
+  derived from a clearance, it was chosen against the fuzz. At 3000 cases,
+  0.2, 0.25, 0.35 and 0.4 each leave 1 to 5 hazards, and 0.1 and 0.3 leave
+  only case 2639 (a thin cable on a triangle core, which has no face channel
+  and fails on main either way). The failures follow the facet phase: short
+  edges the weld refused to collapse where the groove lip, the channel wall
+  and the outer wall meet, and fold edges near the dome crest. One swept cut
+  per end with a shared ring at each joint needs no overlap, but it fails
+  cases 595 and 2797 where the overlap is clean, so it is not used.
 - **Clearances.** Channel arcs reach the hole at least 0.4 square-on (a
   grazing crossing leaves a sliver of ring beside the channel); the standing
   cable keeps 0.5 mm clear of the hole's edge; the two cables stand at least
@@ -204,6 +253,42 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
   plate keeps a 1 mm vertical land. The through-hole mount keeps its holes
   1 mm further from the rim, so the screw head sits on the flat top. The
   exports keep the chamfer; the drawings leave it out (see Rendering).
+- The flange is a thin plate (`FLANGE_PLATE_THICKNESS`, 3 mm) with its
+  winding-side face flat. It is thicker only on pads under the wall, the
+  inner-end channel and each mount cut (`flangePads.ts`).
+  - A pad keeps 2.5 mm beyond the cut it carries, at the face. That is more
+    than any edge margin (keyhole, through-holes, clip wall), so a pad at a
+    tight margin runs out over the rim instead of grazing it.
+  - The collar under the wall reaches 1 mm past the wall's outline. It is a
+    keep-out for the relief cut and not a visible surface, so it has only 96
+    columns, which keeps the STEP boolean cheap.
+  - The channel pad has a cross-section every 5 mm. It blends into the collar
+    on both sides with a concave curve in plan, 5 mm in radius at the
+    chamfer's foot (on the plate) and as much more at the face as the chamfer
+    is wide, sampled every 2 mm. The blend's edge runs 0.15 mm inside the
+    collar's: never on it (no coincident faces), and close enough that the
+    two meet at a hair of an angle, not a crease.
+  - A pad reaches 1.25 mm into the plate below its top face (the chamfer's
+    1 mm plus 0.25) and 0.5 mm above the winding face. The underside is
+    strictly below the foot of the rim chamfer: with it exactly on that line,
+    a pad running out over the rim left a zero-length edge (fuzz case 1097).
+  - The keyhole pocket and the channel recess each need plate beside them
+    (2 mm of roof, 1.5 mm of shelf). They sit on separate pads, so those only
+    stack if the two footprints overlap.
+- The label's ink must be at least 5 mm high, or it is hidden with a warning.
+  Text with short ink for its font size (lowercase without ascenders, a lone
+  "-") cannot reach that under the largest font size, so it is fitted at that
+  size instead. The largest font size gives 1.8 mm stems: the bundled Archivo
+  Black has a stem of 0.221 em (the ink width of its "I", 221 of 1000 units,
+  from opentype.js `font.getPath("I", 0, 0, 1).getBoundingBox()`), so about
+  8.1 mm, with capitals about 5.6 mm tall. The engraving keeps 2 mm from the
+  bore hole and from the rim, is 0.6 mm deep (well under the cap's 3 mm, so
+  the pocket never breaks through to the collar side), flattens each glyph
+  curve into 6 segments, and takes at most 40 characters: generous for one
+  line, and short enough to keep the hash short.
+- The default bed is 256 mm each way (`DEFAULT_BED_SIZE`: a Bambu X1C or P1S,
+  a Prusa MK4). Most FDM printers this project targets are at or below it. The
+  setting runs from 50 to 1000 mm, and the 3MF plate keeps 5 mm between parts.
 - Print orientation hints appear in the guide and in the 3MF placement.
 
 ### Tolerances
@@ -211,6 +296,27 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
 Rough FDM values: press fit about -0.1 mm, sliding fit 0.15-0.2 mm, loose fit
 0.35-0.5 mm. The app exposes one global tolerance, 0.2 mm by default (0.05 to
 0.8 mm).
+
+### Joint collars
+
+All three joints share one circular engagement collar on the coil axis,
+whatever the core's cross-section. A circle is simple, always manifold and
+needs only one global tolerance. On a non-round bore the collar touches the
+bore's flat sides, not its corners. That is a normal printable fit, not a
+defect.
+
+- The cap is a top flange: the same outer footprint as the bottom flange,
+  3 mm thick, above the wall's top the way the flange is below z=0.
+- The collar's outer diameter keeps 0.3 mm (`JOINT_FIT_GAP`) from the bore's
+  inscribed circle, before the tolerance. That keeps it clear of a non-round
+  bore's corners too. It reaches 7 mm into the bore.
+- The collar is a tube 2 mm thick, and the hole through its middle runs
+  straight through the cap. No floor, ledge or roof over it would print as a
+  bridge. The snap collar flares at its root over 2 mm; press and bayonet
+  collars are straight.
+- A bore with an inscribed radius under 4 mm is too small to cut real bayonet
+  or snap features into a 3 mm wall without breaking through, so it gets the
+  press collar.
 
 ## Shapes
 
@@ -228,6 +334,15 @@ helpers (`offsetPerimeter`, `pointAt`, `circumscribedRadius` and so on) work
 on any `ShapeOutline`, so a new shape only adds an entry. A position on the
 outline is a pair (segment, fraction), which does not depend on the offset.
 So `point(position, offset) = base + offset * normal` is exact for any offset.
+
+Three floors keep the outlines valid. The bore keeps at least 1 mm of radius,
+so a wall thicker than the core cannot invert it. A bore corner keeps at least
+0.5 mm of radius, because offsetting a corner inward by the wall thickness can
+take it to zero or below and fold the outline. A fully degenerate corner (a
+zero-length straight side) is handed back 0.01 mm of radius, so the corner
+fillet builder in STEP never sees an exactly round rounded polygon. That is
+invisible at print resolution. A new square or triangle starts with an 8 mm
+corner radius, before the bend limit clamps it.
 
 For the same size, a triangle's corners reach further out than a square's,
 so its flange is larger. The footprint is the true offset outline, not a
@@ -276,7 +391,12 @@ search keeps the upper bracket, because a midpoint can round down across an
 integer turn count and undershoot. With two free variables the solver needs an
 objective: `minVolume` (smallest envelope, the default) or `aspectRatio`
 (height close to the envelope diameter), and it also returns an alternative
-candidate. With three free variables it tries a few layer counts, returns
+candidate. `minVolume` penalizes a candidate with fewer than 5 turns per layer heavily,
+but not absolutely: nobody winds one or two turns per layer, six layers deep,
+just to shrink a bounding-cylinder estimate, yet such a candidate is still
+picked when nothing better-shaped covers the target. The search covers a core
+size of 5 to 500 mm, a height up to 400 mm and up to 40 layers.
+With three free variables it tries a few layer counts, returns
 two or three candidates and warns that defaults were applied. The solver never
 reports "ok" when the capacity is below the target length. A design that holds
 the cable is "ok" ("under-constrained" with all three free), whatever the
@@ -321,7 +441,11 @@ candidates; it can't buy proportions with extra capacity.
   at every size.
 - The whole drawn cable (lead-in, layer transitions, outer end) stays within
   the bend radius. Tests check this for every "ok" design, piece by piece
-  (`test/cableBend.test.ts`).
+  (`test/cableBend.test.ts`). The lead-in is laid out analytically against
+  0.97 of the curvature limit. The transitions and the cap lead-out are
+  searched, lengthened until they pass, against 1.03 of it: a wound layer on a
+  core sized exactly at the bend limit already bends at the limit, and any
+  blend leaving it adds a little.
 - Layer 1 ends with the cable's top 0.3 x its radius below the wall's top
   face (the usable height above leaves that room), so the drawn cable never
   grazes the top face. Its last half turn stays in the fading groove.
@@ -375,7 +499,20 @@ features: flange, joints, clips, mounts and label.
 - **Resolution.** `draft` is coarse and is shown on the first load, and later
   only if a build is slow. `final` is used for the settled view and for every
   export. Both use the same code path, so they cannot drift apart. The
-  preview debounces input and drops stale results.
+  preview debounces input and drops stale results. `draft` is 24 columns and
+  3 rows per pitch, about 16k triangles (25 to 33 ms in Node). `final` is 96
+  columns and 16 rows per pitch, about 170k triangles (about 240 ms).
+- **Corner columns.** A split by arc length alone gave a rounded square's or
+  triangle's corner arcs far fewer columns than their straight sides, which
+  looked kinked up close. Each corner gets at least 16 columns per 90 degrees
+  of sweep in `final` and 8 in `draft` (scaled up for a triangle's 120-degree
+  corners). `draft` is half, still far smoother than a plain split, and
+  cheaper. Round has no corner arc.
+- **Schematic cable samples.** The drawn cable's centreline has the same
+  split: at least 96 samples per turn and at most 1 mm between samples in
+  `final`, 16 and 4 mm in `draft`. The density follows the arc length, with a
+  floor, so a small, tightly wound coil still gets a smooth curve. The path is
+  schematic and never exported.
 - **Memory.** Every manifold object must be freed with `.delete()`, or the
   WASM heap runs out after a few builds.
 - **Boolean order.** Booleans against the big wall cost much more than
@@ -385,7 +522,13 @@ features: flange, joints, clips, mounts and label.
 - **Flush features.** A small feature fused or cut exactly flush with a
   face can fail silently (it passes `status()` and `genus()` but leaves a
   disconnected piece). Embed such features past their face by a fixed margin
-  (`WELD_OVERLAP`, `MOUNT_PLATE_EMBED`). A cut shape that is open to an edge
+  (`WELD_OVERLAP`, `MOUNT_PLATE_EMBED`). A flat base exactly on the target's
+  face is a razor-thin seam. It silently leaves a cut un-cut, or a glued-on
+  solid as a separate piece with inverted orientation, and `status()` and
+  `genus()` both read as if nothing were wrong: only a `decompose()` count
+  finds it. A curved face needs the same: two independently tessellated
+  surfaces at the same nominal radius need a real volume of overlap, 1 mm
+  (`WELD_OVERLAP`), or the union leaves degenerate slivers. A cut shape that is open to an edge
   must be an outer-contour detour, not a hole.
 - **No COOP/COEP headers.** The host may not set them, so there is no
   `SharedArrayBuffer` and no threaded WASM. All WASM builds are
@@ -455,6 +598,35 @@ cantilever strip, so compare them with each other, not with a force gauge.
   not change. It costs a little plastic and narrows the bore just under the
   joint to the cap's hole, which is the narrowest point anyway once the cap
   is on. A core too short for it keeps the snap without the seat.
+  A wider gap under the tips shows as a slit that the line art draws as a
+  dashed line, and tips that print a layer long just rest on the seat.
+- **Barb and ridge.** A barb protrudes 1.1 mm past the finger. The ridge
+  stands 1.1 mm into the bore and is 1.4 mm tall. The barb's tip keeps 0.1 mm
+  plus the tolerance from the bore wall. So the barb overlaps the ridge by
+  1.0 mm less the tolerance, and the finger clears it by 0.1 mm plus the
+  tolerance, the same gap as the barb's tip from the bore. The preload is at
+  most half the engagement.
+- **Finger wall.** 1.2 mm, three 0.4 mm extrusion widths. It is thinner than
+  the press collar's 2 mm, so the cap's inner step is smaller and the fingers
+  bend more easily. The relief slots between fingers are 2 mm wide.
+
+### Bayonet joint
+
+Round cores only. `bayonetLayout` in `src/core/joints.ts` has the profiles.
+Three lugs stand in the core's bore just under the rim, and the cap's collar
+has an L-slot for each. The cap drops on turned counter-clockwise, then turns
+clockwise (seen from above) by 60 degrees to a hard stop.
+
+- A lug reaches 1 mm into the collar (the hold). It is 5 mm wide at the
+  collar and at most 30 degrees of arc, so the lugs, the slots and the walls
+  between them fit round a small collar.
+- A lug's flat top sits 1.5 mm under the rim, so the collar keeps that much
+  (less the gap) of solid ring above its grooves. Its vertical tip face is
+  0.8 mm; under it the lug runs back to the bore wall at 45 degrees.
+- The sliding clearance for the twist is 0.4 mm, plus the tolerance.
+- The collar keeps at least 1.2 mm of wall behind the L-slots (its centre hole
+  shrinks to keep it) and at least 1.5 mm between one groove's end stop and the
+  next entry slot. With less land the cap gets the press fit.
 
 ## Export
 

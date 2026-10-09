@@ -41,7 +41,7 @@ import {
   SNAP_BARB_CLEARANCE,
   SNAP_COLLAR_WALL,
   SNAP_FINGER_LENGTH,
-  SNAP_LEAD_IN_ANGLE,
+  SNAP_LEAD_IN_ANGLE_DEG,
   SNAP_PRELOAD,
   SNAP_RIDGE_DEPTH,
   SNAP_RIDGE_THICKNESS,
@@ -351,7 +351,7 @@ export function snapLayout(wallSpec: JointWall, tolerance: number): SnapLayout |
   // `embed`), so they weld in rather than meet its surface at a tangent.
   const tip = -depth;
   const embed = 0.2;
-  const barbPoint = tip + (SNAP_BARB + embed) / Math.tan((SNAP_LEAD_IN_ANGLE * Math.PI) / 180);
+  const barbPoint = tip + (SNAP_BARB + embed) / Math.tan((SNAP_LEAD_IN_ANGLE_DEG * Math.PI) / 180);
   const barbOutline = offsetOutline(collarOutline, SNAP_BARB);
   const barb: OutlineStack = [
     { outline: inset(collarOutline, embed), z: tip },

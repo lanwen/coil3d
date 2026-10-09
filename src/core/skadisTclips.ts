@@ -42,7 +42,7 @@ import {
   SKADIS_SLOT_WIDTH,
   SKADIS_TCLIP_BAR_LENGTH,
   SKADIS_TCLIP_BAR_THICKNESS,
-  SKADIS_TCLIP_BOARD,
+  SKADIS_TCLIP_CLAMPED_BOARD_THICKNESS,
   SKADIS_TCLIP_CHAMFER,
   SKADIS_TCLIP_FIN_MAX,
   SKADIS_TCLIP_FIN_TOP_GAP,
@@ -146,7 +146,7 @@ export function offsetConvex(poly: Pt[], d: number): Pt[] {
 /** The clip's pieces, for a fin reaching `finTop` (z). */
 function pieces(thickness: number, finTop: number): TclipPiece[] {
   const zf = -SKADIS_TCLIP_RECESS_DEPTH;
-  const zb = -thickness - SKADIS_TCLIP_BOARD;
+  const zb = -thickness - SKADIS_TCLIP_CLAMPED_BOARD_THICKNESS;
   const zB = zb - SKADIS_TCLIP_BAR_THICKNESS;
   const hl = SKADIS_TCLIP_HANDLE_LENGTH / 2;
   const s = SKADIS_TCLIP_STEM / 2;
