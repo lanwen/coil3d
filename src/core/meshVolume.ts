@@ -1,8 +1,3 @@
-// Volume of a closed, consistently-oriented triangle mesh, by the
-// divergence theorem (sum of signed tetrahedron volumes from the origin).
-// Used to validate a STEP solid's volume against the mesh it was derived
-// from (docs/step-notes.md: every export must check solid count and volume).
-
 import type { CoilMesh } from "./types";
 
 export function meshVolume(mesh: CoilMesh): number {
