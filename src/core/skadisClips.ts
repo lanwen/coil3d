@@ -502,3 +502,13 @@ export function boardSection(axisDeg: number, originSide: number, originUp: numb
   }
   return { slots, slotWidth: SKADIS_SLOT_WIDTH, slotLength: SKADIS_SLOT_LENGTH, thickness: SKADIS_BOARD_THICKNESS, frontZ, axisDeg };
 }
+
+export function skadisClipFootprints(layout: SkadisClipLayout): XY[][] {
+  return layout.clips.map((clip) => {
+    const ups = clip.profile.map(([u]) => u);
+    const [lo, hi] = [Math.min(...ups), Math.max(...ups)];
+    const { at } = clipFrame(layout.axisDeg, clip.side);
+    const w = SKADIS_CLIP_WIDTH / 2;
+    return [at(lo, 0, -w), at(hi, 0, -w), at(hi, 0, w), at(lo, 0, w)].map(({ x, y }) => ({ x, y }));
+  });
+}

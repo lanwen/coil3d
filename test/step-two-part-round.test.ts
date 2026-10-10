@@ -3,7 +3,7 @@ import { design, exportDesign } from "../src/core";
 import type { CoilSpec, JointKind } from "../src/core";
 import { BAYONET_LUG_COUNT } from "../src/core/constants";
 import { jointGeometry } from "../src/core/joints";
-import { STEP_TIMEOUT_MS, meshVolume, perPartVolumeErrors, reimportStep, snapProbes, stepContains } from "./support/step";
+import { STEP_TIMEOUT_MS, meshVolume, perPartVolumeErrors, reimportStep, snapProbes, stepContains, strapProbes } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the round-core
 // two-part designs (core + top-cap, or core + mount-plate), kept in their
@@ -214,6 +214,59 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
         expect(solidVolumes.length).toBe(4); // core + 3 clips
 
         // Per part, in order: each solid's volume matches its own mesh.
+        for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
+      },
+      STEP_TIMEOUT_MS,
+    );
+  });
+  describe("strap slots (issue #240)", () => {
+    const strapSpec: CoilSpec = {
+      wire: { length: 6000, diameter: 3.8, type: "usb" },
+      shape: { kind: "round" },
+      windingQuality: 0.7,
+      coreSize: { locked: true, dimension: "outer", value: 60 },
+      height: { locked: true, value: 30 },
+      layers: { locked: true, value: 2 },
+      objective: "minVolume",
+      topCap: "on",
+      base: "on",
+      joint: "press",
+      tolerance: 0.2,
+      print: { bedX: 256, bedY: 256, bedZ: 256 },
+      mount: "none",
+      plateJoint: "glue",
+      strapSlots: true,
+    };
+
+    it(
+      "a notched base and cap re-import as one valid solid each, matching their meshes, with the notches open in the same place",
+      async () => {
+        const d = await design(strapSpec);
+        expect(d.strapNotches.base).toHaveLength(2);
+        expect(d.strapNotches.cap).toHaveLength(2);
+        const probes = strapProbes(d);
+        const stepBytes = await exportDesign(d, "step");
+        const { valid, solidVolumes, inside } = await reimportStep(stepBytes, "reimport-strap-round", probes.points);
+        expect(valid).toBe(true);
+        expect(solidVolumes.length).toBe(2);
+        for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
+        expect(inside).toEqual(probes.expected);
+        const plain = await design({ ...strapSpec, strapSlots: false });
+        expect(meshVolume(d.parts[0].mesh)).toBeLessThan(meshVolume(plain.parts[0].mesh));
+        expect(meshVolume(d.parts[1].mesh)).toBeLessThan(meshVolume(plain.parts[1].mesh));
+      },
+      STEP_TIMEOUT_MS,
+    );
+
+    it(
+      "a mount plate that reaches past the cable is notched in STEP too, one solid per part, each volume matching its mesh",
+      async () => {
+        const d = await design({ ...strapSpec, topCap: "off", height: { locked: true, value: 40 }, layers: { locked: true, value: 1 }, wire: { length: 1500, diameter: 3.8, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: 50 }, mount: "opengrid" });
+        expect(d.strapNotches.mountPlate).toHaveLength(2);
+        const stepBytes = await exportDesign(d, "step");
+        const { valid, solidVolumes } = await reimportStep(stepBytes, "reimport-strap-plate");
+        expect(valid).toBe(true);
+        expect(solidVolumes.length).toBe(d.parts.length);
         for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
       },
       STEP_TIMEOUT_MS,

@@ -82,6 +82,7 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       keyholeRotation: 0,
       throughHoleDiameter: 4.5,
       skadisLatch: true,
+      strapSlots: false,
       base: "on",
     };
     expect(parseHash(toHash(spec))).toEqual({ ...DESIGN, spec });
@@ -404,6 +405,16 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
   });
 
+  it("round-trips the strap slots, leaving them out of the hash while off (issue #240)", () => {
+    expect(decodeDoc(toHash({ ...DEFAULT_SPEC, strapSlots: false }))).toEqual({ v: 2 });
+    expect(decodeDoc(toHash({ ...DEFAULT_SPEC, strapSlots: undefined }))).toEqual({ v: 2 });
+    const spec: CoilSpec = { ...DEFAULT_SPEC, base: "on", topCap: "on", strapSlots: true };
+    const hash = toHash(spec);
+    expect(decodeDoc(hash)).toEqual({ v: 2, base: "on", cap: "on", strap: true });
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
+    expect(parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, strap: false })).toString("base64url")}`).notice).toMatch(/showing default values/);
+  });
+
   it("round-trips the SKÅDIS rim clips with the latch off (issue #207)", () => {
     const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "skadis", skadisLatch: false };
     const hash = toHash(spec);
@@ -469,6 +480,8 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     { mount: "keyhole", kr: 45 },
     { mount: "skadis", latch: false },
     { mount: "through", thd: 6 },
+    { strap: true },
+    { cap: "on", strap: true, mount: "keyhole" },
     { label: "USB-C 2m" },
     { label: "Кабель \u{1F50C}" },
     { ui: { wire: false } },

@@ -40,6 +40,7 @@ export const DEFAULT_SPEC: CoilSpec = {
   plateJoint: "glue",
   keyholeRotation: 0,
   skadisLatch: true,
+  strapSlots: false,
   throughHoleDiameter: DEFAULT_THROUGH_HOLE_DIAMETER,
 };
 
@@ -82,6 +83,7 @@ function cloneSpec(spec: CoilSpec): CoilSpec {
     plateJoint: spec.plateJoint,
     keyholeRotation: spec.keyholeRotation,
     skadisLatch: spec.skadisLatch,
+    strapSlots: spec.strapSlots,
     throughHoleDiameter: spec.throughHoleDiameter,
   };
 }
@@ -126,6 +128,7 @@ const DocSchema = z
     rc: z.number().finite().min(0).max(1000).optional(),
     mount: z.enum(["keyhole", "through", "skadis", "skadis-tclip"]).optional(),
     latch: z.literal(false).optional(),
+    strap: z.literal(true).optional(),
     kr: z.union([z.literal(0), z.literal(45)]).optional(),
     thd: z.number().finite().min(THROUGH_HOLE_DIAMETER_MIN).max(THROUGH_HOLE_DIAMETER_MAX).optional(),
     lock: z.array(z.enum(LOCK_TOKENS)).max(LOCK_TOKENS.length).optional(),
@@ -186,6 +189,7 @@ function buildParsed(p: {
   rc?: number;
   mount?: MountKind;
   latch?: false;
+  strap?: true;
   kr?: KeyholeRotation;
   thd?: number;
   lockTokens: Set<string>;
@@ -241,6 +245,7 @@ function buildParsed(p: {
     plateJoint: DEFAULT_SPEC.plateJoint,
     keyholeRotation: p.kr ?? DEFAULT_SPEC.keyholeRotation,
     skadisLatch: p.latch ?? DEFAULT_SPEC.skadisLatch,
+    strapSlots: p.strap ?? DEFAULT_SPEC.strapSlots,
     throughHoleDiameter: p.thd ?? DEFAULT_SPEC.throughHoleDiameter,
   };
   return { spec, showWire: p.showWire, view: p.view };
@@ -294,6 +299,7 @@ function parseDocHash(encoded: string): ParsedHash {
     rc: p.rc,
     mount: p.mount,
     latch: p.latch,
+    strap: p.strap,
     kr: p.kr,
     thd: p.thd,
     lockTokens,
@@ -362,6 +368,7 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, vi
   if (spec.label) doc.label = spec.label;
   if (spec.mount === "keyhole" || spec.mount === "through" || spec.mount === "skadis" || spec.mount === "skadis-tclip") doc.mount = spec.mount;
   if (spec.mount === "skadis" && spec.skadisLatch === false) doc.latch = false;
+  if (spec.strapSlots) doc.strap = true;
   if (spec.mount === "keyhole" && spec.keyholeRotation !== DEFAULT_SPEC.keyholeRotation) doc.kr = spec.keyholeRotation;
   if (spec.mount === "through" && spec.throughHoleDiameter !== DEFAULT_SPEC.throughHoleDiameter) doc.thd = spec.throughHoleDiameter;
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
 import type { CoilSpec, JointKind } from "../src/core";
-import { STEP_TIMEOUT_MS, perPartVolumeErrors, reimportStep } from "./support/step";
+import { STEP_TIMEOUT_MS, perPartVolumeErrors, reimportStep, strapProbes } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the tri-shape,
 // two-part (issue #55) STEP re-import cases are the file's own slowest
@@ -57,6 +57,23 @@ describe.sequential("STEP/OCCT export: tri two-part designs, press/bayonet (issu
 
       // Issue #167: per part, within 0.5% -- not the whole design's total.
       for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
+    },
+    STEP_TIMEOUT_MS,
+  );
+
+  it(
+    "STEP export re-imports a notched triangle base and cap (issue #240): one solid per part, each volume matching its mesh, the side-middle and corner notches open",
+    async () => {
+      const d = await design({ ...twoPartSpec, shape, strapSlots: true, coreSize: { locked: true, dimension: "outer", value: 60 } });
+      expect(d.strapNotches.base).toHaveLength(2);
+      expect(d.strapNotches.cap).toHaveLength(2);
+      const probes = strapProbes(d);
+      const stepBytes = await exportDesign(d, "step");
+      const { valid, solidVolumes, inside } = await reimportStep(stepBytes, "reimport-strap-tri", probes.points);
+      expect(valid).toBe(true);
+      expect(solidVolumes.length).toBe(2);
+      for (const [i, err] of perPartVolumeErrors(solidVolumes, d.parts).entries()) expect(err, d.parts[i].name).toBeLessThan(0.005);
+      expect(inside).toEqual(probes.expected);
     },
     STEP_TIMEOUT_MS,
   );
