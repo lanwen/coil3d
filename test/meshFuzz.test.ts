@@ -75,6 +75,8 @@ function sample(index: number): FuzzCase {
   const segments = r() < 0.5 ? { round: 144, other: 48 } : { round: pick([96, 120, 144, 192]), other: pick([48, 96, 120, 144]) };
   // Issue #254: drawn last, so the cases before it stay what they were. A bare core is a third of them (a mount forces the base back on).
   spec.base = r() < 0.33 ? "off" : "on";
+  // Issue #240: drawn after the base for the same reason.
+  spec.strapSlots = r() < 0.4;
   return { spec, resolution, segments };
 }
 

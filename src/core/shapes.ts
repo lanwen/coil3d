@@ -203,6 +203,20 @@ export function arcLengthFractionAt(o: ShapeOutline, offset: number, t: number):
   return s / perimeter;
 }
 
+export function parameterAtOffsetArc(o: ShapeOutline, offset: number, s: number): number {
+  if (isFullCircle(o)) return wrapUnit(s / (2 * Math.PI * (o.apothem + offset)));
+  const side = sideLength(o);
+  const arc = ((2 * Math.PI) / o.n) * (o.cornerRadius + offset);
+  const arcBase = ((2 * Math.PI) / o.n) * o.cornerRadius;
+  const unit = arc + side;
+  const wrapped = ((s % (o.n * unit)) + o.n * unit) % (o.n * unit);
+  const i = Math.min(o.n - 1, Math.floor(wrapped / unit));
+  const along = wrapped - i * unit;
+  const base = i * (arcBase + side);
+  const t = along <= arc ? base + (arc > 0 ? along / arc : 0) * arcBase : base + arcBase + (along - arc);
+  return t / (o.n * (arcBase + side));
+}
+
 export function pointAt(o: ShapeOutline, t: number, offset: number): { x: number; y: number; nx: number; ny: number } {
   if (isFullCircle(o)) {
     const theta = 2 * Math.PI * t;

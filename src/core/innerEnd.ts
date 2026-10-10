@@ -574,21 +574,22 @@ function edgeDistance(p: XY, poly: XY[]): number {
   return best;
 }
 
+export function cutClearsKeepOut(cut: XY[], outline: ShapeOutline, margin: number, keepOut: XY[][], clearance: number): boolean {
+  const samples = cut.flatMap((a, i) => {
+    const b = cut[(i + 1) % cut.length];
+    const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / RIM_SLOT_EDGE_SAMPLE_MM));
+    return Array.from({ length: n }, (_, k) => ({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n }));
+  });
+  const inPlate = samples.filter((p) => outlineOffsetAt(outline, p.x, p.y).offset <= margin);
+  return keepOut.every((poly) => inPlate.every((p) => !inside(p, poly) && edgeDistance(p, poly) >= clearance) && poly.every((q) => outlineOffsetAt(outline, q.x, q.y).offset > margin || !inside(q, cut)));
+}
+
 export function layoutRimSlot(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, u0: number, keepOut: XY[][] = [], clearance = 0): RimSlot | undefined {
   const du = RIM_SLOT_SEARCH_STEP_MM / offsetPerimeter(outline, Math.max(0, rimSlotSeatOffset(margin, wireDiameter, tolerance)));
-  const fits = (slot: RimSlot) => {
-    const samples = slot.outline.flatMap((a, i) => {
-      const b = slot.outline[(i + 1) % slot.outline.length];
-      const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / RIM_SLOT_EDGE_SAMPLE_MM));
-      return Array.from({ length: n }, (_, k) => ({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n }));
-    });
-    const cut = samples.filter((p) => outlineOffsetAt(outline, p.x, p.y).offset <= margin);
-    return keepOut.every((poly) => cut.every((p) => !inside(p, poly) && edgeDistance(p, poly) >= clearance) && poly.every((q) => outlineOffsetAt(outline, q.x, q.y).offset > margin || !inside(q, slot.outline)));
-  };
   for (let k = 0; k * du <= RIM_SLOT_SEARCH_TURNS; k++) {
     for (const u of k === 0 ? [u0] : [u0 + k * du, u0 - k * du]) {
       const slot = rimSlotAt(outline, margin, wireDiameter, tolerance, u);
-      if (fits(slot)) return slot;
+      if (cutClearsKeepOut(slot.outline, outline, margin, keepOut, clearance)) return slot;
     }
   }
   return undefined;

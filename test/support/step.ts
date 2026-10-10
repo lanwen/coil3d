@@ -15,7 +15,7 @@
 // WASM heap across files.
 import { beforeEach } from "vitest";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
-import { SNAP_FINGER_LENGTH } from "../../src/core/constants";
+import { CAP_THICKNESS, SNAP_FINGER_LENGTH } from "../../src/core/constants";
 import type { Design } from "../../src/core";
 
 // Issue #163: OCCT runs inline in the test worker, so one STEP test blocks
@@ -187,4 +187,19 @@ export async function stepContains(bytes: Uint8Array, tag: string, points: Array
       return dist.IsDone() && dist.InnerSolution() && dist.Value() < 1e-6;
     });
   });
+}
+
+/** Points either side of each strap notch's floor, in the base and the cap, and whether each lies inside the solid: open above the floor, material below it. */
+export function strapProbes(d: Design): { points: Array<[number, number, number]>; expected: boolean[] } {
+  const points: Array<[number, number, number]> = [];
+  const expected: boolean[] = [];
+  const probe = (notches: Design["strapNotches"]["base"], z: number) => {
+    for (const n of notches) {
+      points.push([n.centre.x + n.axis.x, n.centre.y + n.axis.y, z], [n.centre.x - 0.5 * n.axis.x, n.centre.y - 0.5 * n.axis.y, z]);
+      expected.push(false, true);
+    }
+  };
+  probe(d.strapNotches.base, -d.flangeSpec.thickness / 2);
+  probe(d.strapNotches.cap, d.wallSpec.height + CAP_THICKNESS / 2);
+  return { points, expected };
 }

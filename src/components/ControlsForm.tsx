@@ -405,6 +405,14 @@ export function ControlsForm({
             </span>
           </div>
         </div>
+        {(baseOn || topCapOn) && (
+          <div className="field">
+            <div className="field-top">
+              <FieldTop label="Strap slots" hint={HINTS.strapSlots} />
+              <Switch testId="strap-slots" ariaLabel="Strap slots" checked={spec.strapSlots ?? false} onChange={(on) => onChange({ ...spec, strapSlots: on })} />
+            </div>
+          </div>
+        )}
         {topCapOn && (
           <>
             <div className="field">
