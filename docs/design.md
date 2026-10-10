@@ -168,6 +168,26 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   millimetre at a time either way round the rim, the first position whose cut
   keeps its clearance from every keep-out polygon and has none of them inside it.
   If none fits there is no slot.
+- Strap slots (#240, `strapSlots`, off by default, `src/core/strapNotch.ts`).
+  Each plate gets two open notches in its rim, opposite each other, so a
+  hook-and-loop tie can run round the coil: across the top and bottom faces,
+  or through the centre hole. A tie 12.7 mm wide fits the fixed 14 mm notch
+  (`STRAP_NOTCH_WIDTH`); a narrower one still sits in it. The notch is a
+  vertical prism through the plate, so it prints without support either way up.
+  It runs from the rim down to the wound cable's outer surface and no deeper,
+  so the plate under the winding stays whole and every part stays one solid.
+  The floor follows the offset curve of the outline at that depth (a closed
+  slot would need ears the plate has no room for: it reaches only 1.5 mm past
+  the cable). The pair sits at two points half a perimeter apart: on a square,
+  the middles of two opposite sides; on a triangle, a side's middle and the
+  opposite corner; on a round plate, wherever the keep-outs allow. The first
+  position that keeps 1 mm clear of the rim slots, the inner-end channel, the
+  mounts, the label and the cable's free ends is used. The base and the cap
+  share that one pair, so the notches line up from plate to plate. If no pair
+  fits there are no notches and a note says so. The mount plate (when it
+  reaches past the cable) gets the same notches. A closed loop that could hang
+  the coil from the strap is not built; if a print shows the tie slipping out,
+  closed slots on ears can sit behind the same switch.
 - The cable's cap end runs level under the cap, then curves outward with 80 %
   of the bend budget and leaves past the rim, with a straight free tail beyond
   it. The curve never keeps turning until the tail points back round the axis,
@@ -1059,7 +1079,7 @@ The hash is `#s=<base64url(JSON)>` (`src/core/hash.ts`).
   the spec: `L` (cable length, mm), `d` (diameter), `wt` (cable type), `mbr`
   (custom bend multiplier), `q` (winding quality), `obj`, `shape` and `rc`
   (corner radius), `lock` with `size`, `h` and `ly`, `cap`, `joint`, `tol`,
-  `base` (the base plate, only written when on), `bx`/`by`/`bz` (bed), `label`, and the mount keys (`mount`, `pj`, `kr`,
+  `base` (the base plate, only written when on), `strap` (the strap slots, only written when on), `bx`/`by`/`bz` (bed), `label`, and the mount keys (`mount`, `pj`, `kr`,
   `thd`). View-only state is nested under `ui` (`wire`, `view`). Lengths are
   always millimetres; the centimetre display in the controls is a UI-only
   conversion.
@@ -1539,6 +1559,8 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
 - The wall mount switch off is `mount: "none"`. Turning it on again restores the last
   chosen kind. openGrid is not offered in the list (and the hash rejects it), because
   its connector is a placeholder that would print a plate that does not fit.
+- The strap slots switch sits under the top cap switch and shows while the base
+  or the top cap is on. It is off by default.
 - The label switch means "the user turned it on", not "there is text". An empty label
   with the switch on stays visible. Turning it off clears the label, which the hash
   leaves out. The twist lock needs a round core: on other shapes its option is greyed,
