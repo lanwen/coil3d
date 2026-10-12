@@ -1,4 +1,4 @@
-import { STRAP_SLOT_INNER_WALL, STRAP_SLOT_KEEP_OUT, STRAP_SLOT_LENGTH, STRAP_SLOT_PLATE_REACH, STRAP_SLOT_WIDTH } from "./constants";
+import { STRAP_SLOT_INNER_WALL, STRAP_SLOT_KEEP_OUT, STRAP_SLOT_LENGTH, STRAP_SLOT_MIN_SEPARATION_FRACTION, STRAP_SLOT_PLATE_REACH, STRAP_SLOT_WIDTH } from "./constants";
 import { cutClearsKeepOut } from "./innerEnd";
 import type { XY } from "./innerEnd";
 import { arcLengthFractionAt, offsetPerimeter, parameterAtOffsetArc, pointAt } from "./shapes";
@@ -13,6 +13,7 @@ export interface StrapSlot {
 const SAMPLE_STEP_MM = 0.5;
 const SWEEP_STEP_MM = 1;
 const END_CAP_SEGMENTS = 8;
+const SEPARATION_TIE_MM = 1e-6;
 
 export function strapSlotsFitMargin(margin: number, envelopeOffset: number): boolean {
   return margin - envelopeOffset >= STRAP_SLOT_PLATE_REACH;
@@ -59,6 +60,32 @@ function slotAt(outline: ShapeOutline, envelopeOffset: number, arc: number): Str
   };
 }
 
+interface ClearPair {
+  first: number;
+  second: number;
+  separation: number;
+  distanceFromStart: number;
+}
+
+function widestClearPair(clear: boolean[], perimeter: number): ClearPair | undefined {
+  const count = clear.length;
+  const distanceFromStart = (index: number) => Math.min(index, count - index) * SWEEP_STEP_MM;
+  let best: ClearPair | undefined;
+  for (let first = 0; first < count; first++) {
+    if (!clear[first]) continue;
+    for (let second = first + 1; second < count; second++) {
+      if (!clear[second]) continue;
+      const along = (second - first) * SWEEP_STEP_MM;
+      const separation = Math.min(along, perimeter - along);
+      const candidate = { first, second, separation, distanceFromStart: Math.min(distanceFromStart(first), distanceFromStart(second)) };
+      const wider = !best || candidate.separation > best.separation + SEPARATION_TIE_MM;
+      const tied = best !== undefined && Math.abs(candidate.separation - best.separation) <= SEPARATION_TIE_MM;
+      if (wider || (tied && candidate.distanceFromStart < best!.distanceFromStart)) best = candidate;
+    }
+  }
+  return best;
+}
+
 export function layoutStrapSlots(outline: ShapeOutline, margin: number, envelopeOffset: number, keepOut: XY[][], startU: number): StrapSlot[] | undefined {
   if (!strapSlotsFitMargin(margin, envelopeOffset)) return undefined;
   const centreOffset = envelopeOffset + STRAP_SLOT_INNER_WALL + STRAP_SLOT_WIDTH / 2;
@@ -66,11 +93,16 @@ export function layoutStrapSlots(outline: ShapeOutline, margin: number, envelope
   const halfTurn = perimeter / 2;
   if (halfTurn < STRAP_SLOT_LENGTH + 2 * STRAP_SLOT_KEEP_OUT) return undefined;
   const start = arcLengthFractionAt(outline, centreOffset, startU) * perimeter;
+  const clears = (slot: StrapSlot) => cutClearsKeepOut(slot.outline, outline, margin, keepOut, STRAP_SLOT_KEEP_OUT);
   for (let i = 0; i * SWEEP_STEP_MM < halfTurn / 2; i++) {
     for (const arc of i === 0 ? [start] : [start + i * SWEEP_STEP_MM, start - i * SWEEP_STEP_MM]) {
       const pair = [slotAt(outline, envelopeOffset, arc), slotAt(outline, envelopeOffset, arc + halfTurn)];
-      if (pair.every((slot) => cutClearsKeepOut(slot.outline, outline, margin, keepOut, STRAP_SLOT_KEEP_OUT))) return pair;
+      if (pair.every(clears)) return pair;
     }
   }
-  return undefined;
+  const count = Math.floor(perimeter / SWEEP_STEP_MM);
+  const clear = Array.from({ length: count }, (_, i) => clears(slotAt(outline, envelopeOffset, start + i * SWEEP_STEP_MM)));
+  const best = widestClearPair(clear, perimeter);
+  if (!best || best.separation < perimeter * STRAP_SLOT_MIN_SEPARATION_FRACTION) return undefined;
+  return [best.first, best.second].map((i) => slotAt(outline, envelopeOffset, start + i * SWEEP_STEP_MM));
 }
