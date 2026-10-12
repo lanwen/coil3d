@@ -566,6 +566,11 @@ const REPRODUCTIONS_320: Reproduction[] = [
     spec: { wire: { length: 4240, diameter: 1.78, type: "stiff" }, shape: { kind: "pill", cornerRadius: 8.09 }, windingQuality: 0.83, coreSize: { locked: true, dimension: "outer", value: 74.53 }, height: { locked: true, value: 33.06 }, layers: { locked: true, value: 4 }, objective: "minVolume", topCap: "on", joint: "snap", tolerance: 0.23, mount: "through", keyholeRotation: 45, throughHoleDiameter: 4.32, base: "off", strapSlots: false },
     segments: { round: 96, other: 48 },
   },
+  {
+    name: "a collapse that gives a needle a new neighbour across the edge, in a pill's bottom ring (pill fuzz case 2364)",
+    spec: { wire: { length: 6816, diameter: 2.87, type: "flex" }, shape: { kind: "pill", cornerRadius: 7.47 }, windingQuality: 0.55, coreSize: { locked: true, dimension: "inner", value: 71 }, height: { locked: false }, layers: { locked: true, value: 3 }, objective: "aspectRatio", topCap: "on", joint: "snap", tolerance: 0.19, mount: "none", plateJoint: "snap", keyholeRotation: 0, throughHoleDiameter: 5.65, base: "off", strapSlots: true },
+    segments: { round: 144, other: 144 },
+  },
 ];
 
 describe("mesh clean-up reproductions (issue #320): a pill's parts are one solid, with no short edges or folds", () => {

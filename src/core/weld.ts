@@ -128,7 +128,7 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
       const longest = Math.sqrt(Math.max(squared(a, b), squared(b, c), squared(c, a)));
       return Math.hypot(...n) > NEEDLE_HEIGHT * longest ? n : undefined;
     };
-    for (const t of turned) {
+    for (const t of movers) {
       const n = realNormal(t);
       if (!n) continue;
       const corners = after(t);

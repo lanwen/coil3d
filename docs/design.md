@@ -504,10 +504,11 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
     corner moves. A triangle thinner than the epsilon is itself a needle: its
     facing means nothing and it may turn freely. A triangle lower than 1 µm has
     no facing to trust, because float32 rounding can turn it, so it cannot fold.
-    A triangle that turned, or a needle that grows, must not end up lying back
-    over its neighbour (within 8 degrees of opposite), a fold of no thickness:
-    a needle a few thousandths of a millimetre high that turned face down in a
-    flat face did.
+    A triangle that moves with the corner, turned or not, must not end up lying
+    back over its neighbour (within 8 degrees of opposite), a fold of no
+    thickness: a needle a few thousandths of a millimetre high that turned face
+    down in a flat face did, and so did one that kept its facing but met a new
+    neighbour across the collapsed edge (#320).
   - When neither end is safe, the merged vertex goes halfway between them: a
     sliver beside the edge can turn over when the vertex lands on either end,
     and not when it lands in between. Then both ends' triangles are checked,
