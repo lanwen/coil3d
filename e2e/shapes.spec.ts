@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 import { openAllNumbers } from "./advanced";
 
@@ -124,4 +124,53 @@ test("a pill's end radius round-trips through the hash and the field", async ({ 
   await expect(page.getByTestId("shape-option-pill")).toBeChecked();
   await expect(page.getByTestId("input-shapeCornerRadius")).toHaveValue("15");
   await expect(page.getByTestId("corner-radius")).toHaveText("15.0 mm");
+});
+
+// Issue #323: a locked size under 4 x the pill's end radius would make the pill round, so picking Pill lengthens it.
+test.describe("picking Pill lengthens a locked size that would make it round (issue #323)", () => {
+  const pickPill = async (page: Page) => {
+    await page.getByTestId("shape-option-pill").check();
+    await expect(page.getByTestId("shape-option-pill")).toBeChecked();
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+  };
+
+  test("from the default design the core is a pill, not round, at 80 mm", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await pickPill(page);
+    await expect(page.getByTestId("input-outer")).toHaveValue("80");
+    await expect(page.getByTestId("outer-size")).toHaveText("80.0 mm");
+    await expect(page.getByTestId("warnings")).toHaveCount(0);
+    await expect(async () => {
+      const doc = decodeHashDoc(page.url());
+      expect(doc.shape).toBe("pill");
+      expect(doc.size).toBe(80);
+    }).toPass();
+  });
+
+  test("a locked size that is already long enough stays, and stays locked", async ({ page }) => {
+    await page.goto(`/${encodeHashDoc({ size: 150 })}`);
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await pickPill(page);
+    await expect(page.getByTestId("input-outer")).toHaveValue("150");
+    await expect(page.getByTestId("lock-outer")).toBeChecked();
+    await expect(async () => {
+      const doc = decodeHashDoc(page.url());
+      expect(doc.shape).toBe("pill");
+      expect(doc.size).toBe(150);
+    }).toPass();
+  });
+
+  test("a free size stays free", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("lock-outer").uncheck();
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await pickPill(page);
+    await expect(page.getByTestId("lock-outer")).not.toBeChecked();
+    await expect(async () => {
+      const doc = decodeHashDoc(page.url());
+      expect(doc.shape).toBe("pill");
+      expect(doc.size).toBeUndefined();
+    }).toPass();
+  });
 });

@@ -57,4 +57,5 @@ export type { PartPlacement } from "./plate";
 export { parseHash, toHash, DEFAULT_SPEC, DEFAULT_SHOW_WIRE } from "./hash";
 export type { ParsedHash, ViewMode } from "./hash";
 export { design } from "./design";
+export { coreSizeForPill } from "./solve";
 export { exportDesign } from "./export";

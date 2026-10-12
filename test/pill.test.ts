@@ -1,6 +1,6 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PILL_RADIUS, DEFAULT_SPEC, design } from "../src/core";
+import { DEFAULT_PILL_RADIUS, DEFAULT_SPEC, coreSizeForPill, design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, MountKind } from "../src/core";
 import { circumscribedRadius, offsetPerimeter } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
@@ -226,5 +226,49 @@ describe("SKÅDIS rim clips on a pill (issue #320)", () => {
   it("a free-size pill grows its flange until clips fit", async () => {
     const d = await design(spec({ ...ON_BASE, mount: "skadis", shape: { kind: "pill", cornerRadius: DEFAULT_PILL_RADIUS }, coreSize: { locked: false } }));
     expect(d.parts.filter((p) => p.role === "mountClip").length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+// Issue #323: switching a locked small size to a pill lengthens it to 4 x the end radius, so the pill is not round.
+describe("coreSizeForPill (issue #323)", () => {
+  const SIZE_NOTE = /round at this size|End radius|Core size raised/;
+  const roundSpec = (overrides: Partial<CoilSpec> = {}): CoilSpec => spec({ shape: { kind: "round" }, ...overrides });
+  const asPill = (s: CoilSpec): CoilSpec => ({ ...s, shape: { kind: "pill", cornerRadius: DEFAULT_PILL_RADIUS }, coreSize: coreSizeForPill(s) });
+
+  it("lengthens a short locked outer size to 4 x the default radius, and the pill then stays a pill", async () => {
+    const lock = coreSizeForPill(roundSpec({ coreSize: { locked: true, dimension: "outer", value: 36 } }));
+    expect(lock).toEqual({ locked: true, dimension: "outer", value: 4 * DEFAULT_PILL_RADIUS });
+    const d = await design(asPill(roundSpec({ coreSize: { locked: true, dimension: "outer", value: 36 } })));
+    expect(d.solution.outerSize).toBeCloseTo(4 * DEFAULT_PILL_RADIUS, 6);
+    expect(d.solution.cornerRadius).toBeCloseTo(DEFAULT_PILL_RADIUS, 6);
+    expect(noteMatching(d, SIZE_NOTE)).toBe(false);
+  });
+
+  it("keeps a locked size that is long enough", () => {
+    const lock = { locked: true, dimension: "outer", value: 150 } as const;
+    expect(coreSizeForPill(roundSpec({ coreSize: lock }))).toEqual(lock);
+  });
+
+  it("leaves a free size free", () => {
+    expect(coreSizeForPill(roundSpec({ coreSize: { locked: false } }))).toEqual({ locked: false });
+  });
+
+  it("converts a locked inner size so the outer length is 4 x the radius", async () => {
+    const d = await design(asPill(roundSpec({ coreSize: { locked: true, dimension: "inner", value: 20 } })));
+    expect(d.solution.outerSize).toBeGreaterThanOrEqual(4 * DEFAULT_PILL_RADIUS - 1e-6);
+    expect(d.solution.outerSize).toBeLessThan(4 * DEFAULT_PILL_RADIUS + 3);
+    expect(noteMatching(d, SIZE_NOTE)).toBe(false);
+  });
+
+  it("with the cap off, uses the face-channel radius floor when it is above the default", async () => {
+    const capOff = roundSpec({ wire: { ...WIRE, diameter: 6 }, topCap: "off", base: "off", layers: { locked: true, value: 1 }, height: { locked: false }, coreSize: { locked: true, dimension: "outer", value: 36 } });
+    const probe = await design({ ...capOff, shape: { kind: "pill", cornerRadius: 1 }, coreSize: { locked: true, dimension: "outer", value: 200 } });
+    const floor = probe.solution.cornerRadiusRange[0];
+    expect(floor).toBeGreaterThan(DEFAULT_PILL_RADIUS);
+    const lock = coreSizeForPill(capOff);
+    expect(lock.locked && lock.value).toBeGreaterThanOrEqual(4 * floor - 1e-6);
+    const d = await design(asPill(capOff));
+    expect(noteMatching(d, /round at this size|Core size raised/)).toBe(false);
+    expect(d.solution.cornerRadius).toBeCloseTo(floor, 6);
   });
 });
