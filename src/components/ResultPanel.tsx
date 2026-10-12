@@ -375,7 +375,7 @@ export function ResultPanel({
           <h3 className="all-numbers-heading">Solver</h3>
           <p className={`diagnosis diagnosis-${diagnosis.status}`} data-testid="diagnosis-message">
             <strong data-testid="diagnosis-status">{diagnosis.status}</strong> ({diagnosis.freeCount} free:{" "}
-            {diagnosis.freeVariables.map((v) => FREE_VARIABLE_LABELS[v]).join(", ") || "none"}) --{" "}
+            {diagnosis.freeVariables.map((v) => FREE_VARIABLE_LABELS[v]).join(", ") || "none"}) -{" "}
             {diagnosis.message}
           </p>
         </div>

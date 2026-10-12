@@ -159,11 +159,11 @@ function validateLockTokens(tokens: Iterable<string>): string | undefined {
   const set = new Set(tokens);
   for (const t of set) {
     if (!(LOCK_TOKENS as readonly string[]).includes(t)) {
-      return `Unknown lock "${t}" in the link -- showing default values instead.`;
+      return `Unknown lock "${t}" in the link: showing default values instead.`;
     }
   }
   if (set.has("outer") && set.has("inner")) {
-    return "The link locks both the outer and inner size -- showing default values instead.";
+    return "The link locks both the outer and inner size: showing default values instead.";
   }
   return undefined;
 }
@@ -254,16 +254,16 @@ function buildParsed(p: {
 function parseDocHash(encoded: string): ParsedHash {
   const decoded = decodeDoc(encoded);
   if (decoded === undefined) {
-    return fallback('Could not read this link ("s" is not a valid encoded document) -- showing default values instead.');
+    return fallback('Could not read this link ("s" is not a valid encoded document): showing default values instead.');
   }
   const rawVersion = decoded && typeof decoded === "object" ? (decoded as Record<string, unknown>).v : undefined;
   if (rawVersion !== undefined && rawVersion !== DOC_VERSION) {
-    return fallback(`Unsupported link version "${rawVersion}" -- showing default values instead.`);
+    return fallback(`Unsupported link version "${rawVersion}": showing default values instead.`);
   }
 
   const result = DocSchema.safeParse(decoded);
   if (!result.success) {
-    return fallback('Could not read this link ("lock" and shape parameters are validated together) -- showing default values instead.');
+    return fallback('Could not read this link ("lock" and shape parameters are validated together): showing default values instead.');
   }
   const p = result.data;
 
@@ -273,19 +273,19 @@ function parseDocHash(encoded: string): ParsedHash {
   const { tokens: lockTokens, droppedLayers } = capMaxTwoLocked(requestedLockTokens);
 
   if (p.wt !== "custom" && p.mbr !== undefined) {
-    return fallback('The link sets a custom bend multiplier ("mbr") without wt=custom -- showing default values instead.');
+    return fallback('The link sets a custom bend multiplier ("mbr") without wt=custom: showing default values instead.');
   }
   if (p.shape !== "sq" && p.shape !== "tri" && p.rc !== undefined) {
-    return fallback('The link sets a corner radius ("rc") without selecting a shape that uses one -- showing default values instead.');
+    return fallback('The link sets a corner radius ("rc") without selecting a shape that uses one: showing default values instead.');
   }
   if (p.mount !== "keyhole" && p.kr !== undefined) {
-    return fallback('The link sets a keyhole rotation ("kr") without mount=keyhole -- showing default values instead.');
+    return fallback('The link sets a keyhole rotation ("kr") without mount=keyhole: showing default values instead.');
   }
   if (p.mount !== "through" && p.thd !== undefined) {
-    return fallback('The link sets a through-hole diameter ("thd") without mount=through -- showing default values instead.');
+    return fallback('The link sets a through-hole diameter ("thd") without mount=through: showing default values instead.');
   }
   if (p.mount !== "skadis" && p.latch !== undefined) {
-    return fallback('The link sets the SKÅDIS latch ("latch") without mount=skadis -- showing default values instead.');
+    return fallback('The link sets the SKÅDIS latch ("latch") without mount=skadis: showing default values instead.');
   }
 
   const parsed = buildParsed({
@@ -318,7 +318,7 @@ function parseDocHash(encoded: string): ParsedHash {
     label: p.label,
   });
   return droppedLayers
-    ? { ...parsed, notice: "This link locks core size, height and layers all at once -- something has to stay free to fit the cable length, so layers was left free." }
+    ? { ...parsed, notice: "This link locks core size, height and layers all at once: something has to stay free to fit the cable length, so layers was left free." }
     : parsed;
 }
 

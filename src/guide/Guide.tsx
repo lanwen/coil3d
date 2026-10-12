@@ -88,7 +88,7 @@ function StepPrintParts({ design }: { design: Design }) {
         ))}
       </div>
       <Callout icons={<NoSupportsIcon label="No supports needed" />}>
-        {design.parts.length} part{design.parts.length === 1 ? "" : "s"}, prints upright{onSide ? ` (${onSide} lying on their side)` : ""} -- no supports.
+        {design.parts.length} part{design.parts.length === 1 ? "" : "s"}, prints upright{onSide ? ` (${onSide} lying on their side)` : ""}. No supports.
       </Callout>
     </StepCard>
   );
@@ -183,7 +183,7 @@ function StepWind({ design, n }: { design: Design; n: number }) {
         />
       </div>
       <Callout icons={<WindIcon label="Wind the cable along the groove" />}>
-        Wind along the groove -- {layers} layer{layers === 1 ? "" : "s"}.
+        Wind along the groove: {layers} layer{layers === 1 ? "" : "s"}.
       </Callout>
     </StepCard>
   );
@@ -292,7 +292,7 @@ function mountLine(mount: MountKind): string {
     case "none":
     case "opengrid":
     default:
-      return "Fix the flange to the wall your own way -- mounts are coming soon.";
+      return "Fix the flange to the wall your own way. Mounts are coming soon.";
   }
 }
 
@@ -579,7 +579,7 @@ function StepUnwind({ design, n }: { design: Design; n: number }) {
         />
       </div>
       <Callout icons={[<RotateIcon key="rotate" label="Rotate to unwind" />, <NoPullIcon key="nopull" label="Don't pull the cable" />]}>
-        Rotate the coil to unwind -- don't pull the cable.
+        Rotate the coil to unwind. Don't pull the cable.
       </Callout>
     </StepCard>
   );

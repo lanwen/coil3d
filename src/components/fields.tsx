@@ -258,10 +258,10 @@ function LockToggle({
       disabled={disabled}
       title={
         checked
-          ? `Locked -- click to let ${label} be solved`
+          ? `Locked - click to let ${label} be solved`
           : disabled
-            ? "Two dimensions are already locked -- something has to stay free to fit the cable length"
-            : `Free -- click to lock ${label}`
+            ? "Two dimensions are already locked: something has to stay free to fit the cable length"
+            : `Free - click to lock ${label}`
       }
       onChange={onChange}
       showState={false}
@@ -269,7 +269,7 @@ function LockToggle({
   );
 }
 
-export const LOCK_LIMIT_NOTE = "Two of core size, height and layers are already locked -- something has to stay free to fit the cable length.";
+export const LOCK_LIMIT_NOTE = "Two of core size, height and layers are already locked: something has to stay free to fit the cable length.";
 
 export function LockRangeField({
   testId,

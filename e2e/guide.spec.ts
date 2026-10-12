@@ -145,7 +145,7 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.getByTestId("guide-step-3")).toContainText("Wind the cable");
     await expect(page.getByTestId("guide-step-4")).toContainText("Lay in the outer cable end");
     await expect(page.getByTestId("guide-step-5")).toContainText("Mount on the wall");
-    await expect(page.getByTestId("guide-step-5")).toContainText("mounts are coming soon");
+    await expect(page.getByTestId("guide-step-5")).toContainText("Mounts are coming soon");
     await expect(page.getByTestId("guide-step-6")).toContainText("Unwinding");
     await expect(page.getByTestId("guide-step-6")).toContainText(/rotate the coil/i);
     await expect(page.getByTestId("guide-step-6")).toContainText(/don't pull the cable/i);

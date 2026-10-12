@@ -18,7 +18,7 @@ export const HINTS = {
     "This adds a way to hang the coil on a wall: a screw keyhole (hang it, then slide down to seat), plain through-holes (screw straight through, no sliding), or clips for an IKEA SKÅDIS pegboard: rim clips that hook into the board's slots and grip the flange's rim, or T-clips that pass through slots in the core's floor and twist a quarter turn to lock (no glue either way).",
   skadisLatch:
     "The top clip gets a small spring tooth that clicks into its slot, so pulling the cable can't lift the coil off the board. To take the coil down, lift the top clip firmly. Turn it off for a plain hook.",
-  keyholeRotation: "This rotates the keyhole slot's own position on the core, in fixed steps. The coil still hangs level at every setting -- only which side faces up changes.",
+  keyholeRotation: "This rotates the keyhole slot's own position on the core, in fixed steps. The coil still hangs level at every setting. Only which side faces up changes.",
   throughHoleDiameter: "This is the diameter of the screw-shank holes drilled straight through the flange. Match it to the screws you plan to mount with.",
   windingQuality:
     "This sets how tightly each layer's turns nest into the layer below it. Stacked (0) lines every turn up directly above the turn beneath it. Orthocyclic (1, the tightest packing) settles every turn into the valley between two turns below, so more cable fits in the same space.",
@@ -27,7 +27,7 @@ export const HINTS = {
   base:
     "This controls whether the core stands on a flat base plate. Off (the default) gives a bare core: a tube with a thin ring at each end and a hole in the middle of each ring, where the cable ends run in. It prints flat on its own bottom face. A wall mount needs the base, so choosing a mount turns it on.",
   topCap:
-    "This controls whether the coil gets a flat lid on top. Until you touch this switch it stays in auto mode (tagged \"auto\"), which leaves the cap off, with or without a base. The switch always shows the current on/off state. Touch it and it becomes an explicit override, saved in the link -- use \"Reset to auto\" to go back.",
+    "This controls whether the coil gets a flat lid on top. Until you touch this switch it stays in auto mode (tagged \"auto\"), which leaves the cap off, with or without a base. The switch always shows the current on/off state. Touch it and it becomes an explicit override, saved in the link. Use \"Reset to auto\" to go back.",
   strapSlots:
     "This cuts two closed slots in each plate. A hook-and-loop tie through a slot and over the rim holds the cable's lead. The plate grows about 4.5 mm to fit them.",
   joint: "This is how the top cap attaches to the core: pressed on, twisted into a bayonet lock, or snapped on with printable clips. All three are meant to be permanent, once assembled.",
@@ -44,9 +44,9 @@ export const HINTS = {
   envelope:
     "This is the wound cable's own outer size, at its widest point. For a square or triangle core, that's measured across the corners, so compare it to the flange's own \"across corners\" number below, not the narrower \"Flange width\" (measured across flats). The flange is sized to clear this.",
   flange:
-    "This is the flange's real outer size, measured across its flat sides. For a square or triangle core that's the narrower of its two extents, so it reads smaller than the cable's own outer size above -- compare against \"Flange width (across corners)\" below instead.",
+    "This is the flange's real outer size, measured across its flat sides. For a square or triangle core that's the narrower of its two extents, so it reads smaller than the cable's own outer size above. Compare against \"Flange width (across corners)\" below instead.",
   flangeAcrossCorners:
-    "This is the flange's real outer size measured across its corners, the wider of its two extents -- the same way the cable's own outer size above is measured, so the two are directly comparable.",
+    "This is the flange's real outer size measured across its corners, the wider of its two extents - the same way the cable's own outer size above is measured, so the two are directly comparable.",
 } as const;
 
 export type HintKey = keyof typeof HINTS;

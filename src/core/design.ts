@@ -357,7 +357,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   if ((baseOn || topCapEnabled) && solution.envelopeDiameter > flangeExtent.acrossCorners + 1e-6) {
     problem(
-      `Cable outer size (${solution.envelopeDiameter.toFixed(1)} mm, across corners) is bigger than the flange (${flangeExtent.acrossCorners.toFixed(1)} mm, across corners) -- the wound cable would stick out past the flange.`,
+      `Cable outer size (${solution.envelopeDiameter.toFixed(1)} mm, across corners) is bigger than the flange (${flangeExtent.acrossCorners.toFixed(1)} mm, across corners). The wound cable would stick out past the flange.`,
     );
   }
 

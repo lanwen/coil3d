@@ -329,10 +329,10 @@ function finishSolution(
   const deltaPct = ((totalWireLength - target) / target) * 100;
 
   if (innerBore <= 0) {
-    problem(`Wall thickness (${Number(wall.toFixed(1))} mm) leaves no bore at outer size ${resolved.outerSize.toFixed(1)} mm -- increase outer size.`);
+    problem(`Wall thickness (${Number(wall.toFixed(1))} mm) leaves no bore at outer size ${resolved.outerSize.toFixed(1)} mm. Increase outer size.`);
   }
   if (env > ENVELOPE_BED_WARNING_MM) {
-    note(`Envelope footprint is ${env.toFixed(0)} mm -- check this fits your print bed.`);
+    note(`Envelope footprint is ${env.toFixed(0)} mm. Check this fits your print bed.`);
   }
   if (deltaPct < -CAPACITY_SHORTFALL_NOTE_PCT) {
     note(`Resulting capacity is ${deltaPct.toFixed(0)}% vs. the target cable length.`);
@@ -341,7 +341,7 @@ function finishSolution(
   if (capacityLo < target * (1 - CAPACITY_EPS)) {
     const pctOfTarget = (capacityLo / target) * 100;
     note(
-      `At the loosest winding quality, capacity is only ${capacityLo.toFixed(0)} mm (${pctOfTarget.toFixed(0)}% of the ${target.toFixed(0)} mm target) -- a loose winding may not fit; wind snugly to reach the full target length.`,
+      `At the loosest winding quality, capacity is only ${capacityLo.toFixed(0)} mm (${pctOfTarget.toFixed(0)}% of the ${target.toFixed(0)} mm target): a loose winding may not fit; wind snugly to reach the full target length.`,
     );
   }
   if (spec.shape.kind !== "round") {
@@ -349,7 +349,7 @@ function finishSolution(
     const requested = spec.shape.cornerRadius;
     if (rcMin >= rcMaxHard) {
       problem(
-        `The bend limit needs at least a ${rcMin.toFixed(1)} mm corner radius, but the core is only ${resolved.outerSize.toFixed(1)} mm across -- the ${label} core is effectively round.`,
+        `The bend limit needs at least a ${rcMin.toFixed(1)} mm corner radius, but the core is only ${resolved.outerSize.toFixed(1)} mm across. The ${label} core is effectively round.`,
       );
     } else if (requested < rcMin - FLOOR_CEILING_TOLERANCE) {
       note(`Corner radius clamped up to ${rcMin.toFixed(1)} mm (requested ${requested.toFixed(1)} mm) to respect the bend limit.`);
@@ -548,7 +548,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
         freeCount,
         freeVariables: freeVars,
         status: "over-constrained",
-        message: `Fully constrained geometry falls short of capacity by ${Math.abs(deltaPct).toFixed(0)}% -- the cable will not fit. Release the outer size, height, or layers lock to let the solver fix this.`,
+        message: `Fully constrained geometry falls short of capacity by ${Math.abs(deltaPct).toFixed(0)}%: the cable will not fit. Release the outer size, height, or layers lock to let the solver fix this.`,
       };
     }
   } else if (freeCount === 1) {
