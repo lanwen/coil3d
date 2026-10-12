@@ -641,6 +641,10 @@ bounding circle across a sharp corner.
   pass the centre hole along the long axis, and the room for that depends on the
   width, not the length, so the radius floor is the round core's channel floor
   (half its smallest size), and a radius under it is raised with a note.
+  Picking Pill on a locked size lengthens that size to `4 r` (`coreSizeForPill`;
+  `r` is the default radius raised to those floors, and an inner size is
+  converted through the wall), so the new pill is not round. A longer lock and a
+  free size stay as they are.
   Everything that tests "is this outline round" asks `isFullCircle`, because a
   pill has `cornerRadius === apothem` too. Code that copies an outline into a
   new one (the bore, the collar, the face-channel hole) spreads it, or it loses

@@ -8,6 +8,7 @@ import {
   DEFAULT_THROUGH_HOLE_DIAMETER,
   KEYHOLE_ROTATION_OPTIONS,
   SHAPES,
+  coreSizeForPill,
   defaultCornerRadius,
   THROUGH_HOLE_DIAMETER_MAX,
   THROUGH_HOLE_DIAMETER_MIN,
@@ -101,7 +102,8 @@ export function ControlsForm({
   const setLabelEnabled = (checked: boolean) => onChange({ ...spec, label: checked ? (spec.label ?? "") : undefined });
 
   const setShapeKind = (kind: ShapeKind) => {
-    onChange({ ...spec, shape: kind === "round" ? { kind } : { kind, cornerRadius: defaultCornerRadius(kind) } });
+    const shape = kind === "round" ? { kind } : { kind, cornerRadius: defaultCornerRadius(kind) };
+    onChange({ ...spec, shape, coreSize: kind === "pill" ? coreSizeForPill(spec) : spec.coreSize });
   };
   const setShapeCornerRadius = (cornerRadius: number) => {
     if (spec.shape.kind === "round") return;

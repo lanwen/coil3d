@@ -7,6 +7,7 @@ import { isHeavyCable } from "./skadisClips";
 import { layoutSkadisTclips } from "./skadisTclips";
 import {
   CENTRE_CONNECTOR_PASSAGE,
+  DEFAULT_PILL_RADIUS,
   FLANGE_MARGIN,
   HEIGHT_HI,
   LAYERS_HI,
@@ -21,7 +22,7 @@ import { makeOutline, offsetArea, shapePlugin } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
 import { grooveShape, wallThickness, windingSpan } from "./wall";
-import type { CoilSpec, Diagnosis, Notice, Objective, ShapeSpec, Solution } from "./types";
+import type { CoilSpec, CoreSizeLock, Diagnosis, Notice, Objective, ShapeSpec, Solution } from "./types";
 
 function bendCornerRadiusFloor(wire: CoilSpec["wire"]): number {
   const mbr = bendMultiplierOf(wire) * wire.diameter;
@@ -50,6 +51,10 @@ function minOuterSizeForShapeFlats(kind: Extract<ShapeSpec["kind"], "sq" | "tri"
   const sideLengthForPerimeterFloor = (MIN_FLAT_PERIMETER_FRACTION * 2 * Math.PI * rcMin) / perimeterMargin;
   const sizeForPerimeterFloor = 2 * rcMin + sideLengthForPerimeterFloor / k;
   return Math.max(sizeForDiameterFloor, sizeForPerimeterFloor);
+}
+
+function pillEndRadiusFloor(spec: CoilSpec): number {
+  return Math.max(bendCornerRadiusFloor(spec.wire), centreFloors(spec).size / 2);
 }
 
 function minOuterSizeForShape(shape: ShapeSpec, wire: CoilSpec["wire"], minOuterSizeForBend: number): number {
@@ -500,6 +505,15 @@ function endRadiusNote(requested: number, floor: number, channelBinds: boolean):
     : `End radius clamped up to ${mm(floor)} (requested ${mm(requested)}) to respect the bend limit.`;
 }
 
+export function coreSizeForPill(spec: CoilSpec): CoreSizeLock {
+  if (!spec.coreSize.locked) return spec.coreSize;
+  const pillSpec: CoilSpec = { ...spec, shape: { kind: "pill", cornerRadius: DEFAULT_PILL_RADIUS } };
+  const pillLength = PILL_LENGTH_TO_RADIUS * Math.max(DEFAULT_PILL_RADIUS, pillEndRadiusFloor(pillSpec));
+  const wallOffset = spec.coreSize.dimension === "inner" ? 2 * wallThickness(spec.wire.diameter) : 0;
+  const value = Math.max(spec.coreSize.value, Math.ceil(pillLength - wallOffset - FLOOR_CEILING_TOLERANCE));
+  return { ...spec.coreSize, value };
+}
+
 export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[] } {
   const { notices, problem, note } = noticeCollector();
 
@@ -517,11 +531,10 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const o1 = cappedSpec.wire.diameter / 2 - groove.depth;
   const rcMin = Math.max(0, mbr - o1);
   const minOuterSizeForBend = 2 * rcMin;
-  const channelRadius = cappedSpec.shape.kind === "pill" ? centreFloors(cappedSpec).size / 2 : 0;
-  const endRadiusFloor = Math.max(rcMin, channelRadius);
+  const endRadiusFloor = cappedSpec.shape.kind === "pill" ? pillEndRadiusFloor(cappedSpec) : rcMin;
   const spec = withEndRadiusAtLeast(cappedSpec, endRadiusFloor);
   if (cappedSpec.shape.kind === "pill" && cappedSpec.shape.cornerRadius < endRadiusFloor - FLOOR_CEILING_TOLERANCE) {
-    note(endRadiusNote(cappedSpec.shape.cornerRadius, endRadiusFloor, channelRadius > rcMin + FLOOR_CEILING_TOLERANCE));
+    note(endRadiusNote(cappedSpec.shape.cornerRadius, endRadiusFloor, endRadiusFloor > rcMin + FLOOR_CEILING_TOLERANCE));
   }
   const shapeFloor = minOuterSizeForShape(spec.shape, spec.wire, minOuterSizeForBend);
   const centre = centreFloors(spec);
