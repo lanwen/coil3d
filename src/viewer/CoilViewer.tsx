@@ -174,9 +174,9 @@ const EXPLODE_AXES: Record<ViewMode, THREE.Vector3> = {
 };
 
 const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
-  wallRoom: "Bottom flange against the wall -- top cap faces the room",
-  mountSide: "Seen from behind the wall -- each clip in its SKÅDIS slot (grey)",
-  printLayout: "Every part rests flat on the bed -- no supports needed",
+  wallRoom: "Bottom flange against the wall - top cap faces the room",
+  mountSide: "Seen from behind the wall - each clip in its SKÅDIS slot (grey)",
+  printLayout: "Every part rests flat on the bed - no supports needed",
 };
 
 function useDebugFocusOptions(): { fromBelow: boolean; radius: number } {

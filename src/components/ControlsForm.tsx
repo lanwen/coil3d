@@ -373,7 +373,7 @@ export function ControlsForm({
               ariaLabel="Base"
               checked={baseOn}
               disabled={mountOn}
-              title={mountOn ? "On -- a wall mount needs the base" : `${baseOn ? "On" : "Off"} -- click to change`}
+              title={mountOn ? "On: a wall mount needs the base" : `${baseOn ? "On" : "Off"} - click to change`}
               onChange={(checked) => onChange({ ...spec, base: checked ? "on" : "off" })}
             />
           </div>
@@ -397,8 +397,8 @@ export function ControlsForm({
                 checked={topCapOn}
                 title={
                   topCapAuto
-                    ? `Auto -- currently ${topCapOn ? "on" : "off"}. Touch to set it explicitly.`
-                    : `${topCapOn ? "On" : "Off"} (explicit) -- click to change`
+                    ? `Auto: currently ${topCapOn ? "on" : "off"}. Touch to set it explicitly.`
+                    : `${topCapOn ? "On" : "Off"} (explicit) - click to change`
                 }
                 onChange={setTopCapExplicit}
               />
