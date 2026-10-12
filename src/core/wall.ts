@@ -1,6 +1,6 @@
 import { FACE_HOLE_CORNER_MIN, GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE_DEG, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
 import { chamferedRim } from "./edgeChamfer";
-import { arcLengthFractionAt, evalOutline, outlineColumnParams, outlineOffsetAt, paramAt, pointAlong, pointAt, polygonVertex } from "./shapes";
+import { arcLengthFractionAt, evalOutline, isFullCircle, isPill, outlineColumnParams, outlineOffsetAt, paramAt, pointAlong, pointAt, polygonVertex } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
@@ -47,13 +47,13 @@ export interface WallRings {
 }
 
 export function ringHolePoint(boreOutline: ShapeOutline, outline: ShapeOutline, t: number, width: number): { x: number; y: number } {
-  if (boreOutline.cornerRadius === boreOutline.apothem) {
+  if (isFullCircle(boreOutline)) {
     const p = pointAt(boreOutline, t, 0);
     const scale = (boreOutline.apothem - width) / boreOutline.apothem;
     return { x: p.x * scale, y: p.y * scale };
   }
   const param = paramAt(outline, 0, t);
-  const rounded = boreOutline.cornerRadius - width >= FACE_HOLE_CORNER_MIN;
+  const rounded = boreOutline.cornerRadius - width >= FACE_HOLE_CORNER_MIN || isPill(boreOutline);
   const sharp = { n: boreOutline.n, apothem: boreOutline.apothem - width, cornerRadius: 0 };
   const corner = param.seg >> 1;
   if (param.seg % 2 === 0) {

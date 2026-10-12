@@ -4,11 +4,11 @@ import {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
   DEFAULT_BASE,
-  DEFAULT_CORNER_RADIUS,
   DEFAULT_CUSTOM_BEND_MULTIPLIER,
   DEFAULT_THROUGH_HOLE_DIAMETER,
   KEYHOLE_ROTATION_OPTIONS,
   SHAPES,
+  defaultCornerRadius,
   THROUGH_HOLE_DIAMETER_MAX,
   THROUGH_HOLE_DIAMETER_MIN,
   TOLERANCE_MAX,
@@ -91,7 +91,8 @@ export function ControlsForm({
 
   const cornerRadiusDisabled = spec.shape.kind !== "round" && cornerRadiusMax <= cornerRadiusMin;
 
-  const cornerRadiusHint = cornerRadiusDisabled ? `${HINTS.shapeCornerRadius} The core is too small for a larger radius; grow the core to unlock.` : HINTS.shapeCornerRadius;
+  const radiusHint = spec.shape.kind === "pill" ? HINTS.pillEndRadius : HINTS.shapeCornerRadius;
+  const cornerRadiusHint = cornerRadiusDisabled ? `${radiusHint} The core is too small for a larger radius; grow the core to unlock.` : radiusHint;
 
   const bayonetUnavailable = spec.shape.kind !== "round";
   const jointHint = bayonetUnavailable ? `${HINTS.joint} Twist lock needs a round core.` : HINTS.joint;
@@ -100,7 +101,7 @@ export function ControlsForm({
   const setLabelEnabled = (checked: boolean) => onChange({ ...spec, label: checked ? (spec.label ?? "") : undefined });
 
   const setShapeKind = (kind: ShapeKind) => {
-    onChange({ ...spec, shape: kind === "round" ? { kind } : { kind, cornerRadius: DEFAULT_CORNER_RADIUS } });
+    onChange({ ...spec, shape: kind === "round" ? { kind } : { kind, cornerRadius: defaultCornerRadius(kind) } });
   };
   const setShapeCornerRadius = (cornerRadius: number) => {
     if (spec.shape.kind === "round") return;
@@ -194,7 +195,7 @@ export function ControlsForm({
         {spec.shape.kind !== "round" && (
           <RangeField
             testId="shapeCornerRadius"
-            label="Corner radius"
+            label={spec.shape.kind === "pill" ? "End radius" : "Corner radius"}
             unit="mm"
             min={cornerRadiusMin}
             max={cornerRadiusMax}

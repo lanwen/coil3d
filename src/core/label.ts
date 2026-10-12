@@ -1,7 +1,7 @@
 import opentype from "opentype.js";
 import { ARCHIVO_BLACK_TTF_BASE64 } from "./label-font-data";
 import { LABEL_CURVE_SEGMENTS, LABEL_MARGIN, LABEL_MAX_FONT_SIZE, LABEL_MIN_HEIGHT } from "./constants";
-import { evalOutline } from "./shapes";
+import { evalOutline, isFullCircle } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 
 export type LabelLoop = Array<[number, number]>;
@@ -127,13 +127,13 @@ export interface LabelFit {
 }
 
 function sideBearingDeg(outline: ShapeOutline): number {
-  const isRound = outline.cornerRadius === outline.apothem;
+  const isRound = isFullCircle(outline);
   if (isRound) return ROUND_BEARING_DEG;
   const firstSide = evalOutline(outline, FIRST_SIDE, OUTLINE_OFFSET_ZERO);
   return (Math.atan2(firstSide.ny, firstSide.nx) * 180) / Math.PI;
 }
 
-export function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSafe: number, minHeight: number = LABEL_MIN_HEIGHT, maxFontSize: number = LABEL_MAX_FONT_SIZE, margin: number = LABEL_MARGIN): LabelFit | undefined {
+export function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSafe: number, halfStraight: number, minHeight: number = LABEL_MIN_HEIGHT, maxFontSize: number = LABEL_MAX_FONT_SIZE, margin: number = LABEL_MARGIN): LabelFit | undefined {
   if (metrics.heightPerUnit <= 0 || metrics.widthPerUnit <= 0) return undefined;
 
   const fits = (fontSize: number): boolean => {
@@ -142,7 +142,7 @@ export function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSaf
     const rSafe = outerSafe - margin;
     const yTop = innerExclusion + margin + h;
     if (yTop > rSafe) return false;
-    const halfWidthMax = Math.sqrt(Math.max(0, rSafe * rSafe - yTop * yTop));
+    const halfWidthMax = halfStraight + Math.sqrt(Math.max(0, rSafe * rSafe - yTop * yTop));
     return w / 2 <= halfWidthMax;
   };
 
@@ -182,11 +182,11 @@ export interface LabelResolution {
   warning?: string;
 }
 
-function longestFittingPrefixLength(font: opentype.Font, rawText: string, innerExclusion: number, outerSafe: number): number {
+function longestFittingPrefixLength(font: opentype.Font, rawText: string, innerExclusion: number, outerSafe: number, halfStraight: number): number {
   let maxChars = rawText.length - 1;
   while (maxChars > 0) {
     const prefix = rawText.slice(0, maxChars).trim();
-    if (!prefix || fitLabel(measureLabel(font, prefix), innerExclusion, outerSafe)) break;
+    if (!prefix || fitLabel(measureLabel(font, prefix), innerExclusion, outerSafe, halfStraight)) break;
     maxChars--;
   }
   return Math.max(0, maxChars);
@@ -204,10 +204,11 @@ export async function resolveLabel(rawText: string | undefined, outline: ShapeOu
   const bearingDeg = sideBearingDeg(outline);
   const innerExclusion = boreOutline.apothem;
   const outerSafe = outline.apothem + flangeMargin;
-  const fit = fitLabel(metrics, innerExclusion, outerSafe);
+  const halfStraight = outline.halfStraight ?? 0;
+  const fit = fitLabel(metrics, innerExclusion, outerSafe, halfStraight);
   if (!fit) {
     return {
-      fit: { fits: false, maxChars: longestFittingPrefixLength(font, rawText!, innerExclusion, outerSafe) },
+      fit: { fits: false, maxChars: longestFittingPrefixLength(font, rawText!, innerExclusion, outerSafe, halfStraight) },
       warning: `The label "${text}" doesn't fit on the top cap with letters at least ${LABEL_MIN_HEIGHT / 10} cm tall, so it's hidden. Use shorter text or a bigger core.`,
     };
   }

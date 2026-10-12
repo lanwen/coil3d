@@ -19,7 +19,7 @@ import { requiredFlangeMargin, requiredThroughMountMargin } from "./mount";
 import { woundReachOffset } from "./wire";
 import { requiredMountPlateMargin } from "./mountPlate";
 import { requiredSkadisMargin } from "./skadisClips";
-import { circumscribedRadius, inscribedRadius } from "./shapes";
+import { circumscribedRadius, inscribedRadius, isFullCircle } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilSpec, FlangeExtent, MountKind } from "./types";
 import { wallThickness } from "./wall";
@@ -33,9 +33,9 @@ export function resolveBoreOutline(outline: ShapeOutline, wireDiameter: number):
   let boreApothem = outline.apothem - wall;
   const reduced = boreApothem < MIN_BORE_RADIUS;
   if (reduced) boreApothem = MIN_BORE_RADIUS;
-  const isRound = outline.cornerRadius === outline.apothem;
+  const isRound = isFullCircle(outline);
   const boreCornerRadius = isRound ? boreApothem : Math.min(Math.max(outline.cornerRadius - wall, MIN_BORE_CORNER_RADIUS), boreApothem);
-  return { boreOutline: { n: outline.n, apothem: boreApothem, cornerRadius: boreCornerRadius }, reduced };
+  return { boreOutline: { ...outline, apothem: boreApothem, cornerRadius: boreCornerRadius }, reduced };
 }
 
 export interface FlangeSizing {

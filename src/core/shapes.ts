@@ -1,10 +1,13 @@
-export type ShapeKind = "round" | "sq" | "tri";
-export type SizeSemantics = "diameter" | "acrossFlats" | "inscribedDiameter";
+import { DEFAULT_CORNER_RADIUS, DEFAULT_PILL_RADIUS } from "./constants";
+
+export type ShapeKind = "round" | "sq" | "tri" | "pill";
+export type SizeSemantics = "diameter" | "acrossFlats" | "inscribedDiameter" | "length";
 
 export interface ShapeOutline {
   n: number;
   apothem: number;
   cornerRadius: number;
+  halfStraight?: number;
 }
 
 export interface ShapePlugin {
@@ -39,10 +42,22 @@ const tri: ShapePlugin = {
   maxCornerRadius: (size) => size / 2,
 };
 
-export const SHAPES: Record<ShapeKind, ShapePlugin> = { round, sq, tri };
+const pill: ShapePlugin = {
+  kind: "pill",
+  label: "Pill",
+  sizeSemantics: "length",
+  corners: 2,
+  maxCornerRadius: (size) => size / 2,
+};
+
+export const SHAPES: Record<ShapeKind, ShapePlugin> = { round, sq, tri, pill };
 
 export function shapePlugin(kind: ShapeKind): ShapePlugin {
   return SHAPES[kind];
+}
+
+export function defaultCornerRadius(kind: Exclude<ShapeKind, "round">): number {
+  return kind === "pill" ? DEFAULT_PILL_RADIUS : DEFAULT_CORNER_RADIUS;
 }
 
 const NEGLIGIBLE_LENGTH = 1e-9;
@@ -51,23 +66,39 @@ const COINCIDENT_POINT_DISTANCE = 1e-12;
 
 const wrapUnit = (t: number): number => ((t % 1) + 1) % 1;
 
-function isFullCircle(o: ShapeOutline): boolean {
-  return o.cornerRadius === o.apothem;
+const PILL_SIDES = 2;
+
+export function isPill(o: ShapeOutline): boolean {
+  return o.n === PILL_SIDES;
+}
+
+export function isFullCircle(o: ShapeOutline): boolean {
+  return o.cornerRadius === o.apothem && !isPill(o);
 }
 
 function cornerCentreDistance(o: ShapeOutline): number {
+  if (isPill(o)) return o.halfStraight ?? 0;
   return (o.apothem - o.cornerRadius) / Math.cos(Math.PI / o.n);
+}
+
+function makePill(length: number, radius: number): ShapeOutline {
+  const apothem = length / 2;
+  const r = Math.min(Math.max(radius, 0), apothem);
+  if (r >= apothem) return { n: round.corners, apothem, cornerRadius: apothem };
+  return { n: PILL_SIDES, apothem: r, cornerRadius: r, halfStraight: apothem - r };
 }
 
 export function makeOutline(kind: ShapeKind, size: number, cornerRadius: number): ShapeOutline {
   const apothem = size / 2;
   if (kind === "round") return { n: round.corners, apothem, cornerRadius: apothem };
+  if (kind === "pill") return makePill(size, cornerRadius);
   const plugin = SHAPES[kind];
   const rc = Math.min(Math.max(cornerRadius, 0), plugin.maxCornerRadius(size));
   return { n: plugin.corners, apothem, cornerRadius: rc };
 }
 
 export function sideLength(o: ShapeOutline): number {
+  if (isPill(o)) return 2 * cornerCentreDistance(o);
   return 2 * (o.apothem - o.cornerRadius) * Math.tan(Math.PI / o.n);
 }
 
@@ -84,6 +115,7 @@ export function inscribedRadius(o: ShapeOutline, offset: number): number {
 }
 
 export function offsetArea(o: ShapeOutline, offset: number): number {
+  if (isPill(o)) return straightLength(o) * (o.cornerRadius + offset) + Math.PI * (o.cornerRadius + offset) ** 2;
   const half = Math.PI / o.n;
   const innerApothem = o.apothem - o.cornerRadius;
   const rc = o.cornerRadius + offset;
@@ -112,7 +144,7 @@ export function radiusAtAngle(o: ShapeOutline, phi: number): number {
 }
 
 export function offsetOutline(o: ShapeOutline, amount: number): ShapeOutline {
-  return { n: o.n, apothem: o.apothem + amount, cornerRadius: o.cornerRadius + amount };
+  return { ...o, apothem: o.apothem + amount, cornerRadius: o.cornerRadius + amount };
 }
 
 export function minCornerSegments(o: ShapeOutline, segmentsPer90Deg: number): number {
@@ -266,7 +298,7 @@ export function outlineOffsetAt(o: ShapeOutline, x: number, y: number): { offset
       qy = py;
     }
   }
-  if (Rc < NEGLIGIBLE_LENGTH) inside = false;
+  if (Rc < NEGLIGIBLE_LENGTH || isPill(o)) inside = false;
   const dx = x - qx;
   const dy = y - qy;
   const len = Math.hypot(dx, dy);

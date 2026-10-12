@@ -17,7 +17,7 @@ This file records why the app works the way it does. The mount geometry is in
 | Solver | The cable length and diameter are always inputs. The user locks what they know; the solver fills in the rest. At most two of core size, height and layers can be locked. |
 | Winding | Helical. The groove guides layer 1 only. Higher layers nest in the valleys of the layer below (orthocyclic winding). |
 | Core | A tube. It is hollow and open. The user locks either the inner diameter (bore) or the outer diameter (winding surface). A 3 mm wall links the two (thicker for a cable over 3 mm, so 1.5 mm of wall stays under the groove). |
-| Shapes | Round, rounded square, rounded triangle. Round is a diameter, square is across flats, triangle is the inscribed-circle diameter. |
+| Shapes | Round, rounded square, rounded triangle, pill. Round is a diameter, square is across flats, triangle is the inscribed-circle diameter, pill is the overall length. |
 | Cable | Round cross-section only. Bend limit: USB/audio 2.6x the diameter, flexible cord 2.6x, stiff or solid 6.5x, or a custom multiplier (2.6x by default). |
 | Parts | A core with the bottom flange printed as one piece. A separate top cap, on by default when there is more than one layer. Separate rim clips or T-clips for SKÅDIS (3 or 4), or a separate mount plate with two alignment pegs for the hidden openGrid placeholder. |
 | Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core; elsewhere the cap gets the press-fit collar, with a warning. The snap cap has one 12 mm finger per side of the bore (slots at the corners: four on round and square cores, three on triangles), each with a barb along its whole width that clicks under a ridge ring inside the core's bore: a 30° lead-in, so it goes on with about half the pull-off force, and a 45° retaining face (the print overhang limit). Seated, the barbs sit 0.2 mm into the ridge, so the fingers stay a little bent, pull the cap onto the rim and centre it: no radial or tilt play. Under the finger tips a seat ring narrows the bore to the cap's hole, so there is no step inside the seated cap. Nothing is cut into the core's wall. A core too small for the clips gets the press-fit collar, with a warning; see [Snap joint](#snap-joint). |
@@ -504,10 +504,11 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
     corner moves. A triangle thinner than the epsilon is itself a needle: its
     facing means nothing and it may turn freely. A triangle lower than 1 µm has
     no facing to trust, because float32 rounding can turn it, so it cannot fold.
-    A triangle that turned, or a needle that grows, must not end up lying back
-    over its neighbour (within 8 degrees of opposite), a fold of no thickness:
-    a needle a few thousandths of a millimetre high that turned face down in a
-    flat face did.
+    A triangle that moves with the corner, turned or not, must not end up lying
+    back over its neighbour (within 8 degrees of opposite), a fold of no
+    thickness: a needle a few thousandths of a millimetre high that turned face
+    down in a flat face did, and so did one that kept its facing but met a new
+    neighbour across the collapsed edge (#320).
   - When neither end is safe, the merged vertex goes halfway between them: a
     sliver beside the edge can turn over when the vertex lands on either end,
     and not when it lands in between. Then both ends' triangles are checked,
@@ -596,8 +597,9 @@ The capacity math needs convex outlines. Every shape is a regular n-gon with
 rounded corners, described by three numbers: the corner count `n`, the
 apothem (centre to flat side) and the corner radius. Round is the case where
 the corner radius equals the apothem, so the straight sides have zero length.
-All three size conventions are chosen so that the apothem is always
-`size / 2`. That keeps the solver's bounds the same for every shape.
+The round, square and triangle size conventions are chosen so that the apothem
+is always `size / 2`. That keeps the solver's bounds the same for those shapes.
+The pill is the one exception, below.
 
 `ShapePlugin` in `src/core/shapes.ts` is a small registry entry: `kind`,
 `label`, `sizeSemantics` (`diameter`, `acrossFlats` or
@@ -620,6 +622,31 @@ For the same size, a triangle's corners reach further out than a square's,
 so its flange is larger. The footprint is the true offset outline, not a
 bounding circle across a sharp corner.
 
+- **The pill is the 2-gon.** A stadium is the same construction with `n = 2`:
+  two corner centres on the x axis, each swept 180 degrees, joined by two
+  straight sides. The apothem is the end radius `r` (so the width is `2 r`).
+  A 2-gon's corner-centre distance cannot come from the apothem
+  (`cos(pi / 2)` is 0), so the outline carries one optional field,
+  `halfStraight`: half the length of each straight side, `L / 2 - r` for a
+  pill of overall length `L`. The size is that overall length, ends included.
+  The radius runs from the cable's bend limit up to `L / 2`, where `halfStraight`
+  is 0 and `makeOutline` hands back the round outline, so a pill at its largest
+  radius is the round core. Every outline function that loops over `n` works for
+  `n = 2` unchanged, and the outlines of the other shapes never reach a pill
+  branch. The long axis is the core's x axis, which the wall mounts keep
+  horizontal. Four rules differ from the other shapes. A locked size has no
+  straight floor: the radius clamps to `L / 2` with a note. A free size keeps the
+  pill at least twice as long as it is wide (`L >= 4 r`), so the solver cannot
+  pick a size at which the pill is round. With face channels, the cable's ends
+  pass the centre hole along the long axis, and the room for that depends on the
+  width, not the length, so the radius floor is the round core's channel floor
+  (half its smallest size), and a radius under it is raised with a note.
+  Everything that tests "is this outline round" asks `isFullCircle`, because a
+  pill has `cornerRadius === apothem` too. Code that copies an outline into a
+  new one (the bore, the collar, the face-channel hole) spreads it, or it loses
+  `halfStraight` and turns the pill into a circle. `outlineOffsetAt` treats a
+  point on the pill's axis past an end as outside: the generic inside test is
+  true for it, because the corner-centre "polygon" has no area.
 - **Round is exact.** A bore whose outline is round stays a circle: the two
   floors above can bite differently on a tiny core, and without this rule the
   bore would turn very slightly square. Round's `t = 0` also sits at angle 0
@@ -1096,7 +1123,7 @@ The hash is `#s=<base64url(JSON)>` (`src/core/hash.ts`).
 - The JSON document has a numeric version `v` (currently 2) and short keys for
   the spec: `L` (cable length, mm), `d` (diameter), `wt` (cable type), `mbr`
   (custom bend multiplier), `q` (winding quality), `obj`, `shape` and `rc`
-  (corner radius), `lock` with `size`, `h` and `ly`, `cap`, `joint`, `tol`,
+  (corner radius, or a pill's end radius; the default is 8 mm, and 20 mm for a pill), `lock` with `size`, `h` and `ly`, `cap`, `joint`, `tol`,
   `base` (the base plate, only written when on), `strap` (the strap slots, only written when on), `bx`/`by`/`bz` (bed), `label`, and the mount keys (`mount`, `pj`, `kr`,
   `thd`). View-only state is nested under `ui` (`wire`, `view`). Lengths are
   always millimetres; the centimetre display in the controls is a UI-only
@@ -1210,8 +1237,10 @@ When neither end of a short edge can move onto the other (the slope of a
 channel lip meets its wall 0.02 mm above the wall's foot, and moving either end
 turns a sliver over the bottom face), the weld slides one end along a longer
 edge to a neighbour instead, when the end lies within 0.01 mm of the planes of
-the triangles it leaves. A closed piece of two triangles with every corner
-within 0.02 mm of the others has no volume, and is dropped whole (#303).
+the triangles it leaves. A closed piece of two triangles has no volume,
+and is dropped whole when one of its edges is short, however far the third corner
+is (#303, and #320, where the booleans on a pill's mirror plane left one with a
+corner 2.8 mm away).
 
 The camera is refitted to the projected bounds when the geometry changes.
 The wound cable is drawn as one merged tube per layer, with smooth normals so

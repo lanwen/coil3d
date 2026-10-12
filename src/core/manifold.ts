@@ -43,7 +43,7 @@ import { clipFrame } from "./skadisClips";
 import type { RimClip, SkadisClipLayout } from "./skadisClips";
 import { tclipPieceLevels } from "./skadisTclips";
 import type { SkadisTclipLayout, Tclip } from "./skadisTclips";
-import { offsetOutline, outlineColumnParams, pointAt } from "./shapes";
+import { isPill, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh, JointKind, MountKind } from "./types";
 
@@ -479,7 +479,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     }
 
     const { collarOutline, holeOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
-    const segments = collarOutline.cornerRadius >= collarOutline.apothem - 1e-6 ? collarSegments.round : collarSegments.other;
+    const segments = !isPill(collarOutline) && collarOutline.cornerRadius >= collarOutline.apothem - 1e-6 ? collarSegments.round : collarSegments.other;
 
     const straight = () => track(outlinePrismSolid(wasm, collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH, segments, flange.minCornerSegments));
     let collar: Manifold;

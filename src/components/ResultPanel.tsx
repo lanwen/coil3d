@@ -41,6 +41,7 @@ function flangeWidthValue(solution: Solution, shapeKind: Design["spec"]["shape"]
 }
 
 function cableOuterSizeLabel(shapeKind: Design["spec"]["shape"]["kind"]): string {
+  if (shapeKind === "pill") return "Cable outer size (length)";
   return shapeKind === "round" ? "Cable outer size" : "Cable outer size (across corners)";
 }
 
@@ -52,7 +53,7 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
   return (
     <>
       <Row testId={`${prefix}outer-size`} label="Outer size" value={`${solution.outerSize.toFixed(1)} mm`} />
-      {shapeKind !== "round" && <Row testId={`${prefix}corner-radius`} label="Corner radius" value={`${solution.cornerRadius.toFixed(1)} mm`} />}
+      {shapeKind !== "round" && <Row testId={`${prefix}corner-radius`} label={shapeKind === "pill" ? "End radius" : "Corner radius"} value={`${solution.cornerRadius.toFixed(1)} mm`} />}
       <Row testId={`${prefix}inner-bore`} label="Inner bore" value={`${solution.innerBore.toFixed(1)} mm`} />
       <Row testId={`${prefix}height`} label="Core height" value={`${solution.height.toFixed(1)} mm`} />
       <Row
@@ -82,9 +83,9 @@ function SolutionSummary({ solution, prefix, shapeKind }: { solution: Solution; 
       {shapeKind !== "round" && solution.flangeExtent && (
         <Row
           testId={`${prefix}flange-across-corners`}
-          label="Flange width (across corners)"
+          label={shapeKind === "pill" ? "Flange length" : "Flange width (across corners)"}
           value={`${solution.flangeExtent.acrossCorners.toFixed(1)} mm`}
-          hint={HINTS.flangeAcrossCorners}
+          hint={shapeKind === "pill" ? HINTS.flangeLength : HINTS.flangeAcrossCorners}
         />
       )}
       <Row
@@ -123,6 +124,7 @@ const widthOf = (s: Solution) => s.flangeExtent?.acrossFlats ?? s.flangeSize;
 const tallOf = (s: Solution) => s.overallHeight ?? s.height;
 
 function sizeText(s: Solution, shape: ShapeKind): string {
+  if (shape === "pill") return `${cm1(s.flangeExtent?.acrossCorners ?? widthOf(s))} × ${cm1(widthOf(s))} cm, ${cm1(tallOf(s))} cm tall`;
   return `${shape === "round" ? "Ø " : ""}${cm1(widthOf(s))} cm${shape === "round" ? "" : " wide"}, ${cm1(tallOf(s))} cm tall`;
 }
 

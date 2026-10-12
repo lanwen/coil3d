@@ -98,3 +98,30 @@ test("a rounded-square core renders and the STL download works", async ({ page }
 
   expect(consoleErrors, `unexpected console errors:\n${consoleErrors.join("\n")}`).toEqual([]);
 });
+
+test("a pill core: the picker offers it, its radius is the end radius, the hash saves it and a reload keeps it", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("radio", { name: "Pill", exact: true })).toBeVisible();
+  await page.getByTestId("shape-option-pill").check();
+  await expect(page.getByTestId("shape-option-pill")).toBeChecked();
+  await expect(page.locator('input[type="range"][aria-label="End radius"]')).toBeVisible();
+  await expect(page.getByTestId("input-shapeCornerRadius")).toHaveValue("20");
+  await expect(async () => {
+    const doc = decodeHashDoc(page.url());
+    expect(doc.shape).toBe("pill");
+    expect(doc.rc).toBeUndefined();
+  }).toPass();
+  await openAllNumbers(page);
+  await expect(page.getByTestId("corner-radius")).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByTestId("shape-option-pill")).toBeChecked();
+  await expect(page.getByTestId("input-shapeCornerRadius")).toHaveValue("20");
+});
+
+test("a pill's end radius round-trips through the hash and the field", async ({ page }) => {
+  await page.goto(`/${encodeHashDoc({ shape: "pill", rc: 15, size: 120, cap: "on", base: "on" })}`);
+  await expect(page.getByTestId("shape-option-pill")).toBeChecked();
+  await expect(page.getByTestId("input-shapeCornerRadius")).toHaveValue("15");
+  await expect(page.getByTestId("corner-radius")).toHaveText("15.0 mm");
+});

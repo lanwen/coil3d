@@ -156,3 +156,14 @@ test("the max label is opt-in: other sliders (e.g. core size) don't grow one", a
   await expect(page.getByTestId("verdict")).toBeVisible();
   await expect(page.getByTestId("outer-max-label")).toHaveCount(0);
 });
+
+// Issue #320: a pill's end radius runs from the cable's bend limit to half the locked length, where the pill is round.
+test("a pill's end-radius slider runs from the bend limit to half the locked length", async ({ page }) => {
+  await page.goto(`/${encodeHashDoc({ shape: "pill", size: 100, cap: "on", base: "on" })}`);
+  await expect(page.getByTestId("verdict")).toBeVisible();
+  const input = page.getByTestId("input-shapeCornerRadius");
+  await expect(input).toBeEnabled();
+  expect(Number(await input.getAttribute("min"))).toBeCloseTo(9.5, 6);
+  expect(Number(await input.getAttribute("max"))).toBe(50);
+  await expect(page.getByTestId("shapeCornerRadius-max-label")).toHaveText("max 50 mm");
+});

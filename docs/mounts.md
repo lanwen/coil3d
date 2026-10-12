@@ -195,6 +195,15 @@ for both geometry backends.
   it; two in one column only as the last resort. The required flange margin is
   found by bisection over the real layout, with a hairline added so the later,
   independent recomputation never falls a few ULPs short.
+  The last bottom choices are one clip at column -40 or +40. A pill needs
+  them: its inner-end channel runs back along the long flat for about 45 mm and
+  blocks the columns -20, 0 and 20 under it, and on a locked size the margin
+  does not grow, so without them a long pill lost its clips. They
+  are tried only when no other column choice fits on either axis, so every layout
+  that fitted before is unchanged. The margin search
+  still uses the first choice only. A pill whose long flat is under about
+  90 mm has no free column once the channel takes the middle, so on a locked size
+  it warns and leaves the clips out; a free size grows the margin until they fit.
 - **Print orientation.** Each clip prints lying on its flat face, so the
   weight, a pull and the tongue's bending all run along the layers. It has
   no overhangs or bridges. The old plate's clip legs were printed upright

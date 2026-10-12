@@ -38,6 +38,7 @@ export {
   DEFAULT_BASE,
   DEFAULT_BED_SIZE,
   DEFAULT_CORNER_RADIUS,
+  DEFAULT_PILL_RADIUS,
   DEFAULT_THROUGH_HOLE_DIAMETER,
   DEFAULT_TOLERANCE,
   JOINT_ENGAGE_DEPTH,
@@ -49,7 +50,7 @@ export {
   TOLERANCE_MAX,
   TOLERANCE_MIN,
 } from "./constants";
-export { SHAPES } from "./shapes";
+export { SHAPES, defaultCornerRadius } from "./shapes";
 export type { ShapePlugin } from "./shapes";
 export { printPlacements } from "./plate";
 export type { PartPlacement } from "./plate";
