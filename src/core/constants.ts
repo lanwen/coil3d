@@ -96,10 +96,12 @@ export const RIM_SLOT_WALL_GAP = 0.4;
 export const RIM_SLOT_KEEP_OUT = 1;
 export const RIM_SLOT_LABEL_KEEP_OUT = 1;
 export const RIM_SLOT_SEAT_SEGMENTS = 32;
-export const STRAP_NOTCH_WIDTH = 14;
-export const STRAP_NOTCH_KEEP_OUT = RIM_SLOT_KEEP_OUT;
-export const STRAP_NOTCH_MOUTH_EXTRA = 1;
-export const STRAP_PLATE_MIN_CUT = 0.5;
+export const STRAP_SLOT_LENGTH = 14;
+export const STRAP_SLOT_WIDTH = 2.5;
+export const STRAP_SLOT_INNER_WALL = 1.5;
+export const STRAP_SLOT_OUTER_WALL = 2;
+export const STRAP_SLOT_PLATE_REACH = STRAP_SLOT_INNER_WALL + STRAP_SLOT_WIDTH + STRAP_SLOT_OUTER_WALL;
+export const STRAP_SLOT_KEEP_OUT = RIM_SLOT_KEEP_OUT;
 
 export const CABLE_CLIPPED_TAIL_FACTOR = 3;
 export const CABLE_CLIPPED_TAIL_MIN = 10;

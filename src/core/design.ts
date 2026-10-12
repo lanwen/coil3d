@@ -14,7 +14,7 @@ import {
   INNER_CHANNEL_MIN_SHELF,
   RIM_SLOT_KEEP_OUT,
   RIM_SLOT_LABEL_KEEP_OUT,
-  STRAP_PLATE_MIN_CUT,
+  STRAP_SLOT_INNER_WALL,
   MOUNT_PLATE_EDGE_MARGIN,
   OPENGRID_PLACEHOLDER_PEG_SIZE,
   SCREW_MOUNT_HEAD_RADIUS,
@@ -31,8 +31,8 @@ import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
 import { channelPadFootprints, layoutFlangePads, layoutFlangeThroughHoles } from "./flangePads";
 import type { MountLayout, ThroughMountLayout } from "./mount";
 import { mountPlateLayoutFor, pegHoleRadius } from "./mountPlate";
-import { layoutStrapNotches } from "./strapNotch";
-import type { StrapNotch } from "./strapNotch";
+import { layoutStrapSlots, strapSlotsFitMargin } from "./strapSlot";
+import type { StrapSlot } from "./strapSlot";
 import { clipPrintRotateZ, isHeavyCable, layoutSkadisClips, lipKeepOffset, skadisBoardSection, skadisClipFootprints } from "./skadisClips";
 import type { SkadisClipLayout } from "./skadisClips";
 import { layoutSkadisTclips, skadisTclipBoardSection, tclipPrintRotateZ } from "./skadisTclips";
@@ -141,8 +141,17 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
       sizing = { ...sized, margin: grown, mountMargin: grown };
     }
   }
+  let marginBeforeStrap: number | undefined;
+  if (spec.strapSlots && (baseOn || solution.topCapEnabled) && !strapSlotsFitMargin(sizing.margin, sized.envelopeOffset)) {
+    const grown = growMargin(sizing.margin, (margin) => strapSlotsFitMargin(margin, sized.envelopeOffset) && (!baseOn || mountFits(layoutsAt(margin))));
+    if (grown !== undefined) {
+      plan = layoutsAt(grown);
+      marginBeforeStrap = sizing.margin;
+      sizing = { ...sizing, margin: grown };
+    }
+  }
   const { innerEndLayout, mountLayout, skadisLayout, thickness } = plan;
-  return { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness };
+  return { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness, marginBeforeStrap };
 }
 
 function growMargin(from: number, fits: (margin: number) => boolean): number | undefined {
@@ -249,7 +258,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   };
   const wantsKeyhole = spec.mount === "keyhole";
   const wantsThrough = spec.mount === "through";
-  const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness } = planFlange(spec, solution, outline, boreOutline);
+  const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness, marginBeforeStrap } = planFlange(spec, solution, outline, boreOutline);
   const capJointForTclips = resolveCapJoint(spec, wallSpec);
   const tclipLayout: SkadisTclipLayout | undefined =
     spec.mount === "skadis-tclip"
@@ -265,22 +274,25 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, rimSlotMargin, channelOnlyThickness, envelopeOffset } = sizing;
   const baseOn = baseEnabled(spec);
   if (baseOn && innerEndMargin > mountMargin + 1e-9 && innerEndMargin >= rimSlotMargin) {
-    note(`Flange margin increased to ${margin.toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
+    note(`Flange margin increased to ${(marginBeforeStrap ?? margin).toFixed(1)} mm so the inner cable end can reach the groove within its ${bendRadius.toFixed(1)} mm bend radius.`);
   }
   if (baseOn && rimSlotMargin > Math.max(mountMargin, innerEndMargin) + 1e-9) {
-    note(`Flange margin increased to ${margin.toFixed(1)} mm so the rim cable slot fits beside the core.`);
+    note(`Flange margin increased to ${(marginBeforeStrap ?? margin).toFixed(1)} mm so the rim cable slot fits beside the core.`);
   }
   if (wantsKeyhole && mountMargin > baseMargin) {
-    note(`Flange margin increased to ${margin.toFixed(1)} mm to fit the screw-keyhole mount.`);
+    note(`Flange margin increased to ${(marginBeforeStrap ?? margin).toFixed(1)} mm to fit the screw-keyhole mount.`);
   }
   if (wantsThrough && mountMargin > baseMargin) {
-    note(`Flange margin increased to ${margin.toFixed(1)} mm to fit the through-hole mount.`);
+    note(`Flange margin increased to ${(marginBeforeStrap ?? margin).toFixed(1)} mm to fit the through-hole mount.`);
   }
   if (mountKindForPlate && mountMargin > baseMargin) {
-    note(`Flange margin increased to ${margin.toFixed(1)} mm to fit the openGrid clip mount plate's grid.`);
+    note(`Flange margin increased to ${(marginBeforeStrap ?? margin).toFixed(1)} mm to fit the openGrid clip mount plate's grid.`);
   }
   if (spec.mount === "skadis" && mountMargin > baseMargin) {
-    note(`Flange margin increased to ${margin.toFixed(1)} mm so the SKÅDIS clips grip the rim clear of the wound cable and the inner cable end.`);
+    note(`Flange margin increased to ${(marginBeforeStrap ?? margin).toFixed(1)} mm so the SKÅDIS clips grip the rim clear of the wound cable and the inner cable end.`);
+  }
+  if (marginBeforeStrap !== undefined) {
+    note(`Flange margin increased to ${margin.toFixed(1)} mm so the strap slots fit between the cable and the rim.`);
   }
   if (skadisLayout?.warning) problem(skadisLayout.warning);
   if (tclipLayout?.warning) problem(tclipLayout.warning);
@@ -384,29 +396,37 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     capKeepOut = [...labelKeepOut, ...(capSlot ? [capSlot.outline] : [])];
   }
 
-  const plateCutsNotch = mountPlateCut !== undefined && margin - MOUNT_PLATE_EDGE_MARGIN - envelopeOffset > STRAP_PLATE_MIN_CUT;
-  let strapNotches: StrapNotch[] = [];
+  const plateCutsSlot = mountPlateCut !== undefined && margin - MOUNT_PLATE_EDGE_MARGIN > envelopeOffset + STRAP_SLOT_INNER_WALL;
+  let strapSlots: StrapSlot[] = [];
   if (spec.strapSlots && (baseOn || topCapEnabled)) {
     const strapKeepOut: XY[][] = [
-      ...(baseOn ? [...baseKeepOut, ...(baseSlot ? [baseSlot.outline] : []), ...(flangeSpec.skadis?.notches ?? [])] : []),
+      ...(baseOn
+        ? [
+            ...baseKeepOut,
+            ...(baseSlot ? [baseSlot.outline] : []),
+            ...(flangeSpec.skadis?.notches ?? []),
+            ...(flangeSpec.skadisTclip?.cutters ?? []).flat().flatMap((cutter) => cutter.levels.map((level) => level.poly)),
+          ]
+        : []),
       ...(mountPlateCut ? mountPlateCut.anchors.map((anchor) => stadiumPolygon(anchor, anchor, pegHoleRadius(spec.tolerance))) : []),
-      ...(plateCutsNotch ? (mountPlateLayout?.clips ?? []).map((clip) => stadiumPolygon(clip, clip, (OPENGRID_PLACEHOLDER_PEG_SIZE / 2) * Math.SQRT2)) : []),
+      ...(plateCutsSlot ? (mountPlateLayout?.clips ?? []).map((clip) => stadiumPolygon(clip, clip, (OPENGRID_PLACEHOLDER_PEG_SIZE / 2) * Math.SQRT2)) : []),
       ...capKeepOut,
       ...[cable.innerEndLeadIn, cable.outerEndLeadOut].flatMap((lead) => [
         ...(baseOn ? cableEndKeepOut(lead, outline, envelopeOffset, wireDiameter / 2, (z) => z <= wireDiameter) : []),
         ...(topCapEnabled ? cableEndKeepOut(lead, outline, envelopeOffset, wireDiameter / 2, (z) => z >= solution.height - wireDiameter) : []),
       ]),
     ].filter((poly) => poly.length >= 3);
-    const laidOut = layoutStrapNotches(outline, margin, envelopeOffset, strapKeepOut);
-    if (laidOut) strapNotches = laidOut;
+    const laidOut = layoutStrapSlots(outline, margin, envelopeOffset, strapKeepOut, cable.outerEndU);
+    if (laidOut) strapSlots = laidOut;
+    else if (!strapSlotsFitMargin(margin, envelopeOffset)) note("There isn't room for the strap slots between the cable and the rim, so they're left out.");
     else note("The strap slots don't fit anywhere round the rim beside the mount and the cable slot, so they're left out.");
   }
-  const platesNotches = {
-    base: baseOn ? strapNotches : [],
-    cap: topCapEnabled ? strapNotches : [],
-    mountPlate: plateCutsNotch ? strapNotches : [],
+  const platesSlots = {
+    base: baseOn ? strapSlots : [],
+    cap: topCapEnabled ? strapSlots : [],
+    mountPlate: plateCutsSlot ? strapSlots : [],
   };
-  const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot, strapNotches: platesNotches.base };
+  const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot, strapSlots: platesSlots.base };
 
   const wall = buildWall(wallSpec);
   const coreMesh = await fuseFlange(wall, coreFlangeSpec, coreJoint, innerEndCut, mountPlateCut, faceChannels);
@@ -415,7 +435,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
 
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot, strapNotches: platesNotches.cap });
+    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot, strapSlots: platesSlots.cap });
     const assembled = translateMesh(capMesh, [0, 0, solution.height]);
     parts.push({
       name: "top-cap",
@@ -432,7 +452,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       flangeThickness: thickness,
       columns,
       minCornerSegments: cornerSegs,
-      strapNotches: platesNotches.mountPlate,
+      strapSlots: platesSlots.mountPlate,
     });
     parts.push({ name: "mount-plate", role: "mountPlate", mesh: plateMesh, printTransform: { rotateX: Math.PI, translate: [0, 0, 0] } });
     if (mountPlateCut) {
@@ -506,7 +526,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     cablePath: cable.cablePath,
     faceChannels,
     rimSlots: { base: baseSlot, cap: capSlot },
-    strapNotches: platesNotches,
+    strapSlots: platesSlots,
   };
 }
 

@@ -168,26 +168,36 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   millimetre at a time either way round the rim, the first position whose cut
   keeps its clearance from every keep-out polygon and has none of them inside it.
   If none fits there is no slot.
-- Strap slots (#240, `strapSlots`, off by default, `src/core/strapNotch.ts`).
-  Each plate gets two open notches in its rim, opposite each other, so a
-  hook-and-loop tie can run round the coil: across the top and bottom faces,
-  or through the centre hole. A tie 12.7 mm wide fits the fixed 14 mm notch
-  (`STRAP_NOTCH_WIDTH`); a narrower one still sits in it. The notch is a
-  vertical prism through the plate, so it prints without support either way up.
-  It runs from the rim down to the wound cable's outer surface and no deeper,
-  so the plate under the winding stays whole and every part stays one solid.
-  The floor follows the offset curve of the outline at that depth (a closed
-  slot would need ears the plate has no room for: it reaches only 1.5 mm past
-  the cable). The pair sits at two points half a perimeter apart: on a square,
-  the middles of two opposite sides; on a triangle, a side's middle and the
-  opposite corner; on a round plate, wherever the keep-outs allow. The first
-  position that keeps 1 mm clear of the rim slots, the inner-end channel, the
-  mounts, the label and the cable's free ends is used. The base and the cap
-  share that one pair, so the notches line up from plate to plate. If no pair
-  fits there are no notches and a note says so. The mount plate (when it
-  reaches past the cable) gets the same notches. A closed loop that could hang
-  the coil from the strap is not built; if a print shows the tie slipping out,
-  closed slots on ears can sit behind the same switch.
+- Strap slots (#240, #314, `strapSlots`, off by default, `src/core/strapSlot.ts`).
+  Each plate gets two closed slots beside the wound cable, half a turn apart.
+  A hook-and-loop tie goes through a slot, over the rim edge and round the
+  cable lead that leaves the plate, so it holds the cable at that plate only,
+  without wrapping the coil. A tie 12.7 mm wide fits the 14 mm slot
+  (`STRAP_SLOT_LENGTH`) and the 1.5 mm hook side passes the 2.5 mm width
+  (`STRAP_SLOT_WIDTH`). The slot is a stadium that follows the rim: a vertical
+  prism through the plate, so it prints without support either way up, and
+  each part stays one solid because the walls close the loop (genus +1 per
+  slot). The walls are 1.5 mm on the cable side (`STRAP_SLOT_INNER_WALL`, so the
+  cable never catches in the slot) and 2 mm on the rim side
+  (`STRAP_SLOT_OUTER_WALL`, the wall that takes the tie's pull). The plate
+  therefore needs 6 mm past the cable (`STRAP_SLOT_PLATE_REACH`), which an
+  unmounted plate does not have: it reaches only 1.5 to 3 mm past a multi-layer
+  winding. The flange margin grows until it does, the way it grows for a
+  mount, even with the core size locked: that lock keeps the core's size only.
+  A square or triangle with two layers gets 4.5 mm more on every side, a round
+  one 2 to 4.5 mm. If the margin cannot grow there are no slots and a note says
+  so. The search starts at the cable's outer end, where the lead leaves through
+  the rim slot, and goes one millimetre at a time either way round the rim.
+  The first pair that keeps
+  1 mm clear of the rim slots, the inner-end channel, the mounts and T-clips,
+  the label and the cable's free ends is used. The base and the cap share that
+  one pair, so the slots line up from plate to plate. A small, tall coil can
+  leave no such pair (the cable's end tails take a wide arc of the plate); then
+  there are no slots and a note says so. The mount plate gets the same slots
+  where it reaches into them: its edge is 3 mm inside the base's, so its cut is
+  a notch open at the plate's edge, and the base's wall still closes the slot.
+  The slot walls' strength under a tie is not measured; a print has to show
+  that the 2 mm rim wall holds.
 - The cable's cap end runs level under the cap, then curves outward with 80 %
   of the bend budget and leaves past the rim, with a straight free tail beyond
   it. The curve never keeps turning until the tail points back round the axis,

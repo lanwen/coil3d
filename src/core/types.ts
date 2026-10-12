@@ -1,7 +1,7 @@
 import type { WallSpec } from "./wall";
 import type { FlangeSpec } from "./manifold";
 import type { RimSlot } from "./innerEnd";
-import type { StrapNotch } from "./strapNotch";
+import type { StrapSlot } from "./strapSlot";
 import type { FaceChannelLayout } from "./faceChannel";
 
 export type { ShapeKind } from "./shapes";
@@ -200,7 +200,7 @@ export interface Design {
   outerEndLeadOut: Float32Array;
   cablePath: Float32Array;
   rimSlots: { base?: RimSlot; cap?: RimSlot };
-  strapNotches: { base: StrapNotch[]; cap: StrapNotch[]; mountPlate: StrapNotch[] };
+  strapSlots: { base: StrapSlot[]; cap: StrapSlot[]; mountPlate: StrapSlot[] };
   faceChannels?: FaceChannelLayout;
 }
 

@@ -62,11 +62,11 @@ describe.sequential("STEP/OCCT export: tri two-part designs, press/bayonet (issu
   );
 
   it(
-    "STEP export re-imports a notched triangle base and cap (issue #240): one solid per part, each volume matching its mesh, the side-middle and corner notches open",
+    "STEP export re-imports a triangle base and cap with strap slots (issues #240, #314): one solid per part, each volume matching its mesh, the slots through-holes",
     async () => {
-      const d = await design({ ...twoPartSpec, shape, strapSlots: true, coreSize: { locked: true, dimension: "outer", value: 60 } });
-      expect(d.strapNotches.base).toHaveLength(2);
-      expect(d.strapNotches.cap).toHaveLength(2);
+      const d = await design({ ...twoPartSpec, shape, strapSlots: true, coreSize: { locked: false } });
+      expect(d.strapSlots.base).toHaveLength(2);
+      expect(d.strapSlots.cap).toHaveLength(2);
       const probes = strapProbes(d);
       const stepBytes = await exportDesign(d, "step");
       const { valid, solidVolumes, inside } = await reimportStep(stepBytes, "reimport-strap-tri", probes.points);

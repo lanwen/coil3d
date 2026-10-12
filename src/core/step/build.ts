@@ -489,8 +489,8 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
       const loop: [number, number][] = flangeSpec.rimSlot.outline.map((p) => [p.x, p.y]);
       flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
     }
-    for (const notch of flangeSpec.strapNotches ?? []) {
-      const loop: [number, number][] = notch.outline.map((p) => [p.x, p.y]);
+    for (const slot of flangeSpec.strapSlots ?? []) {
+      const loop: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
       flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
     }
     for (const cutters of flangeSpec.skadisTclip?.cutters ?? []) {
@@ -842,8 +842,8 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
     assembled = checkedCut(loadedKernel(), assembled, loopSolid(loop, CAP_THICKNESS + 2 * WELD_OVERLAP).translate([0, 0, -WELD_OVERLAP]));
   }
 
-  for (const notch of design.strapNotches.cap) {
-    const loop: [number, number][] = notch.outline.map((p) => [p.x, p.y]);
+  for (const slot of design.strapSlots.cap) {
+    const loop: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
     assembled = checkedCut(loadedKernel(), assembled, loopSolid(loop, CAP_THICKNESS + 2 * WELD_OVERLAP).translate([0, 0, -WELD_OVERLAP]));
   }
 
@@ -892,8 +892,8 @@ function buildMountPlateSolid(design: Design): R.Shape3D {
   let plate = outlineSolid(layout.outline, MOUNT_PLATE_THICKNESS, backZ);
   for (const clip of layout.clips) plate = plate.fuse(mountPlateClipSolidStep(clip, backZ));
   for (const anchor of layout.anchors) plate = plate.cut(pinHoleCutterSolid(anchor, spec.tolerance, frontZ, -1));
-  for (const notch of design.strapNotches.mountPlate) {
-    const loop: [number, number][] = notch.outline.map((p) => [p.x, p.y]);
+  for (const slot of design.strapSlots.mountPlate) {
+    const loop: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
     plate = checkedCut(loadedKernel(), plate, loopSolid(loop, MOUNT_PLATE_THICKNESS + 2 * WELD_OVERLAP).translate([0, 0, backZ - WELD_OVERLAP]));
   }
   return plate;

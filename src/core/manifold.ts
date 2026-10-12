@@ -31,7 +31,7 @@ import { FACE_CUT_OVERSHOOT, FACE_DOME_SEGMENTS, FACE_REVOLVE_SEGMENTS } from ".
 import { faceCutArcs } from "./faceChannel";
 import type { FaceCutArc, FaceChannelLayout, FaceEnd } from "./faceChannel";
 import type { InnerEndLayout, RimSlot, SweepSolid, XY } from "./innerEnd";
-import type { StrapNotch } from "./strapNotch";
+import type { StrapSlot } from "./strapSlot";
 import { layoutKeyholeMount, throughHoleCountersink } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
@@ -77,7 +77,7 @@ export interface FlangeSpec {
   skadis?: SkadisClipLayout;
   skadisTclip?: SkadisTclipLayout;
   rimSlot?: RimSlot;
-  strapNotches?: StrapNotch[];
+  strapSlots?: StrapSlot[];
 }
 
 export interface CoreJointCut {
@@ -409,11 +409,11 @@ export async function fuseFlange(
       }
     }
 
-    for (const notch of flange.strapNotches ?? []) {
-      fused = track(fused.subtract(track(rimPrismCutter(wasm, notch.outline, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP))));
+    for (const slot of flange.strapSlots ?? []) {
+      fused = track(fused.subtract(track(rimPrismCutter(wasm, slot.outline, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP))));
       status = fused.status();
       if (status !== "NoError") {
-        throw new Error(`Strap notch cut is not a valid manifold: ${status}`);
+        throw new Error(`Strap slot cut is not a valid manifold: ${status}`);
       }
     }
 
@@ -459,7 +459,7 @@ export interface TopCapSpec {
   snap?: SnapLayout;
   label?: ResolvedLabel;
   rimSlot?: RimSlot;
-  strapNotches?: StrapNotch[];
+  strapSlots?: StrapSlot[];
 }
 
 export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
@@ -472,7 +472,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, tolerance, label, rimSlot, strapNotches, bayonet, snap } = spec;
+    const { flange, joint, tolerance, label, rimSlot, strapSlots, bayonet, snap } = spec;
     const plate = track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, 0, CAP_THICKNESS), flange.columns, flange.minCornerSegments));
     if (plate.status() !== "NoError") {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
@@ -500,8 +500,8 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       assembled = track(assembled.subtract(hole));
     }
     if (rimSlot) assembled = track(assembled.subtract(track(rimPrismCutter(wasm, rimSlot.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP))));
-    for (const notch of strapNotches ?? []) {
-      assembled = track(assembled.subtract(track(rimPrismCutter(wasm, notch.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP))));
+    for (const slot of strapSlots ?? []) {
+      assembled = track(assembled.subtract(track(rimPrismCutter(wasm, slot.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP))));
     }
 
     let labelId: number | undefined;
@@ -616,7 +616,7 @@ export interface MountPlateSpec {
   flangeThickness: number;
   columns: number;
   minCornerSegments: number;
-  strapNotches?: StrapNotch[];
+  strapSlots?: StrapSlot[];
 }
 
 export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
@@ -628,7 +628,7 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { layout, tolerance, columns, minCornerSegments, flangeThickness, strapNotches } = spec;
+    const { layout, tolerance, columns, minCornerSegments, flangeThickness, strapSlots } = spec;
     const plateBackZ = -flangeThickness - MOUNT_PLATE_THICKNESS;
     const plateFrontZ = -flangeThickness;
 
@@ -643,8 +643,8 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
     for (const anchor of layout.anchors) {
       plate = track(plate.subtract(track(pinHoleCutter(wasm, anchor, tolerance, plateFrontZ, INTO_PLATE))));
     }
-    for (const notch of strapNotches ?? []) {
-      plate = track(plate.subtract(track(rimPrismCutter(wasm, notch.outline, plateBackZ - WELD_OVERLAP, MOUNT_PLATE_THICKNESS + 2 * WELD_OVERLAP))));
+    for (const slot of strapSlots ?? []) {
+      plate = track(plate.subtract(track(rimPrismCutter(wasm, slot.outline, plateBackZ - WELD_OVERLAP, MOUNT_PLATE_THICKNESS + 2 * WELD_OVERLAP))));
     }
 
     if (plate.status() !== "NoError") {
