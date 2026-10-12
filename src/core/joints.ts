@@ -63,7 +63,7 @@ export function jointGeometry(boreOutline: ShapeOutline, kind: JointKind, tolera
         ? Math.max(MIN_COLLAR_RADIUS, jointRadius - BAYONET_GAP - tolerance)
         : Math.max(MIN_COLLAR_RADIUS, boreRadius - SNAP_BARB_CLEARANCE - tolerance - SNAP_BARB);
   const collarOutline: ShapeOutline = {
-    n: boreOutline.n,
+    ...boreOutline,
     apothem: collarRadius,
     cornerRadius: Math.max(SHAPE_ROUNDING_EPS, boreOutline.cornerRadius - (boreRadius - collarRadius)),
   };
@@ -72,7 +72,7 @@ export function jointGeometry(boreOutline: ShapeOutline, kind: JointKind, tolera
   const holeApothem = collarRadius - collarWall;
   const holeOutline: ShapeOutline | undefined =
     holeApothem >= MIN_HOLE_APOTHEM
-      ? { n: boreOutline.n, apothem: holeApothem, cornerRadius: Math.max(SHAPE_ROUNDING_EPS, collarOutline.cornerRadius - collarWall) }
+      ? { ...boreOutline, apothem: holeApothem, cornerRadius: Math.max(SHAPE_ROUNDING_EPS, collarOutline.cornerRadius - collarWall) }
       : undefined;
   return { boreRadius, jointRadius, collarRadius, collarOutline, holeOutline };
 }
@@ -191,7 +191,7 @@ export interface SnapLayout {
 }
 
 function inset(o: ShapeOutline, amount: number): ShapeOutline {
-  return { n: o.n, apothem: o.apothem - amount, cornerRadius: Math.max(SHAPE_ROUNDING_EPS, o.cornerRadius - amount) };
+  return { ...o, apothem: o.apothem - amount, cornerRadius: Math.max(SHAPE_ROUNDING_EPS, o.cornerRadius - amount) };
 }
 
 export function snapLayout(wallSpec: JointWall, tolerance: number): SnapLayout | undefined {

@@ -295,3 +295,25 @@ describe("a stacked coil's outer end respects the bend radius (issue #286)", () 
     }
   }
 });
+
+// Issue #320: a pill's arcs bend the innermost cable at the end radius plus the layer offset, so the radius floor (the bend limit, or
+// the channel floor with face channels) keeps every piece of the path within the bend radius, on the flats and round the ends.
+describe("a pill core respects the bend radius (issue #320)", () => {
+  const PILLS: Array<{ name: string; overrides: Partial<CoilSpec> }> = [
+    { name: "L 120, r raised to the bend floor, cap on", overrides: { shape: { kind: "pill", cornerRadius: 1 }, coreSize: { locked: true, dimension: "outer", value: 120 }, topCap: "on" } },
+    { name: "L 120, r raised to the bend floor, cap on, 2 layers", overrides: { shape: { kind: "pill", cornerRadius: 1 }, coreSize: { locked: true, dimension: "outer", value: 120 }, layers: { locked: true, value: 2 }, topCap: "on" } },
+    { name: "L 80, r 20, face channels (cap off)", overrides: { shape: { kind: "pill", cornerRadius: 20 }, coreSize: { locked: true, dimension: "outer", value: 80 }, topCap: "off" } },
+    { name: "L 80, r 20, bare core, 3 layers", overrides: { shape: { kind: "pill", cornerRadius: 20 }, coreSize: { locked: true, dimension: "outer", value: 80 }, layers: { locked: true, value: 3 }, topCap: "off", base: "off" } },
+    { name: "free size, r 20, keyhole mount", overrides: { shape: { kind: "pill", cornerRadius: 20 }, topCap: "on", mount: "keyhole" } },
+  ];
+  it.each(PILLS)("$name", async ({ overrides }) => {
+    const spec = baseSpec({ wire: { length: 3000, diameter: 3.8, type: "usb" }, ...overrides });
+    const d = await design(spec);
+    const mbr = bendMultiplierOf(spec.wire) * spec.wire.diameter;
+    expect(d.solution.diagnosis.status).not.toBe("infeasible");
+    expectEveryBendWithinLimit(d, mbr);
+    expectWithinBendLimit(joinedPieces(d), mbr, "joined pieces");
+    expect(maxGap(d.cablePath), "cablePath: largest step between samples").toBeLessThan(5);
+    expect(d.warnings.filter((w) => /bends tighter/i.test(w))).toEqual([]);
+  });
+});

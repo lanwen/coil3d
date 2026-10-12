@@ -28,7 +28,7 @@ import {
 import type { XY } from "./innerEnd";
 import { bestAxisDeg } from "./mount";
 import { basisFor, boardSection, chamferCorners } from "./skadisClips";
-import { outlineOffsetAt } from "./shapes";
+import { circumscribedRadius, isPill, outlineOffsetAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { PegboardSection } from "./types";
 
@@ -241,7 +241,7 @@ export function layoutSkadisTclips(input: SkadisTclipInput): SkadisTclipLayout {
   const { toXY } = basisFor(axisDeg);
   const keep = tclipSweep(c) + SKADIS_TCLIP_FLOOR_WALL;
   const fits: Placement = (s, u) => keptIn(input, toXY(u, s), keep);
-  const boreReach = boreOutline.apothem / Math.cos(Math.PI / boreOutline.n) + REACH_MARGIN_UP;
+  const boreReach = (isPill(boreOutline) ? circumscribedRadius(boreOutline, 0) : boreOutline.apothem / Math.cos(Math.PI / boreOutline.n)) + REACH_MARGIN_UP;
   const ups: number[] = [];
   for (let u = Math.ceil(boreReach / SEARCH_STEP) * SEARCH_STEP; u >= -boreReach; u -= SEARCH_STEP) ups.push(u);
 

@@ -17,7 +17,7 @@ import {
   THROUGH_MOUNT_ROUND_HOLE_COUNTS,
 } from "./constants";
 import type { XY } from "./innerEnd";
-import { circumscribedRadius, inscribedRadius, offsetOutline, outlineOffsetAt, radiusAtAngle } from "./shapes";
+import { isFullCircle, circumscribedRadius, inscribedRadius, offsetOutline, outlineOffsetAt, radiusAtAngle } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 
 const TIE_TOLERANCE = 1e-6;
@@ -174,7 +174,7 @@ export function requiredThroughMountMargin(
   collarOffset = 0,
 ): number {
   const holeRadius = holeDiameter / 2;
-  const isRound = outline.cornerRadius === outline.apothem;
+  const isRound = isFullCircle(outline);
   const outlineR0 = isRound ? outline.apothem : circumscribedRadius(outline, 0);
   const target = outlineR0 + throughHoleInset(collarOffset) + 2 * holeRadius + THROUGH_MOUNT_RIM_MARGIN + FIT_SAFETY_MARGIN;
   return Math.max(0, target - outlineR0);
@@ -217,7 +217,7 @@ export function layoutThroughHoleMount(
 ): ThroughMountLayout {
   const holeRadius = holeDiameter / 2;
   const flangeOutline = offsetOutline(outline, margin);
-  const isRound = outline.cornerRadius === outline.apothem;
+  const isRound = isFullCircle(outline);
   const base = { holeRadius };
   const tooNarrowWarning = "The flange is too narrow (or too close to the inner-end cable channel) to fit the through-hole mount (increase the core size, or the mount was skipped).";
 

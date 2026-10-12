@@ -31,6 +31,7 @@ function bendCornerRadiusFloor(wire: CoilSpec["wire"]): number {
 
 function resolveOutline(shape: ShapeSpec, outerSize: number, rcMin: number, wire: CoilSpec["wire"]): ShapeOutline {
   if (shape.kind === "round") return makeOutline("round", outerSize, outerSize / 2);
+  if (shape.kind === "pill") return makeOutline("pill", outerSize, Math.max(shape.cornerRadius, rcMin));
   const rcMax = usefulMaxCornerRadius(shape.kind, outerSize, wire);
   const rc = Math.min(Math.max(shape.cornerRadius, rcMin), Math.max(0, rcMax));
   return makeOutline(shape.kind, outerSize, rc);
@@ -38,6 +39,7 @@ function resolveOutline(shape: ShapeSpec, outerSize: number, rcMin: number, wire
 
 const MIN_FLAT_PERIMETER_FRACTION = 0.15;
 const MIN_FLAT_WIRE_DIAMETERS = 2;
+const PILL_LENGTH_TO_RADIUS = 4;
 
 function minOuterSizeForShapeFlats(kind: Extract<ShapeSpec["kind"], "sq" | "tri">, wire: CoilSpec["wire"]): number {
   const n = shapePlugin(kind).corners;
@@ -51,7 +53,7 @@ function minOuterSizeForShapeFlats(kind: Extract<ShapeSpec["kind"], "sq" | "tri"
 }
 
 function minOuterSizeForShape(shape: ShapeSpec, wire: CoilSpec["wire"], minOuterSizeForBend: number): number {
-  return shape.kind === "round" ? minOuterSizeForBend : minOuterSizeForShapeFlats(shape.kind, wire);
+  return shape.kind === "round" || shape.kind === "pill" ? minOuterSizeForBend : minOuterSizeForShapeFlats(shape.kind, wire);
 }
 
 function usefulMaxCornerRadius(kind: Extract<ShapeSpec["kind"], "sq" | "tri">, outerSize: number, wire: CoilSpec["wire"]): number {
@@ -175,8 +177,12 @@ function centreFloors(spec: CoilSpec): { size: number; height: number } {
   const mbr = bendMultiplierOf(spec.wire) * d;
   const rcMin = bendCornerRadiusFloor(spec.wire);
   const stack = spec.layers.locked ? { layers: spec.layers.value, quality: spec.windingQuality } : undefined;
+  const outlineAt =
+    spec.shape.kind === "pill"
+      ? (outerSize: number) => makeOutline("round", outerSize, outerSize / 2)
+      : (outerSize: number) => resolveOutline(spec.shape, outerSize, rcMin, spec.wire);
   return {
-    size: minFaceChannelOuterSize((outerSize) => resolveOutline(spec.shape, outerSize, rcMin, spec.wire), (outline) => resolveBoreOutline(outline, d).boreOutline, d, spec.tolerance, mbr, stack),
+    size: minFaceChannelOuterSize(outlineAt, (outline) => resolveBoreOutline(outline, d).boreOutline, d, spec.tolerance, mbr, stack),
     height: minFaceChannelHeight(d, spec.tolerance, mbr, bottomFace),
   };
 }
@@ -303,6 +309,7 @@ function finishSolution(
   objectiveUsed: Objective | undefined,
   minOuterSizeForBend: number,
   minOuterSizeForShapeVal: number,
+  radiusFloor: number,
 ): { solution: Solution; notices: Notice[] } {
   const { notices, problem, note } = noticeCollector();
   const target = spec.wire.length;
@@ -317,8 +324,9 @@ function finishSolution(
 
   const rcMin = bendCornerRadiusFloor(spec.wire);
   const rcMaxHard = resolved.outerSize / 2;
-  const rcMax = spec.shape.kind === "round" ? rcMaxHard : usefulMaxCornerRadius(spec.shape.kind, resolved.outerSize, spec.wire);
+  const rcMax = spec.shape.kind === "round" || spec.shape.kind === "pill" ? rcMaxHard : usefulMaxCornerRadius(spec.shape.kind, resolved.outerSize, spec.wire);
   const outline = resolveOutline(spec.shape, resolved.outerSize, rcMin, spec.wire);
+  const rcFloor = spec.shape.kind === "pill" ? radiusFloor : rcMin;
   const cornerRadius = outline.cornerRadius;
 
   const wall = wallThickness(spec.wire.diameter);
@@ -344,7 +352,13 @@ function finishSolution(
       `At the loosest winding quality, capacity is only ${capacityLo.toFixed(0)} mm (${pctOfTarget.toFixed(0)}% of the ${target.toFixed(0)} mm target): a loose winding may not fit; wind snugly to reach the full target length.`,
     );
   }
-  if (spec.shape.kind !== "round") {
+  if (spec.shape.kind === "pill") {
+    if (rcFloor >= rcMaxHard - FLOOR_CEILING_TOLERANCE) {
+      note(`The pill core is round at this size: the ${rcFloor.toFixed(1)} mm end radius it needs is half its ${resolved.outerSize.toFixed(1)} mm length.`);
+    } else if (spec.shape.cornerRadius > rcMax + FLOOR_CEILING_TOLERANCE) {
+      note(`End radius clamped down to ${rcMax.toFixed(1)} mm: at half the core length the pill is round.`);
+    }
+  } else if (spec.shape.kind !== "round") {
     const label = shapePlugin(spec.shape.kind).label.toLowerCase();
     const requested = spec.shape.cornerRadius;
     if (rcMin >= rcMaxHard) {
@@ -363,7 +377,7 @@ function finishSolution(
     objectiveUsed,
     outerSize: resolved.outerSize,
     cornerRadius,
-    cornerRadiusRange: [Math.min(rcMin, rcMax), rcMax],
+    cornerRadiusRange: [Math.min(rcFloor, rcMax), rcMax],
     innerBore,
     height: resolved.height,
     layers: resolved.layers,
@@ -463,9 +477,11 @@ function overshootNote(
         ? `the core can't be smaller than ${mm(sizeLo)}`
         : fit.sizeFor && fit.size >= sizeLo - AT_FLOOR_TOLERANCE
           ? `the bore needs room for ${fit.sizeFor}, which takes a core of at least ${mm(sizeLo)}`
+        : spec.shape.kind === "pill" && sizeLo >= PILL_LENGTH_TO_RADIUS * spec.shape.cornerRadius - AT_FLOOR_TOLERANCE
+          ? `a pill core is kept at least twice as long as it is wide, which takes a core of at least ${mm(sizeLo)} at this ${mm(spec.shape.cornerRadius)} end radius`
         : centreFloors(spec).size >= sizeLo - AT_FLOOR_TOLERANCE
           ? `the cable's ends have to reach the centre hole at its ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius, which needs a core of at least ${mm(sizeLo)}`
-        : spec.shape.kind === "round"
+        : spec.shape.kind === "round" || spec.shape.kind === "pill"
           ? `this cable's ${mm(bendMultiplierOf(spec.wire) * spec.wire.diameter)} bend radius needs a core of at least ${mm(sizeLo)}`
           : `this cable's bend limit needs a ${shapePlugin(spec.shape.kind).label.toLowerCase()} core of at least ${mm(sizeLo)}`;
     return `${room}: ${floor}, and the fewest turns around it already hold that much. This is the smallest coil for this cable.`;
@@ -473,10 +489,21 @@ function overshootNote(
   return `${room}: the coil can't lose a whole turn or layer and still hold the cable.`;
 }
 
+function withEndRadiusAtLeast(spec: CoilSpec, floor: number): CoilSpec {
+  if (spec.shape.kind !== "pill" || spec.shape.cornerRadius >= floor) return spec;
+  return { ...spec, shape: { kind: "pill", cornerRadius: floor } };
+}
+
+function endRadiusNote(requested: number, floor: number, channelBinds: boolean): string {
+  return channelBinds
+    ? `End radius raised to ${mm(floor)} so the cable's ends can pass the centre hole.`
+    : `End radius clamped up to ${mm(floor)} (requested ${mm(requested)}) to respect the bend limit.`;
+}
+
 export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[] } {
   const { notices, problem, note } = noticeCollector();
 
-  const spec: CoilSpec =
+  const cappedSpec: CoilSpec =
     rawSpec.wire.length > MAX_WIRE_LENGTH ? { ...rawSpec, wire: { ...rawSpec.wire, length: MAX_WIRE_LENGTH } } : rawSpec;
   if (rawSpec.wire.length > MAX_WIRE_LENGTH) {
     problem(
@@ -484,12 +511,18 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
     );
   }
 
-  const bendMultiplier = bendMultiplierOf(spec.wire);
-  const mbr = bendMultiplier * spec.wire.diameter;
-  const groove = grooveShape(spec.wire.diameter);
-  const o1 = spec.wire.diameter / 2 - groove.depth;
+  const bendMultiplier = bendMultiplierOf(cappedSpec.wire);
+  const mbr = bendMultiplier * cappedSpec.wire.diameter;
+  const groove = grooveShape(cappedSpec.wire.diameter);
+  const o1 = cappedSpec.wire.diameter / 2 - groove.depth;
   const rcMin = Math.max(0, mbr - o1);
   const minOuterSizeForBend = 2 * rcMin;
+  const channelRadius = cappedSpec.shape.kind === "pill" ? centreFloors(cappedSpec).size / 2 : 0;
+  const endRadiusFloor = Math.max(rcMin, channelRadius);
+  const spec = withEndRadiusAtLeast(cappedSpec, endRadiusFloor);
+  if (cappedSpec.shape.kind === "pill" && cappedSpec.shape.cornerRadius < endRadiusFloor - FLOOR_CEILING_TOLERANCE) {
+    note(endRadiusNote(cappedSpec.shape.cornerRadius, endRadiusFloor, channelRadius > rcMin + FLOOR_CEILING_TOLERANCE));
+  }
   const shapeFloor = minOuterSizeForShape(spec.shape, spec.wire, minOuterSizeForBend);
   const centre = centreFloors(spec);
   const centreBinds = centre.size > shapeFloor + FLOOR_CEILING_TOLERANCE;
@@ -498,7 +531,8 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const heightFree = !spec.height.locked;
   const fit = fitFloors(spec);
   const jointHeightFloor = !spec.coreSize.locked || toOuterSize(spec.coreSize, spec.wire.diameter) >= fit.jointSize ? fit.height : 0;
-  const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal, sizeFree ? fit.size : 0);
+  const pillLengthFloor = spec.shape.kind === "pill" ? Math.min(SIZE_HI, PILL_LENGTH_TO_RADIUS * spec.shape.cornerRadius) : 0;
+  const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal, sizeFree ? Math.max(fit.size, pillLengthFloor) : 0);
   const sizeHi = SIZE_HI;
   const baseHeightLo = Math.max(groove.pitch - windingSpan(0, spec.wire.diameter) + (spec.layers.locked ? reserveFor(spec, spec.layers.value) : 0), centre.height);
   const heightLo = Math.max(baseHeightLo, heightFree ? jointHeightFloor : 0);
@@ -518,7 +552,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   if (lockedOuterSize !== undefined && lockedOuterSize < minOuterSizeForShapeVal - FLOOR_CEILING_TOLERANCE) {
     const why = centreBinds
       ? `the cable's ends have to reach the centre hole at its ${mbr.toFixed(1)} mm bend radius, and the hole has to pass a ${CENTRE_CONNECTOR_PASSAGE} mm connector`
-      : spec.shape.kind === "round"
+      : spec.shape.kind === "round" || spec.shape.kind === "pill"
         ? `this cable's ${mbr.toFixed(1)} mm bend radius needs at least that much`
         : `this cable's bend limit needs at least that much to keep the ${shapePlugin(spec.shape.kind).label.toLowerCase()} core's straight sides meaningful, or the shape would be indistinguishable from round`;
     note(`Core size raised from ${lockedOuterSize.toFixed(1)} mm to ${minOuterSizeForShapeVal.toFixed(1)} mm: ${why}.`);
@@ -652,7 +686,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
           ...diagnosis,
           message: `Two free dimensions: the "${otherObjective}" objective's pick among the same target-covering candidates.`,
         };
-        alternates = [finishSolution(spec, altBest.g, altDiagnosis, otherObjective, minOuterSizeForBend, minOuterSizeForShapeVal).solution];
+        alternates = [finishSolution(spec, altBest.g, altDiagnosis, otherObjective, minOuterSizeForBend, minOuterSizeForShapeVal, endRadiusFloor).solution];
       }
     }
   } else {
@@ -712,12 +746,12 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
           status: "under-constrained",
           message: `All three dimensions are free: layers=${p.n} fixed, best outer size/height for the "${objective}" objective among combinations that cover the target length.`,
         };
-        return finishSolution(spec, p.g, altDiagnosis, objective, minOuterSizeForBend, minOuterSizeForShapeVal).solution;
+        return finishSolution(spec, p.g, altDiagnosis, objective, minOuterSizeForBend, minOuterSizeForShapeVal, endRadiusFloor).solution;
       });
     }
   }
 
-  const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend, minOuterSizeForShapeVal);
+  const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend, minOuterSizeForShapeVal, endRadiusFloor);
   finished.solution.alternates = alternates;
   const overshoots = finished.solution.lengthDeltaPct > OVERSHOOT_NOTE_PCT;
   if (overshoots) {

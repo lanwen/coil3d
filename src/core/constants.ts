@@ -17,6 +17,7 @@ export const MIN_BORE_RADIUS = 1;
 export const MIN_BORE_CORNER_RADIUS = 0.5;
 export const SHAPE_ROUNDING_EPS = 0.01;
 export const DEFAULT_CORNER_RADIUS = 8;
+export const DEFAULT_PILL_RADIUS = 20;
 
 export const FINAL_COLUMNS = 96;
 export const FINAL_ROWS_PER_PITCH = 16;

@@ -46,7 +46,7 @@ import { clipFrame } from "../skadisClips";
 import type { RimClip, SkadisClipLayout } from "../skadisClips";
 import { tclipPieceLevels } from "../skadisTclips";
 import type { SkadisTclipLayout, Tclip } from "../skadisTclips";
-import { offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
+import { isPill, offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
 import type { Design } from "../types";
@@ -85,6 +85,12 @@ function rimLoftSolid(outline: ShapeOutline, rows: RimRow[]): R.Shape3D {
 
 function outlineSketch(o: ShapeOutline, z: number): R.Sketch {
   if (isRoundOutline(o)) return R.sketchCircle(o.apothem, { plane: "XY", origin: [0, 0, z] });
+  if (isPill(o)) {
+    const h = o.halfStraight ?? 0;
+    const r = o.cornerRadius;
+    const pill = R.draw([h, -r]).threePointsArcTo([h, r], [h + r, 0]).lineTo([-h, r]).threePointsArcTo([-h, -r], [-h - r, 0]).close();
+    return pill.sketchOnPlane("XY", z) as R.Sketch;
+  }
   let pen = R.draw(polygonVertex(o, 0));
   for (let i = 1; i < o.n; i++) {
     pen = pen.lineTo(polygonVertex(o, i)).customCorner(o.cornerRadius);

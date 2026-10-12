@@ -36,7 +36,7 @@ import {
 } from "./constants";
 import { maxCurvature, outlineBlend, unitRamp, withNeighbours } from "./blend";
 import { phaseShiftTurns, radialPitch, turnsForLayer } from "./capacity";
-import { evalOutline, inscribedRadius, offsetPerimeter, outlineOffsetAt, paramAt, pointAt, sideLength } from "./shapes";
+import { isFullCircle, evalOutline, inscribedRadius, offsetPerimeter, outlineOffsetAt, paramAt, pointAt, sideLength } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { grooveCrest, grooveShape, grooveStartHeight, windingSpan } from "./wall";
 import type { XY, XYZ } from "./innerEnd";
@@ -180,7 +180,7 @@ function crossingLevel(wireDiameter: number, tolerance: number, start: OuterStar
 }
 
 function isCircular(outline: ShapeOutline): boolean {
-  return outline.cornerRadius === outline.apothem || sideLength(outline) < 1e-6;
+  return isFullCircle(outline) || sideLength(outline) < 1e-6;
 }
 
 function headingAt(outline: ShapeOutline, t: number, offset: number, forward: boolean): Heading {
@@ -218,8 +218,8 @@ function arcLength(arc: FaceCutArc): number {
 
 function holeOutlineOf(boreOutline: ShapeOutline, width: number): ShapeOutline {
   const apothem = boreOutline.apothem - width;
-  if (isCircular(boreOutline)) return { n: boreOutline.n, apothem, cornerRadius: apothem };
-  return { n: boreOutline.n, apothem, cornerRadius: Math.max(FACE_HOLE_CORNER_MIN, boreOutline.cornerRadius - width) };
+  if (isCircular(boreOutline)) return { ...boreOutline, apothem, cornerRadius: apothem };
+  return { ...boreOutline, apothem, cornerRadius: Math.max(FACE_HOLE_CORNER_MIN, boreOutline.cornerRadius - width) };
 }
 
 function holeDistance(hole: ShapeOutline, p: XY): number {
@@ -312,7 +312,7 @@ const endCache = new Map<string, EndPlan | undefined>();
 
 function planEndCached(outline: ShapeOutline, t: number, offset: number, forward: boolean, radiusFloor: number, hole: ShapeOutline, inset: number): EndPlan | undefined {
   const phase = Math.round((((t % 1) + 1) % 1) * 1e9);
-  const key = [outline.n, outline.apothem, outline.cornerRadius, hole.apothem, hole.cornerRadius, phase, offset, forward, radiusFloor, inset].join(",");
+  const key = [outline.n, outline.apothem, outline.cornerRadius, outline.halfStraight ?? 0, hole.apothem, hole.cornerRadius, hole.halfStraight ?? 0, phase, offset, forward, radiusFloor, inset].join(",");
   if (endCache.has(key)) return endCache.get(key);
   if (endCache.size >= END_CACHE_LIMIT) endCache.clear();
   const plan = planEnd(outline, t, offset, forward, radiusFloor, hole, inset);
@@ -563,7 +563,7 @@ const planCache = new Map<string, FaceChannelLayout | undefined>();
 
 export function planFaceChannels(spec: FaceChannelSpec): FaceChannelLayout | undefined {
   const { outline, boreOutline } = spec;
-  const key = [outline.n, outline.apothem, outline.cornerRadius, boreOutline.apothem, boreOutline.cornerRadius, spec.height, spec.wireDiameter, spec.tolerance, spec.bendRadius, spec.topFace, spec.bottomFace, spec.reserve ?? 0, JSON.stringify(spec.outerStart ?? null)].join(",");
+  const key = [outline.n, outline.apothem, outline.cornerRadius, outline.halfStraight ?? 0, boreOutline.apothem, boreOutline.cornerRadius, boreOutline.halfStraight ?? 0, spec.height, spec.wireDiameter, spec.tolerance, spec.bendRadius, spec.topFace, spec.bottomFace, spec.reserve ?? 0, JSON.stringify(spec.outerStart ?? null)].join(",");
   if (planCache.has(key)) return planCache.get(key);
   if (planCache.size >= PLAN_CACHE_LIMIT) planCache.clear();
   const layout = planUncached(spec);

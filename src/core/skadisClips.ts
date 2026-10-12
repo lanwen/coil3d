@@ -56,6 +56,8 @@ const PAD_SAMPLES_SIDE = 24;
 const FLAT_BOTTOM_FAN_DEG = 180;
 const FLAT_TOP_FAN_DEG = 0;
 const MIN_CLIP_COUNTS = [3, 2];
+const BOTTOM_COLUMN_CHOICES = [[-20, 20], [-60, 60], [-20, -60], [20, 60], [0]];
+const LAST_RESORT_BOTTOM_COLUMNS = [[-40], [40]];
 const NOTCH_DEPTH_OUT = 50;
 const MARGIN_SEARCH_LIMIT = 1e4;
 const MARGIN_BISECTIONS = 30;
@@ -337,9 +339,11 @@ export function layoutSkadisClips(input: SkadisClipInput): SkadisClipLayout {
   const axes = [bestAxisDeg(input.boreOutline, FLAT_BOTTOM_FAN_DEG)];
   const flatTop = bestAxisDeg(input.boreOutline, FLAT_TOP_FAN_DEG);
   if (!input.primaryOnly && Math.abs(flatTop - axes[0]) > AXIS_DISTINCT_EPSILON) axes.push(flatTop);
-  for (const axisDeg of axes) {
-    const layout = layoutOnAxis(input, axisDeg);
-    if (layout) return layout;
+  for (const lastResort of input.primaryOnly ? [false] : [false, true]) {
+    for (const axisDeg of axes) {
+      const layout = layoutOnAxis(input, axisDeg, lastResort);
+      if (layout) return layout;
+    }
   }
   return {
     axisDeg: axes[0],
@@ -350,7 +354,7 @@ export function layoutSkadisClips(input: SkadisClipInput): SkadisClipLayout {
   };
 }
 
-function layoutOnAxis(input: SkadisClipInput, axisDeg: number): SkadisClipLayout | undefined {
+function layoutOnAxis(input: SkadisClipInput, axisDeg: number, lastResort: boolean): SkadisClipLayout | undefined {
   const { flangeOutline, envelopeOutline, thickness, tolerance: c, latch, heavy, avoid } = input;
   const { toXY, project } = basisFor(axisDeg);
   const rim = projectOutline(flangeOutline, project);
@@ -404,7 +408,7 @@ function layoutOnAxis(input: SkadisClipInput, axisDeg: number): SkadisClipLayout
   };
 
   const topColumnChoices = heavy ? [[-20, 20], [-60, 60], [0]] : [[0], [-40], [40], [-20, 20]];
-  const bottomColumnChoices = [[-20, 20], [-60, 60], [-20, -60], [20, 60], [0]];
+  const bottomColumnChoices = lastResort ? LAST_RESORT_BOTTOM_COLUMNS : BOTTOM_COLUMN_CHOICES;
   for (const minClips of MIN_CLIP_COUNTS) {
     for (const topSides of input.primaryOnly ? topColumnChoices.slice(0, 1) : topColumnChoices) {
       const tops = topSides.map((s) => place(s, "top"));

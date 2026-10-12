@@ -48,6 +48,7 @@ const SHAPE_ICONS: Partial<Record<ShapeKind, React.ReactNode>> = {
   round: <circle cx="32" cy="32" r="22" {...STROKE} />,
   sq: <rect x="10" y="10" width="44" height="44" rx="12" {...STROKE} />,
   tri: <path d="M32 8 L56 50 Q58 54 53 54 H11 Q6 54 8 50 Z" {...STROKE} />,
+  pill: <rect x="6" y="18" width="52" height="28" rx="14" {...STROKE} />,
 };
 
 function genericPolygon(corners: number): React.ReactNode {

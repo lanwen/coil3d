@@ -6,7 +6,7 @@ import type { FaceChannelLayout } from "./faceChannel";
 
 export type { ShapeKind } from "./shapes";
 
-export type ShapeSpec = { kind: "round" } | { kind: "sq"; cornerRadius: number } | { kind: "tri"; cornerRadius: number };
+export type ShapeSpec = { kind: "round" } | { kind: "sq"; cornerRadius: number } | { kind: "tri"; cornerRadius: number } | { kind: "pill"; cornerRadius: number };
 
 export type TopCapMode = "auto" | "on" | "off";
 

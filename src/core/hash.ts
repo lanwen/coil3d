@@ -4,7 +4,6 @@ import {
   BED_SIZE_MIN,
   DEFAULT_BASE,
   DEFAULT_BED_SIZE,
-  DEFAULT_CORNER_RADIUS,
   DEFAULT_THROUGH_HOLE_DIAMETER,
   DEFAULT_TOLERANCE,
   LABEL_MAX_LENGTH,
@@ -14,6 +13,7 @@ import {
   TOLERANCE_MAX,
   TOLERANCE_MIN,
 } from "./constants";
+import { defaultCornerRadius } from "./shapes";
 import { DEFAULT_CUSTOM_BEND_MULTIPLIER } from "./types";
 import type { BaseMode, CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, ShapeKind, ShapeSpec, TopCapMode, WireTypeId } from "./types";
 
@@ -124,7 +124,7 @@ const DocSchema = z
     mbr: z.number().finite().positive().max(50).optional(),
     q: z.number().finite().min(0).max(1).optional(),
     obj: z.literal("ar").optional(),
-    shape: z.enum(["sq", "tri"]).optional(),
+    shape: z.enum(["sq", "tri", "pill"]).optional(),
     rc: z.number().finite().min(0).max(1000).optional(),
     mount: z.enum(["keyhole", "through", "skadis", "skadis-tclip"]).optional(),
     latch: z.literal(false).optional(),
@@ -208,7 +208,7 @@ function buildParsed(p: {
   label?: string;
 }): ParsedHash {
   const shape: ShapeSpec =
-    p.shapeKind === "round" ? { kind: "round" } : { kind: p.shapeKind, cornerRadius: p.rc ?? DEFAULT_CORNER_RADIUS };
+    p.shapeKind === "round" ? { kind: "round" } : { kind: p.shapeKind, cornerRadius: p.rc ?? defaultCornerRadius(p.shapeKind) };
 
   const coreSize: CoreSizeLock = p.lockTokens.has("outer")
     ? { locked: true, dimension: "outer", value: p.size ?? DEFAULT_OUTER_SIZE }
@@ -275,7 +275,7 @@ function parseDocHash(encoded: string): ParsedHash {
   if (p.wt !== "custom" && p.mbr !== undefined) {
     return fallback('The link sets a custom bend multiplier ("mbr") without wt=custom: showing default values instead.');
   }
-  if (p.shape !== "sq" && p.shape !== "tri" && p.rc !== undefined) {
+  if (p.shape === undefined && p.rc !== undefined) {
     return fallback('The link sets a corner radius ("rc") without selecting a shape that uses one: showing default values instead.');
   }
   if (p.mount !== "keyhole" && p.kr !== undefined) {
@@ -343,7 +343,7 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, vi
 
   if (spec.shape.kind !== "round") {
     doc.shape = spec.shape.kind;
-    if (spec.shape.cornerRadius !== DEFAULT_CORNER_RADIUS) doc.rc = spec.shape.cornerRadius;
+    if (spec.shape.cornerRadius !== defaultCornerRadius(spec.shape.kind)) doc.rc = spec.shape.cornerRadius;
   }
 
   const lockTokens: LockToken[] = [];

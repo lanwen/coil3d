@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SHOW_WIRE, DEFAULT_SPEC, parseHash, toHash } from "../src/core";
+import { DEFAULT_PILL_RADIUS, DEFAULT_SHOW_WIRE, DEFAULT_SPEC, parseHash, toHash } from "../src/core";
 import type { CoilSpec } from "../src/core";
 import { encodeHashDoc } from "../e2e/hashDoc";
 
@@ -196,6 +196,22 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     const doc = decodeDoc(toHash({ ...DEFAULT_SPEC, shape: { kind: "sq", cornerRadius: 8 } })); // DEFAULT_CORNER_RADIUS
     expect(doc.shape).toBe("sq");
     expect(doc.rc).toBeUndefined();
+  });
+
+  it("round-trips a pill, omits its default radius (DEFAULT_PILL_RADIUS 20), and writes any other radius", () => {
+    const atDefault: CoilSpec = { ...DEFAULT_SPEC, shape: { kind: "pill", cornerRadius: DEFAULT_PILL_RADIUS } };
+    expect(decodeDoc(toHash(atDefault))).toEqual({ v: 2, shape: "pill" });
+    expect(parseHash(toHash(atDefault))).toEqual({ ...DESIGN, spec: atDefault });
+    expect(parseHash(`#s=${Buffer.from(JSON.stringify({ v: 2, shape: "pill" })).toString("base64url")}`).spec.shape).toEqual({ kind: "pill", cornerRadius: DEFAULT_PILL_RADIUS });
+
+    const rc15: CoilSpec = { ...DEFAULT_SPEC, shape: { kind: "pill", cornerRadius: 15 } };
+    expect(decodeDoc(toHash(rc15))).toEqual({ v: 2, shape: "pill", rc: 15 });
+    expect(parseHash(toHash(rc15))).toEqual({ ...DESIGN, spec: rc15 });
+  });
+
+  it("a pill's default radius is not a square's: a pill at 8 writes rc, a square at 20 writes rc", () => {
+    expect(decodeDoc(toHash({ ...DEFAULT_SPEC, shape: { kind: "pill", cornerRadius: 8 } }))).toEqual({ v: 2, shape: "pill", rc: 8 });
+    expect(decodeDoc(toHash({ ...DEFAULT_SPEC, shape: { kind: "sq", cornerRadius: 20 } }))).toEqual({ v: 2, shape: "sq", rc: 20 });
   });
 
   it("falls back to defaults with a notice when a corner radius is set without selecting a shape that uses one", () => {

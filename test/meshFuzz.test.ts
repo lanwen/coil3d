@@ -45,12 +45,12 @@ interface FuzzCase {
   segments: { round: number; other: number };
 }
 
-function sample(index: number): FuzzCase {
-  const r = prng(Math.imul(SEED ^ index, 0x9e3779b9) ^ index);
+function sample(index: number, seed = SEED, pills = false): FuzzCase {
+  const r = prng(Math.imul(seed ^ index, 0x9e3779b9) ^ index);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)];
   const between = (lo: number, hi: number, decimals = 2) => Math.round((lo + r() * (hi - lo)) * 10 ** decimals) / 10 ** decimals;
-  const kind = pick(["round", "round", "sq", "tri"] as const);
-  const shape: ShapeSpec = kind === "round" ? { kind } : { kind, cornerRadius: between(0, 20) };
+  const kind = pills ? "pill" : pick(["round", "round", "sq", "tri"] as const);
+  const shape: ShapeSpec = kind === "round" ? { kind } : { kind, cornerRadius: between(0, pills ? 40 : 20) };
   const mount = pick<MountKind>(["none", "none", "keyhole", "through", "skadis", "skadis-tclip", "opengrid"]);
   const spec: CoilSpec = {
     wire: { length: between(500, 10000, 0), diameter: between(1.5, 8), type: pick(["usb", "flex", "stiff"] as const) },
@@ -542,6 +542,71 @@ describe("seeded fuzz: every part is one solid, with no short edges or folds, af
       Object.assign(collarSegments, shipped);
     }
     if (COUNT > DEFAULT_CASES) console.log(`fuzz: ${COUNT} cases from ${FROM} in ${Math.round((Date.now() - started) / 1000)} s, ${bad.length} bad`);
+    expect(bad).toEqual([]);
+  }, 7_200_000);
+});
+
+// Issue #320: a point exactly on the pill's long axis (y = 0) past an end counted as inside the outline's degenerate
+// corner-centre polygon, so its offset came out as minus its distance instead of plus. The wall's top-ring funnel foot
+// at the very tip of an end went to z = 100 and folded a sheet of no thickness into the funnel (pill fuzz cases 34 and 139).
+// Case 470: the booleans on the pill's mirror plane left a closed piece of two triangles at the rim's tip, one corner
+// 2.8 mm from the other two, and the weld only dropped such a piece when all three corners were within its limit.
+const REPRODUCTIONS_320: Reproduction[] = [
+  {
+    name: "a pill's top-ring funnel at the tip of an end (pill fuzz case 34)",
+    spec: { wire: { length: 2488, diameter: 2.07, type: "usb" }, shape: { kind: "pill", cornerRadius: 28.66 }, windingQuality: 0.52, coreSize: { locked: true, dimension: "outer", value: 92.61 }, height: { locked: true, value: 57.92 }, layers: { locked: true, value: 1 }, objective: "aspectRatio", topCap: "auto", joint: "snap", tolerance: 0.26, mount: "skadis", throughHoleDiameter: 7.02, base: "on", strapSlots: false },
+  },
+  {
+    name: "a pill's top-ring funnel at the tip of an end, with T-clips (pill fuzz case 139)",
+    spec: { wire: { length: 7583, diameter: 2.04, type: "usb" }, shape: { kind: "pill", cornerRadius: 33.15 }, windingQuality: 0.73, coreSize: { locked: false }, height: { locked: false }, layers: { locked: false }, objective: "aspectRatio", topCap: "auto", joint: "snap", tolerance: 0.3, mount: "skadis-tclip", plateJoint: "snap", keyholeRotation: 45, throughHoleDiameter: 4.52, base: "on", strapSlots: true },
+    segments: { round: 96, other: 48 },
+  },
+  {
+    name: "a two-triangle sheet at the tip of a pill's flange rim (pill fuzz case 470)",
+    spec: { wire: { length: 4240, diameter: 1.78, type: "stiff" }, shape: { kind: "pill", cornerRadius: 8.09 }, windingQuality: 0.83, coreSize: { locked: true, dimension: "outer", value: 74.53 }, height: { locked: true, value: 33.06 }, layers: { locked: true, value: 4 }, objective: "minVolume", topCap: "on", joint: "snap", tolerance: 0.23, mount: "through", keyholeRotation: 45, throughHoleDiameter: 4.32, base: "off", strapSlots: false },
+    segments: { round: 96, other: 48 },
+  },
+];
+
+describe("mesh clean-up reproductions (issue #320): a pill's parts are one solid, with no short edges or folds", () => {
+  it.each(REPRODUCTIONS_320)("$name", async ({ spec: overrides, resolution, segments }) => {
+    const shipped = { ...collarSegments };
+    Object.assign(collarSegments, segments ?? shipped);
+    try {
+      const d = await design(spec(overrides), resolution ?? "final");
+      expect(d.parts.flatMap(problems)).toEqual([]);
+    } finally {
+      Object.assign(collarSegments, shipped);
+    }
+  });
+});
+
+// Issue #320: the pill core has its own seeded block, with its own seed, so the cases above stay what they were.
+const PILL_SEED = 0x320;
+const PILL_COUNT = Math.max(1, Math.ceil(COUNT / 3));
+
+describe("seeded fuzz of pill cores: every part is one solid, with no short edges or folds (issue #320)", () => {
+  it(`cases ${FROM} to ${FROM + PILL_COUNT - 1}`, async () => {
+    const shipped = { ...collarSegments };
+    const bad: string[] = [];
+    try {
+      for (let i = FROM; i < FROM + PILL_COUNT; i++) {
+        await yieldToEventLoop();
+        const c = sample(i, PILL_SEED, true);
+        Object.assign(collarSegments, c.segments);
+        const what = `case ${i} (pill, ${c.resolution}, collar ${c.segments.round}/${c.segments.other}) ${JSON.stringify(c.spec)}`;
+        let d;
+        try {
+          d = await design(c.spec, c.resolution);
+        } catch (e) {
+          bad.push(`${what}: threw ${(e as Error).message}`);
+          continue;
+        }
+        for (const part of d.parts) bad.push(...problems(part).map((p) => `${what}: ${p}`));
+      }
+    } finally {
+      Object.assign(collarSegments, shipped);
+    }
     expect(bad).toEqual([]);
   }, 7_200_000);
 });

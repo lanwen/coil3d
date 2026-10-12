@@ -83,7 +83,7 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
     const mightBeVolumelessPiece = ofU.length === 2 && ofV.length === 2;
     if (mightBeVolumelessPiece) {
       const x = [tr[3 * onEdge[0]], tr[3 * onEdge[0] + 1], tr[3 * onEdge[0] + 2]].find((y) => y !== u && y !== v)!;
-      if (trianglesOf(x).length === 2 && squared(u, x) < limit && squared(v, x) < limit) {
+      if (trianglesOf(x).length === 2) {
         for (const t of onEdge) alive[t] = 0;
         for (const w of [u, v, x]) gone[w] = 1;
         return true;
