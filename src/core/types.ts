@@ -201,6 +201,7 @@ export interface Design {
   cablePath: Float32Array;
   rimSlots: { base?: RimSlot; cap?: RimSlot };
   strapSlots: { base: StrapSlot[]; cap: StrapSlot[]; mountPlate: StrapSlot[] };
+  strapSlotsNote?: string;
   faceChannels?: FaceChannelLayout;
 }
 

@@ -189,11 +189,19 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   so. The search starts at the cable's outer end, where the lead leaves through
   the rim slot, and goes one millimetre at a time either way round the rim.
   The first pair that keeps
-  1 mm clear of the rim slots, the inner-end channel, the mounts and T-clips,
-  the label and the cable's free ends is used. The base and the cap share that
-  one pair, so the slots line up from plate to plate. A small, tall coil can
-  leave no such pair (the cable's end tails take a wide arc of the plate); then
-  there are no slots and a note says so. The mount plate gets the same slots
+  1 mm clear of that plate's keep-outs is used. The base's are its rim slot, the
+  inner-end channel, the through-holes and their pads, the mounts and T-clips,
+  and the cable's free ends at the base. The cap's are its rim slot, the label
+  and the cable's free ends at the cap. Each plate is laid out on its own, so
+  the base's pair and the cap's can sit at different angles: one tie goes
+  through one plate and over its rim, so they need not line up. The mount plate
+  keeps the base's pair, because it is glued to the base and a tie passes both.
+  When no opposite pair is clear (three through-holes 120 degrees apart can
+  block every one), the pair that is farthest apart is used, as long as it is at
+  least a third of the way round (`STRAP_SLOT_MIN_SEPARATION_FRACTION`, 120
+  degrees on a round plate). Below that a plate gets no slots, and a note under
+  the switch (`Design.strapSlotsNote`, also in the messages) names the plate.
+  The mount plate gets the same slots
   where it reaches into them: its edge is 3 mm inside the base's, so its cut is
   a notch open at the plate's edge, and the base's wall still closes the slot.
   The slot walls' strength under a tie is not measured; a print has to show
@@ -1570,7 +1578,8 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
   chosen kind. openGrid is not offered in the list (and the hash rejects it), because
   its connector is a placeholder that would print a plate that does not fit.
 - The strap slots switch sits under the top cap switch and shows while the base
-  or the top cap is on. It is off by default.
+  or the top cap is on. It is off by default. A note under it appears when a
+  plate gets no slots.
 - The label switch means "the user turned it on", not "there is text". An empty label
   with the switch on stays visible. Turning it off clears the label, which the hash
   leaves out. The twist lock needs a round core: on other shapes its option is greyed,

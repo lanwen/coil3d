@@ -1,9 +1,9 @@
 import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
-import { DEFAULT_SPEC, design } from "../src/core";
+import { DEFAULT_SPEC, design, parseHash } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, ShapeSpec } from "../src/core";
-import { CAP_THICKNESS, MOUNT_PLATE_EDGE_MARGIN, MOUNT_PLATE_THICKNESS, RIM_SLOT_LABEL_KEEP_OUT, SCREW_MOUNT_HEAD_RADIUS, STRAP_SLOT_INNER_WALL, STRAP_SLOT_KEEP_OUT, STRAP_SLOT_LENGTH, STRAP_SLOT_OUTER_WALL, STRAP_SLOT_PLATE_REACH, STRAP_SLOT_WIDTH, THROUGH_MOUNT_EDGE_MARGIN } from "../src/core/constants";
+import { CAP_THICKNESS, MOUNT_PLATE_EDGE_MARGIN, MOUNT_PLATE_THICKNESS, RIM_SLOT_LABEL_KEEP_OUT, SCREW_MOUNT_HEAD_RADIUS, STRAP_SLOT_INNER_WALL, STRAP_SLOT_KEEP_OUT, STRAP_SLOT_LENGTH, STRAP_SLOT_MIN_SEPARATION_FRACTION, STRAP_SLOT_OUTER_WALL, STRAP_SLOT_PLATE_REACH, STRAP_SLOT_WIDTH, THROUGH_MOUNT_EDGE_MARGIN } from "../src/core/constants";
 import { layoutFlangeThroughHoles } from "../src/core/flangePads";
 import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
 import type { XY } from "../src/core/innerEnd";
@@ -11,7 +11,7 @@ import { getLabelFont, labelLoops, resolveLabel } from "../src/core/label";
 import { layoutKeyholeMount } from "../src/core/mount";
 import { pegHoleRadius } from "../src/core/mountPlate";
 import { skadisClipFootprints } from "../src/core/skadisClips";
-import { outlineOffsetAt } from "../src/core/shapes";
+import { offsetPerimeter, outlineOffsetAt, parameterAtOffsetArc, pointAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 import type { StrapSlot } from "../src/core/strapSlot";
 import { rayHits } from "./support/rays";
@@ -21,8 +21,8 @@ import { unsupportedOverhangs } from "./support/overhangs";
 // Issue #314: with strapSlots on, the base and the cap each get two closed
 // slots in the plate beside the wound cable, so a hook-and-loop tie can go
 // through a slot and over the rim to hold the cable lead against the plate.
-// The slots are one pair shared by every plate; these tests check the pair on
-// the real designs and meshes.
+// Each plate gets its own pair (a glued mount plate shares the base's); these
+// tests check the pairs on the real designs and meshes.
 
 let wasm: ManifoldToplevel;
 beforeAll(async () => {
@@ -205,18 +205,17 @@ describe("strap slots: the pair on every shape, plate combination and layer coun
           }
         });
 
-        it(`${name}: the slots are through-holes in the plates with plate left at the rim beside them, in the same place in the base and the cap`, async () => {
+        it(`${name}: the slots are through-holes in the plates with plate left at the rim beside them`, async () => {
           const d = await designOf(name, spec);
-          const slots = slotsOf(d, plates);
-          expect(slots).toHaveLength(2);
-          if (plates.base === "on" && plates.topCap === "on") expect(d.strapSlots.base).toEqual(d.strapSlots.cap);
+          expect(slotsOf(d, plates)).toHaveLength(2);
           const plateMeshes = [
-            ...(plates.base === "on" ? [d.parts.find((p) => p.role === "core")!.mesh] : []),
-            ...(plates.topCap === "on" ? [d.parts.find((p) => p.role === "topCap")!.mesh] : []),
+            ...(plates.base === "on" ? [{ slots: d.strapSlots.base, mesh: d.parts.find((p) => p.role === "core")!.mesh }] : []),
+            ...(plates.topCap === "on" ? [{ slots: d.strapSlots.cap, mesh: d.parts.find((p) => p.role === "topCap")!.mesh }] : []),
           ];
           const above = (mesh: CoilMesh, p: XY) => rayHits(mesh, [p.x, p.y, -1000], [0, 0, 1]);
-          for (const slot of slots) {
-            for (const mesh of plateMeshes) {
+          for (const { slots, mesh } of plateMeshes) {
+            expect(slots).toHaveLength(2);
+            for (const slot of slots) {
               expect(above(mesh, slot.centre), "through the slot's centre").toEqual([]);
               expect(above(mesh, along(slot, STRAP_SLOT_WIDTH / 2 + STRAP_SLOT_OUTER_WALL / 2)).length, "rim-side wall").toBeGreaterThan(0);
               expect(above(mesh, along(slot, -(STRAP_SLOT_WIDTH / 2 + STRAP_SLOT_INNER_WALL / 2))).length, "cable-side wall").toBeGreaterThan(0);
@@ -224,19 +223,26 @@ describe("strap slots: the pair on every shape, plate combination and layer coun
           }
         });
 
-        it(`${name}: the slots keep clear of the rim slots, the label and the cable's ends`, async () => {
+        it(`${name}: the slots keep clear of their plate's rim slot and the cable's ends on that plate`, async () => {
           const d = await designOf(name, spec);
           const reach = drawnReach(d);
-          for (const slot of slotsOf(d, plates)) {
-            for (const rimSlot of [d.rimSlots.base, d.rimSlots.cap]) {
-              if (rimSlot) expect(nearest(d, slot.outline, rimSlot.outline)).toBeGreaterThanOrEqual(STRAP_SLOT_KEEP_OUT - 0.02);
-            }
-            for (const lead of [d.innerEndLeadIn, d.outerEndLeadOut]) {
-              for (let i = 0; i < lead.length; i += 3) {
-                const tail = { x: lead[i], y: lead[i + 1] };
-                const offset = outlineOffsetAt(d.flangeSpec.outline, tail.x, tail.y).offset;
-                if (offset <= reach || offset > d.flangeSpec.margin) continue;
-                expect(nearestPoint(d, slot.outline, tail)).toBeGreaterThan(d.spec.wire.diameter / 2);
+          const wire = d.spec.wire.diameter;
+          const onPlate = {
+            base: (z: number) => z <= wire,
+            cap: (z: number) => z >= d.solution.height - wire,
+          };
+          for (const plate of ["base", "cap"] as const) {
+            for (const slot of d.strapSlots[plate]) {
+              const rimSlot = d.rimSlots[plate];
+              if (rimSlot) expect(nearest(d, slot.outline, rimSlot.outline), plate).toBeGreaterThanOrEqual(STRAP_SLOT_KEEP_OUT - 0.02);
+              for (const lead of [d.innerEndLeadIn, d.outerEndLeadOut]) {
+                for (let i = 0; i < lead.length; i += 3) {
+                  if (!onPlate[plate](lead[i + 2])) continue;
+                  const tail = { x: lead[i], y: lead[i + 1] };
+                  const offset = outlineOffsetAt(d.flangeSpec.outline, tail.x, tail.y).offset;
+                  if (offset <= reach || offset > d.flangeSpec.margin) continue;
+                  expect(nearestPoint(d, slot.outline, tail), plate).toBeGreaterThan(wire / 2);
+                }
               }
             }
           }
@@ -383,6 +389,7 @@ describe("strap slots in the mount plate", () => {
   it("a plate that reaches into the slots is cut with them, so the tie passes the plate as well as the base", async () => {
     const d = await design(baseSpec({ shape: { kind: "sq", cornerRadius: 12 }, mount: "opengrid" }));
     expect(d.strapSlots.mountPlate).toHaveLength(2);
+    expect(d.strapSlots.mountPlate).toEqual(d.strapSlots.base);
     expect(d.flangeSpec.margin - MOUNT_PLATE_EDGE_MARGIN).toBeGreaterThan(drawnReach(d) + STRAP_SLOT_INNER_WALL);
     const plate = d.parts.find((p) => p.role === "mountPlate")!.mesh;
     expect(pieces(plate)).toBe(1);
@@ -453,11 +460,16 @@ describe("strap slots when they don't apply or don't fit", () => {
     expect(d.notices.filter((n) => /strap/i.test(n.message))).toEqual([]);
   });
 
-  it("when the cable's ends and the rim slot leave no room round a small tall coil, a note says so, and every part is still one solid", async () => {
-    const d = await design(baseSpec({ height: { locked: false }, layers: { locked: true, value: 1 } }), "draft");
-    expect(d.strapSlots).toEqual({ base: [], cap: [], mountPlate: [] });
-    expect(d.notices.some((n) => n.severity === "note" && /strap slots don't fit anywhere/i.test(n.message))).toBe(true);
+  it("when a plate has no clear pair, a note names that plate, and the other plate keeps its slots", async () => {
+    const small = { ...DEFAULT_SPEC, coreSize: { locked: true, dimension: "outer", value: 20 }, base: "on", topCap: "on", mount: "keyhole", strapSlots: true } as const;
+    const d = await design(small, "draft");
+    expect(d.strapSlots.base).toEqual([]);
+    expect(d.strapSlots.cap).toHaveLength(2);
+    expect(d.strapSlotsNote).toMatch(/strap slots don't fit anywhere round the rim of the base,/i);
+    expect(d.notices.filter((n) => /strap slots/i.test(n.message))).toEqual([{ severity: "note", message: d.strapSlotsNote }]);
     for (const part of d.parts) expect(pieces(part.mesh), part.name).toBe(1);
+    const off = await design({ ...small, strapSlots: false }, "draft");
+    expect(off.strapSlotsNote).toBeUndefined();
   });
 
   it("with the toggle off the design has no slots and the meshes are the ones main builds", async () => {
@@ -490,4 +502,65 @@ describe("strap slots when they don't apply or don't fit", () => {
       }
     }
   });
+});
+
+const HASH_WITH_NO_OPPOSITE_PAIR = "#s=eyJ2IjoyLCJzaXplIjozOCwiY2FwIjoib24iLCJtb3VudCI6InRocm91Z2giLCJzdHJhcCI6dHJ1ZX0";
+
+function arcApart(d: Design, a: XY, b: XY): { apart: number; perimeter: number } {
+  const outline = d.flangeSpec.outline;
+  const offset = outlineOffsetAt(outline, a.x, a.y).offset;
+  const perimeter = offsetPerimeter(outline, offset);
+  const step = 0.25;
+  const samples = Array.from({ length: Math.ceil(perimeter / step) }, (_, i) => pointAt(outline, parameterAtOffsetArc(outline, offset, i * step), offset));
+  const indexOf = (p: XY) => samples.reduce((best, q, i) => (Math.hypot(q.x - p.x, q.y - p.y) < Math.hypot(samples[best].x - p.x, samples[best].y - p.y) ? i : best), 0);
+  const along = Math.abs(indexOf(a) - indexOf(b)) * step;
+  return { apart: Math.min(along, perimeter - along), perimeter };
+}
+
+describe("strap slots when the base and the cap keep-outs leave no opposite pair (issue #316)", () => {
+  it("a 38 mm round core with a base, a through-hole mount and a cap gets a pair on each plate, no note, and the cap's pair is exactly opposite", async () => {
+    const spec = parseHash(HASH_WITH_NO_OPPOSITE_PAIR).spec;
+    const d = await design(spec);
+    expect(d.strapSlots.base).toHaveLength(2);
+    expect(d.strapSlots.cap).toHaveLength(2);
+    expect(d.strapSlotsNote).toBeUndefined();
+    expect(d.notices.filter((n) => /strap slots/i.test(n.message))).toEqual([]);
+    const [a, b] = d.strapSlots.cap;
+    const { apart, perimeter } = arcApart(d, a.centre, b.centre);
+    expect(Math.abs(apart - perimeter / 2)).toBeLessThan(1);
+    expect(d.strapSlots.base).not.toEqual(d.strapSlots.cap);
+
+    const plain = await design({ ...spec, strapSlots: false });
+    for (const [i, part] of d.parts.entries()) {
+      const slots = part.role === "core" ? d.strapSlots.base : d.strapSlots.cap;
+      expect(pieces(part.mesh), part.name).toBe(1);
+      expect(genus(part.mesh) - genus(plain.parts[i].mesh), part.name).toBe(slots.length);
+      for (const slot of slots) expect(rayHits(part.mesh, [slot.centre.x, slot.centre.y, -1000], [0, 0, 1]), part.name).toEqual([]);
+      expect(unsupportedOverhangs(d, part.name)).toEqual([]);
+    }
+  });
+
+  const CASES: { name: string; shape: ShapeSpec; size: number; base: "on" | "off"; topCap: "on" | "off"; mount: CoilSpec["mount"] }[] = [
+    { name: "round 30, base and cap, no mount", shape: { kind: "round" }, size: 30, base: "on", topCap: "on", mount: "none" },
+    { name: "round 30, base only, keyhole", shape: { kind: "round" }, size: 30, base: "on", topCap: "off", mount: "keyhole" },
+    { name: "round 40, cap, through-hole mount", shape: { kind: "round" }, size: 40, base: "off", topCap: "on", mount: "through" },
+    { name: "sq 40, cap, SKADIS", shape: { kind: "sq", cornerRadius: 12 }, size: 40, base: "off", topCap: "on", mount: "skadis" },
+    { name: "tri 40, cap, keyhole", shape: { kind: "tri", cornerRadius: 12 }, size: 40, base: "off", topCap: "on", mount: "keyhole" },
+  ];
+
+  for (const { name, shape, size, base, topCap, mount } of CASES) {
+    it(`${name}: every plate has a pair at least a third of the way round, and no note`, async () => {
+      const d = await design({ ...DEFAULT_SPEC, shape, coreSize: { locked: true, dimension: "outer", value: size }, base, topCap, mount, strapSlots: true }, "draft");
+      const plates = [
+        ...(mount !== "none" || base === "on" ? [{ name: "base", slots: d.strapSlots.base }] : []),
+        ...(topCap === "on" ? [{ name: "cap", slots: d.strapSlots.cap }] : []),
+      ];
+      expect(d.strapSlotsNote, name).toBeUndefined();
+      for (const plate of plates) {
+        expect(plate.slots, `${name} ${plate.name}`).toHaveLength(2);
+        const { apart, perimeter } = arcApart(d, plate.slots[0].centre, plate.slots[1].centre);
+        expect(apart, `${name} ${plate.name}`).toBeGreaterThanOrEqual(perimeter * STRAP_SLOT_MIN_SEPARATION_FRACTION - 1);
+      }
+    });
+  }
 });

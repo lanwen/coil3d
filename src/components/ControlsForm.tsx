@@ -411,6 +411,11 @@ export function ControlsForm({
               <FieldTop label="Strap slots" hint={HINTS.strapSlots} />
               <Switch testId="strap-slots" ariaLabel="Strap slots" checked={spec.strapSlots ?? false} onChange={(on) => onChange({ ...spec, strapSlots: on })} />
             </div>
+            {spec.strapSlots && design?.strapSlotsNote && (
+              <p className="field-note" data-testid="strap-slots-note">
+                {design.strapSlotsNote}
+              </p>
+            )}
           </div>
         )}
         {topCapOn && (

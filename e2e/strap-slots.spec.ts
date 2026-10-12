@@ -3,12 +3,14 @@ import { hoverHint } from "./hint";
 import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 import { expectSettled } from "./settled";
 
-// End-to-end checks for the strap slots (issues #240, #314): the switch under
-// the top cap switch, its place in the hash, and two screenshots of the closed
-// slots in the plates. The slot layout itself is covered by vitest against the
+// End-to-end checks for the strap slots (issues #240, #314, #316): the switch
+// under the top cap switch, its place in the hash, the note under it when a
+// plate gets no slots, and screenshots of the closed slots in the plates. The slot layout itself is covered by vitest against the
 // public `design()` interface (test/strapSlot.test.ts).
 
 const SQUARE = encodeHashDoc({ L: 4000, d: 3.8, size: 60, shape: "sq", rc: 10, ly: 3, base: "on", cap: "on", strap: true });
+const THROUGH_HOLES = encodeHashDoc({ size: 38, cap: "on", mount: "through", strap: true });
+const KEYHOLE_SMALL = encodeHashDoc({ size: 20, cap: "on", mount: "keyhole", strap: true });
 const TRIANGLE = encodeHashDoc({ L: 3000, d: 3.8, size: 60, shape: "tri", rc: 10, ly: 2, base: "on", cap: "on", strap: true });
 
 async function gotoDesign(page: Page, hash: string) {
@@ -71,7 +73,26 @@ test.describe("strap slots switch (issues #240, #314)", () => {
   });
 });
 
-test.describe("strap slots screenshots (issues #240, #314)", () => {
+test.describe("strap slots note (issue #316)", () => {
+  test("a design whose base and cap both get slots shows no note", async ({ page }) => {
+    await gotoDesign(page, THROUGH_HOLES);
+    await expect(page.getByTestId("strap-slots")).toBeChecked();
+    await expect(page.getByTestId("strap-slots-note")).toHaveCount(0);
+  });
+
+  test("a plate left without slots gets a note under the switch, which goes with the switch", async ({ page }) => {
+    await gotoDesign(page, KEYHOLE_SMALL);
+    const note = page.getByTestId("strap-slots-note");
+    await expect(note).toContainText(/strap slots don't fit anywhere round the rim of the base/i);
+    const field = page.locator(".field").filter({ has: page.getByTestId("strap-slots") });
+    await expect(field.getByTestId("strap-slots-note")).toBeVisible();
+
+    await page.getByTestId("strap-slots").uncheck();
+    await expect(note).toHaveCount(0);
+  });
+});
+
+test.describe("strap slots screenshots (issues #240, #314, #316)", () => {
   test("a rounded square with a base and a cap: the closed slots, isometric", async ({ page }) => {
     await gotoDesign(page, SQUARE);
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("strap-slots-square-iso.png");
@@ -81,5 +102,11 @@ test.describe("strap slots screenshots (issues #240, #314)", () => {
     await gotoDesign(page, TRIANGLE);
     await lookDown(page);
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("strap-slots-triangle-top.png");
+  });
+
+  test("a round core with a base, a through-hole mount and a cap, from above: the cap's own pair, opposite", async ({ page }) => {
+    await gotoDesign(page, THROUGH_HOLES);
+    await lookDown(page);
+    await expect(page.getByTestId("coil-viewer").locator("canvas")).toHaveScreenshot("strap-slots-through-cap-top.png");
   });
 });
