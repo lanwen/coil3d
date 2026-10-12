@@ -6,11 +6,10 @@ import { expectSettled } from "./settled";
 // End-to-end checks for the strap slots (issues #240, #314): the switch under
 // the top cap switch, its place in the hash, and two screenshots of the closed
 // slots in the plates. The slot layout itself is covered by vitest against the
-// public `design()` interface (test/strapSlot.test.ts). The core size stays
-// free in these links: with it locked the plates have no room for the slots.
+// public `design()` interface (test/strapSlot.test.ts).
 
-const SQUARE = encodeHashDoc({ L: 4000, d: 3.8, shape: "sq", rc: 10, ly: 3, h: 50, lock: ["h", "ly"], base: "on", cap: "on", strap: true });
-const TRIANGLE = encodeHashDoc({ L: 3000, d: 3.8, shape: "tri", rc: 10, ly: 2, h: 50, lock: ["h", "ly"], base: "on", cap: "on", strap: true });
+const SQUARE = encodeHashDoc({ L: 4000, d: 3.8, size: 60, shape: "sq", rc: 10, ly: 3, base: "on", cap: "on", strap: true });
+const TRIANGLE = encodeHashDoc({ L: 3000, d: 3.8, size: 60, shape: "tri", rc: 10, ly: 2, base: "on", cap: "on", strap: true });
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);

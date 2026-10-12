@@ -142,7 +142,7 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
     }
   }
   let marginBeforeStrap: number | undefined;
-  if (spec.strapSlots && (baseOn || solution.topCapEnabled) && !spec.coreSize.locked && !strapSlotsFitMargin(sizing.margin, sized.envelopeOffset)) {
+  if (spec.strapSlots && (baseOn || solution.topCapEnabled) && !strapSlotsFitMargin(sizing.margin, sized.envelopeOffset)) {
     const grown = growMargin(sizing.margin, (margin) => strapSlotsFitMargin(margin, sized.envelopeOffset) && (!baseOn || mountFits(layoutsAt(margin))));
     if (grown !== undefined) {
       plan = layoutsAt(grown);

@@ -29,7 +29,7 @@ export const HINTS = {
   topCap:
     "This controls whether the coil gets a flat lid on top. Until you touch this switch it stays in auto mode (tagged \"auto\"), which leaves the cap off, with or without a base. The switch always shows the current on/off state. Touch it and it becomes an explicit override, saved in the link -- use \"Reset to auto\" to go back.",
   strapSlots:
-    "This cuts two closed slots into each plate, beside the wound cable and half a turn apart. A hook-and-loop tie (12 mm wide ties fit) goes through a slot and over the rim, to hold the cable's lead against the plate. The plate needs 6 mm beyond the cable, so it grows to make room, but only while the core size is unlocked; with it locked and no room, the slots are left out. The slots clear the cable slots, the mounts and the label. Off by default.",
+    "This cuts two closed slots in each plate. A hook-and-loop tie through a slot and over the rim holds the cable's lead. The plate grows about 4.5 mm to fit them.",
   joint: "This is how the top cap attaches to the core: pressed on, twisted into a bayonet lock, or snapped on with printable clips. All three are meant to be permanent, once assembled.",
   tolerance: "This is the extra gap added to every joint so printed parts fit together. Raise it if your printer runs a bit oversized. Lower it for a tighter fit.",
   label: "This is text engraved into the top cap, for example the cable type or length. Leave it blank for no label.",

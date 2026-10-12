@@ -182,13 +182,13 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   (`STRAP_SLOT_OUTER_WALL`, the wall that takes the tie's pull). The plate
   therefore needs 6 mm past the cable (`STRAP_SLOT_PLATE_REACH`), which an
   unmounted plate does not have: it reaches only 1.5 to 3 mm past a multi-layer
-  winding. With the core size free, the flange margin grows until it does,
-  the way it grows for a mount: a square or triangle with two layers gets
-  4.5 mm more on every side, a round one 2 to 4.5 mm. With the core size locked
-  and too little room there are no slots and a note says so. The app's default
-  locks the core size, so a user has to unlock it first. The search starts at
-  the cable's outer end, where the lead leaves through the rim slot, and goes
-  one millimetre at a time either way round the rim. The first pair that keeps
+  winding. The flange margin grows until it does, the way it grows for a
+  mount, even with the core size locked: that lock keeps the core's size only.
+  A square or triangle with two layers gets 4.5 mm more on every side, a round
+  one 2 to 4.5 mm. If the margin cannot grow there are no slots and a note says
+  so. The search starts at the cable's outer end, where the lead leaves through
+  the rim slot, and goes one millimetre at a time either way round the rim.
+  The first pair that keeps
   1 mm clear of the rim slots, the inner-end channel, the mounts and T-clips,
   the label and the cable's free ends is used. The base and the cap share that
   one pair, so the slots line up from plate to plate. A small, tall coil can

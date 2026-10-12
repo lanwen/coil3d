@@ -1,7 +1,7 @@
 import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { DEFAULT_SPEC, design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, ShapeSpec } from "../src/core";
 import { CAP_THICKNESS, MOUNT_PLATE_EDGE_MARGIN, MOUNT_PLATE_THICKNESS, RIM_SLOT_LABEL_KEEP_OUT, SCREW_MOUNT_HEAD_RADIUS, STRAP_SLOT_INNER_WALL, STRAP_SLOT_KEEP_OUT, STRAP_SLOT_LENGTH, STRAP_SLOT_OUTER_WALL, STRAP_SLOT_PLATE_REACH, STRAP_SLOT_WIDTH, THROUGH_MOUNT_EDGE_MARGIN } from "../src/core/constants";
 import { layoutFlangeThroughHoles } from "../src/core/flangePads";
@@ -395,7 +395,7 @@ describe("strap slots in the mount plate", () => {
   });
 });
 
-describe("strap slots when the margin has to grow, and when it can't", () => {
+describe("strap slots when the margin has to grow", () => {
   it("a square r12 with the core size left free grows to at least 6 mm of plate past the cable, base and cap alike", async () => {
     const shape: ShapeSpec = { kind: "sq", cornerRadius: 12 };
     const on = await design(baseSpec({ shape }), "draft");
@@ -412,13 +412,27 @@ describe("strap slots when the margin has to grow, and when it can't", () => {
     expect(d.flangeSpec.margin - drawnReach(d)).toBeGreaterThanOrEqual(STRAP_SLOT_PLATE_REACH - TOLERANCE_MM);
   });
 
-  it("with the core size locked and too little room, there are no slots and a note says so", async () => {
+  it("the default design with two layers and the core size locked still gets slots: the margin grows and the core keeps its size", async () => {
+    const spec: CoilSpec = { ...DEFAULT_SPEC, base: "on", topCap: "on", layers: { locked: true, value: 2 }, strapSlots: true };
+    expect(spec.coreSize.locked).toBe(true);
+    const on = await design(spec, "draft");
+    const off = await design({ ...spec, strapSlots: false }, "draft");
+    expect(on.strapSlots.base).toHaveLength(2);
+    expect(on.strapSlots.cap).toHaveLength(2);
+    expect(on.solution.outerSize).toBe(off.solution.outerSize);
+    expect(on.flangeSpec.margin).toBeGreaterThan(off.flangeSpec.margin);
+    expect(on.flangeSpec.margin - drawnReach(on)).toBeGreaterThanOrEqual(STRAP_SLOT_PLATE_REACH - TOLERANCE_MM);
+    expect(on.notices.filter((n) => /left out/i.test(n.message))).toEqual([]);
+  });
+
+  it("every shape with the core size locked grows its margin and keeps its core size", async () => {
     for (const shape of SHAPES) {
-      const d = await design(baseSpec({ shape, coreSize: LOCKED_CORE }), "draft");
-      expect(d.flangeSpec.margin - drawnReach(d), shape.kind).toBeLessThan(STRAP_SLOT_PLATE_REACH);
-      expect(d.strapSlots, shape.kind).toEqual({ base: [], cap: [], mountPlate: [] });
-      expect(d.notices.some((n) => n.severity === "note" && /isn't room for the strap slots/i.test(n.message)), shape.kind).toBe(true);
-      expect(d.notices.filter((n) => n.severity === "problem"), shape.kind).toEqual([]);
+      const on = await design(baseSpec({ shape, coreSize: LOCKED_CORE }), "draft");
+      const off = await design(baseSpec({ shape, coreSize: LOCKED_CORE, strapSlots: false }), "draft");
+      expect(on.strapSlots.base, shape.kind).toHaveLength(2);
+      expect(on.strapSlots.cap, shape.kind).toHaveLength(2);
+      expect(on.solution.outerSize, shape.kind).toBe(off.solution.outerSize);
+      expect(on.flangeSpec.margin - drawnReach(on), shape.kind).toBeGreaterThanOrEqual(STRAP_SLOT_PLATE_REACH - TOLERANCE_MM);
     }
   });
 
