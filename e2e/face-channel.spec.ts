@@ -90,3 +90,70 @@ test.describe("a bare core's face channels (issue #254)", () => {
     await expect(page.getByTestId("mesh-detail")).toContainText("1 part");
   });
 });
+
+const SQUARE_BARE = encodeHashDoc({ L: 1720, d: 3, shape: "sq", size: 50, lock: ["outer"], cap: "off", joint: "snap" });
+const MAX_DOT_PIXELS = 150;
+
+test.describe("a bare core's channel ends draw cleanly (issue #321)", () => {
+  test.use({ deviceScaleFactor: 3 });
+
+  for (const view of ["iso", "top", "bottom"] as const) {
+    test(`${view} view: no stray dot beside the channels' ends`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.goto(`/${SQUARE_BARE}`);
+      await expect(page.getByTestId("download-stl")).toBeEnabled();
+      await expectSettled(page);
+      await page.getByTestId("toggle-wire").uncheck({ force: true });
+      await page.getByTestId("toggle-dimensions").uncheck({ force: true });
+      const canvas = page.getByTestId("coil-viewer").locator("canvas");
+      const box = (await canvas.boundingBox())!;
+      if (view !== "iso") {
+        const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+        for (let i = 0; i < 2; i++) {
+          await page.mouse.move(x, y);
+          await page.mouse.down();
+          await page.mouse.move(x, y + (view === "top" ? 600 : -600), { steps: 20 });
+          await page.mouse.up();
+        }
+      }
+      await expectSettled(page);
+      await page.waitForTimeout(1000);
+      const png = await canvas.screenshot();
+      const dots = await page.evaluate(
+        async ({ b64, limit }) => {
+          const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+          const img = await createImageBitmap(blob, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+          const ctx = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
+          ctx.drawImage(img, 0, 0);
+          const { data, width, height } = ctx.getImageData(0, 0, img.width, img.height);
+          const ink = (x: number, y: number) => data[(y * width + x) * 4] < 128;
+          const seen = new Uint8Array(width * height);
+          const found: Array<{ pixels: number; at: [number, number] }> = [];
+          for (let y = Math.floor(height * 0.12); y < Math.floor(height * 0.9); y++) {
+            for (let x = Math.floor(width * 0.1); x < Math.floor(width * 0.9); x++) {
+              if (seen[y * width + x] || !ink(x, y)) continue;
+              const stack = [[x, y]];
+              seen[y * width + x] = 1;
+              let pixels = 0;
+              while (stack.length > 0) {
+                const [cx, cy] = stack.pop()!;
+                pixels++;
+                for (let dy = -1; dy <= 1; dy++)
+                  for (let dx = -1; dx <= 1; dx++) {
+                    const [nx, ny] = [cx + dx, cy + dy];
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height || seen[ny * width + nx] || !ink(nx, ny)) continue;
+                    seen[ny * width + nx] = 1;
+                    stack.push([nx, ny]);
+                  }
+              }
+              if (pixels <= limit) found.push({ pixels, at: [Math.round(x / 3), Math.round(y / 3)] });
+            }
+          }
+          return found;
+        },
+        { b64: png.toString("base64"), limit: MAX_DOT_PIXELS },
+      );
+      expect(dots, `${view} view: isolated ink specks (pixels, css position)`).toEqual([]);
+    });
+  }
+});
