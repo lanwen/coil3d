@@ -362,6 +362,72 @@ odd last layer finishes on the top turn; an even one on the bottom turn.
   bend and (for the inner end) the climb to the top face. With the base on the
   same size floor applies, and the height floor leaves out only the inner end's
   climb; the length counts the outer end's channel alone.
+- **Rim leads (#321).** A channel used to start with a step against the groove
+  it leaves, and the cutter's flat start face stood in the wall as a short line
+  in the line art. The wall now opens a lead section around each junction: the
+  channel's own section (a circle of the channel's radius about the cable's
+  centre, with a vertical wall on the face side, tangent to the circle), grown by
+  `FACE_LEAD_MARGIN` (0.05 mm) so that it holds the cutter's start face inside the
+  wall's cavity. On the groove side it holds for `FACE_ARC_JOINT_OVERLAP` plus
+  `FACE_LEAD_HOLD`, then shrinks into the groove over `FACE_LIP_OPEN` (twice the 6
+  mm ease length) with a smoothstep. On the channel side it shrinks by
+  `FACE_LEAD_INNER` over `FACE_LEAD_SHRINK` (2 mm), and the groove fades there
+  over `FACE_GROOVE_LEAD` (4 mm). A circle meeting the cutter's dome meets it at
+  an angle that grows as the circle shrinks, so the surfaces that emerge from each
+  other have the same section shape. At the bottom the roof side of the section
+  follows the circle only up to a tangent line at an angle that goes from 90 to
+  45 degrees from vertical between `FACE_LEAD_TILT` (0.6 mm) before the cutter's
+  start face and the face, and stays at 45 degrees (the groove's own rule) after
+  it, so the roof stays printable. The lead section applies only to the leads of
+  one-layer cores at the top (with more layers the top channel starts off the wall
+  after the ramp). The wall's columns are 0.5 mm apart within 4 mm
+  (`FACE_LEAD_COLUMN_STEP`, `FACE_LEAD_COLUMN_REACH`) of both ends of the groove
+  on every design, so the base-on and bare cores share them, and the section's
+  change over a coarse column does not cross the cutter at a sharp angle (the
+  mesh and the STEP export build the wall on the same columns, `wallColumnParams`).
+  Every transverse edge within 1.5 mm of the cutter's start face (and 3 mm into the
+  channel) is at most 20 degrees, 10 below the viewer's draw threshold. The
+  STEP cutter is 0.03 mm wider than the mesh's (`FACE_STEP_CUT_CLEARANCE`): a
+  B-spline wall and a cylinder at the same depth leave 3 % of the volume on the
+  core. The cutter's face is hidden by the wall in all designs; the line art keeps a short
+  fragment at the tip of the opened wall (about 12 mm along the top groove).
+- **Edge rounds (#321).** The floor of the top channel and the roof of the
+  bottom channel used to meet the hole's vertical edge at 90 degrees, a knife a
+  pulled cable bears on. Each channel's cutter gets one more piece
+  (`faceDipSweep`): the channel's own section, with its dome moved down (top)
+  or up (bottom) along a quarter round of radius equal to the web (1.2 mm),
+  tangent to the floor or roof and vertical `FACE_DIP_PAST` (0.25 mm) beyond the
+  hole's edge. Its first section is the channel's own, so the round starts
+  without a ledge; the sections after it are `FACE_DIP_OUTSET` (0.05 mm) wider,
+  so the sweep encloses the arc it continues instead of surfacing through its
+  dome at a near-tangent angle. A first section of any other size leaves a ledge
+  that draws as a dot in the line art, and cutting the arc short where the round
+  begins leaves hairline slivers in some designs. The round meets the edge at
+  about 140 degrees, and its last sheet stands in the hole instead of on its
+  wall: sheets that coincide with the hole's wall fold the mesh in about 0.1 % of
+  the fuzz designs. Where the arc meets the edge square-on, the three lines (the
+  centre and the two walls) cross it together. Where it does not (a pill's), the
+  round is placed on the centre line, where the cable bears, when the latest
+  wall line crosses within `FACE_DIP_SKEW` (0.5 mm) of it; the earlier wall keeps
+  a partial round. A more oblique crossing places the round on the latest line,
+  so the centre line keeps part of its knife (a 7 mm cable on a round core
+  crosses at about 0.4 square-on and keeps all of it; main has the same knife).
+  A round on the distance to the edge (twisted sections) fixes that, but its flat
+  crown patches fail the print check on wider channels. The top round faces up,
+  so it has no overhang. At the bottom the round rises from the roof's crown like
+  the roof's own bridge, so the printability check accepts a patch up to the web
+  higher than the roof. A larger radius does not fit: the cable's own bend radius
+  (about 6 mm) would need a web of that size, or a shallow exit with a thin tip.
+  STEP fuses a coarser copy of the sweep (3 steps, 8 dome segments, 0.05 mm
+  narrower) into each end's tool: cut from the ring solids alone it leaves the
+  core invalid with the SKADIS clips' notches, and fused at the mesh's size the
+  boolean takes several times longer than without the round.
+- **Bore fillet (#321).** With the bottom ring, the ring's top face is a ledge
+  `W` wide that met the bore wall at 90 degrees. A concave quarter round of
+  radius `min(d, W / 2, room under the top funnel's foot less 0.2 mm)` rounds
+  that corner: it faces up, so it needs no support, and half the ledge stays flat
+  for the hole's seat clearance. STEP cuts the same polyline round as a ruled
+  loft (`filletCollars`).
 - **Mesh.** The ring surfaces are part of the wall's own mesh (`buildWall`:
   the bore's profile per column), so no boolean builds a ring. One boolean cuts
   the channels from the finished wall.
@@ -937,6 +1003,10 @@ features: flange, joints, clips, mounts and label.
   lower edge is 0.2 mm above the face, so the cable's bottom sits about
   0.3 mm above it. Nothing is left below the first turn to slide down into.
 - The groove covers layer 1 only.
+- With one layer and a top channel, the end fade does not stop at the end turn:
+  the groove stays at full depth up to it and fades over the 2 mm after, under
+  the channel's cut (see the rim leads of the face channels). Otherwise it
+  fades over the last 0.15 turn.
 - The helix phase follows the arc length of the groove floor, not of the
   un-grooved surface, so the pitch does not bunch up at corners.
 

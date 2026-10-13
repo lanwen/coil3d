@@ -62,7 +62,8 @@ function topRegionFloor(bare: Design): number {
 
 const SECTIONS = 40;
 /** Relative: the two meshes are refined and flattened separately, so a flat face may differ by a sliver. */
-const SAME = 1e-4;
+/* 2e-4 (#321): the channel's lead ramps are twisted quads (up to 0.53 mm off planar near section 26) on the coarse draft columns, so their diagonal moves the area ~1.5e-4. */
+const SAME = 2e-4;
 
 /** The cross-section area at `SECTIONS` heights through the top region, and the volume above its floor: the same wherever the surface is cut into triangles. */
 function topRegion(mesh: CoilMesh, floor: number, height: number): { areas: number[]; volume: number } {

@@ -8,7 +8,18 @@ import {
   CROSSING_MIN_LAYERS,
   FACE_BEND_MARGIN,
   FACE_ARC_JOINT_OVERLAP,
+  FACE_CUT_OVERSHOOT,
+  FACE_DOME_SEGMENTS,
+  FACE_DIP_BITE,
+  FACE_DIP_MIN_WEB,
+  FACE_DIP_OUTSET,
+  FACE_DIP_PAST,
+  FACE_DIP_PROBE_STEP,
+  FACE_DIP_SKEW,
+  FACE_DIP_RUN_OUT,
+  FACE_DIP_STEPS,
   FACE_EASE_LENGTH,
+  FACE_FILLET_ROOM,
   FACE_FUNNEL_FIT_STEPS,
   FACE_WIDTH_STEPS,
   FACE_HOLE_CORNER_MIN,
@@ -39,7 +50,7 @@ import { phaseShiftTurns, radialPitch, turnsForLayer } from "./capacity";
 import { isFullCircle, evalOutline, inscribedRadius, offsetPerimeter, outlineOffsetAt, paramAt, pointAt, sideLength } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { grooveCrest, grooveShape, grooveStartHeight, windingSpan } from "./wall";
-import type { XY, XYZ } from "./innerEnd";
+import type { SweepSolid, XY, XYZ } from "./innerEnd";
 
 export type FaceName = "bottom" | "top";
 
@@ -201,9 +212,9 @@ function forwardLocalRadius(outline: ShapeOutline, t: number, offset: number): n
   return paramAt(outline, 0, t).seg % 2 === 0 ? outline.cornerRadius + offset : Infinity;
 }
 
-function arcPoint(arc: FaceCutArc, s: number): XY {
+function arcPoint(arc: FaceCutArc, s: number, lateral = 0): XY {
   const a = arc.from + (Math.sign(arc.sweep) * s) / arc.radius;
-  return { x: arc.centre.x + arc.radius * Math.cos(a), y: arc.centre.y + arc.radius * Math.sin(a) };
+  return { x: arc.centre.x + (arc.radius + lateral) * Math.cos(a), y: arc.centre.y + (arc.radius + lateral) * Math.sin(a) };
 }
 
 function arcHeading(arc: FaceCutArc, s: number): XY {
@@ -216,7 +227,7 @@ function arcLength(arc: FaceCutArc): number {
   return Math.abs(arc.sweep) * arc.radius;
 }
 
-function holeOutlineOf(boreOutline: ShapeOutline, width: number): ShapeOutline {
+export function holeOutlineOf(boreOutline: ShapeOutline, width: number): ShapeOutline {
   const apothem = boreOutline.apothem - width;
   if (isCircular(boreOutline)) return { ...boreOutline, apothem, cornerRadius: apothem };
   return { ...boreOutline, apothem, cornerRadius: Math.max(FACE_HOLE_CORNER_MIN, boreOutline.cornerRadius - width) };
@@ -662,4 +673,96 @@ export function minFaceChannelHeight(wireDiameter: number, tolerance: number, be
   const narrowest = 4 * FACE_WEB;
   const bend = zStart + arcRadiusFloor(bendRadius) + 1 + groove.pitch;
   return bottomFace ? Math.max(bottom + top + narrowest, bend) : bottom + top + narrowest;
+}
+
+export function boreFilletRadius(layout: FaceChannelLayout, wireDiameter: number): number {
+  if (!layout.inner) return 0;
+  const room = faceTopFloor(layout) - layout.bottomThickness - FACE_FILLET_ROOM;
+  return Math.max(0, Math.min(wireDiameter, layout.ringWidth / 2, room));
+}
+
+function dipWeb(end: FaceEnd, layout: FaceChannelLayout): number {
+  const half = layout.channelRadius;
+  return end.face === "top" ? end.level - half - (layout.height - (layout.topThickness ?? 0)) : layout.bottomThickness - (end.level + half);
+}
+
+interface DipPlan {
+  arc: FaceCutArc;
+  web: number;
+  begin: number;
+  finish: number;
+}
+
+function planDip(end: FaceEnd, layout: FaceChannelLayout): DipPlan | undefined {
+  const arc = end.arcs[end.arcs.length - 1];
+  const web = dipWeb(end, layout);
+  if (!(web > FACE_DIP_MIN_WEB)) return undefined;
+  const length = arcLength(arc);
+  const crossingOf = (lateral: number) => {
+    let s = 0;
+    while (s < length && holeDistance(layout.holeOutline, arcPoint(arc, s, lateral)) > 0) s += FACE_DIP_PROBE_STEP;
+    return s;
+  };
+  const centre = crossingOf(0);
+  const latest = Math.max(crossingOf(-layout.channelRadius), centre, crossingOf(layout.channelRadius));
+  const finish = (latest - centre <= FACE_DIP_SKEW ? centre : latest) + FACE_DIP_PAST;
+  const begin = finish - web;
+  if (begin < FACE_ARC_JOINT_OVERLAP || latest >= length) return undefined;
+  return { arc, web, begin, finish };
+}
+
+function dipRing(end: FaceEnd, layout: FaceChannelLayout, arc: FaceCutArc, s: number, dip: number, fit: DipFit, grow: number): XYZ[] {
+  const half = layout.channelRadius - fit.inset + grow;
+  const top = end.face === "top";
+  const centre = arcPoint(arc, s);
+  const across = { x: (centre.x - arc.centre.x) / arc.radius, y: (centre.y - arc.centre.y) / arc.radius };
+  const section: Array<[number, number]> = [];
+  for (let i = 0; i <= fit.segments; i++) {
+    const a = (top ? Math.PI : 0) + (Math.PI * i) / fit.segments;
+    section.push([half * Math.cos(a), end.level + (top ? -dip : dip) + half * Math.sin(a)]);
+  }
+  const open = top ? layout.height + FACE_CUT_OVERSHOOT + FACE_DIP_BITE : -FACE_CUT_OVERSHOOT - FACE_DIP_BITE;
+  section.push([top ? half : -half, open], [top ? -half : half, open]);
+  const ring = section.map(([l, z]) => ({ x: centre.x + across.x * l, y: centre.y + across.y * l, z }));
+  return ring;
+}
+
+function sideVolume(rings: XYZ[][]): number {
+  const m = rings[0].length;
+  let volume = 0;
+  const add = (a: XYZ, b: XYZ, c: XYZ) => {
+    volume += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x) + a.z * (b.x * c.y - b.y * c.x);
+  };
+  for (let i = 0; i + 1 < rings.length; i++) {
+    for (let j = 0; j < m; j++) {
+      const [a, b, c, d] = [rings[i][j], rings[i][(j + 1) % m], rings[i + 1][j], rings[i + 1][(j + 1) % m]];
+      add(a, b, d);
+      add(a, d, c);
+    }
+  }
+  return volume;
+}
+
+export interface DipFit {
+  inset: number;
+  steps: number;
+  segments: number;
+}
+
+export const MESH_DIP_FIT: DipFit = { inset: 0, steps: FACE_DIP_STEPS, segments: FACE_DOME_SEGMENTS };
+
+export function faceDipSweep(end: FaceEnd, layout: FaceChannelLayout, fit: DipFit = MESH_DIP_FIT): SweepSolid | undefined {
+  const plan = planDip(end, layout);
+  if (!plan) return undefined;
+  const { arc, web, begin, finish } = plan;
+  const stations: Array<[number, number]> = [];
+  for (let i = 0; i <= fit.steps; i++) {
+    const angle = (Math.PI / 2) * (i / fit.steps);
+    stations.push([begin + web * Math.sin(angle), web * (1 - Math.cos(angle))]);
+  }
+  stations.push([finish + FACE_DIP_RUN_OUT, web + layout.channelRadius + FACE_DIP_BITE]);
+  const rings = stations.map(([s, dip], i) => dipRing(end, layout, arc, s, dip, fit, i === 0 ? 0 : FACE_DIP_OUTSET));
+  const outward = sideVolume(rings) >= 0 ? rings : rings.map((ring) => [...ring].reverse());
+  const middle = (ring: XYZ[]): XYZ => ({ x: ring.reduce((sum, p) => sum + p.x, 0) / ring.length, y: ring.reduce((sum, p) => sum + p.y, 0) / ring.length, z: ring.reduce((sum, p) => sum + p.z, 0) / ring.length });
+  return { rings: outward, start: middle(outward[0]), end: middle(outward[outward.length - 1]) };
 }

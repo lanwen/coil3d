@@ -28,7 +28,7 @@ import type { RimRow } from "./edgeChamfer";
 import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd, sweepMesh } from "./innerEnd";
 import { FACE_CUT_OVERSHOOT, FACE_DOME_SEGMENTS, FACE_REVOLVE_SEGMENTS } from "./constants";
-import { faceCutArcs } from "./faceChannel";
+import { faceCutArcs, faceDipSweep } from "./faceChannel";
 import type { FaceCutArc, FaceChannelLayout, FaceEnd } from "./faceChannel";
 import type { InnerEndLayout, RimSlot, SweepSolid, XY } from "./innerEnd";
 import type { StrapSlot } from "./strapSlot";
@@ -304,7 +304,11 @@ function faceArcCutter(wasm: ManifoldToplevel, track: Track, arc: FaceCutArc, en
 
 function faceChannelCutter(wasm: ManifoldToplevel, track: Track, layout: FaceChannelLayout): Manifold {
   const ends = [...(layout.inner ? [layout.inner] : []), ...(layout.outer ? [layout.outer] : [])];
-  const pieces = ends.flatMap((end) => faceCutArcs(end).map((arc) => faceArcCutter(wasm, track, arc, end, layout)));
+  const dips = ends.flatMap((end) => {
+    const dip = faceDipSweep(end, layout);
+    return dip ? [track(sweepSolid(wasm, dip))] : [];
+  });
+  const pieces = [...dips, ...ends.flatMap((end) => faceCutArcs(end).map((arc) => faceArcCutter(wasm, track, arc, end, layout)))];
   return track(wasm.Manifold.union(pieces));
 }
 

@@ -131,6 +131,9 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     //
     // Issue #292 bumped it UP from 33487.518719260865 (by 14175.28 mm^3): a one-layer core with no cap has the bare core's
     // top ring now, with its centre hole, funnel and the outer end's channel, whichever the base.
-    expect(meshVolume(d.mesh)).toBeCloseTo(47662.79405807795, 3);
+    //
+    // Issue #321 bumped it DOWN from 47662.79405807795 (by 85.89 mm^3): the top channel's lip opening and the groove's
+    // lead under the channel take material out of the wall, and the channel's floor curves into the hole in a quarter round.
+    expect(meshVolume(d.mesh)).toBeCloseTo(47576.90229414384, 3);
   });
 });

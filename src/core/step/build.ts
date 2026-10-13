@@ -2,7 +2,7 @@ import * as R from "replicad";
 import initOpenCascade from "replicad-opencascadejs";
 import type { Geom_BSplineSurface, OpenCascadeInstance, TopoDS_Face, TopoDS_Shape } from "replicad-opencascadejs";
 import { fitPeriodicUClampedV, type BSplineFit, type Vec3 } from "./bspfit";
-import { createWallProfile } from "../wall";
+import { createWallProfile, wallColumnParams } from "../wall";
 import type { WallProfile, WallSpec } from "../wall";
 import {
   CAP_THICKNESS,
@@ -23,7 +23,13 @@ import {
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
   FACE_CUT_OVERSHOOT,
+  FACE_FILLET_MIN,
+  FACE_FILLET_STEPS,
   FACE_RING_OVERLAP,
+  FACE_STEP_CUT_CLEARANCE,
+  FACE_STEP_DIP_INSET,
+  FACE_STEP_DIP_SEGMENTS,
+  FACE_STEP_DIP_STEPS,
 } from "../constants";
 import { chamferedRim, chamferWedgeRows, SLAB_BELOW_FACE } from "../edgeChamfer";
 import type { RimRow } from "../edgeChamfer";
@@ -32,8 +38,8 @@ import type { OutlineStack, RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
-import { faceCutArcs } from "../faceChannel";
-import type { FaceChannelLayout, FaceCutArc, FaceEnd } from "../faceChannel";
+import { boreFilletRadius, faceCutArcs, faceDipSweep, holeOutlineOf } from "../faceChannel";
+import type { DipFit, FaceChannelLayout, FaceCutArc, FaceEnd } from "../faceChannel";
 import type { InnerEndLayout, SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
 import { layoutKeyholeMount, throughHoleCountersink } from "../mount";
@@ -46,7 +52,7 @@ import { clipFrame } from "../skadisClips";
 import type { RimClip, SkadisClipLayout } from "../skadisClips";
 import { tclipPieceLevels } from "../skadisTclips";
 import type { SkadisTclipLayout, Tclip } from "../skadisTclips";
-import { isPill, offsetOutline, outlineColumnParams, polygonVertex } from "../shapes";
+import { isPill, offsetOutline, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
 import type { Design } from "../types";
@@ -193,7 +199,7 @@ function channelSection(face: FaceEnd["face"], offset: number, halfWidth: number
 function faceArcCutterSolid(arc: FaceCutArc, end: FaceEnd, layout: FaceChannelLayout): R.Shape3D {
   const degrees = (Math.abs(arc.sweep) * 180) / Math.PI;
   const lowest = (Math.min(arc.from, arc.from + arc.sweep) * 180) / Math.PI;
-  const solid = channelSection(end.face, arc.radius, layout.channelRadius, end.level, layout.height).revolve([0, 0, 1], { angle: degrees });
+  const solid = channelSection(end.face, arc.radius, layout.channelRadius + FACE_STEP_CUT_CLEARANCE, end.level, layout.height).revolve([0, 0, 1], { angle: degrees });
   return solid.rotate(lowest, [0, 0, 0], [0, 0, 1]).translate([arc.centre.x, arc.centre.y, 0]);
 }
 
@@ -265,6 +271,8 @@ function faceBands(layout: FaceChannelLayout, height: number, sectors: number): 
   }));
 }
 
+const STEP_DIP_FIT: DipFit = { inset: FACE_STEP_DIP_INSET, steps: FACE_STEP_DIP_STEPS, segments: FACE_STEP_DIP_SEGMENTS };
+
 function faceRings(kernel: OpenCascadeInstance, layout: FaceChannelLayout, boreOutline: ShapeOutline): R.Shape3D[] {
   const grown = offsetOutline(boreOutline, FACE_RING_OVERLAP);
   const hole = (zLo: number, zHi: number) => outlineSolid(layout.holeOutline, zHi - zLo, zLo);
@@ -282,6 +290,23 @@ function faceRings(kernel: OpenCascadeInstance, layout: FaceChannelLayout, boreO
   return rings;
 }
 
+function filletCollars(layout: FaceChannelLayout, boreOutline: ShapeOutline, wireDiameter: number): R.Shape3D[] {
+  const radius = boreFilletRadius(layout, wireDiameter);
+  if (radius < FACE_FILLET_MIN) return [];
+  const bottom = layout.bottomThickness;
+  const over = FACE_CUT_OVERSHOOT;
+  const round = Array.from({ length: FACE_FILLET_STEPS + 1 }, (_, i) => {
+    const angle = (Math.PI / 2) * (i / FACE_FILLET_STEPS);
+    return { width: radius * (1 - Math.sin(angle)), z: bottom + radius * (1 - Math.cos(angle)) };
+  });
+  const [before, last] = round.slice(-2);
+  const slope = (last.z - before.z) / (before.width - last.width);
+  const beyond = { width: -FACE_RING_OVERLAP, z: last.z + slope * FACE_RING_OVERLAP };
+  const stations = [{ width: radius, z: bottom - 3 * over }, ...round, beyond];
+  const clearance = stackSolidStep(stations.map(({ width, z }) => ({ outline: width < 0 ? offsetOutline(boreOutline, -width) : holeOutlineOf(boreOutline, width), z })));
+  return [outlineSolid(offsetOutline(boreOutline, FACE_RING_OVERLAP), radius + 2 * over, bottom - 2 * over).cut(clearance)];
+}
+
 function reversedSolid(solid: R.Shape3D): R.Shape3D {
   const reversed = solid.wrapped.Reversed();
   const copy = R.cast(reversed) as R.Shape3D;
@@ -295,7 +320,8 @@ function faceChannelTube(kernel: OpenCascadeInstance, layout: FaceChannelLayout,
   const fits = bands.map(({ zLo, zHi }) => fitBand(profile, ts, zLo, zHi, bandSamples(zLo, zHi, pitch)));
   const faces = fits.flatMap((fit, i) => bandFaces(kernel, fit, bands[i].sectors));
   const rings = faceRings(kernel, layout, boreOutline);
-  const hollow = cutSolid(kernel, outlineSolid(boreOutline, height, 0), rings);
+  const collars = filletCollars(layout, boreOutline, wallSpec.wireDiameter);
+  const hollow = cutSolid(kernel, outlineSolid(boreOutline, height, 0), [...rings, ...collars]);
   const atEnd = (face: R.Face, z: number) => face.geomType === "PLANE" && Math.abs(face.center.z - z) < 1e-6;
   const openings = hollow.faces.filter((face) => atEnd(face, 0) || atEnd(face, height));
   const cap = (rim: TopoDS_Face, z: number) =>
@@ -310,9 +336,12 @@ function faceChannelTube(kernel: OpenCascadeInstance, layout: FaceChannelLayout,
   const shrink = (Math.hypot(x, y) - WALL_PROBE_DEPTH) / Math.hypot(x, y);
   const oriented = isInside(kernel, tube, { x: x * shrink, y: y * shrink, z }) ? tube : reversedSolid(tube);
   const ends = [layout.inner, layout.outer].filter((end): end is FaceEnd => end !== undefined);
-  const tools = ends.map((end) => faceCutArcs(end).map((arc) => faceArcCutterSolid(arc, end, layout)).reduce((all, piece) => all.fuse(piece)));
+  const tools = ends.map((end) => {
+    const dip = faceDipSweep(end, layout, STEP_DIP_FIT);
+    return [...faceCutArcs(end).map((arc) => faceArcCutterSolid(arc, end, layout)), ...(dip ? [sweepSolidStep(dip)] : [])].reduce((all, piece) => all.fuse(piece));
+  });
   const channelled = cutSolid(kernel, oriented, tools);
-  for (const solid of [...rings, ...tools, hollow, tube, oriented]) solid.delete();
+  for (const solid of [...rings, ...collars, ...tools, hollow, tube, oriented]) solid.delete();
   return channelled;
 }
 
@@ -460,8 +489,8 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   const kernel = await getOC();
   const { wallSpec, flangeSpec } = design;
   const profile = createWallProfile(wallSpec);
-  const { height, columns, minCornerSegments, outline, boreOutline } = wallSpec;
-  const ts = outlineColumnParams(outline, columns, minCornerSegments);
+  const { height, boreOutline } = wallSpec;
+  const ts = wallColumnParams(wallSpec);
 
   const NV = Math.max(MIN_V_SAMPLES, Math.round(V_SAMPLES_PER_PITCH * wallSpec.turns) + 1);
   const tube = design.faceChannels

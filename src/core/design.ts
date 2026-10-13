@@ -44,7 +44,7 @@ import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
 import type { CoilMesh, CoilSpec, Design, Part, Resolution, Solution } from "./types";
 import { buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
-import { crossingActive, crossingReserve, faceTopFloor, planFaceChannels } from "./faceChannel";
+import { boreFilletRadius, crossingActive, crossingReserve, faceTopFloor, planFaceChannels } from "./faceChannel";
 import { buildCable, outerStartOf, windLayers } from "./wire";
 
 const STADIUM_ARC_SEGMENTS = 12;
@@ -247,12 +247,19 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     columns,
     minCornerSegments: cornerSegs,
     rowsPerPitch,
+    faceLeads: faceChannels && {
+      bottom: faceChannels.inner !== undefined,
+      top: faceChannels.outer !== undefined && faceChannels.outer.ramp === undefined && woundLayers === 1,
+      centre: wireDiameter / 2 - groove.depth,
+      radius: faceChannels.channelRadius,
+    },
     rings: faceChannels && {
       holeOutline: faceChannels.holeOutline,
       width: faceChannels.ringWidth,
       bottomThickness: faceChannels.bottomThickness,
       bottomRing: faceChannels.inner !== undefined,
       topThickness: faceChannels.topThickness,
+      fillet: boreFilletRadius(faceChannels, wireDiameter),
     },
   };
   const wantsKeyhole = spec.mount === "keyhole";

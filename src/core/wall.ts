@@ -1,6 +1,6 @@
-import { FACE_HOLE_CORNER_MIN, GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE_DEG, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
+import { FACE_FILLET_MIN, FACE_FILLET_STEPS, FACE_GROOVE_LEAD, FACE_HOLE_CORNER_MIN, FACE_ARC_JOINT_OVERLAP, FACE_LEAD_COLUMN_REACH, FACE_LEAD_COLUMN_STEP, FACE_LEAD_HOLD, FACE_LEAD_INNER, FACE_LEAD_MARGIN, FACE_LEAD_SHRINK, FACE_LEAD_TILT, FACE_LIP_OPEN, FACE_LIP_RAMP, GROOVE_DEPTH_FACTOR, GROOVE_FLOOR_WALL, GROOVE_LIP_ANGLE_DEG, GROOVE_SLACK, MARGIN_BOTTOM, MARGIN_TOP_FACTOR, RIDGE_LAND, WALL_THICKNESS } from "./constants";
 import { chamferedRim } from "./edgeChamfer";
-import { arcLengthFractionAt, evalOutline, isFullCircle, isPill, outlineColumnParams, outlineOffsetAt, paramAt, pointAlong, pointAt, polygonVertex } from "./shapes";
+import { arcLengthFractionAt, evalOutline, isFullCircle, isPill, offsetPerimeter, outlineColumnParams, outlineOffsetAt, paramAt, pointAlong, pointAt, polygonVertex } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
@@ -44,6 +44,14 @@ export interface WallRings {
   bottomThickness: number;
   bottomRing: boolean;
   topThickness?: number;
+  fillet: number;
+}
+
+export interface FaceLeads {
+  bottom: boolean;
+  top: boolean;
+  centre: number;
+  radius: number;
 }
 
 export function ringHolePoint(boreOutline: ShapeOutline, outline: ShapeOutline, t: number, width: number): { x: number; y: number } {
@@ -87,6 +95,7 @@ export interface WallSpec {
   rowsPerPitch: number;
   minCornerSegments: number;
   rings?: WallRings;
+  faceLeads?: FaceLeads;
 }
 
 const BEYOND_GROOVE = 1e9;
@@ -130,7 +139,44 @@ export function createWallProfile(spec: WallSpec): WallProfile {
     return Math.abs(dz) >= rho ? BEYOND_GROOVE : c - Math.sqrt(rho * rho - dz * dz);
   };
   const zStart = grooveStartHeight({ radius: rho, depth: g }, marginBottom);
-  const taper = (phi: number) => smoothstep((phi + tauIn) / Math.max(tauIn, 1e-9)) * smoothstep((turns - phi) / tau);
+  const leads = spec.faceLeads;
+  const leadTurns = FACE_GROOVE_LEAD / offsetPerimeter(outline, -g);
+  const openTurns = FACE_LIP_OPEN / offsetPerimeter(outline, -g);
+  const startTurns = leads?.bottom ? leadTurns : tauIn;
+  const fadeTurns = leads?.top ? leadTurns : tau;
+  const endTurns = leads?.top ? turns + leadTurns : turns;
+  const heldTurns = (phi: number) => Math.min(Math.max(phi, 0), turns);
+  const taper = (phi: number) => smoothstep((phi + startTurns) / Math.max(startTurns, 1e-9)) * smoothstep((endTurns - phi) / fadeTurns);
+  const perimeter = offsetPerimeter(outline, -g);
+  const leadMargin = FACE_LEAD_MARGIN;
+  const leadHold = FACE_ARC_JOINT_OVERLAP + FACE_LEAD_HOLD;
+  const leadIn = FACE_LEAD_SHRINK;
+  const leadAlong = (phi: number): { u: number; bottom: boolean } | undefined => {
+    if (!leads) return undefined;
+    const fromBottom = leads.bottom ? phi * perimeter : Infinity;
+    const fromTop = leads.top ? (turns - phi) * perimeter : Infinity;
+    const bottom = Math.abs(fromBottom) <= Math.abs(fromTop);
+    const u = bottom ? fromBottom : fromTop;
+    return u > -leadIn && u < leadHold + FACE_LIP_OPEN ? { u, bottom } : undefined;
+  };
+  const leadSection = (phi: number, dz: number): number => {
+    const at = leadAlong(phi);
+    if (!leads || !at) return BEYOND_GROOVE;
+    const { u, bottom } = at;
+    const hi = leads.radius + leadMargin;
+    const inner = leads.radius - FACE_LEAD_INNER;
+    const lo = leads.centre + g - leadMargin;
+    const w = u >= 0 ? 1 - smoothstep((u - leadHold) / FACE_LIP_OPEN) : 1;
+    const R = u >= 0 ? lo + (hi - lo) * w : hi - (hi - inner) * smoothstep(-u / leadIn);
+    const openSide = bottom ? dz < 0 : dz > 0;
+    const a = Math.abs(dz);
+    if (openSide) return (leads.centre - R) * (1 + (w - 1) * smoothstep(a / FACE_LIP_RAMP));
+    if (bottom) {
+      const beta = Math.PI / 2 - (Math.PI / 4) * smoothstep((u + FACE_LEAD_TILT) / (FACE_ARC_JOINT_OVERLAP + FACE_LEAD_TILT));
+      if (beta < Math.PI / 2 - 1e-6 && a > R * Math.sin(beta)) return leads.centre - R * Math.cos(beta) + (a - R * Math.sin(beta)) * Math.tan(beta);
+    }
+    return a >= R ? BEYOND_GROOVE : leads.centre - Math.sqrt(R * R - a * a);
+  };
 
   const phaseFraction = (t: number): number => arcLengthFractionAt(outline, -g, t);
 
@@ -139,13 +185,18 @@ export function createWallProfile(spec: WallSpec): WallProfile {
     const q = (z - zStart) / pitch - phase;
     const k0 = Math.floor(q);
     let f = 0;
-    for (let k = k0; k <= k0 + 1; k++) {
+    const consider = (k: number) => {
       const phi = k + phase;
-      if (phi <= -tauIn || phi >= turns) continue;
-      const dz = z - zStart - pitch * Math.max(phi, 0);
-      const v = profile(dz) + (fullDepth ? 0 : (1 - taper(phi)) * g);
+      if (phi <= -startTurns || phi >= endTurns) return;
+      const dz = z - zStart - pitch * heldTurns(phi);
+      const grown = fullDepth ? 1 : taper(phi);
+      const v = Math.min(profile(dz) + (1 - grown) * g, leadSection(phi, dz));
       if (v < f) f = v;
-    }
+    };
+    consider(k0);
+    consider(k0 + 1);
+    if (leads?.top) consider(Math.ceil(turns - openTurns - phase));
+    if (leads?.bottom) consider(Math.ceil(-startTurns - phase));
     return f;
   };
 
@@ -194,9 +245,9 @@ export function createWallProfile(spec: WallSpec): WallProfile {
     const k0 = Math.floor((z - zStart) / pitch - phase);
     for (let k = k0 - 1; k <= k0 + 1; k++) {
       const phi = k + phase;
-      if (phi <= -tauIn || phi >= turns || taper(phi) > FADE_DONE_TAPER) continue;
+      if (phi <= -startTurns || phi >= endTurns || taper(phi) > FADE_DONE_TAPER) continue;
       const dz = z - zStart - pitch * Math.max(phi, 0);
-      if (dz >= landMiddle - pitch - FADE_BAND_SLACK && z - zStart - pitch * phi <= landMiddle + FADE_BAND_SLACK) return true;
+      if (dz >= landMiddle - pitch - FADE_BAND_SLACK && z - zStart - pitch * Math.min(phi, turns) <= landMiddle + FADE_BAND_SLACK) return true;
     }
     return false;
   };
@@ -229,7 +280,7 @@ export function grooveFadeTriangles(mesh: CoilMesh, spec: WallSpec): Uint32Array
   };
   const p = mesh.positions;
   const fadeLow = profile.zStart + profile.pitch;
-  const fadeHigh = profile.zStart + profile.pitch * (spec.turns - spec.taperTurns - 1);
+  const fadeHigh = profile.zStart + profile.pitch * (spec.turns - (spec.faceLeads?.top ? 0 : spec.taperTurns) - 1);
   const fades = new Map<number, boolean>();
   const fadeAt = (v: number): boolean => {
     let f = fades.get(v);
@@ -254,12 +305,37 @@ export function grooveFadeTriangles(mesh: CoilMesh, spec: WallSpec): Uint32Array
   return out.length > 0 ? new Uint32Array(out) : undefined;
 }
 
+export function wallColumnParams(spec: WallSpec): number[] {
+  const base = outlineColumnParams(spec.outline, spec.columns, spec.minCornerSegments);
+  const g = spec.grooveDepth;
+  const perimeter = offsetPerimeter(spec.outline, -g);
+  const fractionOf = (t: number) => arcLengthFractionAt(spec.outline, -g, t);
+  const paramOf = (f: number): number => {
+    const target = ((f % 1) + 1) % 1;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 50; i++) {
+      const mid = (lo + hi) / 2;
+      if (fractionOf(mid) < target) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  };
+  const junctions = [0, spec.turns % 1];
+  const extra: number[] = [];
+  const count = Math.round(FACE_LEAD_COLUMN_REACH / FACE_LEAD_COLUMN_STEP);
+  for (const f of junctions) for (let k = -count; k <= count; k++) extra.push(paramOf(f + (k * FACE_LEAD_COLUMN_STEP) / perimeter));
+  const all = [...base, ...extra].map((t) => ((t % 1) + 1) % 1).sort((a, b) => a - b);
+  const gap = (0.3 * FACE_LEAD_COLUMN_STEP) / perimeter;
+  return all.filter((t, i) => i === 0 || t - all[i - 1] > gap);
+}
+
 export function buildWall(spec: WallSpec): CoilMesh {
-  const { outline, boreOutline, height, marginBottom, marginTop, columns, minCornerSegments, rowsPerPitch } = spec;
+  const { outline, boreOutline, height, marginBottom, marginTop, rowsPerPitch } = spec;
   const profile = createWallProfile(spec);
   const { pitch, zStart } = profile;
 
-  const ts = outlineColumnParams(outline, columns, minCornerSegments);
+  const ts = wallColumnParams(spec);
   const C = ts.length;
 
   const delta = pitch / rowsPerPitch;
@@ -319,12 +395,21 @@ export function buildWall(spec: WallSpec): CoilMesh {
   }
 
   const { rings } = spec;
+  const ledgeFillet = (t: number, bottom: number, radius: number): Array<[number, number, number]> => {
+    const b = pointAlong(boreOutline, outline, t, 0);
+    if (radius < FACE_FILLET_MIN) return [[b.x, b.y, bottom]];
+    return Array.from({ length: FACE_FILLET_STEPS + 1 }, (_, i) => {
+      const angle = (Math.PI / 2) * (i / FACE_FILLET_STEPS);
+      const q = i === FACE_FILLET_STEPS ? b : ringHolePoint(boreOutline, outline, t, radius * (1 - Math.sin(angle)));
+      return [q.x, q.y, bottom + radius * (1 - Math.cos(angle))];
+    });
+  };
   const profileOf = (t: number): Array<[number, number, number]> => {
     const b = pointAlong(boreOutline, outline, t, 0);
     if (!rings) return [[b.x, b.y, 0], [b.x, b.y, height]];
     const h = ringHolePoint(boreOutline, outline, t, rings.width);
     const bottom = rings.bottomThickness;
-    const floor: Array<[number, number, number]> = rings.bottomRing ? [[h.x, h.y, 0], [h.x, h.y, bottom], [b.x, b.y, bottom]] : [[b.x, b.y, 0]];
+    const floor: Array<[number, number, number]> = rings.bottomRing ? [[h.x, h.y, 0], [h.x, h.y, bottom], ...ledgeFillet(t, bottom, rings.fillet)] : [[b.x, b.y, 0]];
     if (rings.topThickness === undefined) return [...floor, [b.x, b.y, height]];
     const flat = height - rings.topThickness;
     const foot = Math.max(bottom, flat - outlineOffsetAt(rings.holeOutline, b.x, b.y).offset);
