@@ -293,12 +293,26 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
     hook ramps), so the bar rides onto the back of the board as it turns.
   - Every edge is chamfered 0.6 mm, the faces' edges too (45°, so the
     bed-side ones print).
+  - A notch across the fin's top, on the clip's axis and through its full
+    4 mm thickness: 1.2 mm wide and 3 mm deep, so a flat screwdriver's blade
+    turns a fin that is out of reach. It runs across, not along the edge,
+    because the clip prints on its face: the notch is then part of the flat
+    outline, with no overhang, and a turning blade loads its walls along the
+    layers. A groove along the top edge would overhang its whole depth and
+    load its thin walls across the layers. The notch's mouth has a 0.4 mm
+    lead-in chamfer. A fin with less room keeps at least 2 mm of full-width
+    fin above the floor's top, so its notch is shallower, and it has none
+    under 1 mm.
   - The gap between the fin's and the T bar's bearing faces is the floor
     under the recess plus 5.2 mm. That is tight on a painted 5.23 mm board,
     and leaves about 0.4 mm of play on an unpainted 4.82 mm one. There is
     one clamp length.
-- **Construction.** A clip is a fin, a stem and a T bar, each a convex prism with
-  its faces' edges chamfered. The mesh backend builds each as the hull of its
+- **Construction.** A clip is a base fin, two prongs, a stem and a T bar (a
+  fin with no notch is one piece), each a convex prism with its faces' edges
+  chamfered. The prongs are the fin's two halves above the notch's floor; they
+  run two chamfers (1.2 mm) down into the base, so that on each face the
+  prong's chamfer ends exactly where the base's begins: the joint leaves no
+  groove, and no coplanar overlap that would leave slivers. The mesh backend builds each as the hull of its
   four levels and the STEP backend as a loft through them: the same solid. The
   stem runs 0.5 mm into the fin and the bar so the pieces overlap. The slot
   and recess cutters are two convex pieces each (a hull of both would bulge
@@ -347,7 +361,7 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
   clip sits as high as it goes, so the coil hangs below it like a pendulum.
 - **Reaching the fins.** You reach through the core (and the cap's hole) and
   pinch the fin's top, or turn a fin that is out of reach with long-nose
-  pliers or tweezers.
+  pliers, or a flat screwdriver in the fin's notch.
   - A 15 mm column straight above each fin's top stays clear of the core and
     the cap, so a fingertip or a tool goes straight down onto the fin.
   - Fins turn in their own 9.5 mm circles, and slots are at least 28 mm
@@ -357,8 +371,8 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
      board slot.
   2. Reach through the core and push each clip in with its fin upright: the
      T bar passes at the slot's centre.
-  3. Pinch the fin (or grip it with long-nose pliers or tweezers if it is out
-     of reach) and turn the clip a quarter turn clockwise until it stops.
+  3. Pinch the fin (or turn it with long-nose pliers, or a flat screwdriver in
+     its notch, if it is out of reach) and turn the clip a quarter turn clockwise until it stops.
   4. Let go. The coil and its clips drop together about 5.4 mm, until the
      stems rest on the bottoms of the slots.
 

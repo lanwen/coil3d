@@ -2,7 +2,7 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, Part } from "../src/core";
-import { JOINT_ENGAGE_DEPTH, SKADIS_TCLIP_FIN_HEIGHT, SKADIS_TCLIP_FIN_TOP_GAP, SKADIS_TCLIP_HANDLE_THICKNESS, SKADIS_TCLIP_RECESS_DEPTH } from "../src/core/constants";
+import { JOINT_ENGAGE_DEPTH, SKADIS_TCLIP_FIN_HEIGHT, SKADIS_TCLIP_FIN_TOP_GAP, SKADIS_TCLIP_HANDLE_THICKNESS, SKADIS_TCLIP_NOTCH_DEPTH, SKADIS_TCLIP_NOTCH_FLOOR, SKADIS_TCLIP_NOTCH_LEAD, SKADIS_TCLIP_NOTCH_WIDTH, SKADIS_TCLIP_RECESS_DEPTH, SKADIS_TCLIP_WIDTH } from "../src/core/constants";
 import { meshVolume } from "../src/core/meshVolume";
 
 // Issue #207: do the printed rim clips really hang on a SKÅDIS board and hold
@@ -641,6 +641,57 @@ describe("the SKÅDIS T-clips lock onto a real SKÅDIS board from inside the bor
     for (const part of clips) expect(maxZOf(part.mesh), `${part.name}: the fin's top`).toBeCloseTo(SKADIS_TCLIP_FIN_HEIGHT, 3);
     expect(d.notices.some((n) => /fins sit|long reach/.test(n.message))).toBe(false);
   }, 120_000);
+
+  const FLAT_BLADE_ALLOWANCE = 0.3; // mm, past the notch's wall, where a probe must hit the prong
+  const MIN_PRONG_WIDTH = 3; // mm, so a prong stays stout enough to take a turning blade
+  const FLAT_FACE_HALF = 1.4; // mm, half the fin's thickness inside the faces' 0.6 mm chamfers
+
+  /** The share of a box, in the clip's mounted pose, that is clip material: `at` is its offset along the fin from the axis, `half` and `thick` its half extents along and through the fin. */
+  function finFill(wasm: Wasm, clip: M, f: Frame, axis: { axisUp: number; side: number }, box: { at: number; half: number; thick: number; z0: number; z1: number }): number {
+    const cube = wasm.Manifold.cube([2 * box.half, 2 * box.thick, box.z1 - box.z0], true)
+      .translate([0, 0, (box.z0 + box.z1) / 2])
+      .rotate([0, 0, -(Math.atan2(f.up.x, f.up.y) * 180) / Math.PI])
+      .translate([(axis.side + box.at) * f.side.x + axis.axisUp * f.up.x, (axis.side + box.at) * f.side.y + axis.axisUp * f.up.y, 0]);
+    const filled = overlap(clip, cube) / cube.volume();
+    cube.delete();
+    return filled;
+  }
+
+  const NOTCH_CASES = [
+    ...TCLIP_CASES,
+    { label: "thin core under a cap (fin at its 3 mm minimum)", overrides: tclip({ wire: { length: 300, diameter: 2, type: "usb" }, topCap: "on" }), clips: 3 },
+  ];
+
+  it.each(NOTCH_CASES)("$label: every fin has a 1.2 mm wide, 3 mm deep notch across its top through its full thickness, and stays full width below it", async ({ overrides }) => {
+    const wasm = await getWasm();
+    const d = await design(baseSpec(overrides));
+    const f = frameOf(d.mountAxisDeg!);
+    const frontZ = d.pegboard!.frontZ;
+    for (const part of clipsOf(d)) {
+      const m = manifoldOf(wasm, part.mesh);
+      const axis = tclipStemOf(m, frontZ - 2.5, f);
+      const finTop = maxZOf(part.mesh);
+      const depth = Math.min(SKADIS_TCLIP_NOTCH_DEPTH, finTop - SKADIS_TCLIP_NOTCH_FLOOR);
+      const wallHalf = SKADIS_TCLIP_NOTCH_WIDTH / 2;
+      const through = SKADIS_TCLIP_WIDTH / 2 + 0.2;
+      const floorZ = finTop - depth;
+      const fill = (at: number, half: number, thick: number, z0: number, z1: number) => finFill(wasm, m, f, axis, { at, half, thick, z0, z1 });
+      const inNotch = wallHalf - 0.05;
+      expect(fill(0, inNotch, through, floorZ + 0.05, finTop + 1), `${part.name}: nothing in the notch, through the full thickness`).toBeLessThan(1e-3);
+      expect(fill(0, inNotch, FLAT_FACE_HALF, floorZ - 0.4, floorZ - 0.05), `${part.name}: the notch's floor is ${depth} mm below the fin's top`).toBeCloseTo(1, 3);
+      for (const sign of [1, -1]) {
+        const wallZ = finTop - depth / 2;
+        expect(fill(sign * (wallHalf + FLAT_BLADE_ALLOWANCE), 0.05, FLAT_FACE_HALF, wallZ - 0.1, wallZ + 0.1), `${part.name}: a prong stands ${FLAT_BLADE_ALLOWANCE} mm past the wall on side ${sign}`).toBeCloseTo(1, 3);
+      }
+      for (const sign of [1, -1]) {
+        const leadIn = SKADIS_TCLIP_NOTCH_LEAD;
+        expect(fill(sign * (wallHalf + leadIn + MIN_PRONG_WIDTH / 2), MIN_PRONG_WIDTH / 2, FLAT_FACE_HALF, finTop - 0.2, finTop - 0.1), `${part.name}: the prong on side ${sign} keeps ${MIN_PRONG_WIDTH} mm of flat top past its lead-in chamfer`).toBeCloseTo(1, 3);
+      }
+      const lowZ = SKADIS_TCLIP_NOTCH_FLOOR - 0.2;
+      expect(fill(0, inNotch, FLAT_FACE_HALF, lowZ - 0.1, lowZ + 0.1), `${part.name}: full width 2 mm above the floor's top`).toBeCloseTo(1, 3);
+      m.delete();
+    }
+  }, 240_000);
 
   it("a bore with room for fewer than 3 clips says how the coil hangs; one with none leaves them out and suggests the rim clips", async () => {
     const two = await design(baseSpec(tclip(size(75))));
