@@ -12,6 +12,10 @@ import {
   SKADIS_TCLIP_HANDLE_LENGTH,
   SKADIS_TCLIP_HANDLE_THICKNESS,
   SKADIS_TCLIP_LEAD_IN,
+  SKADIS_TCLIP_NOTCH_DEPTH,
+  SKADIS_TCLIP_NOTCH_FLOOR,
+  SKADIS_TCLIP_NOTCH_LEAD,
+  SKADIS_TCLIP_NOTCH_WIDTH,
   SKADIS_TCLIP_RAMP,
   SKADIS_TCLIP_RAMP_LENGTH,
   SKADIS_TCLIP_REACH_MARGIN,
@@ -67,6 +71,7 @@ export interface SkadisTclipInput {
 }
 
 const STEM_OVERLAP = 0.5;
+const MIN_NOTCH_DEPTH = 1;
 const SEARCH_STEP = 0.25;
 const REACH_MARGIN_UP = 1;
 const RECESS_SECTOR_STEPS = 10;
@@ -102,6 +107,22 @@ export function offsetConvex(poly: Pt[], d: number): Pt[] {
   });
 }
 
+function finPieces(recessFloor: number, finTop: number, halfFin: number, chamfer: number): Pt[][] {
+  const notchDepth = Math.min(SKADIS_TCLIP_NOTCH_DEPTH, finTop - SKADIS_TCLIP_NOTCH_FLOOR);
+  const corners: Pt[] = [[-halfFin, recessFloor], [halfFin, recessFloor], [halfFin, finTop], [-halfFin, finTop]];
+  if (notchDepth < MIN_NOTCH_DEPTH) return [chamferCorners(corners, corners, chamfer)];
+  const notchHalf = SKADIS_TCLIP_NOTCH_WIDTH / 2;
+  const notchFloor = finTop - notchDepth;
+  const prongRoot = notchFloor - 2 * chamfer;
+  const base = chamferCorners([[-halfFin, recessFloor], [halfFin, recessFloor], [halfFin, notchFloor], [-halfFin, notchFloor]], corners, chamfer);
+  const prong = (points: Pt[], outerTop: Pt, innerTop: Pt) => chamferCorners(chamferCorners(points, [outerTop], chamfer), [innerTop], SKADIS_TCLIP_NOTCH_LEAD);
+  return [
+    base,
+    prong([[notchHalf, prongRoot], [halfFin, prongRoot], [halfFin, finTop], [notchHalf, finTop]], [halfFin, finTop], [notchHalf, finTop]),
+    prong([[-halfFin, prongRoot], [-notchHalf, prongRoot], [-notchHalf, finTop], [-halfFin, finTop]], [-halfFin, finTop], [-notchHalf, finTop]),
+  ];
+}
+
 function pieces(thickness: number, finTop: number): TclipPiece[] {
   const recessFloor = -SKADIS_TCLIP_RECESS_DEPTH;
   const boardBack = -thickness - SKADIS_TCLIP_CLAMPED_BOARD_THICKNESS;
@@ -112,8 +133,7 @@ function pieces(thickness: number, finTop: number): TclipPiece[] {
   const chamfer = SKADIS_TCLIP_CHAMFER;
   const rampDepth = SKADIS_TCLIP_RAMP;
   const rampLength = SKADIS_TCLIP_RAMP_LENGTH;
-  const finCorners: Pt[] = [[-halfFin, recessFloor], [halfFin, recessFloor], [halfFin, finTop], [-halfFin, finTop]];
-  const fin = chamferCorners(finCorners, finCorners, chamfer);
+  const fin = finPieces(recessFloor, finTop, halfFin, chamfer);
   const stem: Pt[] = [[-halfStem, boardBack - STEM_OVERLAP], [halfStem, boardBack - STEM_OVERLAP], [halfStem, recessFloor + STEM_OVERLAP], [-halfStem, recessFloor + STEM_OVERLAP]];
   const bar = chamferCorners(
     [[-halfBar, barBottom], [halfBar, barBottom], [halfBar, boardBack - rampDepth], [halfBar - rampLength, boardBack], [-(halfBar - rampLength), boardBack], [-halfBar, boardBack - rampDepth]],
@@ -121,7 +141,7 @@ function pieces(thickness: number, finTop: number): TclipPiece[] {
     chamfer,
   );
   return [
-    { poly: fin, chamfer },
+    ...fin.map((poly): TclipPiece => ({ poly, chamfer })),
     { poly: stem, chamfer: SKADIS_TCLIP_STEM_CHAMFER },
     { poly: bar, chamfer },
   ];

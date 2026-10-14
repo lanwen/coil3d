@@ -260,6 +260,10 @@ export const SKADIS_TCLIP_SLOT_CLEARANCE = 0.1;
 
 export const SKADIS_TCLIP_CHAMFER = 0.6;
 export const SKADIS_TCLIP_STEM_CHAMFER = 0.5;
+export const SKADIS_TCLIP_NOTCH_WIDTH = 1.2;
+export const SKADIS_TCLIP_NOTCH_DEPTH = 3;
+export const SKADIS_TCLIP_NOTCH_FLOOR = 2;
+export const SKADIS_TCLIP_NOTCH_LEAD = 0.4;
 
 export const SKADIS_TCLIP_RAMP = 0.7;
 export const SKADIS_TCLIP_RAMP_LENGTH = 1.2;
