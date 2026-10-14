@@ -2,7 +2,7 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, Part } from "../src/core";
-import { SKADIS_TCLIP_FIN_MAX, SKADIS_TCLIP_RECESS_DEPTH } from "../src/core/constants";
+import { JOINT_ENGAGE_DEPTH, SKADIS_TCLIP_FIN_HEIGHT, SKADIS_TCLIP_FIN_TOP_GAP, SKADIS_TCLIP_HANDLE_THICKNESS, SKADIS_TCLIP_RECESS_DEPTH } from "../src/core/constants";
 import { meshVolume } from "../src/core/meshVolume";
 
 // Issue #207: do the printed rim clips really hang on a SKÅDIS board and hold
@@ -597,7 +597,7 @@ describe("the SKÅDIS T-clips lock onto a real SKÅDIS board from inside the bor
     core.delete();
   }, 240_000);
 
-  it.each(TCLIP_CASES)("$label: a fingertip reaches each fin's top -- straight down through the core (and the cap's hole), not too deep", async ({ overrides }) => {
+  it.each(TCLIP_CASES)("$label: a fingertip or pliers reach each fin's top straight down, and the fin is 12 mm tall unless the room is lower", async ({ overrides }) => {
     const wasm = await getWasm();
     const d = await design(baseSpec(overrides));
     const f = frameOf(d.mountAxisDeg!);
@@ -611,18 +611,35 @@ describe("the SKÅDIS T-clips lock onto a real SKÅDIS board from inside the bor
       // A fingertip, 15 mm across, comes straight down onto the fin's top round its axis.
       const column = wasm.Manifold.cylinder(top + 10 - finTop, 7.5, 7.5, 64).translate([stem.axisUp * f.up.x + stem.side * f.side.x, stem.axisUp * f.up.y + stem.side * f.side.y, finTop + 0.5]);
       for (const solid of solids) expect(overlap(column, solid), `${part.name}: the core or the cap is in the way of the fin's top`).toBeLessThan(1e-3);
-      const depth = top - finTop;
-      const noted = d.notices.some((n) => /T-clips' fins sit/.test(n.message));
-      expect(depth <= 65 || noted, `${part.name}: the fin's top is ${depth.toFixed(1)} mm deep, unnoted`).toBe(true);
-      // Without a cap, the fin reaches the wall's top, unless the core is taller than the tallest fin.
-      const finAtMax = finTop + SKADIS_TCLIP_RECESS_DEPTH >= SKADIS_TCLIP_FIN_MAX - 1e-3;
       const ring = d.faceChannels;
+      const coreTop = Math.max(...d.parts.filter((p) => p.role === "core").map((p) => maxZOf(p.mesh)));
+      const ceiling = ring?.topThickness !== undefined ? ring.height - ring.topThickness - ring.funnelDepth : coreTop - (d.solution.topCapEnabled ? JOINT_ENGAGE_DEPTH : 0);
+      const room = ceiling - SKADIS_TCLIP_FIN_TOP_GAP;
+      const expected = Math.max(SKADIS_TCLIP_HANDLE_THICKNESS - SKADIS_TCLIP_RECESS_DEPTH, Math.min(SKADIS_TCLIP_FIN_HEIGHT, room));
+      expect(finTop, `${part.name}: the fin's top is the room's height, at most 12 mm`).toBeCloseTo(expected, 3);
       if (ring?.topThickness !== undefined) expect(finTop, `${part.name}: the fin's top is under the ring's funnel`).toBeLessThanOrEqual(ring.height - ring.topThickness - ring.funnelDepth);
-      else if (!d.solution.topCapEnabled && !finAtMax) expect(depth, `${part.name}: the fin's top stops short of the core's top`).toBeLessThan(2);
       column.delete();
       m.delete();
     }
     for (const s of solids) s.delete();
+  }, 120_000);
+
+  const TALL_FIN_CASES: Array<{ label: string; overrides: Partial<CoilSpec> }> = [
+    { label: "round 85, no cap", overrides: tclip({ topCap: "off", height: { locked: true, value: 60 }, layers: { locked: false } }) },
+    { label: "round 120, no cap", overrides: tclip({ topCap: "off", height: { locked: true, value: 60 }, layers: { locked: false }, ...size(120) }) },
+    { label: "pill, no cap", overrides: tclip({ topCap: "off", shape: { kind: "pill", cornerRadius: 15 }, height: { locked: true, value: 40 }, layers: { locked: false }, ...size(120) }) },
+    { label: "round 40, deep and narrow", overrides: tclip({ topCap: "off", height: { locked: true, value: 70 }, layers: { locked: false }, ...size(40) }) },
+    { label: "round 85, deep, with a cap", overrides: tclip({ topCap: "on", height: { locked: true, value: 70 }, layers: { locked: false } }) },
+  ];
+
+  it.each(TALL_FIN_CASES)("$label: the fins stand 12 mm above the floor's top, on a core taller than that, with no long-reach note", async ({ overrides }) => {
+    const d = await design(baseSpec(overrides));
+    const coreTop = Math.max(...d.parts.filter((p) => p.role === "core").map((p) => maxZOf(p.mesh)));
+    expect(coreTop, "the core is taller than a fin").toBeGreaterThan(SKADIS_TCLIP_FIN_HEIGHT + SKADIS_TCLIP_FIN_TOP_GAP + JOINT_ENGAGE_DEPTH);
+    const clips = clipsOf(d);
+    expect(clips.length).toBeGreaterThan(0);
+    for (const part of clips) expect(maxZOf(part.mesh), `${part.name}: the fin's top`).toBeCloseTo(SKADIS_TCLIP_FIN_HEIGHT, 3);
+    expect(d.notices.some((n) => /fins sit|long reach/.test(n.message))).toBe(false);
   }, 120_000);
 
   it("a bore with room for fewer than 3 clips says how the coil hangs; one with none leaves them out and suggests the rim clips", async () => {

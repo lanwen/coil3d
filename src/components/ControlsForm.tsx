@@ -297,7 +297,7 @@ export function ControlsForm({
         )}
         {spec.mount === "skadis-tclip" && (
           <p className="field-note mount-credit-note" data-testid="mount-note">
-            Twist-lock clips pass through slots in the core's floor: reach in, push each one through upright, then pinch its fin and turn it a quarter turn. After the{" "}
+            Twist-lock clips pass through slots in the core's floor: reach in, push each one through upright, then pinch its fin (or grip it with pliers) and turn it a quarter turn. After the{" "}
             <a href="https://www.printables.com/model/256896" target="_blank" rel="noreferrer">
               Skadis T-Clip System
             </a>{" "}

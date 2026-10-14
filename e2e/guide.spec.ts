@@ -231,6 +231,7 @@ test.describe("printable assembly guide (issue #17)", () => {
     await expect(page.getByTestId("guide-step-5")).toContainText(/quarter turn clockwise/i);
     await expect(page.getByTestId("guide-step-5")).toContainText(/reach through the core/i);
     await expect(page.getByTestId("guide-step-5")).toContainText(/pinch the fin and turn/i);
+    await expect(page.getByTestId("guide-step-5")).toContainText(/long-nose pliers or tweezers/i);
     await expect(page.getByTestId("guide-step-5").locator(".guide-overlay-slot").first()).toBeVisible();
     await expect(page.getByTestId("guide-mount-inset")).toHaveCount(0);
     await expect(page.getByTestId("guide-step-1")).toHaveScreenshot("guide-skadis-tclip-print.png", { timeout: GUIDE_SCREENSHOT_TIMEOUT });
