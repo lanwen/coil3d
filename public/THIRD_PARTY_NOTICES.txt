@@ -1718,7 +1718,7 @@ turned a quarter turn to lock behind the board, at least two per part.
 Modified. coil3d re-implements it parametrically from its own dimensions and
 from the published SKADIS slot facts; no geometry or files of the original are
 used. The changes:
-  - The clip is one flat "I" profile (a tall fin handle, stem, T bar), 4 mm
+  - The clip is one flat "I" profile (a short fin handle, stem, T bar), 4 mm
     thick, printed lying on its face, sized for 4.8 x 14.8 to 5 x 15 mm
     slots and clamping a 5.2 mm board.
   - The receiver is a floor inside the coil's bore with a slot and a recess

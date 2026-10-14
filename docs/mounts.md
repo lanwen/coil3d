@@ -9,7 +9,7 @@ Multiboard is not supported.
 | Screw keyhole | A pocket recessed into the flange's outer face | Tested in geometry only |
 | Through holes | Plain screw holes through the flange | Tested in geometry only |
 | IKEA SKÅDIS rim clips | Separate clips that hook the board and grip the flange's rim | Not test-fitted on a physical board |
-| IKEA SKÅDIS T-clips | Twist-lock clips through slots in the core's floor, turned by tall fins (after the CC BY 4.0 Skadis T-Clip System) | Not test-fitted on a physical board |
+| IKEA SKÅDIS T-clips | Twist-lock clips through slots in the core's floor, turned by fins (after the CC BY 4.0 Skadis T-Clip System) | Not test-fitted on a physical board |
 | openGrid | A separate plate glued to the flange, with a placeholder connector | Not usable: hidden in the UI and rejected in links |
 
 coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
@@ -274,15 +274,17 @@ per part. We also adapted its smooth-turning features: the hook ramps, the
 chamfered edges, the shaped stem and a seat lead-in. Modified: the clip is
 re-implemented parametrically with our own dimensions (none of the
 original's files or geometry are used). The receiver is our own floor in the
-bore, not the original's round clip seat, and the handle is a tall fin. The
+bore, not the original's round clip seat, and the handle is a fin. The
 same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
 
 - **The clip.** One flat "I" profile, 4 mm thick, printed lying on its face,
   so the clamp, the weight and the bars' bending run along the layers.
   - A fin handle, 18 mm wide (see "Reaching the fins"): long enough to grip,
-    and to bear on the floor either side of its slot. It is at least 5 mm high
-    above its recess, and at most 60 mm (tall enough to pinch from the top of
-    a deep core).
+    and to bear on the floor either side of its slot. It is 12 mm tall above
+    the floor, and at least 5 mm above its recess; it is lower only where the
+    core has less room (below the cap's collar or the ring's funnel, with a
+    1 mm gap). A clip only needs a short fin to turn it, so a taller one
+    would waste filament and print time.
   - A 2 x 4 mm stem with 0.5 mm chamfered corners: its diagonal (about
     4.1 mm) turns inside even a 4.8 mm slot.
   - A T bar, 12.2 x 3 mm. It passes the tightest slot's 12.65 mm of full
@@ -344,12 +346,10 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
   on the bore. Pairs: one above the other, side by side, diagonal. A single
   clip sits as high as it goes, so the coil hangs below it like a pendulum.
 - **Reaching the fins.** You reach through the core (and the cap's hole) and
-  pinch the fin's top.
-  - A fin rises to 1 mm below the wall's top (with a cap, below the cap's
-    collar), up to 60 mm above its recess.
-  - In a bore under 50 mm across, where no hand fits, it always rises to the
-    top.
-  - A fin top more than 65 mm below the core's top gets a note.
+  pinch the fin's top, or turn a fin that is out of reach with long-nose
+  pliers or tweezers.
+  - A 15 mm column straight above each fin's top stays clear of the core and
+    the cap, so a fingertip or a tool goes straight down onto the fin.
   - Fins turn in their own 9.5 mm circles, and slots are at least 28 mm
     apart, so they never touch each other or the wall.
 - **Fitting.**
@@ -357,7 +357,8 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
      board slot.
   2. Reach through the core and push each clip in with its fin upright: the
      T bar passes at the slot's centre.
-  3. Pinch the fin and turn the clip a quarter turn clockwise until it stops.
+  3. Pinch the fin (or grip it with long-nose pliers or tweezers if it is out
+     of reach) and turn the clip a quarter turn clockwise until it stops.
   4. Let go. The coil and its clips drop together about 5.4 mm, until the
      stems rest on the bottoms of the slots.
 

@@ -286,7 +286,7 @@ function mountLine(mount: MountKind): string {
     case "through":
       return "Drive a countersunk screw through each hole into the wall, before winding if the cable will cover the holes. The heads sit flush, under the cable.";
     case "skadis-tclip":
-      return "Hold the coil flat on the board, each slot in the core's floor over a board slot. Reach through the core and push each T-clip through with its fin upright, then pinch the fin and turn it a quarter turn clockwise until it stops. Let go: the coil drops about 5 mm onto the clips. To take it down, lift the coil back up and turn the clips back.";
+      return "Hold the coil flat on the board, each slot in the core's floor over a board slot. Reach through the core and push each T-clip through with its fin upright, then pinch the fin and turn it a quarter turn clockwise until it stops. If you can't reach a fin, turn it with long-nose pliers or tweezers. Let go: the coil drops about 5 mm onto the clips. To take it down, lift the coil back up and turn the clips back.";
     case "skadis":
       return "Push each bottom clip into its slot and let it drop. Lower the coil's rim into them, then push the top clip into its slot just above the rim and let it drop until it clicks. To take the coil down, lift the top clip firmly.";
     case "none":

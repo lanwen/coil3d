@@ -1,5 +1,4 @@
 import {
-  CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
   SKADIS_SLOT_LENGTH,
   SKADIS_SLOT_WIDTH,
@@ -7,16 +6,14 @@ import {
   SKADIS_TCLIP_BAR_THICKNESS,
   SKADIS_TCLIP_CLAMPED_BOARD_THICKNESS,
   SKADIS_TCLIP_CHAMFER,
-  SKADIS_TCLIP_FIN_MAX,
+  SKADIS_TCLIP_FIN_HEIGHT,
   SKADIS_TCLIP_FIN_TOP_GAP,
-  SKADIS_TCLIP_HAND_WIDTH,
   SKADIS_TCLIP_FLOOR_WALL,
   SKADIS_TCLIP_HANDLE_LENGTH,
   SKADIS_TCLIP_HANDLE_THICKNESS,
   SKADIS_TCLIP_LEAD_IN,
   SKADIS_TCLIP_RAMP,
   SKADIS_TCLIP_RAMP_LENGTH,
-  SKADIS_TCLIP_REACH_DEPTH,
   SKADIS_TCLIP_REACH_MARGIN,
   SKADIS_TCLIP_RECESS_DEPTH,
   SKADIS_TCLIP_SLOT_CLEARANCE,
@@ -55,7 +52,6 @@ export interface SkadisTclipLayout {
   clips: Tclip[];
   cutters: TclipCutter[][];
   finTop: number;
-  reachDepth: number;
   boardFrontZ: number;
   note?: string;
   warning?: string;
@@ -261,24 +257,18 @@ export function layoutSkadisTclips(input: SkadisTclipInput): SkadisTclipLayout {
 
   const zf = -SKADIS_TCLIP_RECESS_DEPTH;
   const capOn = !!input.capHole;
-  const boreTooNarrowForHand = -outlineOffsetAt(boreOutline, 0, 0).offset * 2 < SKADIS_TCLIP_HAND_WIDTH;
   const finCeiling = input.ring ? input.ring.funnelFloor : wallTop - (capOn ? JOINT_ENGAGE_DEPTH : 0);
   const finRoom = finCeiling - SKADIS_TCLIP_FIN_TOP_GAP;
-  const finTop = Math.max(zf + SKADIS_TCLIP_HANDLE_THICKNESS, boreTooNarrowForHand ? finRoom : Math.min(zf + SKADIS_TCLIP_FIN_MAX, finRoom));
-  const reachDepth = wallTop + (capOn ? CAP_THICKNESS : 0) - finTop;
+  const finTop = Math.max(zf + SKADIS_TCLIP_HANDLE_THICKNESS, Math.min(SKADIS_TCLIP_FIN_HEIGHT, finRoom));
   if (!chosen) {
     return {
       axisDeg,
       clips: [],
       cutters: [],
       finTop,
-      reachDepth,
       boardFrontZ: -thickness,
       warning: "The bore is too small for SKÅDIS T-clips inside it, so they were left out: choose the SKÅDIS rim clips for a core this small.",
     };
-  }
-  if (reachDepth > SKADIS_TCLIP_REACH_DEPTH) {
-    note = `${note ? `${note} ` : ""}The T-clips' fins sit ${reachDepth.toFixed(0)} mm below the core's top: a long reach.`;
   }
   const clipPieces = pieces(thickness, finTop);
   const clips = chosen.map(([side, axisUp]): Tclip => ({ side, axisUp, insertUp: axisUp + TCLIP_DROP, pieces: clipPieces }));
@@ -287,7 +277,6 @@ export function layoutSkadisTclips(input: SkadisTclipInput): SkadisTclipLayout {
     clips,
     cutters: clips.map((cl) => cuttersFor(toXY, cl.side, cl.axisUp, thickness, c)),
     finTop,
-    reachDepth,
     boardFrontZ: -thickness,
     note,
   };

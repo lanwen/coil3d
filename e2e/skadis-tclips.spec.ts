@@ -43,6 +43,7 @@ test.describe("SKÅDIS T-clip controls (issues #213, #221)", () => {
     await expect(note).toContainText(/quarter turn/i);
     await expect(note).toContainText(/core's floor/i);
     await expect(note).toContainText(/pinch its fin/i);
+    await expect(note).toContainText(/pliers/i);
     await expect(note).toContainText(/Line Arc Line/);
     await expect(note).toContainText(/CC BY 4\.0/);
     await expect(note.getByRole("link", { name: "Skadis T-Clip System" })).toHaveAttribute("href", "https://www.printables.com/model/256896");
