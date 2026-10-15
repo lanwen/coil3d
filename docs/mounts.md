@@ -315,10 +315,17 @@ same credit is in `public/THIRD_PARTY_NOTICES.txt` ("Designs").
   groove, and no coplanar overlap that would leave slivers. The mesh backend builds each as the hull of its
   four levels and the STEP backend as a loft through them: the same solid. The
   stem runs 0.5 mm into the fin and the bar so the pieces overlap. The slot
-  and recess cutters are two convex pieces each (a hull of both would bulge
-  over the lead-in's inner corner): the straight prism, then the 45 degree
-  mouth. The recess is a bow tie: the upright and across bars plus the two
-  quarter sectors their far corners sweep when the fin turns clockwise.
+  and recess cutters are separate convex pieces (a hull of both would bulge
+  over the lead-in's inner corner): the slot, the straight prism, then the 45
+  degree mouth. The recess is a bow tie: the upright and across bars plus the
+  two quarter sectors their far corners sweep when the fin turns clockwise.
+  The mesh backend unites the four pieces of the prism in 2D and extrudes the
+  result once: four hulls that share the recess floor's plane meet at corners
+  that agree only to rounding, and the 3D union of such coplanar floors could
+  leave a zero-thickness sheet on it (pill fuzz case 4020). The mouth's cone
+  continues 0.25 mm below its start (`SKADIS_TCLIP_LEAD_IN_ROOT`), inside the
+  prism, so it crosses the prism's wall instead of starting exactly on it,
+  which left a zero-volume wedge there. The shape is the same.
 - **The floor.** The bore's bottom is filled from the flange's wall face up
   to its winding face (at least 5 mm thick), one solid with the core and
   printed on the bed.

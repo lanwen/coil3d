@@ -31,10 +31,10 @@ import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
 import { channelPadFootprints, layoutFlangePads, layoutFlangeThroughHoles } from "./flangePads";
 import type { MountLayout, ThroughMountLayout } from "./mount";
 import { mountPlateLayoutFor, pegHoleRadius } from "./mountPlate";
-import { layoutStrapSlots, strapSlotsFitMargin } from "./strapSlot";
+import { layoutStrapSlots, plateStrapSlots, strapSlotsFitMargin } from "./strapSlot";
 import { clipPrintRotateZ, isHeavyCable, layoutSkadisClips, lipKeepOffset, skadisBoardSection, skadisClipFootprints } from "./skadisClips";
 import type { SkadisClipLayout } from "./skadisClips";
-import { layoutSkadisTclips, skadisTclipBoardSection, tclipPrintRotateZ } from "./skadisTclips";
+import { layoutSkadisTclips, skadisTclipBoardSection, tclipCutterPolys, tclipPrintRotateZ } from "./skadisTclips";
 import type { SkadisTclipLayout } from "./skadisTclips";
 import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing, stackedKeyholeThickness } from "./flange";
 import { circumscribedRadius, makeOutline, minCornerSegments, offsetOutline, outlineOffsetAt } from "./shapes";
@@ -413,7 +413,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
           ...baseKeepOut,
           ...(baseSlot ? [baseSlot.outline] : []),
           ...(flangeSpec.skadis?.notches ?? []),
-          ...(flangeSpec.skadisTclip?.cutters ?? []).flat().flatMap((cutter) => cutter.levels.map((level) => level.poly)),
+          ...(flangeSpec.skadisTclip?.cutters ?? []).flatMap(tclipCutterPolys),
           ...(mountPlateCut ? mountPlateCut.anchors.map((anchor) => stadiumPolygon(anchor, anchor, pegHoleRadius(spec.tolerance))) : []),
           ...(plateCutsSlot ? (mountPlateLayout?.clips ?? []).map((clip) => stadiumPolygon(clip, clip, (OPENGRID_PLACEHOLDER_PEG_SIZE / 2) * Math.SQRT2)) : []),
           ...leadKeepOut((z) => z <= wireDiameter),
@@ -423,7 +423,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     const laidOut = (keepOut: XY[][]) => layoutStrapSlots(outline, margin, envelopeOffset, keepOut, cable.outerEndU) ?? [];
     const baseStrapSlots = baseOn ? laidOut(baseStrapKeepOut) : [];
     platesSlots.base = baseStrapSlots;
-    platesSlots.mountPlate = plateCutsSlot ? baseStrapSlots : [];
+    platesSlots.mountPlate = plateCutsSlot ? plateStrapSlots(outline, envelopeOffset, baseStrapSlots, margin - MOUNT_PLATE_EDGE_MARGIN) : [];
     platesSlots.cap = topCapEnabled ? laidOut(capStrapKeepOut) : [];
     const leftOut = [
       ...(baseOn && platesSlots.base.length === 0 ? ["the base"] : []),

@@ -11,6 +11,7 @@ import { getLabelFont, labelLoops, resolveLabel } from "../src/core/label";
 import { layoutKeyholeMount } from "../src/core/mount";
 import { pegHoleRadius } from "../src/core/mountPlate";
 import { skadisClipFootprints } from "../src/core/skadisClips";
+import { tclipCutterPolys } from "../src/core/skadisTclips";
 import { offsetPerimeter, outlineOffsetAt, parameterAtOffsetArc, pointAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 import type { StrapSlot } from "../src/core/strapSlot";
@@ -361,11 +362,9 @@ describe("strap slots keep clear of the mounts", () => {
         expect(layout?.clips.length).toBeGreaterThan(0);
         expect(d.strapSlots.base).toHaveLength(2);
         const reach = drawnReach(d);
-        for (const cutter of layout!.cutters.flat()) {
-          for (const level of cutter.levels) {
-            for (const p of level.poly) expect(outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset).toBeLessThan(reach);
-            for (const slot of d.strapSlots.base) expect(nearest(d, slot.outline, level.poly)).toBeGreaterThanOrEqual(STRAP_SLOT_KEEP_OUT);
-          }
+        for (const poly of layout!.cutters.flatMap(tclipCutterPolys)) {
+          for (const p of poly) expect(outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset).toBeLessThan(reach);
+          for (const slot of d.strapSlots.base) expect(nearest(d, slot.outline, poly)).toBeGreaterThanOrEqual(STRAP_SLOT_KEEP_OUT);
         }
       });
 
@@ -398,6 +397,33 @@ describe("strap slots in the mount plate", () => {
       expect(insideMesh(plate, slot.centre.x, slot.centre.y, plateBackZ), "open at the slot's centre").toBe(false);
       const lip = along(slot, -(STRAP_SLOT_WIDTH / 2 + STRAP_SLOT_INNER_WALL / 2));
       expect(insideMesh(plate, lip.x, lip.y, plateBackZ), "plate under the cable-side wall").toBe(true);
+    }
+  });
+});
+
+describe("strap slots in a mount plate whose edge is close outside them", () => {
+  const PILL_3540: Partial<CoilSpec> = {
+    wire: { length: 8736, diameter: 4.91, type: "usb" },
+    shape: { kind: "pill", cornerRadius: 38.08 },
+    windingQuality: 0.66,
+    coreSize: { locked: true, dimension: "outer", value: 44.02 },
+    height: { locked: true, value: 25.21 },
+    layers: { locked: true, value: 2 },
+    topCap: "auto",
+    tolerance: 0.22,
+    mount: "opengrid",
+    plateJoint: "snap",
+    throughHoleDiameter: 5.01,
+  };
+
+  it("opens each plate slot through the plate's edge, so no hairline skin is left outside it (pill fuzz case 3540)", async () => {
+    const d = await design(baseSpec(PILL_3540));
+    expect(d.strapSlots.base).toHaveLength(2);
+    expect(d.strapSlots.mountPlate).toHaveLength(2);
+    expect(d.strapSlots.mountPlate).not.toEqual(d.strapSlots.base);
+    const plateEdge = d.flangeSpec.margin - MOUNT_PLATE_EDGE_MARGIN;
+    for (const slot of d.strapSlots.mountPlate) {
+      expect(Math.max(...slot.outline.map((p) => outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset))).toBeGreaterThan(plateEdge);
     }
   });
 });

@@ -12,6 +12,7 @@ import {
   SKADIS_TCLIP_HANDLE_LENGTH,
   SKADIS_TCLIP_HANDLE_THICKNESS,
   SKADIS_TCLIP_LEAD_IN,
+  SKADIS_TCLIP_LEAD_IN_ROOT,
   SKADIS_TCLIP_NOTCH_DEPTH,
   SKADIS_TCLIP_NOTCH_FLOOR,
   SKADIS_TCLIP_NOTCH_LEAD,
@@ -51,10 +52,22 @@ export interface TclipCutter {
   levels: Array<{ z: number; poly: XY[] }>;
 }
 
+export interface TclipRecess {
+  bottom: number;
+  top: number;
+  pieces: XY[][];
+}
+
+export interface TclipCutters {
+  slot: TclipCutter;
+  recess: TclipRecess;
+  leadIns: TclipCutter[];
+}
+
 export interface SkadisTclipLayout {
   axisDeg: number;
   clips: Tclip[];
-  cutters: TclipCutter[][];
+  cutters: TclipCutters[];
   finTop: number;
   boardFrontZ: number;
   note?: string;
@@ -184,27 +197,34 @@ function stadium(r: number, half: number, steps = STADIUM_STEPS): Pt[] {
   return [...top, ...bottom];
 }
 
-function cuttersFor(toXY: (u: number, s: number) => XY, side: number, axisUp: number, thickness: number, c: number): TclipCutter[] {
+function cuttersFor(toXY: (u: number, s: number) => XY, side: number, axisUp: number, thickness: number, c: number): TclipCutters {
   const leadIn = SKADIS_TCLIP_LEAD_IN;
   const overlap = WELD_OVERLAP;
   const place = (poly: Pt[]) => poly.map(([s, u]) => toXY(axisUp + u, side + s));
-  const loft = (poly: Pt[], bottom: number, mouth: number): TclipCutter[] => [
-    { levels: [{ z: bottom, poly: place(poly) }, { z: mouth - leadIn + overlap, poly: place(poly) }] },
-    {
-      levels: [
-        { z: mouth - leadIn, poly: place(poly) },
-        { z: mouth, poly: place(offsetConvex(poly, leadIn)) },
-        { z: mouth + overlap, poly: place(offsetConvex(poly, leadIn + overlap)) },
-      ],
-    },
-  ];
+  const leadInOf = (poly: Pt[]): TclipCutter => ({
+    levels: [
+      { z: -leadIn - SKADIS_TCLIP_LEAD_IN_ROOT, poly: place(offsetConvex(poly, -SKADIS_TCLIP_LEAD_IN_ROOT)) },
+      { z: -leadIn, poly: place(poly) },
+      { z: 0, poly: place(offsetConvex(poly, leadIn)) },
+      { z: overlap, poly: place(offsetConvex(poly, leadIn + overlap)) },
+    ],
+  });
   const stemRadius = Math.max(...stemPlan().map(([x, y]) => Math.hypot(x, y)));
   const slotRadius = Math.max(W / 2 + c, stemRadius + SKADIS_TCLIP_SLOT_CLEARANCE);
   const barHalfW = W / 2 + c;
   const stadiumHalf = SKADIS_TCLIP_BAR_LENGTH / 2 + c - Math.sqrt(Math.max(0, slotRadius * slotRadius - barHalfW * barHalfW));
   const recessFloor = -SKADIS_TCLIP_RECESS_DEPTH;
   const slot: TclipCutter = { levels: [{ z: -thickness - overlap, poly: place(stadium(slotRadius, stadiumHalf)) }, { z: recessFloor + overlap, poly: place(stadium(slotRadius, stadiumHalf)) }] };
-  return [slot, ...recessPieces(c).flatMap((p) => loft(p, recessFloor, 0))];
+  const recessShapes = recessPieces(c);
+  return {
+    slot,
+    recess: { bottom: recessFloor, top: overlap - leadIn, pieces: recessShapes.map(place) },
+    leadIns: recessShapes.map(leadInOf),
+  };
+}
+
+export function tclipCutterPolys({ slot, recess, leadIns }: TclipCutters): XY[][] {
+  return [...slot.levels, ...leadIns.flatMap((cutter) => cutter.levels)].map((level) => level.poly).concat(recess.pieces);
 }
 
 function keptIn(input: SkadisTclipInput, p: XY, keep: number): boolean {

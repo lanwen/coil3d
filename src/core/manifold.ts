@@ -42,7 +42,7 @@ import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
 import { clipFrame } from "./skadisClips";
 import type { RimClip, SkadisClipLayout } from "./skadisClips";
 import { tclipPieceLevels } from "./skadisTclips";
-import type { SkadisTclipLayout, Tclip } from "./skadisTclips";
+import type { SkadisTclipLayout, Tclip, TclipCutter } from "./skadisTclips";
 import { isPill, offsetOutline, outlineColumnParams, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh, JointKind, MountKind } from "./types";
@@ -422,7 +422,12 @@ export async function fuseFlange(
     }
 
     if (flange.skadisTclip) {
-      const cuts = flange.skadisTclip.cutters.flat().map((cutter) => track(wasm.Manifold.hull(cutter.levels.flatMap((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z])))));
+      const hullOf = (cutter: TclipCutter) => track(wasm.Manifold.hull(cutter.levels.flatMap((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z]))));
+      const cuts = flange.skadisTclip.cutters.flatMap(({ slot, recess, leadIns }) => {
+        const section = track(new wasm.CrossSection(recess.pieces.map((poly) => poly.map((p): [number, number] => [p.x, p.y])), "Positive"));
+        const prism = track(track(section.extrude(recess.top - recess.bottom)).translate([0, 0, recess.bottom]));
+        return [prism, hullOf(slot), ...leadIns.map(hullOf)];
+      });
       fused = track(fused.subtract(track(Manifold.union(cuts))));
       status = fused.status();
       if (status !== "NoError") {

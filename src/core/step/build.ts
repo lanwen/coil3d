@@ -51,7 +51,7 @@ import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate"
 import { clipFrame } from "../skadisClips";
 import type { RimClip, SkadisClipLayout } from "../skadisClips";
 import { tclipPieceLevels } from "../skadisTclips";
-import type { SkadisTclipLayout, Tclip } from "../skadisTclips";
+import type { SkadisTclipLayout, Tclip, TclipCutter } from "../skadisTclips";
 import { isPill, offsetOutline, polygonVertex } from "../shapes";
 import type { ShapeOutline } from "../shapes";
 import type { CoreJointCut } from "../manifold";
@@ -528,8 +528,10 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
       const loop: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
       flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
     }
-    for (const cutters of flangeSpec.skadisTclip?.cutters ?? []) {
-      const [first, ...rest] = cutters.map((cutter) => ruledLoft(cutter.levels.map((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z]))));
+    for (const { slot, recess, leadIns } of flangeSpec.skadisTclip?.cutters ?? []) {
+      const loft = (cutter: TclipCutter) => ruledLoft(cutter.levels.map((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z])));
+      const prisms = recess.pieces.map((poly) => loft({ levels: [{ z: recess.bottom, poly }, { z: recess.top, poly }] }));
+      const [first, ...rest] = [loft(slot), ...prisms, ...leadIns.map(loft)];
       flangeSolid = checkedCut(kernel, flangeSolid, rest.reduce((acc, r) => acc.fuse(r), first));
     }
     coreSolid = tube.fuse(flangeSolid);
