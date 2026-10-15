@@ -1,4 +1,4 @@
-import { STRAP_SLOT_INNER_WALL, STRAP_SLOT_KEEP_OUT, STRAP_SLOT_LENGTH, STRAP_SLOT_MIN_SEPARATION_FRACTION, STRAP_SLOT_PLATE_REACH, STRAP_SLOT_WIDTH } from "./constants";
+import { STRAP_SLOT_INNER_WALL, STRAP_SLOT_KEEP_OUT, STRAP_SLOT_LENGTH, STRAP_SLOT_MIN_SEPARATION_FRACTION, STRAP_SLOT_PLATE_MIN_SKIN, STRAP_SLOT_PLATE_OVERSHOOT, STRAP_SLOT_PLATE_REACH, STRAP_SLOT_WIDTH } from "./constants";
 import { cutClearsKeepOut } from "./innerEnd";
 import type { XY } from "./innerEnd";
 import { arcLengthFractionAt, offsetPerimeter, parameterAtOffsetArc, pointAt } from "./shapes";
@@ -8,6 +8,7 @@ export interface StrapSlot {
   outline: XY[];
   centre: XY;
   axis: XY;
+  arc: number;
 }
 
 const SAMPLE_STEP_MM = 0.5;
@@ -28,11 +29,11 @@ function endCap(centre: XY, normal: XY, along: XY, radius: number, from: number)
   });
 }
 
-function slotAt(outline: ShapeOutline, envelopeOffset: number, arc: number): StrapSlot {
+function slotAt(outline: ShapeOutline, envelopeOffset: number, arc: number, reach?: number): StrapSlot {
   const radius = STRAP_SLOT_WIDTH / 2;
   const innerOffset = envelopeOffset + STRAP_SLOT_INNER_WALL;
   const centreOffset = innerOffset + radius;
-  const outerOffset = innerOffset + STRAP_SLOT_WIDTH;
+  const outerOffset = Math.max(innerOffset + STRAP_SLOT_WIDTH, reach ?? 0);
   const straight = STRAP_SLOT_LENGTH - STRAP_SLOT_WIDTH;
   const steps = Math.ceil(straight / SAMPLE_STEP_MM);
   const ts = Array.from({ length: steps + 1 }, (_, i) => parameterAtOffsetArc(outline, centreOffset, arc - straight / 2 + (straight * i) / steps));
@@ -57,6 +58,7 @@ function slotAt(outline: ShapeOutline, envelopeOffset: number, arc: number): Str
     outline: loop.map(({ x, y }) => ({ x, y })),
     centre: { x: middle.x, y: middle.y },
     axis: { x: middle.nx, y: middle.ny },
+    arc,
   };
 }
 
@@ -105,4 +107,10 @@ export function layoutStrapSlots(outline: ShapeOutline, margin: number, envelope
   const best = widestClearPair(clear, perimeter);
   if (!best || best.separation < perimeter * STRAP_SLOT_MIN_SEPARATION_FRACTION) return undefined;
   return [best.first, best.second].map((i) => slotAt(outline, envelopeOffset, start + i * SWEEP_STEP_MM));
+}
+
+export function plateStrapSlots(outline: ShapeOutline, envelopeOffset: number, slots: StrapSlot[], plateEdgeOffset: number): StrapSlot[] {
+  const skin = plateEdgeOffset - (envelopeOffset + STRAP_SLOT_INNER_WALL + STRAP_SLOT_WIDTH);
+  if (skin >= STRAP_SLOT_PLATE_MIN_SKIN) return slots;
+  return slots.map((slot) => slotAt(outline, envelopeOffset, slot.arc, plateEdgeOffset + STRAP_SLOT_PLATE_OVERSHOOT));
 }

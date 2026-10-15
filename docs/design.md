@@ -204,6 +204,13 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   The mount plate gets the same slots
   where it reaches into them: its edge is 3 mm inside the base's, so its cut is
   a notch open at the plate's edge, and the base's wall still closes the slot.
+  The plate keeps at least 2 mm of its own outside a slot
+  (`STRAP_SLOT_PLATE_MIN_SKIN`, the same as the rim wall). A thinner skin is a
+  hairline that the plate polygon's chord sag breaks into slivers, and it would
+  not print. In that case the plate's slot is opened through its edge instead:
+  a U-notch with the same rounded inner end, running 1 mm past the plate's edge
+  (`STRAP_SLOT_PLATE_OVERSHOOT`), so the tie still passes the plate and no thin
+  wall is left.
   The slot walls' strength under a tie is not measured; a print has to show
   that the 2 mm rim wall holds.
 - The cable's cap end runs level under the cap, then curves outward with 80 %

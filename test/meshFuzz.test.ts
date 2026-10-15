@@ -586,6 +586,35 @@ describe("mesh clean-up reproductions (issue #320): a pill's parts are one solid
   });
 });
 
+const PILL_3540 = { wire: { length: 8736, diameter: 4.91, type: "usb" as const }, shape: { kind: "pill" as const, cornerRadius: 38.08 }, windingQuality: 0.66, coreSize: { locked: true as const, dimension: "outer" as const, value: 44.02 }, height: { locked: true as const, value: 25.21 }, layers: { locked: true as const, value: 2 }, objective: "minVolume" as const, topCap: "auto" as const, joint: "press" as const, tolerance: 0.22, mount: "opengrid" as const, plateJoint: "snap" as const, keyholeRotation: 0 as const, throughHoleDiameter: 5.01, base: "on" as const, strapSlots: true };
+
+// Issue #325: the two pill fuzz cases still bad after #320, each pinned to the collar counts that drew it.
+const REPRODUCTIONS_325: Reproduction[] = [
+  {
+    name: "a strap slot's outer edge on the mount plate's edge (pill fuzz case 3540)",
+    spec: PILL_3540,
+    segments: { round: 144, other: 48 },
+  },
+  {
+    name: "the same plate on a round core (issue #325)",
+    spec: { ...PILL_3540, shape: { kind: "round" } },
+    segments: { round: 144, other: 48 },
+  },
+];
+
+describe("mesh clean-up reproductions (issue #325): a plate's strap slot and a core's T-clip recess leave no sliver or fold", () => {
+  it.each(REPRODUCTIONS_325)("$name", async ({ spec: overrides, resolution, segments }) => {
+    const shipped = { ...collarSegments };
+    Object.assign(collarSegments, segments ?? shipped);
+    try {
+      const d = await design(spec(overrides), resolution ?? "final");
+      expect(d.parts.flatMap(problems)).toEqual([]);
+    } finally {
+      Object.assign(collarSegments, shipped);
+    }
+  });
+});
+
 // Issue #320: the pill core has its own seeded block, with its own seed, so the cases above stay what they were.
 const PILL_SEED = 0x320;
 const PILL_COUNT = Math.max(1, Math.ceil(COUNT / 3));

@@ -31,7 +31,7 @@ import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
 import { channelPadFootprints, layoutFlangePads, layoutFlangeThroughHoles } from "./flangePads";
 import type { MountLayout, ThroughMountLayout } from "./mount";
 import { mountPlateLayoutFor, pegHoleRadius } from "./mountPlate";
-import { layoutStrapSlots, strapSlotsFitMargin } from "./strapSlot";
+import { layoutStrapSlots, plateStrapSlots, strapSlotsFitMargin } from "./strapSlot";
 import { clipPrintRotateZ, isHeavyCable, layoutSkadisClips, lipKeepOffset, skadisBoardSection, skadisClipFootprints } from "./skadisClips";
 import type { SkadisClipLayout } from "./skadisClips";
 import { layoutSkadisTclips, skadisTclipBoardSection, tclipPrintRotateZ } from "./skadisTclips";
@@ -423,7 +423,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     const laidOut = (keepOut: XY[][]) => layoutStrapSlots(outline, margin, envelopeOffset, keepOut, cable.outerEndU) ?? [];
     const baseStrapSlots = baseOn ? laidOut(baseStrapKeepOut) : [];
     platesSlots.base = baseStrapSlots;
-    platesSlots.mountPlate = plateCutsSlot ? baseStrapSlots : [];
+    platesSlots.mountPlate = plateCutsSlot ? plateStrapSlots(outline, envelopeOffset, baseStrapSlots, margin - MOUNT_PLATE_EDGE_MARGIN) : [];
     platesSlots.cap = topCapEnabled ? laidOut(capStrapKeepOut) : [];
     const leftOut = [
       ...(baseOn && platesSlots.base.length === 0 ? ["the base"] : []),

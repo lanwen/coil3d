@@ -402,6 +402,33 @@ describe("strap slots in the mount plate", () => {
   });
 });
 
+describe("strap slots in a mount plate whose edge is close outside them", () => {
+  const PILL_3540: Partial<CoilSpec> = {
+    wire: { length: 8736, diameter: 4.91, type: "usb" },
+    shape: { kind: "pill", cornerRadius: 38.08 },
+    windingQuality: 0.66,
+    coreSize: { locked: true, dimension: "outer", value: 44.02 },
+    height: { locked: true, value: 25.21 },
+    layers: { locked: true, value: 2 },
+    topCap: "auto",
+    tolerance: 0.22,
+    mount: "opengrid",
+    plateJoint: "snap",
+    throughHoleDiameter: 5.01,
+  };
+
+  it("opens each plate slot through the plate's edge, so no hairline skin is left outside it (pill fuzz case 3540)", async () => {
+    const d = await design(baseSpec(PILL_3540));
+    expect(d.strapSlots.base).toHaveLength(2);
+    expect(d.strapSlots.mountPlate).toHaveLength(2);
+    expect(d.strapSlots.mountPlate).not.toEqual(d.strapSlots.base);
+    const plateEdge = d.flangeSpec.margin - MOUNT_PLATE_EDGE_MARGIN;
+    for (const slot of d.strapSlots.mountPlate) {
+      expect(Math.max(...slot.outline.map((p) => outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset))).toBeGreaterThan(plateEdge);
+    }
+  });
+});
+
 describe("strap slots when the margin has to grow", () => {
   it("a square r12 with the core size left free grows to at least 6 mm of plate past the cable, base and cap alike", async () => {
     const shape: ShapeSpec = { kind: "sq", cornerRadius: 12 };
