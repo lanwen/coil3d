@@ -77,13 +77,12 @@ the default. If Playwright's own Chromium isn't available, point
   `src/viewer`). New visible geometry must render cleanly: check screenshots
   for missing silhouettes, blobs and dashed lines.
 
-## CI, merging and deploy
+## CI and merging
 
 - GitHub CI is manual-only: it doesn't run on pushes to `main`, and runs on
   a PR only when it is labelled `run-ci` (or on manual dispatch).
-- Every push to `main` deploys to Cloudflare Pages
-  (https://coil3d.lanwen.dev), which runs `pnpm build` and serves `dist/`.
-  A merge ships to production, so the merge gate matters.
+- Every merge to `main` ships to production (https://coil3d.lanwen.dev), so
+  the merge gate matters.
 - The merge gate is the full local suite on the final head, rebased onto
   `origin/main`: `pnpm exec tsc -b`, `pnpm test`, `E2E_PORT=<port> pnpm exec playwright test`.
   Put the counts in the PR's evidence comment (see "Pull requests").

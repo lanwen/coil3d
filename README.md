@@ -53,6 +53,12 @@ set `PLAYWRIGHT_CHROMIUM_PATH`). They build and preview the app themselves, so
 no dev server needs to run first. See [CONTRIBUTING.md](CONTRIBUTING.md) for
 the full merge gate.
 
+## Deploy
+
+Every push to `main` is built with `pnpm build`, and Cloudflare serves the
+resulting `dist/` at <https://coil3d.lanwen.dev>. There is no server-side code,
+so the build output is all that gets deployed.
+
 ## How it works
 
 - `src/core` is a headless library with a small public interface:
