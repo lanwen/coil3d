@@ -67,6 +67,6 @@ about 10 minutes on one core.
 GitHub CI is manual-only. It runs on manual dispatch, or on a PR that carries
 the `run-ci` label. It does not run on pushes to `main`.
 
-Every push to `main` deploys to Cloudflare Pages, which runs `pnpm build`
+Every push to `main` deploys to Cloudflare, which runs `pnpm build`
 and serves `dist/`. A merge goes live, so the local merge gate is the check
 that counts.
