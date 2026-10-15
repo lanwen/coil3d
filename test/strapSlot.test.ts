@@ -11,6 +11,7 @@ import { getLabelFont, labelLoops, resolveLabel } from "../src/core/label";
 import { layoutKeyholeMount } from "../src/core/mount";
 import { pegHoleRadius } from "../src/core/mountPlate";
 import { skadisClipFootprints } from "../src/core/skadisClips";
+import { tclipCutterPolys } from "../src/core/skadisTclips";
 import { offsetPerimeter, outlineOffsetAt, parameterAtOffsetArc, pointAt } from "../src/core/shapes";
 import { bendMultiplierOf } from "../src/core/types";
 import type { StrapSlot } from "../src/core/strapSlot";
@@ -361,11 +362,9 @@ describe("strap slots keep clear of the mounts", () => {
         expect(layout?.clips.length).toBeGreaterThan(0);
         expect(d.strapSlots.base).toHaveLength(2);
         const reach = drawnReach(d);
-        for (const cutter of layout!.cutters.flat()) {
-          for (const level of cutter.levels) {
-            for (const p of level.poly) expect(outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset).toBeLessThan(reach);
-            for (const slot of d.strapSlots.base) expect(nearest(d, slot.outline, level.poly)).toBeGreaterThanOrEqual(STRAP_SLOT_KEEP_OUT);
-          }
+        for (const poly of layout!.cutters.flatMap(tclipCutterPolys)) {
+          for (const p of poly) expect(outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset).toBeLessThan(reach);
+          for (const slot of d.strapSlots.base) expect(nearest(d, slot.outline, poly)).toBeGreaterThanOrEqual(STRAP_SLOT_KEEP_OUT);
         }
       });
 

@@ -600,6 +600,11 @@ const REPRODUCTIONS_325: Reproduction[] = [
     spec: { ...PILL_3540, shape: { kind: "round" } },
     segments: { round: 144, other: 48 },
   },
+  {
+    name: "a T-clip recess floor sheet (pill fuzz case 4020)",
+    spec: { wire: { length: 4844, diameter: 7.78, type: "flex" }, shape: { kind: "pill", cornerRadius: 21.72 }, windingQuality: 0.86, coreSize: { locked: true, dimension: "inner", value: 80.17 }, height: { locked: true, value: 56.55 }, layers: { locked: false }, objective: "minVolume", topCap: "on", joint: "bayonet", tolerance: 0.13, mount: "skadis-tclip", plateJoint: "glue", keyholeRotation: 0, throughHoleDiameter: 4.4, base: "on", strapSlots: false },
+    segments: { round: 96, other: 48 },
+  },
 ];
 
 describe("mesh clean-up reproductions (issue #325): a plate's strap slot and a core's T-clip recess leave no sliver or fold", () => {
