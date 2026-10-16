@@ -10,6 +10,7 @@ import { ProjectionToggle } from "./viewer/ViewControls";
 import type { Projection } from "./viewer/lineArt/LineArtRenderer";
 import { EyeToggle } from "./components/fields";
 import { CoilMark } from "./components/CoilMark";
+import { HeaderActions } from "./components/HeaderActions";
 import { HINTS } from "./components/hints";
 import { Guide } from "./guide/Guide";
 import "./App.css";
@@ -45,7 +46,9 @@ function BuildLabel() {
 }
 
 export default function App() {
-  const [{ spec, notice, showWire: initialShowWire, view: initialView }] = useState(readInitialState);
+  const [{ spec, notice: initialNotice, showWire: initialShowWire, view: initialView }] = useState(readInitialState);
+  const [notice, setNotice] = useState(initialNotice);
+  const [formKey, setFormKey] = useState(0);
   const [currentSpec, setCurrentSpec] = useState<CoilSpec>(spec);
   const [showWire, setShowWire] = useState(initialShowWire);
   const [exploded, setExploded] = useState(false);
@@ -59,6 +62,13 @@ export default function App() {
   }, [currentSpec, showWire, view]);
 
   const { result, error, finalReady } = useDesignPreview(currentSpec);
+
+  const canReset = toHash(currentSpec, showWire, view) !== toHash(parseHash("").spec, showWire, view);
+  const handleReset = () => {
+    setCurrentSpec(parseHash("").spec);
+    setNotice(undefined);
+    setFormKey((key) => key + 1);
+  };
 
   const [stepError, setStepError] = useState<string | null>(null);
   const [stepBusy, setStepBusy] = useState(false);
@@ -119,6 +129,7 @@ export default function App() {
           <CoilMark />
           coil3d
         </h1>
+        <HeaderActions canReset={canReset} onReset={handleReset} />
         <p>Design a 3D-printable cable coil from your cable's length and diameter.</p>
       </header>
       {notice && (
@@ -128,7 +139,7 @@ export default function App() {
       )}
       <div className="layout">
         <div className="sidebar">
-          <ControlsForm spec={currentSpec} solution={result?.solution} design={result} finalReady={finalReady} onChange={setCurrentSpec} />
+          <ControlsForm key={formKey} spec={currentSpec} solution={result?.solution} design={result} finalReady={finalReady} onChange={setCurrentSpec} />
           {error && (
             <p className="error" data-testid="design-error">
               {error}
