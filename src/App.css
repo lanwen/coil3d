@@ -186,7 +186,7 @@ header h1 {
     color 0.12s ease;
 }
 
-.header-btn:hover:not(:disabled) {
+.header-btn:hover {
   background: var(--ink);
   color: var(--paper);
 }
@@ -194,12 +194,6 @@ header h1 {
 .header-btn:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
-}
-
-.header-btn:disabled {
-  color: var(--hairline-soft);
-  border-color: var(--hairline-soft);
-  cursor: default;
 }
 
 .action-icon {
