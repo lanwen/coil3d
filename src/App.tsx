@@ -9,6 +9,7 @@ import { ViewerBoundary, ViewerUnavailable } from "./viewer/ViewerBoundary";
 import { ProjectionToggle } from "./viewer/ViewControls";
 import type { Projection } from "./viewer/lineArt/LineArtRenderer";
 import { EyeToggle } from "./components/fields";
+import { CoilMark } from "./components/CoilMark";
 import { HINTS } from "./components/hints";
 import { Guide } from "./guide/Guide";
 import "./App.css";
@@ -114,7 +115,10 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>coil3d</h1>
+        <h1>
+          <CoilMark />
+          coil3d
+        </h1>
         <p>Design a 3D-printable cable coil from your cable's length and diameter.</p>
       </header>
       {notice && (
