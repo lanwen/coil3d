@@ -100,19 +100,62 @@ test("a failed copy says so", async ({ page }) => {
   await expect(page.getByTestId("share")).toHaveText("Share", { timeout: COPY_FEEDBACK_TIMEOUT_MS });
 });
 
-test("Reset is disabled at the default design and enabled after a change", async ({ page }) => {
+test("Reset is absent at the default design and appears after a change", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByTestId("reset")).toBeDisabled();
-  await expect(page.getByTestId("reset")).toHaveAttribute("title", "Already the default design");
+  await expect(page.getByTestId("reset")).toHaveCount(0);
+  await expect(page.getByTestId("reset-confirm")).toHaveCount(0);
+  await expect(page.getByTestId("share")).toBeVisible();
+  const atDefault = (await page.getByTestId("share").boundingBox())!;
   await openWithNonDefaultDesign(page);
-  await expect(page.getByTestId("reset")).toBeEnabled();
+  await expect(page.getByTestId("reset")).toBeVisible();
+  const changed = (await page.getByTestId("share").boundingBox())!;
+  expect(Math.abs(changed.x - atDefault.x)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(changed.width - atDefault.width)).toBeLessThanOrEqual(0.5);
+  expect(Math.abs(changed.y - atDefault.y)).toBeLessThanOrEqual(0.5);
+});
+
+test("Reset comes first and Share last, in the tab order too", async ({ page }) => {
+  await openWithNonDefaultDesign(page);
+  const reset = (await page.getByTestId("reset").boundingBox())!;
+  const share = (await page.getByTestId("share").boundingBox())!;
+  expect(reset.x + reset.width).toBeLessThanOrEqual(share.x);
+  await page.getByTestId("reset").focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("share")).toBeFocused();
+});
+
+test("Share isn't rendered while confirming and returns to its position", async ({ page }) => {
+  await openWithNonDefaultDesign(page);
+  const before = (await page.getByTestId("share").boundingBox())!;
+  const sameAsBefore = async () => {
+    const now = (await page.getByTestId("share").boundingBox())!;
+    for (const key of ["x", "y", "width", "height"] as const) expect(Math.abs(now[key] - before[key])).toBeLessThanOrEqual(0.5);
+  };
+  for (const leave of [
+    () => page.getByTestId("reset-no").click(),
+    () => page.keyboard.press("Escape"),
+    () => page.locator(".viewer").click({ position: { x: 300, y: 300 } }),
+  ]) {
+    await page.getByTestId("reset").click();
+    await expect(page.getByTestId("reset-confirm")).toBeVisible();
+    await expect(page.getByTestId("share")).toHaveCount(0);
+    await leave();
+    await expect(page.getByTestId("reset-confirm")).toHaveCount(0);
+    await expect(page.getByTestId("share")).toBeVisible();
+    await sameAsBefore();
+  }
+  await page.getByTestId("reset").click();
+  await expect(page.getByTestId("share")).toHaveCount(0);
+  await page.getByTestId("reset-yes").click();
+  await expect(page.getByTestId("share")).toBeVisible();
+  await sameAsBefore();
 });
 
 test("Reset asks first, then puts the design back to its defaults", async ({ page }) => {
   await openWithNonDefaultDesign(page);
   await expect(page.getByTestId("download-stl")).toBeEnabled();
   await page.getByTestId("reset").click();
-  await expect(page.getByTestId("reset-confirm")).toContainText("Sure?");
+  await expect(page.getByTestId("reset-confirm").locator(".reset-confirm-prompt")).toHaveText("Sure to reset?");
   await expect(page.getByTestId("reset-yes")).toBeVisible();
   await expect(page.getByTestId("reset-no")).toBeVisible();
   await expect(page.getByTestId("reset-no")).toBeFocused();
@@ -124,7 +167,8 @@ test("Reset asks first, then puts the design back to its defaults", async ({ pag
   await expect(async () => {
     expect(decodeHashDoc(page.url())).toEqual({ v: 2 });
   }).toPass();
-  await expect(page.getByTestId("reset")).toBeDisabled();
+  await expect(page.getByTestId("reset")).toHaveCount(0);
+  await expect(page.getByTestId("reset-confirm")).toHaveCount(0);
   await expect(page.getByTestId("share")).toBeFocused();
   await expect(page.getByTestId("download-stl")).toBeEnabled();
   await expectSettled(page);
@@ -163,7 +207,7 @@ for (const { name, cancel, focusReturns } of CANCELS) {
     await expect(page.getByTestId("reset-confirm")).toBeVisible();
     await cancel(page);
     await expect(page.getByTestId("reset-confirm")).toHaveCount(0);
-    await expect(page.getByTestId("reset")).toBeEnabled();
+    await expect(page.getByTestId("reset")).toBeVisible();
     if (focusReturns) await expect(page.getByTestId("reset")).toBeFocused();
     await expect(page.getByTestId("input-wireLength")).toHaveValue("350");
     await expect(page.getByTestId("shape-option-sq")).toBeChecked();
@@ -177,7 +221,7 @@ test("moving focus out of the confirmation cancels it", async ({ page }) => {
   await expect(page.getByTestId("reset-no")).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.getByTestId("reset-confirm")).toHaveCount(0);
-  await expect(page.getByTestId("reset")).toBeEnabled();
+  await expect(page.getByTestId("reset")).toBeVisible();
 });
 
 const VIEWPORTS = [
@@ -189,39 +233,48 @@ const VIEWPORTS = [
 for (const { name, width, height, header } of VIEWPORTS) {
   test(`the header keeps its height and the buttons fit beside the title (${name})`, async ({ page }) => {
     await page.setViewportSize({ width, height });
-    await openWithNonDefaultDesign(page);
+    await page.goto("/");
     await page.evaluate(() => document.fonts.ready);
 
     const box = async (testId: string) => (await page.getByTestId(testId).boundingBox())!;
     const h1 = (await page.locator("header h1").boundingBox())!;
-    const headerBox = (await page.locator("header").boundingBox())!;
-    expect(headerBox.height).toBe(header);
-
-    const share = await box("share");
-    const reset = await box("reset");
-    expect(share.x + share.width).toBeLessThanOrEqual(reset.x);
-    expect(reset.x + reset.width).toBeLessThanOrEqual(width);
-
-    const h1Text = await page.locator("header h1").evaluate((el) => {
+    const headerHeight = async () => (await page.locator("header").boundingBox())!.height;
+    const noOverflow = async () => expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    const h1TextRight = await page.locator("header h1").evaluate((el) => {
       const range = document.createRange();
       range.selectNodeContents(el);
       return range.getBoundingClientRect().right;
     });
-    expect(h1Text).toBeLessThanOrEqual(share.x);
 
+    expect(await headerHeight()).toBe(header);
+    const shareAtDefault = await box("share");
+    expect(shareAtDefault.x + shareAtDefault.width).toBeLessThanOrEqual(width);
+    expect(h1TextRight).toBeLessThanOrEqual(shareAtDefault.x);
+    await noOverflow();
+
+    await openWithNonDefaultDesign(page);
+    expect(await headerHeight()).toBe(header);
+    const share = await box("share");
+    const reset = await box("reset");
+    expect(Math.abs(share.x - shareAtDefault.x)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(share.width - shareAtDefault.width)).toBeLessThanOrEqual(0.5);
+    expect(reset.x + reset.width).toBeLessThanOrEqual(share.x);
+    expect(share.x + share.width).toBeLessThanOrEqual(width);
+    expect(h1TextRight).toBeLessThanOrEqual(reset.x);
     for (const b of [share, reset]) {
       expect(b.y).toBeGreaterThanOrEqual(h1.y);
       expect(b.y + b.height).toBeLessThanOrEqual(h1.y + h1.height);
     }
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await noOverflow();
 
     await page.getByTestId("reset").click();
-    const confirm = (await page.getByTestId("reset-confirm").boundingBox())!;
-    const shareWhileConfirming = await box("share");
-    expect(shareWhileConfirming.x + shareWhileConfirming.width).toBeLessThanOrEqual(confirm.x);
+    await expect(page.getByTestId("share")).toHaveCount(0);
+    const confirm = await box("reset-confirm");
+    expect(Math.abs(confirm.x + confirm.width - (shareAtDefault.x + shareAtDefault.width))).toBeLessThanOrEqual(0.5);
     expect(confirm.x + confirm.width).toBeLessThanOrEqual(width);
-    expect(h1Text).toBeLessThanOrEqual(shareWhileConfirming.x);
-    expect((await page.locator("header").boundingBox())!.height).toBe(header);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    expect(h1TextRight).toBeLessThanOrEqual(confirm.x);
+    expect(confirm.height).toBeLessThanOrEqual(h1.height);
+    expect(await headerHeight()).toBe(header);
+    await noOverflow();
   });
 }

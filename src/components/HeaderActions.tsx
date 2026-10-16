@@ -79,6 +79,10 @@ export function HeaderActions({ canReset, onReset }: { canReset: boolean; onRese
   }, [confirming]);
 
   useEffect(() => {
+    if (!canReset) setConfirming(false);
+  }, [canReset]);
+
+  useEffect(() => {
     if (!confirming) return;
     const onPointerDown = (event: PointerEvent) => {
       if (!groupRef.current?.contains(event.target as Node)) setConfirming(false);
@@ -105,55 +109,51 @@ export function HeaderActions({ canReset, onReset }: { canReset: boolean; onRese
     onReset();
   };
 
+  const resetControl = confirming ? (
+    <div
+      ref={groupRef}
+      className="reset-confirm"
+      role="group"
+      aria-label="Reset the design"
+      data-testid="reset-confirm"
+      onPointerDown={() => {
+        pressing.current = true;
+      }}
+      onBlur={(event) => {
+        if (pressing.current) return;
+        if (!event.currentTarget.contains(event.relatedTarget)) setConfirming(false);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") cancelAndRefocus();
+      }}
+    >
+      <span className="reset-confirm-prompt">Sure to reset?</span>
+      <button type="button" className="header-btn" data-testid="reset-yes" onClick={confirm}>
+        Yes
+      </button>
+      <button type="button" ref={noRef} className="header-btn" data-testid="reset-no" onClick={cancelAndRefocus}>
+        No
+      </button>
+    </div>
+  ) : (
+    <button type="button" ref={resetRef} className="header-btn" data-testid="reset" onClick={() => setConfirming(true)}>
+      <ResetIcon />
+      <span>Reset</span>
+    </button>
+  );
+
   return (
     <div className="header-actions">
-      <button type="button" ref={shareRef} className="header-btn" data-testid="share" onClick={share}>
-        <ShareIcon />
-        <span>{SHARE_LABELS[status]}</span>
-      </button>
+      {canReset && resetControl}
+      {!confirming && (
+        <button type="button" ref={shareRef} className="header-btn" data-testid="share" onClick={share}>
+          <ShareIcon />
+          <span>{SHARE_LABELS[status]}</span>
+        </button>
+      )}
       <span className="visually-hidden" role="status" aria-live="polite">
         {SHARE_ANNOUNCEMENTS[status]}
       </span>
-      {confirming ? (
-        <div
-          ref={groupRef}
-          className="reset-confirm"
-          role="group"
-          aria-label="Reset the design"
-          data-testid="reset-confirm"
-          onPointerDown={() => {
-            pressing.current = true;
-          }}
-          onBlur={(event) => {
-            if (pressing.current) return;
-            if (!event.currentTarget.contains(event.relatedTarget)) setConfirming(false);
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") cancelAndRefocus();
-          }}
-        >
-          <span className="reset-confirm-prompt">Sure?</span>
-          <button type="button" className="header-btn" data-testid="reset-yes" onClick={confirm}>
-            Yes
-          </button>
-          <button type="button" ref={noRef} className="header-btn" data-testid="reset-no" onClick={cancelAndRefocus}>
-            No
-          </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          ref={resetRef}
-          className="header-btn"
-          data-testid="reset"
-          disabled={!canReset}
-          title={canReset ? undefined : "Already the default design"}
-          onClick={() => setConfirming(true)}
-        >
-          <ResetIcon />
-          <span>Reset</span>
-        </button>
-      )}
     </div>
   );
 }
