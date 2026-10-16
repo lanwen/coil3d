@@ -127,6 +127,16 @@ header h1 {
   text-transform: lowercase;
 }
 
+.coil-mark {
+  --unit: 0.01453em;
+  --overshoot: 0.01em;
+  --gap: 0.293em;
+  width: calc(48 * var(--unit));
+  height: calc(34 * var(--unit));
+  margin-right: var(--gap);
+  vertical-align: calc(-1 * var(--overshoot));
+}
+
 header p {
   margin: 6px 0 0;
   color: var(--muted);
