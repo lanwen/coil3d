@@ -41,6 +41,7 @@ export interface DimensionAxesProps {
   rotation: THREE.Matrix4;
   labels: DimensionLabels;
   roundGroundLabel: boolean;
+  occluders: THREE.Object3D[];
 }
 
 export const OCCLUSION_PROBE_TS = [0.3, 0.7] as const;
@@ -60,7 +61,7 @@ declare global {
   }
 }
 
-export function DimensionAxes({ axes, rotation, labels, roundGroundLabel }: DimensionAxesProps) {
+export function DimensionAxes({ axes, rotation, labels, roundGroundLabel, occluders }: DimensionAxesProps) {
   const group = useMemo(() => {
     const g = new THREE.Group();
     g.matrixAutoUpdate = false;
@@ -151,7 +152,11 @@ export function DimensionAxes({ axes, rotation, labels, roundGroundLabel }: Dime
       raycaster.set(cameraWorldPos, toPoint.divideScalar(distance));
       raycaster.near = 0;
       raycaster.far = distance * (1 - ANCHOR_OCCLUSION_BIAS);
-      return raycaster.intersectObject(scene, true).length > 0;
+      const hits: THREE.Intersection[] = [];
+      return occluders.some((occluder) => {
+        occluder.raycast(raycaster, hits);
+        return hits.length > 0;
+      });
     };
     const update = (renderer: THREE.WebGLRenderer, camera: THREE.Camera) => {
       inverse.copy(group.matrixWorld).invert();
@@ -164,7 +169,7 @@ export function DimensionAxes({ axes, rotation, labels, roundGroundLabel }: Dime
       const worldOf = (p: THREE.Vector3) => p.clone().applyMatrix4(group.matrixWorld);
 
       const ink: number[] = [];
-      const drawn: { id: AxisId; from: number[]; to: number[]; occludedAt: boolean[] }[] = [];
+      const drawn: { id: AxisId; from: number[]; to: number[]; probePoints: THREE.Vector3[] }[] = [];
       const mvp = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(group.matrixWorld);
       const toCanvas = (p: THREE.Vector3) => {
         const ndc = p.clone().applyMatrix4(mvp);
@@ -222,8 +227,8 @@ export function DimensionAxes({ axes, rotation, labels, roundGroundLabel }: Dime
         const isOccluded = occluded(worldOf(mid), cameraWorldPos);
         if (id === "height") place(id, mid, pixel, s, !isOccluded);
         else groundCandidates.push({ id, mid, dir: dir.clone(), pixel, length, occluded: isOccluded, s });
-        const occludedAt = OCCLUSION_PROBE_TS.map((t) => occluded(worldOf(from.clone().lerp(to, t)), cameraWorldPos));
-        drawn.push({ id, from: toCanvas(from), to: toCanvas(to), occludedAt });
+        const probePoints = OCCLUSION_PROBE_TS.map((t) => worldOf(from.clone().lerp(to, t)));
+        drawn.push({ id, from: toCanvas(from), to: toCanvas(to), probePoints });
         ink.push(...b.out);
       }
 
@@ -284,7 +289,17 @@ export function DimensionAxes({ axes, rotation, labels, roundGroundLabel }: Dime
         box: { min: axes.box.min.toArray(), max: axes.box.max.toArray() },
         gap: axes.gap,
         origin: origin.toArray(),
-        arms: drawn.map((d) => ({ ...d, labelRect: labelRects.get(d.id) ?? null })),
+        arms: drawn.map(({ probePoints, ...arm }) => {
+          let occludedAt: boolean[] | undefined;
+          return {
+            ...arm,
+            get occludedAt() {
+              occludedAt ??= probePoints.map((p) => occluded(p, cameraWorldPos));
+              return occludedAt;
+            },
+            labelRect: labelRects.get(arm.id) ?? null,
+          };
+        }),
       };
     };
     const previous = scene.onBeforeRender;
@@ -298,7 +313,7 @@ export function DimensionAxes({ axes, rotation, labels, roundGroundLabel }: Dime
       scene.onBeforeRender = previous;
       delete window.__dimensionAxes;
     };
-  }, [scene, invalidate, strokes, sprites, group, axes, sizes, raycaster, labels, roundGroundLabel]);
+  }, [scene, invalidate, strokes, sprites, group, axes, sizes, raycaster, labels, roundGroundLabel, occluders]);
 
   return <primitive object={group} />;
 }
