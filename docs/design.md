@@ -1358,9 +1358,11 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
   the 30 degree crease test. Normals are split at 30 degrees. The groove arc
   turns about 17 degrees per mesh row, below that. The ridges and rims turn 45
   to 110 degrees, so they always draw.
-- The edge and thicken passes run at twice the CSS pixel ratio on a 1x screen
-  (native on 2x or better). The output pass averages them down, so thin lines
-  are smooth and not stair-stepped.
+- The edge and thicken passes run at `max(2, devicePixelRatio)` device pixels
+  per CSS pixel: 2x supersampling on a 1x to 2x screen, native above that. A
+  1.5x screen used to run them at 3x, which cost more and showed no cleaner
+  line. The output pass averages them down, so thin lines are smooth and not
+  stair-stepped.
 - The pen weight is the on-screen diagonal of the model divided by 500,
   clamped to 1.0 to 1.6 CSS px. The label outline pen is 0.8 px. The thicken
   pass searches at most 4 px.
