@@ -133,7 +133,7 @@ function fitsNearlyEqual(a: Fit, b: Fit): boolean {
 }
 
 function computeFit(geometry: THREE.BufferGeometry, direction: THREE.Vector3, up: THREE.Vector3, aspect: number, fill: number, projection: Projection): Fit | null {
-  geometry.computeBoundingSphere();
+  if (!geometry.boundingSphere) geometry.computeBoundingSphere();
   const sphere = geometry.boundingSphere;
   if (!sphere || sphere.radius <= 0) return null;
 

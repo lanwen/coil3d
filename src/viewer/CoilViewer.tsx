@@ -101,6 +101,25 @@ function zExtent(mesh: CoilMesh): number {
   return Math.max(0, maxZ - minZ);
 }
 
+function referencedPositions(mesh: CoilMesh): Float32Array {
+  const used = new Uint8Array(mesh.positions.length / 3);
+  let count = 0;
+  for (const index of mesh.indices) {
+    if (used[index]) continue;
+    used[index] = 1;
+    count++;
+  }
+  const out = new Float32Array(count * 3);
+  let at = 0;
+  for (let i = 0; i < used.length; i++) {
+    if (!used[i]) continue;
+    out[at++] = mesh.positions[3 * i];
+    out[at++] = mesh.positions[3 * i + 1];
+    out[at++] = mesh.positions[3 * i + 2];
+  }
+  return out;
+}
+
 function buildCreasedGeometry(mesh: CoilMesh): THREE.BufferGeometry {
   const indexed = new THREE.BufferGeometry();
   indexed.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
@@ -393,9 +412,9 @@ export function CoilViewer({
   }, [printLayoutParts]);
 
   const printLayoutFramingGeometry = useMemo(() => {
-    if (!printLayout || !printLayoutParts) return null;
+    if (!printLayout) return null;
     const { bounds } = printLayout;
-    const chunks = printLayoutParts.map(({ geometry }) => (geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array);
+    const chunks = printLayout.parts.map(({ mesh }) => referencedPositions(mesh));
     const labelRowMargin = Math.max(8, 0.1 * bounds.getSize(new THREE.Vector3()).y);
     const corners: number[] = [];
     for (const x of [bounds.min.x, bounds.max.x])
@@ -411,17 +430,29 @@ export function CoilViewer({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [printLayout, printLayoutParts]);
+  }, [printLayout]);
   useEffect(() => () => printLayoutFramingGeometry?.dispose(), [printLayoutFramingGeometry]);
 
   const explodeAxis = useMemo(() => EXPLODE_AXES[viewMode], [viewMode]);
 
   const newExplodeAxisFor = (role: Part["role"]): THREE.Vector3 => (ROLES_EXPLODING_AWAY_FROM_CAP.includes(role) ? explodeAxis.clone().negate() : explodeAxis.clone());
 
+  const partFramePoints = useMemo(() => parts.map((part) => referencedPositions(part.mesh)), [parts]);
+  const viewPartPositions = useMemo(
+    () =>
+      partFramePoints.map((points) => {
+        if (!viewRotation) return points;
+        const rotated = new THREE.BufferAttribute(points.slice(), 3);
+        rotated.applyMatrix4(viewRotation);
+        return rotated.array as Float32Array;
+      }),
+    [partFramePoints, viewRotation],
+  );
+
   const framingGeometry = useMemo(() => {
-    const chunks = viewPartGeometries.map(({ part, geometry }) => {
+    const chunks = parts.map((part, i) => {
       const offset = exploded ? (explodeOffsets.get(part.name) ?? 0) : 0;
-      const positions = (geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+      const positions = viewPartPositions[i];
       if (offset === 0) return positions;
       const shift = newExplodeAxisFor(part.role).multiplyScalar(offset);
       const shifted = new Float32Array(positions.length);
@@ -451,7 +482,7 @@ export function CoilViewer({
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.BufferAttribute(merged, 3));
     return geometry;
-  }, [viewPartGeometries, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionAxes, dimensionMatrix, viewMode, showWire, outerEndReach, wireDiameter, outerEndLeadOut, viewRotation]);
+  }, [parts, viewPartPositions, explodeOffsets, explodeAxis, exploded, dimensionLabels, dimensionAxes, dimensionMatrix, viewMode, showWire, outerEndReach, wireDiameter, outerEndLeadOut, viewRotation]);
   useEffect(() => () => framingGeometry.dispose(), [framingGeometry]);
 
   const focusFramingGeometry = useMemo(() => {
