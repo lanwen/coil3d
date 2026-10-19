@@ -100,11 +100,23 @@ export interface InnerEndCut {
 type Manifold = InstanceType<ManifoldToplevel["Manifold"]>;
 type ManifoldMesh = InstanceType<ManifoldToplevel["Mesh"]>;
 type Track = <T extends { delete(): void }>(m: T) => T;
+type Polygons = [number, number][][];
+
+function revolved(wasm: ManifoldToplevel, track: Track, profile: [number, number][], segments: number, degrees: number): Manifold {
+  const section = track(new wasm.CrossSection([profile], "Positive"));
+  return track(section.revolve(segments, degrees));
+}
+
+function prismAt(wasm: ManifoldToplevel, track: Track, loops: Polygons, fill: "NonZero" | "Positive", height: number, zBase: number): Manifold {
+  const section = track(new wasm.CrossSection(loops, fill));
+  const prism = track(section.extrude(height));
+  return track(prism.translate([0, 0, zBase]));
+}
 
 function unionAtAngles(track: Track, build: (angleDeg: number) => Manifold, anglesDeg: number[]): Manifold {
   let result: Manifold | undefined;
   for (const angle of anglesDeg) {
-    const m = track(build(angle));
+    const m = build(angle);
     result = result ? track(result.add(m)) : m;
   }
   return result!;
@@ -120,7 +132,7 @@ function collarBase(
   minCornerSegments: number,
 ): Manifold {
   const straightHeight = depth - JOINT_TRANSITION_HEIGHT / 2;
-  const straight = track(outlinePrismSolid(wasm, collarOutline, straightHeight, -depth, segments, minCornerSegments));
+  const straight = outlinePrismSolid(wasm, track, collarOutline, straightHeight, -depth, segments, minCornerSegments);
   const bottomPts: [number, number, number][] = corners(outlinePolygon(collarOutline, segments, minCornerSegments)).map(([x, y]) => [x, y, -JOINT_TRANSITION_HEIGHT]);
   const topPts: [number, number, number][] = corners(outlinePolygon(rootOutline, segments, minCornerSegments)).map(([x, y]) => [x, y, 0]);
   const transition = track(wasm.Manifold.hull([...bottomPts, ...topPts]));
@@ -157,23 +169,25 @@ function corners(poly: [number, number][]): [number, number][] {
   });
 }
 
-function radialBox(wasm: ManifoldToplevel, rLo: number, rHi: number, width: number, zLo: number, zHi: number, angleDeg: number): Manifold {
+function radialBox(wasm: ManifoldToplevel, track: Track, rLo: number, rHi: number, width: number, zLo: number, zHi: number, angleDeg: number): Manifold {
   const { Manifold: M } = wasm;
   const lenX = Math.max(rHi - rLo, DEGENERATE_EXTENT);
   const h = Math.max(zHi - zLo, DEGENERATE_EXTENT);
-  return M.cube([lenX, width, h], true)
-    .translate([Math.min(rLo, rHi) + lenX / 2, 0, 0])
-    .rotate([0, 0, angleDeg])
-    .translate([0, 0, (zLo + zHi) / 2]);
+  const box = track(M.cube([lenX, width, h], true));
+  const shifted = track(box.translate([Math.min(rLo, rHi) + lenX / 2, 0, 0]));
+  const turned = track(shifted.rotate([0, 0, angleDeg]));
+  return track(turned.translate([0, 0, (zLo + zHi) / 2]));
 }
 
-function revolvedFeature(wasm: ManifoldToplevel, f: RevolvedFeature, dz: number): Manifold {
-  return wasm.Manifold.revolve([f.profile], BAYONET_REVOLVE_SEGMENTS, f.sweepDeg).rotate([0, 0, f.startDeg]).translate([0, 0, dz]);
+function revolvedFeature(wasm: ManifoldToplevel, track: Track, f: RevolvedFeature, dz: number): Manifold {
+  const solid = revolved(wasm, track, f.profile, BAYONET_REVOLVE_SEGMENTS, f.sweepDeg);
+  const turned = track(solid.rotate([0, 0, f.startDeg]));
+  return track(turned.translate([0, 0, dz]));
 }
 
 function applyCoreJointCut(wasm: ManifoldToplevel, track: Track, core: Manifold, cut: CoreJointCut, flange: FlangeSpec): Manifold {
   if (cut.joint === "bayonet") {
-    return track(wasm.Manifold.union([core, ...cut.bayonet!.lugs.map((f) => track(revolvedFeature(wasm, f, cut.height)))]));
+    return track(wasm.Manifold.union([core, ...cut.bayonet!.lugs.map((f) => revolvedFeature(wasm, track, f, cut.height))]));
   }
 
   const { height } = cut;
@@ -183,10 +197,10 @@ function applyCoreJointCut(wasm: ManifoldToplevel, track: Track, core: Manifold,
   return track(wasm.Manifold.union([core, ...rings]));
 }
 
-function slotLevelSolid(wasm: ManifoldToplevel, slot: KeyholeSlot, headRadius: number, otherRadius: number, height: number, zLo: number): Manifold {
+function slotLevelSolid(wasm: ManifoldToplevel, track: Track, slot: KeyholeSlot, headRadius: number, otherRadius: number, height: number, zLo: number): Manifold {
   const { Manifold } = wasm;
-  const head = Manifold.cylinder(height, headRadius, headRadius, CYLINDER_SEGMENTS).translate(slot.head.x, slot.head.y, zLo);
-  const shankEnd = Manifold.cylinder(height, otherRadius, otherRadius, CYLINDER_SEGMENTS).translate(slot.shankEnd.x, slot.shankEnd.y, zLo);
+  const head = track(track(Manifold.cylinder(height, headRadius, headRadius, CYLINDER_SEGMENTS)).translate(slot.head.x, slot.head.y, zLo));
+  const shankEnd = track(track(Manifold.cylinder(height, otherRadius, otherRadius, CYLINDER_SEGMENTS)).translate(slot.shankEnd.x, slot.shankEnd.y, zLo));
   const dx = slot.shankEnd.x - slot.head.x;
   const dy = slot.shankEnd.y - slot.head.y;
   const len = Math.hypot(dx, dy);
@@ -202,25 +216,27 @@ function slotLevelSolid(wasm: ManifoldToplevel, slot: KeyholeSlot, headRadius: n
       [slot.shankEnd.x - px, slot.shankEnd.y - py],
       [slot.shankEnd.x + px, slot.shankEnd.y + py],
     ];
-    parts.push(Manifold.extrude([channelPolygon], height).translate(0, 0, zLo));
+    parts.push(prismAt(wasm, track, [channelPolygon], "Positive", height, zLo));
   }
-  return Manifold.union(parts);
+  return track(Manifold.union(parts));
 }
 
-function screwMountCutter(wasm: ManifoldToplevel, slot: KeyholeSlot, zBase: number): Manifold {
+function screwMountCutter(wasm: ManifoldToplevel, track: Track, slot: KeyholeSlot, zBase: number): Manifold {
   const mouthZLo = zBase - WELD_OVERLAP;
-  const slotLevel = slotLevelSolid(wasm, slot, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_SLOT_RADIUS, SCREW_MOUNT_SLOT_DEPTH + WELD_OVERLAP + SCREW_MOUNT_LEVEL_OVERLAP, mouthZLo);
-  const undercutLevel = slotLevelSolid(wasm, slot, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_UNDERCUT_DEPTH, zBase + SCREW_MOUNT_SLOT_DEPTH);
-  return wasm.Manifold.union([slotLevel, undercutLevel]);
+  const slotLevel = slotLevelSolid(wasm, track, slot, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_SLOT_RADIUS, SCREW_MOUNT_SLOT_DEPTH + WELD_OVERLAP + SCREW_MOUNT_LEVEL_OVERLAP, mouthZLo);
+  const undercutLevel = slotLevelSolid(wasm, track, slot, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_HEAD_RADIUS, SCREW_MOUNT_UNDERCUT_DEPTH, zBase + SCREW_MOUNT_SLOT_DEPTH);
+  return track(wasm.Manifold.union([slotLevel, undercutLevel]));
 }
 
-function throughHoleCutter(wasm: ManifoldToplevel, hole: ThroughHole, holeRadius: number, flangeThickness: number, zTop: number, plateThickness: number): Manifold {
+function throughHoleCutter(wasm: ManifoldToplevel, track: Track, hole: ThroughHole, holeRadius: number, flangeThickness: number, zTop: number, plateThickness: number): Manifold {
   const { Manifold } = wasm;
-  const bore = Manifold.cylinder(flangeThickness + 2 * WELD_OVERLAP, holeRadius, holeRadius, CYLINDER_SEGMENTS).translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP);
+  const straight = track(Manifold.cylinder(flangeThickness + 2 * WELD_OVERLAP, holeRadius, holeRadius, CYLINDER_SEGMENTS));
+  const bore = track(straight.translate(hole.x, hole.y, -flangeThickness - WELD_OVERLAP));
   const sink = throughHoleCountersink(holeRadius, plateThickness);
   if (sink.depth <= DEGENERATE_EXTENT) return bore;
-  const cone = Manifold.cylinder(sink.depth + WELD_OVERLAP + COUNTERSINK_CARRY_DEPTH, holeRadius - COUNTERSINK_CARRY_DEPTH, sink.radius + WELD_OVERLAP, CYLINDER_SEGMENTS).translate(hole.x, hole.y, zTop - sink.depth - COUNTERSINK_CARRY_DEPTH);
-  return Manifold.union([bore, cone]);
+  const flared = track(Manifold.cylinder(sink.depth + WELD_OVERLAP + COUNTERSINK_CARRY_DEPTH, holeRadius - COUNTERSINK_CARRY_DEPTH, sink.radius + WELD_OVERLAP, CYLINDER_SEGMENTS));
+  const cone = track(flared.translate(hole.x, hole.y, zTop - sink.depth - COUNTERSINK_CARRY_DEPTH));
+  return track(Manifold.union([bore, cone]));
 }
 
 export interface MountPlateFlangeCut {
@@ -228,9 +244,8 @@ export interface MountPlateFlangeCut {
   tolerance: number;
 }
 
-function rimPrismCutter(wasm: ManifoldToplevel, outline: XY[], zLo: number, height: number): Manifold {
-  const poly: [number, number][] = outline.map((p) => [p.x, p.y]);
-  return new wasm.CrossSection([poly], "NonZero").extrude(height).translate([0, 0, zLo]);
+function rimPrismCutter(wasm: ManifoldToplevel, track: Track, outline: XY[], zLo: number, height: number): Manifold {
+  return prismAt(wasm, track, [outline.map((p): [number, number] => [p.x, p.y])], "NonZero", height, zLo);
 }
 
 function sweepSolid(wasm: ManifoldToplevel, sweep: SweepSolid): Manifold {
@@ -240,14 +255,14 @@ function sweepSolid(wasm: ManifoldToplevel, sweep: SweepSolid): Manifold {
   return m;
 }
 
-function outlineBlocker(wasm: ManifoldToplevel, outline: ShapeOutline, zLo: number, zHi: number, segments = BLOCKER_SEGMENTS): Manifold {
+function outlineBlocker(wasm: ManifoldToplevel, track: Track, outline: ShapeOutline, zLo: number, zHi: number, segments = BLOCKER_SEGMENTS): Manifold {
   const grown = offsetOutline(outline, INNER_CHANNEL_WALL_GUARD);
   const loop: [number, number][] = [];
   for (let i = 0; i < segments; i++) {
     const p = pointAt(grown, i / segments, 0);
     loop.push([p.x, p.y]);
   }
-  return new wasm.CrossSection([loop], "NonZero").extrude(zHi - zLo).translate([0, 0, zLo]);
+  return prismAt(wasm, track, [loop], "NonZero", zHi - zLo, zLo);
 }
 
 function buildInnerEndCutter(
@@ -259,7 +274,7 @@ function buildInnerEndCutter(
 ): Manifold {
   const raw = track(sweepSolid(wasm, layout.channel));
   const top = Math.max(...layout.channel.rings.flat().map((p) => p.z)) + CUTTER_OVERSHOOT;
-  const blocker = track(outlineBlocker(wasm, outline, -cut.flangeThickness - CUTTER_OVERSHOOT, top));
+  const blocker = outlineBlocker(wasm, track, outline, -cut.flangeThickness - CUTTER_OVERSHOOT, top);
   return track(raw.subtract(blocker));
 }
 
@@ -297,7 +312,7 @@ function faceArcCutter(wasm: ManifoldToplevel, track: Track, arc: FaceCutArc, en
   const profile = channelProfile(end.face, arc.radius, layout.channelRadius, end.level, layout.height);
   const degrees = (Math.abs(arc.sweep) * 180) / Math.PI;
   const lowest = (Math.min(arc.from, arc.from + arc.sweep) * 180) / Math.PI;
-  const solid = track(wasm.Manifold.revolve([profile], FACE_REVOLVE_SEGMENTS, degrees));
+  const solid = revolved(wasm, track, profile, FACE_REVOLVE_SEGMENTS, degrees);
   const turned = track(solid.rotate([0, 0, lowest]));
   return track(turned.translate([arc.centre.x, arc.centre.y, 0]));
 }
@@ -372,7 +387,7 @@ export async function fuseFlange(
     if (flange.mount === "keyhole") {
       const layout = layoutKeyholeMount(flange.outline, flange.boreOutline, flange.margin, flange.keyholeRotation);
       for (const slot of layout.slots) {
-        const cutter = track(screwMountCutter(wasm, slot, -flange.thickness));
+        const cutter = screwMountCutter(wasm, track, slot, -flange.thickness);
         fused = track(fused.subtract(cutter));
         status = fused.status();
         if (status !== "NoError") {
@@ -384,7 +399,7 @@ export async function fuseFlange(
     if (flange.mount === "through") {
       const layout = layoutFlangeThroughHoles(flange, innerEndLayout);
       for (const hole of layout.holes) {
-        const cutter = track(throughHoleCutter(wasm, hole, layout.holeRadius, flange.thickness, plateTopZ(flange) ?? 0, Math.min(flange.plateThickness ?? flange.thickness, flange.thickness)));
+        const cutter = throughHoleCutter(wasm, track, hole, layout.holeRadius, flange.thickness, plateTopZ(flange) ?? 0, Math.min(flange.plateThickness ?? flange.thickness, flange.thickness));
         fused = track(fused.subtract(cutter));
         status = fused.status();
         if (status !== "NoError") {
@@ -396,7 +411,7 @@ export async function fuseFlange(
     if (flange.skadis) {
       for (const notch of flange.skadis.notches) {
         const poly: [number, number][] = notch.map((p) => [p.x, p.y]);
-        const cutter = track(new wasm.CrossSection([poly], "NonZero").extrude(flange.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flange.thickness - WELD_OVERLAP]));
+        const cutter = prismAt(wasm, track, [poly], "NonZero", flange.thickness + 2 * WELD_OVERLAP, -flange.thickness - WELD_OVERLAP);
         fused = track(fused.subtract(cutter));
         status = fused.status();
         if (status !== "NoError") {
@@ -406,7 +421,7 @@ export async function fuseFlange(
     }
 
     if (flange.rimSlot) {
-      fused = track(fused.subtract(track(rimPrismCutter(wasm, flange.rimSlot.outline, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP))));
+      fused = track(fused.subtract(rimPrismCutter(wasm, track, flange.rimSlot.outline, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP)));
       status = fused.status();
       if (status !== "NoError") {
         throw new Error(`Rim slot cut is not a valid manifold: ${status}`);
@@ -414,7 +429,7 @@ export async function fuseFlange(
     }
 
     for (const slot of flange.strapSlots ?? []) {
-      fused = track(fused.subtract(track(rimPrismCutter(wasm, slot.outline, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP))));
+      fused = track(fused.subtract(rimPrismCutter(wasm, track, slot.outline, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP)));
       status = fused.status();
       if (status !== "NoError") {
         throw new Error(`Strap slot cut is not a valid manifold: ${status}`);
@@ -424,8 +439,7 @@ export async function fuseFlange(
     if (flange.skadisTclip) {
       const hullOf = (cutter: TclipCutter) => track(wasm.Manifold.hull(cutter.levels.flatMap((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z]))));
       const cuts = flange.skadisTclip.cutters.flatMap(({ slot, recess, leadIns }) => {
-        const section = track(new wasm.CrossSection(recess.pieces.map((poly) => poly.map((p): [number, number] => [p.x, p.y])), "Positive"));
-        const prism = track(track(section.extrude(recess.top - recess.bottom)).translate([0, 0, recess.bottom]));
+        const prism = prismAt(wasm, track, recess.pieces.map((poly) => poly.map((p): [number, number] => [p.x, p.y])), "Positive", recess.top - recess.bottom, recess.bottom);
         return [prism, hullOf(slot), ...leadIns.map(hullOf)];
       });
       fused = track(fused.subtract(track(Manifold.union(cuts))));
@@ -437,7 +451,7 @@ export async function fuseFlange(
 
     if (mountPlateCut) {
       for (const anchor of mountPlateCut.anchors) {
-        const cutter = track(pinHoleCutter(wasm, anchor, mountPlateCut.tolerance, -flange.thickness, INTO_FLANGE));
+        const cutter = pinHoleCutter(wasm, track, anchor, mountPlateCut.tolerance, -flange.thickness, INTO_FLANGE);
         fused = track(fused.subtract(cutter));
         status = fused.status();
         if (status !== "NoError") {
@@ -490,10 +504,10 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     const { collarOutline, holeOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
     const segments = !isPill(collarOutline) && collarOutline.cornerRadius >= collarOutline.apothem - 1e-6 ? collarSegments.round : collarSegments.other;
 
-    const straight = () => track(outlinePrismSolid(wasm, collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH, segments, flange.minCornerSegments));
+    const straight = () => outlinePrismSolid(wasm, track, collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH, segments, flange.minCornerSegments);
     let collar: Manifold;
     if (joint === "bayonet") {
-      const slots = track(Manifold.union(bayonet!.cuts.map((f) => track(revolvedFeature(wasm, f, 0)))));
+      const slots = track(Manifold.union(bayonet!.cuts.map((f) => revolvedFeature(wasm, track, f, 0))));
       collar = track(straight().subtract(slots));
     } else if (snap) {
       collar = snapCollar(wasm, track, collarOutline, snap, segments, flange.minCornerSegments);
@@ -505,17 +519,17 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     if (snap?.hole) {
       assembled = track(assembled.subtract(stackSolid(wasm, track, snap.hole, segments, flange.minCornerSegments)));
     } else if (holeOutline) {
-      const hole = track(outlinePrismSolid(wasm, holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2 * CUTTER_OVERSHOOT, -JOINT_ENGAGE_DEPTH - CUTTER_OVERSHOOT, segments, flange.minCornerSegments));
+      const hole = outlinePrismSolid(wasm, track, holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2 * CUTTER_OVERSHOOT, -JOINT_ENGAGE_DEPTH - CUTTER_OVERSHOOT, segments, flange.minCornerSegments);
       assembled = track(assembled.subtract(hole));
     }
-    if (rimSlot) assembled = track(assembled.subtract(track(rimPrismCutter(wasm, rimSlot.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP))));
+    if (rimSlot) assembled = track(assembled.subtract(rimPrismCutter(wasm, track, rimSlot.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP)));
     for (const slot of strapSlots ?? []) {
-      assembled = track(assembled.subtract(track(rimPrismCutter(wasm, slot.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP))));
+      assembled = track(assembled.subtract(rimPrismCutter(wasm, track, slot.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP)));
     }
 
     let labelId: number | undefined;
     if (label) {
-      const labelCutter = track(track(await buildLabelCutter(wasm, label)).asOriginal());
+      const labelCutter = track((await buildLabelCutter(wasm, track, label)).asOriginal());
       labelId = labelCutter.originalID();
       assembled = track(assembled.subtract(labelCutter));
     }
@@ -551,19 +565,18 @@ function weldedLabelTriangles(outMesh: ManifoldMesh, labelId: number, triangleCo
   return new Uint32Array(labelTriangles);
 }
 
-async function buildLabelCutter(wasm: ManifoldToplevel, label: ResolvedLabel): Promise<Manifold> {
+async function buildLabelCutter(wasm: ManifoldToplevel, track: Track, label: ResolvedLabel): Promise<Manifold> {
   const font = await getLabelFont();
   const loops = labelLoops(font, label);
   const cutterHeight = LABEL_DEPTH + CUTTER_OVERSHOOT;
-  const cutter = new wasm.CrossSection(loops, "NonZero").extrude(cutterHeight);
-  return cutter.translate([0, 0, CAP_THICKNESS - LABEL_DEPTH]);
+  return prismAt(wasm, track, loops, "NonZero", cutterHeight, CAP_THICKNESS - LABEL_DEPTH);
 }
 
 function snapCollar(wasm: ManifoldToplevel, track: Track, collarOutline: ShapeOutline, snap: SnapLayout, segments: number, minCornerSegments: number): Manifold {
   const base = collarBase(wasm, track, collarOutline, snap.rootOutline, snap.depth, segments, minCornerSegments);
   const barb = stackSolid(wasm, track, snap.barb, segments, minCornerSegments);
   const withBarb = track(base.add(barb));
-  const slots = unionAtAngles(track, (angle) => radialBox(wasm, 0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -snap.depth - SNAP_SLOT_OVERSHOOT, SNAP_SLOT_OVERSHOOT, angle), snap.slotAnglesDeg);
+  const slots = unionAtAngles(track, (angle) => radialBox(wasm, track, 0, snap.slotOuterRadius, SNAP_SLOT_WIDTH, -snap.depth - SNAP_SLOT_OVERSHOOT, SNAP_SLOT_OVERSHOOT, angle), snap.slotAnglesDeg);
   return track(withBarb.subtract(slots));
 }
 
@@ -597,26 +610,29 @@ function outlineRingManifold(wasm: ManifoldToplevel, track: Track, flange: Flang
   return ring;
 }
 
-function outlinePrismSolid(wasm: ManifoldToplevel, outline: ShapeOutline, height: number, zBase: number, columns: number, minCornerSegments: number): Manifold {
-  const poly = outlinePolygon(outline, columns, minCornerSegments);
-  return new wasm.CrossSection([poly], "NonZero").extrude(height).translate([0, 0, zBase]);
+function outlinePrismSolid(wasm: ManifoldToplevel, track: Track, outline: ShapeOutline, height: number, zBase: number, columns: number, minCornerSegments: number): Manifold {
+  return prismAt(wasm, track, [outlinePolygon(outline, columns, minCornerSegments)], "NonZero", height, zBase);
 }
 
-function openGridConnectorSolid(wasm: ManifoldToplevel): Manifold {
+function openGridConnectorSolid(wasm: ManifoldToplevel, track: Track): Manifold {
   const size = OPENGRID_PLACEHOLDER_PEG_SIZE;
   const heightWithEmbed = OPENGRID_PLACEHOLDER_PEG_REACH + MOUNT_PLATE_EMBED;
-  return wasm.Manifold.cube([size, size, heightWithEmbed], true).translate([0, 0, (MOUNT_PLATE_EMBED - OPENGRID_PLACEHOLDER_PEG_REACH) / 2]);
+  const cube = track(wasm.Manifold.cube([size, size, heightWithEmbed], true));
+  return track(cube.translate([0, 0, (MOUNT_PLATE_EMBED - OPENGRID_PLACEHOLDER_PEG_REACH) / 2]));
 }
 
-function mountPlateClipSolid(wasm: ManifoldToplevel, clip: ClipInstance, zBase: number): Manifold {
-  return openGridConnectorSolid(wasm).rotate([0, 0, clip.rotationDeg]).translate([clip.x, clip.y, zBase]);
+function mountPlateClipSolid(wasm: ManifoldToplevel, track: Track, clip: ClipInstance, zBase: number): Manifold {
+  const connector = openGridConnectorSolid(wasm, track);
+  const turned = track(connector.rotate([0, 0, clip.rotationDeg]));
+  return track(turned.translate([clip.x, clip.y, zBase]));
 }
 
-function pinHoleCutter(wasm: ManifoldToplevel, anchor: AnchorPoint, tolerance: number, zFace: number, dir: PinHoleDirection): Manifold {
+function pinHoleCutter(wasm: ManifoldToplevel, track: Track, anchor: AnchorPoint, tolerance: number, zFace: number, dir: PinHoleDirection): Manifold {
   const poly: [number, number][] = pegHoleOutline(anchor, tolerance).map((p) => [p.x, p.y]);
   const depthWithMouth = MOUNT_PLATE_PEG_HOLE_DEPTH + MOUNT_PLATE_EMBED;
-  const hole = new wasm.CrossSection([poly], "NonZero").extrude(depthWithMouth).translate([0, 0, -MOUNT_PLATE_EMBED]);
-  return (dir === INTO_FLANGE ? hole : hole.mirror([0, 0, 1])).translate([0, 0, zFace]);
+  const hole = prismAt(wasm, track, [poly], "NonZero", depthWithMouth, -MOUNT_PLATE_EMBED);
+  const oriented = dir === INTO_FLANGE ? hole : track(hole.mirror([0, 0, 1]));
+  return track(oriented.translate([0, 0, zFace]));
 }
 
 export interface MountPlateSpec {
@@ -641,19 +657,19 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
     const plateBackZ = -flangeThickness - MOUNT_PLATE_THICKNESS;
     const plateFrontZ = -flangeThickness;
 
-    let plate = track(outlinePrismSolid(wasm, layout.outline, MOUNT_PLATE_THICKNESS, plateBackZ, columns, minCornerSegments));
+    let plate = outlinePrismSolid(wasm, track, layout.outline, MOUNT_PLATE_THICKNESS, plateBackZ, columns, minCornerSegments);
     if (plate.status() !== "NoError") {
       throw new Error(`Mount plate panel mesh is not a valid manifold: ${plate.status()}`);
     }
 
     for (const clip of layout.clips) {
-      plate = track(plate.add(track(mountPlateClipSolid(wasm, clip, plateBackZ))));
+      plate = track(plate.add(mountPlateClipSolid(wasm, track, clip, plateBackZ)));
     }
     for (const anchor of layout.anchors) {
-      plate = track(plate.subtract(track(pinHoleCutter(wasm, anchor, tolerance, plateFrontZ, INTO_PLATE))));
+      plate = track(plate.subtract(pinHoleCutter(wasm, track, anchor, tolerance, plateFrontZ, INTO_PLATE)));
     }
     for (const slot of strapSlots ?? []) {
-      plate = track(plate.subtract(track(rimPrismCutter(wasm, slot.outline, plateBackZ - WELD_OVERLAP, MOUNT_PLATE_THICKNESS + 2 * WELD_OVERLAP))));
+      plate = track(plate.subtract(rimPrismCutter(wasm, track, slot.outline, plateBackZ - WELD_OVERLAP, MOUNT_PLATE_THICKNESS + 2 * WELD_OVERLAP)));
     }
 
     if (plate.status() !== "NoError") {
@@ -682,13 +698,15 @@ export async function buildSkadisClip(layout: SkadisClipLayout, clip: RimClip): 
   const wasm = await getWasm();
   const { up, side } = clipFrame(layout.axisDeg, clip.side);
   const s0 = clip.side - SKADIS_CLIP_WIDTH / 2;
-  const prism = new wasm.CrossSection([clip.profile], "NonZero").extrude(SKADIS_CLIP_WIDTH);
+  const section = new wasm.CrossSection([clip.profile], "NonZero");
+  const prism = section.extrude(SKADIS_CLIP_WIDTH);
   const placed = prism.transform([up.x, up.y, 0, 0, 0, 0, 1, 0, side.x, side.y, 0, 0, s0 * side.x, s0 * side.y, 0, 1]);
   try {
     if (placed.status() !== "NoError") throw new Error(`SKÅDIS clip is not a valid manifold: ${placed.status()}`);
     const outMesh = placed.getMesh();
     return coilMeshOf(outMesh);
   } finally {
+    section.delete();
     prism.delete();
     placed.delete();
   }

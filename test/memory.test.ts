@@ -1,6 +1,9 @@
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { design, parseHash } from "../src/core";
 import type { CoilSpec } from "../src/core";
+import { encodeHashDoc } from "../e2e/hashDoc";
 
 // Issue #7 AC: "WASM objects are freed; memory stays stable over 100
 // consecutive designs." manifold-3d's WASM linear memory only grows, never
@@ -32,34 +35,47 @@ const spec: CoilSpec = {
   plateJoint: "glue",
 };
 
+const SQUARE_SKADIS_LABEL = parseHash(encodeHashDoc({ L: 4000, d: 3.8, size: 85, shape: "sq", rc: 10, ly: 2, base: "on", cap: "on", mount: "skadis", label: "USB-C" })).spec;
+
+const SAMPLE_EVERY = 10;
+
+// Collect the JS garbage (mesh arrays waiting to be finalised) before each sample, so the slope shows only what WASM kept.
+setFlagsFromString("--expose-gc");
+const collectGarbage: () => void = runInNewContext("gc");
+
+async function rssSlopePerStep(target: CoilSpec, warmup: number, total: number): Promise<{ slopePerStep: number; samples: number[] }> {
+  const samples: number[] = [];
+  for (let i = 0; i < total; i++) {
+    await design(target, "draft");
+    if (i >= warmup && (i - warmup) % SAMPLE_EVERY === 0) {
+      collectGarbage();
+      samples.push(process.memoryUsage().rss);
+    }
+  }
+
+  // Linear-regression slope over the post-warmup samples: bytes of RSS
+  // growth per `SAMPLE_EVERY`-design step. Robust to one noisy sample,
+  // unlike a plain first-vs-last difference.
+  const n = samples.length;
+  const xs = samples.map((_, i) => i);
+  const meanX = xs.reduce((a, b) => a + b, 0) / n;
+  const meanY = samples.reduce((a, b) => a + b, 0) / n;
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < n; i++) {
+    num += (xs[i] - meanX) * (samples[i] - meanY);
+    den += (xs[i] - meanX) ** 2;
+  }
+  return { slopePerStep: den === 0 ? 0 : num / den, samples };
+}
+
+function describeSlope({ slopePerStep, samples }: { slopePerStep: number; samples: number[] }): string {
+  return `RSS grew by ~${(slopePerStep / 1024 / 1024).toFixed(2)} MB per ${SAMPLE_EVERY} designs (samples, MB: ${samples.map((s) => (s / 1024 / 1024).toFixed(1)).join(", ")})`;
+}
+
 describe("memory stability across repeated designs (issue #7)", () => {
   it("keeps RSS from growing roughly linearly over 100 consecutive designs", async () => {
-    const WARMUP = 20;
-    const TOTAL = 120;
-    const SAMPLE_EVERY = 10;
-
-    const samples: number[] = [];
-    for (let i = 0; i < TOTAL; i++) {
-      await design(spec, "draft");
-      if (i >= WARMUP && (i - WARMUP) % SAMPLE_EVERY === 0) {
-        samples.push(process.memoryUsage().rss);
-      }
-    }
-
-    // Linear-regression slope over the post-warmup samples: bytes of RSS
-    // growth per `SAMPLE_EVERY`-design step. Robust to one noisy sample,
-    // unlike a plain first-vs-last difference.
-    const n = samples.length;
-    const xs = samples.map((_, i) => i);
-    const meanX = xs.reduce((a, b) => a + b, 0) / n;
-    const meanY = samples.reduce((a, b) => a + b, 0) / n;
-    let num = 0;
-    let den = 0;
-    for (let i = 0; i < n; i++) {
-      num += (xs[i] - meanX) * (samples[i] - meanY);
-      den += (xs[i] - meanX) ** 2;
-    }
-    const slopePerStep = den === 0 ? 0 : num / den;
+    const result = await rssSlopePerStep(spec, 20, 120);
 
     // Empirically (with this spec/resolution): proper cleanup plateaus at
     // well under 1 MB of slope per 10-design step, while reverting
@@ -68,10 +84,15 @@ describe("memory stability across repeated designs (issue #7)", () => {
     // magnitude gap. This cap sits comfortably above normal allocator/GC
     // noise and comfortably below that leak signal.
     const MAX_SLOPE_BYTES_PER_STEP = 4 * 1024 * 1024;
-    expect(
-      slopePerStep,
-      `RSS grew by ~${(slopePerStep / 1024 / 1024).toFixed(2)} MB per ${SAMPLE_EVERY} designs ` +
-        `(samples, MB: ${samples.map((s) => (s / 1024 / 1024).toFixed(1)).join(", ")})`,
-    ).toBeLessThan(MAX_SLOPE_BYTES_PER_STEP);
+    expect(result.slopePerStep, describeSlope(result)).toBeLessThan(MAX_SLOPE_BYTES_PER_STEP);
   }, 30_000);
+
+  // Issue #342: the cap's label cutter and the SKADIS notch and keyhole
+  // cutters were chained (CrossSection -> extrude -> translate) with only the
+  // last object deleted, which leaks about 0.6 MB per design.
+  it("keeps RSS from growing over repeated designs with a cap, a label and SKADIS", async () => {
+    const result = await rssSlopePerStep(SQUARE_SKADIS_LABEL, 30, 100);
+    const MAX_SLOPE_BYTES_PER_STEP = 2 * 1024 * 1024;
+    expect(result.slopePerStep, describeSlope(result)).toBeLessThan(MAX_SLOPE_BYTES_PER_STEP);
+  }, 60_000);
 });
