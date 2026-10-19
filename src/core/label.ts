@@ -1,4 +1,4 @@
-import opentype from "opentype.js";
+import type opentype from "opentype.js";
 import { ARCHIVO_BLACK_TTF_BASE64 } from "./label-font-data";
 import { LABEL_CURVE_SEGMENTS, LABEL_MARGIN, LABEL_MAX_FONT_SIZE, LABEL_MIN_HEIGHT } from "./constants";
 import { evalOutline, isFullCircle } from "./shapes";
@@ -23,7 +23,12 @@ let fontPromise: Promise<opentype.Font> | undefined;
 
 export function getLabelFont(): Promise<opentype.Font> {
   if (!fontPromise) {
-    fontPromise = Promise.resolve().then(() => opentype.parse(decodeBase64(ARCHIVO_BLACK_TTF_BASE64)));
+    fontPromise = import("opentype.js")
+      .then(({ default: lib }) => lib.parse(decodeBase64(ARCHIVO_BLACK_TTF_BASE64)))
+      .catch((error: unknown) => {
+        fontPromise = undefined;
+        throw error;
+      });
   }
   return fontPromise;
 }
