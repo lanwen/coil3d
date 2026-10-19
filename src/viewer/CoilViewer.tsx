@@ -53,6 +53,7 @@ export interface CoilViewerProps {
   mountKind?: MountKind;
   pegboard?: PegboardSection;
   projection?: Projection;
+  viewResetKey?: number;
 }
 
 function singleTurnPath(points: Float32Array): WireLayerPath {
@@ -251,6 +252,7 @@ export function CoilViewer({
   mountKind,
   pegboard,
   projection = "ortho",
+  viewResetKey = 0,
 }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
@@ -299,6 +301,12 @@ export function CoilViewer({
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
 
   const [preset, setPreset] = useState<PresetId>("iso");
+  const [seenResetKey, setSeenResetKey] = useState(viewResetKey);
+  if (seenResetKey !== viewResetKey) {
+    setSeenResetKey(viewResetKey);
+    setViewMode("standing");
+    setPreset("iso");
+  }
 
   const effectivePreset: PresetId = viewMode === "standing" ? preset : viewMode;
 
@@ -569,6 +577,7 @@ export function CoilViewer({
           controlsRef={controlsRef}
           projection={projection}
           preset={effectivePreset}
+          resetKey={viewResetKey}
           fill={printLayoutFramingGeometry ? undefined : focusFramingGeometry ? FOCUS_FILL : exploded ? EXPLODED_FILL : undefined}
           reducedMotion={reducedMotion}
           resolution={resolution}

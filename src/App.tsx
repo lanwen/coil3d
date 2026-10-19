@@ -54,6 +54,7 @@ export default function App() {
   const [exploded, setExploded] = useState(false);
   const [showDimensions, setShowDimensions] = useState(true);
   const [projection, setProjection] = useState<Projection>("ortho");
+  const [viewResetKey, setViewResetKey] = useState(0);
   const [isPrintLayout, setIsPrintLayout] = useState(false);
   const [view, setView] = useState<ViewMode>(initialView);
 
@@ -126,8 +127,10 @@ export default function App() {
     <div className="app">
       <header>
         <h1>
-          <CoilMark />
-          coil3d
+          <button type="button" className="logo-btn" data-testid="reset-view" aria-label="Reset view" onClick={() => setViewResetKey((key) => key + 1)}>
+            <CoilMark />
+            coil3d
+          </button>
         </h1>
         <HeaderActions canReset={canReset} onReset={handleReset} />
         <p>Design a 3D-printable cable coil from your cable's length and diameter.</p>
@@ -194,6 +197,7 @@ export default function App() {
                   mountKind={result.spec.mount}
                   pegboard={result.pegboard}
                   projection={projection}
+                  viewResetKey={viewResetKey}
                 />
               </ViewerBoundary>
               <div className="viewport-toggles" data-testid="viewport-toggles">
