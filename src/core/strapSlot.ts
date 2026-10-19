@@ -1,5 +1,5 @@
 import { STRAP_SLOT_INNER_WALL, STRAP_SLOT_KEEP_OUT, STRAP_SLOT_LENGTH, STRAP_SLOT_MIN_SEPARATION_FRACTION, STRAP_SLOT_PLATE_MIN_SKIN, STRAP_SLOT_PLATE_OVERSHOOT, STRAP_SLOT_PLATE_REACH, STRAP_SLOT_WIDTH } from "./constants";
-import { cutClearsKeepOut } from "./innerEnd";
+import { cutClearsKeepOut, prepareKeepOut } from "./innerEnd";
 import type { XY } from "./innerEnd";
 import { arcLengthFractionAt, offsetPerimeter, parameterAtOffsetArc, pointAt } from "./shapes";
 import type { ShapeOutline } from "./shapes";
@@ -95,7 +95,8 @@ export function layoutStrapSlots(outline: ShapeOutline, margin: number, envelope
   const halfTurn = perimeter / 2;
   if (halfTurn < STRAP_SLOT_LENGTH + 2 * STRAP_SLOT_KEEP_OUT) return undefined;
   const start = arcLengthFractionAt(outline, centreOffset, startU) * perimeter;
-  const clears = (slot: StrapSlot) => cutClearsKeepOut(slot.outline, outline, margin, keepOut, STRAP_SLOT_KEEP_OUT);
+  const regions = prepareKeepOut(outline, margin, keepOut);
+  const clears = (slot: StrapSlot) => cutClearsKeepOut(slot.outline, outline, margin, regions, STRAP_SLOT_KEEP_OUT);
   for (let i = 0; i * SWEEP_STEP_MM < halfTurn / 2; i++) {
     for (const arc of i === 0 ? [start] : [start + i * SWEEP_STEP_MM, start - i * SWEEP_STEP_MM]) {
       const pair = [slotAt(outline, envelopeOffset, arc), slotAt(outline, envelopeOffset, arc + halfTurn)];
