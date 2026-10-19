@@ -230,13 +230,14 @@ export interface LineArtRendererProps {
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
   projection: Projection;
   preset: PresetId;
+  resetKey?: number;
   fill?: number;
   reducedMotion: boolean;
   resolution?: Resolution;
   onSettledChange?: (settled: boolean) => void;
 }
 
-export function LineArtRenderer({ geometry, controlsRef, projection, preset, fill = DEFAULT_FILL, reducedMotion, resolution = "final", onSettledChange }: LineArtRendererProps) {
+export function LineArtRenderer({ geometry, controlsRef, projection, preset, resetKey = 0, fill = DEFAULT_FILL, reducedMotion, resolution = "final", onSettledChange }: LineArtRendererProps) {
   const { gl, scene, size, invalidate, set, get } = useThree();
   const store = useStore();
   const settled = useRef(false);
@@ -254,7 +255,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
     kickInvalidate(invalidate, () => (pendingKicks.current -= 1));
   }
 
-  useLayoutEffect(() => publishSettled(false), [geometry, resolution, preset, projection, fill, size.width, size.height]);
+  useLayoutEffect(() => publishSettled(false), [geometry, resolution, preset, resetKey, projection, fill, size.width, size.height]);
 
   useEffect(() => {
     if (!onSettledChange) return;
@@ -424,7 +425,7 @@ export function LineArtRenderer({ geometry, controlsRef, projection, preset, fil
       orientAnim.current = { from, to, start: performance.now(), duration: ORIENT_TWEEN_MS };
     }
     kick();
-  }, [preset]);
+  }, [preset, resetKey]);
 
   useEffect(() => {
     const activated = projection === "ortho" ? orthoCamera : perspectiveCamera;

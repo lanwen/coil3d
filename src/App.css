@@ -132,6 +132,22 @@ header h1 {
   text-transform: lowercase;
 }
 
+.logo-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.logo-btn:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+
 .coil-mark {
   --unit: 0.01453em;
   --overshoot: 0.01em;
