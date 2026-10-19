@@ -287,19 +287,18 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
     }
   });
 
-  it("is empty when layer 1 has no turns (nothing to lead into)", async () => {
+  it("a locked height too short for one turn is raised, so layer 1 always winds and the lead-in exists", async () => {
     const d = await design(
       baseSpec({
         wire: { length: 50, diameter: 3.8, type: "usb" },
-        height: { locked: true, value: 5 }, // usable height (minus margins) is below one pitch
-        topCap: "on", // a one-layer core with no cap needs a taller core for its top hole
+        height: { locked: true, value: 5 },
+        topCap: "on",
       }),
     );
-    expect(d.solution.layerResults[0]?.turns ?? 0).toBe(0);
-    // The channel and clip are still cut (they don't depend on turns), but
-    // there is no wound layer to visually lead into with a drawn tube --
-    // the viewer only ever draws the lead-in ALONGSIDE `wirePaths[0]`
-    // (CoilViewer.tsx), which is itself empty here.
-    expect(d.wirePaths).toHaveLength(0);
+    expect(d.solution.height).toBeCloseTo(d.solution.minHeight, 6);
+    expect(d.solution.layerResults[0].turns).toBeGreaterThanOrEqual(1);
+    expect(d.wirePaths).toHaveLength(1);
+    expect(d.innerEndLeadIn.length).toBeGreaterThanOrEqual(6);
   });
+
 });

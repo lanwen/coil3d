@@ -34,6 +34,8 @@ type InstrumentedWindow = Window & { __framingTweenCount?: number };
 // timings.
 
 const LOCKED = encodeHashDoc({ L: 1000, d: 4, lock: ["outer", "h"], size: 40, h: 40 });
+// A thin cable with the base and top cap on has a height floor (5.5 mm) below the 7.3 mm typed in the rounding test.
+const LOCKED_THIN = encodeHashDoc({ L: 1000, d: 2, base: "on", cap: "on", lock: ["outer", "h"], size: 40, h: 40 });
 
 test("a rapid drag settles into exactly one framing tween, never shows a draft frame, and the value label updates immediately", async ({ page }) => {
   await page.goto(`/${LOCKED}`);
@@ -107,7 +109,7 @@ test("a rapid drag settles into exactly one framing tween, never shows a draft f
 });
 
 test("core size and height round to whole millimetres (0.5mm below 20mm) when the user types a value", async ({ page }) => {
-  await page.goto(`/${LOCKED}`);
+  await page.goto(`/${LOCKED_THIN}`);
   await expect(page.getByTestId("download-stl")).toBeEnabled();
 
   const sizeInput = page.getByTestId("input-outer");

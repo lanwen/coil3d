@@ -138,6 +138,7 @@ export interface Solution {
   topCapEnabled: boolean;
   minOuterSizeForBend: number;
   minOuterSizeForShape: number;
+  minHeight: number;
   alternates: Solution[];
 }
 
