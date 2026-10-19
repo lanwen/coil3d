@@ -61,7 +61,7 @@ export function kickInvalidate(invalidate: () => void, onDone?: () => void) {
 }
 
 function linePixelRatio(dpr: number): number {
-  return dpr >= 2 ? dpr : 2 * dpr;
+  return Math.max(2, dpr);
 }
 
 const FACE_KIND_ATTRIBUTE = "faceKind";

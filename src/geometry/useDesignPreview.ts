@@ -6,7 +6,6 @@ const EDIT_DEBOUNCE_MS = 300;
 const DRAFT_FALLBACK_MS = 600;
 
 const INITIAL_DRAFT_DEBOUNCE_MS = 60;
-const INITIAL_FINAL_DEBOUNCE_MS = 400;
 
 export interface DesignPreview {
   result: Design | null;
@@ -61,8 +60,13 @@ export function useDesignPreview(spec: CoilSpec): DesignPreview {
     const requestDraft = () => client?.request(spec, "draft").then(applyDraft, fail);
 
     if (!hasShown.current) {
-      timers.push(window.setTimeout(requestDraft, INITIAL_DRAFT_DEBOUNCE_MS));
-      timers.push(window.setTimeout(requestFinal, INITIAL_FINAL_DEBOUNCE_MS));
+      timers.push(
+        window.setTimeout(() => {
+          requestDraft()?.then(() => {
+            if (!isSuperseded()) requestFinal();
+          });
+        }, INITIAL_DRAFT_DEBOUNCE_MS),
+      );
     } else {
       timers.push(
         window.setTimeout(() => {
