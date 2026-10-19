@@ -574,22 +574,60 @@ function edgeDistance(p: XY, poly: XY[]): number {
   return best;
 }
 
-export function cutClearsKeepOut(cut: XY[], outline: ShapeOutline, margin: number, keepOut: XY[][], clearance: number): boolean {
+interface Box {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+}
+
+export interface KeepOutRegion {
+  poly: XY[];
+  box: Box;
+  plateVertices: XY[];
+}
+
+function boxOf(points: XY[]): Box {
+  const box = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+  for (const { x, y } of points) {
+    box.minX = Math.min(box.minX, x);
+    box.minY = Math.min(box.minY, y);
+    box.maxX = Math.max(box.maxX, x);
+    box.maxY = Math.max(box.maxY, y);
+  }
+  return box;
+}
+
+function boxesWithin(a: Box, b: Box, gap: number): boolean {
+  return a.minX - gap <= b.maxX && b.minX - gap <= a.maxX && a.minY - gap <= b.maxY && b.minY - gap <= a.maxY;
+}
+
+export function prepareKeepOut(outline: ShapeOutline, margin: number, keepOut: XY[][]): KeepOutRegion[] {
+  return keepOut.map((poly) => ({
+    poly,
+    box: boxOf(poly),
+    plateVertices: poly.filter((q) => outlineOffsetAt(outline, q.x, q.y).offset <= margin),
+  }));
+}
+
+export function cutClearsKeepOut(cut: XY[], outline: ShapeOutline, margin: number, keepOut: KeepOutRegion[], clearance: number): boolean {
   const samples = cut.flatMap((a, i) => {
     const b = cut[(i + 1) % cut.length];
     const n = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / RIM_SLOT_EDGE_SAMPLE_MM));
     return Array.from({ length: n }, (_, k) => ({ x: a.x + ((b.x - a.x) * k) / n, y: a.y + ((b.y - a.y) * k) / n }));
   });
   const inPlate = samples.filter((p) => outlineOffsetAt(outline, p.x, p.y).offset <= margin);
-  return keepOut.every((poly) => inPlate.every((p) => !inside(p, poly) && edgeDistance(p, poly) >= clearance) && poly.every((q) => outlineOffsetAt(outline, q.x, q.y).offset > margin || !inside(q, cut)));
+  const cutBox = boxOf(cut);
+  return keepOut.every(({ poly, box, plateVertices }) => !boxesWithin(box, cutBox, clearance) || (inPlate.every((p) => !inside(p, poly) && edgeDistance(p, poly) >= clearance) && plateVertices.every((q) => !inside(q, cut))));
 }
 
 export function layoutRimSlot(outline: ShapeOutline, margin: number, wireDiameter: number, tolerance: number, u0: number, keepOut: XY[][] = [], clearance = 0): RimSlot | undefined {
   const du = RIM_SLOT_SEARCH_STEP_MM / offsetPerimeter(outline, Math.max(0, rimSlotSeatOffset(margin, wireDiameter, tolerance)));
+  const regions = prepareKeepOut(outline, margin, keepOut);
   for (let k = 0; k * du <= RIM_SLOT_SEARCH_TURNS; k++) {
     for (const u of k === 0 ? [u0] : [u0 + k * du, u0 - k * du]) {
       const slot = rimSlotAt(outline, margin, wireDiameter, tolerance, u);
-      if (cutClearsKeepOut(slot.outline, outline, margin, keepOut, clearance)) return slot;
+      if (cutClearsKeepOut(slot.outline, outline, margin, regions, clearance)) return slot;
     }
   }
   return undefined;
