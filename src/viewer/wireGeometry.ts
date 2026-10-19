@@ -14,6 +14,11 @@ const HINT_RADIUS_FRACTION = 0.12;
 const ENVELOPE_OUTSET_IN_WIRE_RADII = 0.5;
 const Y_AXIS_TO_Z_AXIS_ANGLE = Math.PI / 2;
 
+function withoutUv(geometry: THREE.BufferGeometry): THREE.BufferGeometry {
+  geometry.deleteAttribute("uv");
+  return geometry;
+}
+
 function pointAt(points: Float32Array, i: number): THREE.Vector3 {
   return new THREE.Vector3(points[i * 3], points[i * 3 + 1], points[i * 3 + 2]);
 }
@@ -28,7 +33,7 @@ function fullTube(path: WireLayerPath, wireRadius: number): THREE.BufferGeometry
   const sampleCount = path.points.length / 3;
   const curve = curveFromRange(path.points, 0, sampleCount - 1);
   const tubularSegments = Math.max(sampleCount - 1, 8);
-  return new THREE.TubeGeometry(curve, tubularSegments, wireRadius, TUBE_RADIAL_SEGMENTS, false);
+  return withoutUv(new THREE.TubeGeometry(curve, tubularSegments, wireRadius, TUBE_RADIAL_SEGMENTS, false));
 }
 
 function envelopeShell(path: WireLayerPath, wireRadius: number): THREE.BufferGeometry {
@@ -43,7 +48,7 @@ function envelopeShell(path: WireLayerPath, wireRadius: number): THREE.BufferGeo
   const cyl = new THREE.CylinderGeometry(radius, radius, height, ENVELOPE_RADIAL_SEGMENTS, 1, true);
   cyl.rotateX(Y_AXIS_TO_Z_AXIS_ANGLE);
   cyl.translate(0, 0, (zLo + zHi) / 2);
-  return cyl;
+  return withoutUv(cyl);
 }
 
 function hintCenters(turns: number): number[] {
@@ -71,7 +76,7 @@ function hintTubes(path: WireLayerPath, hintRadius: number): THREE.BufferGeometr
     const to = Math.min(sampleCount - 1, center + halfSpanSamples);
     if (to <= from) continue;
     const curve = curveFromRange(path.points, from, to);
-    tubes.push(new THREE.TubeGeometry(curve, Math.max(to - from, 4), hintRadius, TUBE_RADIAL_SEGMENTS, false));
+    tubes.push(withoutUv(new THREE.TubeGeometry(curve, Math.max(to - from, 4), hintRadius, TUBE_RADIAL_SEGMENTS, false)));
   }
   return tubes;
 }
