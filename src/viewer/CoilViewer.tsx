@@ -18,6 +18,8 @@ import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
 import { ViewControls } from "./ViewControls";
 import { useThrowOnContextLoss } from "./ViewerBoundary";
 import { WALL_MOUNT_VIEW_ROTATION, WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
+import { buildCableStandIn } from "./cableStandIn";
+import { labelOccluders } from "./labelOccluders";
 import { buildCableTube, buildWireGeometries, needsEnvelope, reachFramePoints } from "./wireGeometry";
 
 const CREASE_ANGLE = (30 * Math.PI) / 180;
@@ -361,6 +363,14 @@ export function CoilViewer({
     return () => viewWireGeometries.forEach((g) => g.dispose());
   }, [viewWireGeometries, wireGeometries]);
 
+  const cableStandIn = useMemo(() => {
+    if (!showWire || !wireDiameter) return null;
+    const paths = wirePaths?.length ? wirePaths.map((p) => p.points) : cablePath ? [cablePath] : [];
+    return buildCableStandIn(paths, wireDiameter / 2, viewRotation);
+  }, [showWire, wirePaths, cablePath, wireDiameter, viewRotation]);
+  useEffect(() => () => cableStandIn?.dispose(), [cableStandIn]);
+  const occluders = useMemo(() => labelOccluders(viewPartGeometries.map(({ geometry }) => geometry), cableStandIn), [viewPartGeometries, cableStandIn]);
+
   const printLayout = useMemo(() => (viewMode === "printLayout" ? buildPrintLayout(parts, bed) : null), [viewMode, parts, bed]);
   const printLayoutParts = useMemo(() => {
     if (!printLayout) return null;
@@ -534,7 +544,7 @@ export function CoilViewer({
           onSettledChange={onSettledChange}
         />
         {dimensionsShown && dimensionLabels && (
-          <DimensionAxes axes={dimensionAxes} rotation={dimensionMatrix} labels={dimensionLabels} roundGroundLabel={shapeKind === "round"} />
+          <DimensionAxes axes={dimensionAxes} rotation={dimensionMatrix} labels={dimensionLabels} roundGroundLabel={shapeKind === "round"} occluders={occluders} />
         )}
         <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
       </Canvas>

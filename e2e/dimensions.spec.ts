@@ -517,6 +517,27 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
   });
 });
 
+// Issue #341: labels are occluded by the parts plus a low-poly stand-in for
+// the wound cable, not by the cable's own tubes. A square coil with no base
+// flange and no cap leaves the winding bare, so from a shallow iso angle the
+// ray to the width label crosses the cable but no part. The view (21 degrees
+// of orbit from the iso preset) was found by sweeping the orbit with the
+// occluders' parts alone: there the label stays drawn, with the stand-in it
+// is hidden, and the full-scene raycast it replaces hid it too.
+const BARE_SQUARE_WINDING = encodeHashDoc({ L: 6000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, cap: "off", shape: "sq", rc: 15, base: "off" });
+
+test("a label that only the wound cable hides stays hidden (issue #341)", async ({ page }) => {
+  await gotoDesign(page, BARE_SQUARE_WINDING);
+  await showPreset(page, "iso");
+  await page.evaluate(() => (window as unknown as ProbeWindow).__orbitByDeg!(21));
+  await expectSettled(page);
+  const probe = await readProbe(page);
+  const width = probe.arms.find((a) => a.id === "width");
+  expect(width, "the width axis is drawn").toBeDefined();
+  expect(width!.occludedAt, "the cable hides the axis at both probe points").toEqual([true, true]);
+  expect(width!.labelRect, "so its label is hidden").toBeNull();
+});
+
 // End-to-end checks for issue #65 (follow-ups from the #63 review): the
 // result panel's "Envelope" row is renamed and hinted so it reads as
 // directly comparable to the flange rows, instead of looking like the
