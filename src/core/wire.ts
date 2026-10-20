@@ -247,10 +247,6 @@ export function buildCable(wound: WoundLayers, outline: ShapeOutline, wireDiamet
   const warnings = [...wound.warnings];
   const limit = CABLE_BEND_CHECK / ends.bendRadius;
 
-  if (runs.length === 0) {
-    return { wirePaths, innerEndLeadIn: new Float32Array(0), layerTransitions, outerEndLeadOut: new Float32Array(0), cablePath: new Float32Array(0), outerEndU: 0, warnings };
-  }
-
   const innerEndLeadIn = new Float32Array((ends.faceChannels?.inner ? faceEndPath(ends.faceChannels.inner).reverse() : (ends.innerEnd?.leadIn ?? [])).flatMap((p) => [p.x, p.y, p.z]));
 
   const last = runs.at(-1)!;
