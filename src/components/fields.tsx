@@ -4,9 +4,14 @@ import type { Lock } from "../core";
 import { Hint } from "./Hint";
 
 const SMALL_COIL_MM = 20;
+const mmStep = (value: number) => (value < SMALL_COIL_MM ? 0.5 : 1);
 export function roundMm(value: number): number {
-  const step = value < SMALL_COIL_MM ? 0.5 : 1;
+  const step = mmStep(value);
   return Math.round(value / step) * step;
+}
+export function ceilMm(value: number): number {
+  const step = mmStep(value);
+  return Math.ceil(value / step - 1e-9) * step;
 }
 
 export const MM_PER_CM = 10;

@@ -16,7 +16,7 @@ import {
   TOLERANCE_MIN,
   WIRE_TYPE_PRESETS,
 } from "../core";
-import { FieldTop, LockRangeField, RangeField, Section, Switch, cmToMm, mmToCm, roundMm } from "./fields";
+import { FieldTop, LockRangeField, RangeField, Section, Switch, ceilMm, cmToMm, mmToCm, roundMm } from "./fields";
 import { HINTS } from "./hints";
 import { LabelField } from "./LabelField";
 import { ShapePicker } from "./ShapePicker";
@@ -134,6 +134,8 @@ export function ControlsForm({
 
   const outerSizeMin = roundMm(Math.max(CORE_SIZE_FLOOR_MM, solution?.minOuterSizeForShape ?? CORE_SIZE_FLOOR_MM));
   const coreSizeRaised = spec.coreSize.locked && spec.coreSize.value < outerSizeMin - 0.05;
+  const heightMin = ceilMm(Math.max(1, solution?.minHeight ?? 1));
+  const heightRaised = spec.height.locked && spec.height.value < heightMin - 0.05;
 
   return (
     <form className="controls" onSubmit={(e) => e.preventDefault()}>
@@ -252,7 +254,7 @@ export function ControlsForm({
           label="Height"
           unit="mm"
           lock={spec.height}
-          min={1}
+          min={heightMin}
           max={400}
           step={1}
           freeValue={solution?.height ?? 40}
@@ -260,6 +262,11 @@ export function ControlsForm({
           lockDisabled={heightLockDisabled}
           onChange={(lock) => onChange({ ...spec, height: lock })}
         />
+        {heightRaised && (
+          <p className="field-note" data-testid="height-raised-note">
+            Minimum for this cable: {heightMin} mm. Your value was raised to it.
+          </p>
+        )}
         <LockRangeField
           testId="layers"
           label="Layers"

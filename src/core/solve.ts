@@ -314,6 +314,7 @@ function finishSolution(
   objectiveUsed: Objective | undefined,
   minOuterSizeForBend: number,
   minOuterSizeForShapeVal: number,
+  minHeight: number,
   radiusFloor: number,
 ): { solution: Solution; notices: Notice[] } {
   const { notices, problem, note } = noticeCollector();
@@ -397,6 +398,7 @@ function finishSolution(
     topCapEnabled,
     minOuterSizeForBend,
     minOuterSizeForShape: minOuterSizeForShapeVal,
+    minHeight,
     alternates: [],
   };
   return { solution, notices };
@@ -547,7 +549,8 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const pillLengthFloor = spec.shape.kind === "pill" ? Math.min(SIZE_HI, PILL_LENGTH_TO_RADIUS * spec.shape.cornerRadius) : 0;
   const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal, sizeFree ? Math.max(fit.size, pillLengthFloor) : 0);
   const sizeHi = SIZE_HI;
-  const baseHeightLo = Math.max(groove.pitch - windingSpan(0, spec.wire.diameter) + (spec.layers.locked ? reserveFor(spec, spec.layers.value) : 0), centre.height);
+  const oneTurnHeight = groove.pitch - windingSpan(0, spec.wire.diameter) + (spec.layers.locked ? reserveFor(spec, spec.layers.value) : 0);
+  const baseHeightLo = Math.max(oneTurnHeight, centre.height);
   const heightLo = Math.max(baseHeightLo, heightFree ? jointHeightFloor : 0);
   const heightHi = HEIGHT_HI;
   const layersLo = 1;
@@ -572,9 +575,13 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
     lockedOuterSize = minOuterSizeForShapeVal;
   }
   let lockedHeight = spec.height.locked ? spec.height.value : undefined;
-  if (lockedHeight !== undefined && lockedHeight < centre.height - FLOOR_CEILING_TOLERANCE) {
-    note(`Height raised from ${lockedHeight.toFixed(1)} mm to ${centre.height.toFixed(1)} mm: the end rings at the bottom and top of a bare core take the cable's ends, and the inner end bends up to the top at its ${mbr.toFixed(1)} mm bend radius.`);
-    lockedHeight = centre.height;
+  if (lockedHeight !== undefined && lockedHeight < baseHeightLo - FLOOR_CEILING_TOLERANCE) {
+    const why =
+      centre.height >= oneTurnHeight
+        ? `the end rings at the bottom and top of a bare core take the cable's ends, and the inner end bends up to the top at its ${mbr.toFixed(1)} mm bend radius`
+        : `the core needs room for at least one turn of this ${mm(spec.wire.diameter)} cable`;
+    note(`Height raised from ${lockedHeight.toFixed(1)} mm to ${baseHeightLo.toFixed(1)} mm: ${why}.`);
+    lockedHeight = baseHeightLo;
   }
   const lockedLayers = spec.layers.locked ? spec.layers.value : undefined;
 
@@ -699,7 +706,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
           ...diagnosis,
           message: `Two free dimensions: the "${otherObjective}" objective's pick among the same target-covering candidates.`,
         };
-        alternates = [finishSolution(spec, altBest.g, altDiagnosis, otherObjective, minOuterSizeForBend, minOuterSizeForShapeVal, endRadiusFloor).solution];
+        alternates = [finishSolution(spec, altBest.g, altDiagnosis, otherObjective, minOuterSizeForBend, minOuterSizeForShapeVal, baseHeightLo, endRadiusFloor).solution];
       }
     }
   } else {
@@ -759,12 +766,12 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
           status: "under-constrained",
           message: `All three dimensions are free: layers=${p.n} fixed, best outer size/height for the "${objective}" objective among combinations that cover the target length.`,
         };
-        return finishSolution(spec, p.g, altDiagnosis, objective, minOuterSizeForBend, minOuterSizeForShapeVal, endRadiusFloor).solution;
+        return finishSolution(spec, p.g, altDiagnosis, objective, minOuterSizeForBend, minOuterSizeForShapeVal, baseHeightLo, endRadiusFloor).solution;
       });
     }
   }
 
-  const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend, minOuterSizeForShapeVal, endRadiusFloor);
+  const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend, minOuterSizeForShapeVal, baseHeightLo, endRadiusFloor);
   finished.solution.alternates = alternates;
   const overshoots = finished.solution.lengthDeltaPct > OVERSHOOT_NOTE_PCT;
   if (overshoots) {

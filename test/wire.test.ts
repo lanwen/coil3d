@@ -262,17 +262,17 @@ describe("design().wirePaths (issue #4)", () => {
     }
   });
 
-  it("omits layers with zero turns (a locked height too short to wind even one turn)", async () => {
+  it("omits layers with zero turns (a locked height barely above one turn only winds the first layer)", async () => {
     const d = await design(
       baseSpec({
-        wire: { length: 50, diameter: 3.8, type: "usb" },
-        coreSize: { locked: true, dimension: "outer", value: 30 },
-        height: { locked: true, value: 5 }, // usable height (minus margins) is below one pitch
-        layers: { locked: true, value: 1 },
+        wire: { length: 2000, diameter: 3.8, type: "usb" },
+        coreSize: { locked: false },
+        height: { locked: true, value: 9.42 }, // 0.1 mm above the one-turn floor (9.316 mm)
+        layers: { locked: true, value: 3 },
       }),
     );
-    expect(d.solution.layerResults[0].turns).toBe(0);
-    expect(d.wirePaths).toHaveLength(0);
+    expect(d.solution.layerResults.map((l) => l.turns > 0)).toEqual([true, false, false]);
+    expect(d.wirePaths.map((p) => p.layer)).toEqual([1]);
   });
 
   it("a many-turn coil still returns a bounded, densely-sampled path (no runaway sample count)", async () => {
@@ -608,15 +608,18 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
     expect(d.outerEndLeadOut.length).toBeGreaterThanOrEqual(6);
   });
 
-  it("is empty (no layers, no lead-in/lead-out) when no layer has any turns", async () => {
+  it("a locked height too short for one turn is raised, so layer 1 always winds and the lead-in and lead-out exist", async () => {
     const d = await design(
       baseSpec({
         wire: { length: 50, diameter: 3.8, type: "usb" },
         height: { locked: true, value: 5 },
       }),
     );
-    expect(d.wirePaths).toHaveLength(0);
-    expect(d.layerTransitions).toHaveLength(0);
-    expect(d.outerEndLeadOut.length).toBe(0);
+    expect(d.solution.height).toBeCloseTo(d.solution.minHeight, 6);
+    expect(d.solution.layerResults[0].turns).toBeGreaterThanOrEqual(1);
+    expect(d.wirePaths).toHaveLength(1);
+    expect(d.innerEndLeadIn.length).toBeGreaterThanOrEqual(6);
+    expect(d.outerEndLeadOut.length).toBeGreaterThanOrEqual(6);
   });
+
 });
