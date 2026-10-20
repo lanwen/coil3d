@@ -1,4 +1,4 @@
-import { computeCapacity, envelopeDiameter } from "./capacity";
+import { computeCapacity, envelopeDiameter, turnsForLayer } from "./capacity";
 import type { CapacityResult } from "./capacity";
 import { crossingActive, crossingReserve, faceEndsLength, minFaceChannelHeight, minFaceChannelOuterSize, nominalOuterStart, planFaceChannels } from "./faceChannel";
 import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
@@ -127,6 +127,13 @@ function toOuterSize(lock: Extract<CoilSpec["coreSize"], { locked: true }>, wire
 
 function reserveFor(spec: CoilSpec, layers: number): number {
   return crossingActive(layers, resolveTopCap(spec)) ? crossingReserve(spec.wire.diameter, spec.tolerance) : 0;
+}
+
+function lowestHeightWithTurn(height: number, wireDiameter: number, reserve: number): number {
+  const { pitch } = grooveShape(wireDiameter);
+  let lowest = height;
+  while (turnsForLayer(Math.max(0, windingSpan(lowest, wireDiameter) - reserve), pitch, 1, 0) < 1) lowest += Math.abs(lowest) * Number.EPSILON;
+  return lowest;
 }
 
 function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
@@ -549,8 +556,9 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const pillLengthFloor = spec.shape.kind === "pill" ? Math.min(SIZE_HI, PILL_LENGTH_TO_RADIUS * spec.shape.cornerRadius) : 0;
   const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal, sizeFree ? Math.max(fit.size, pillLengthFloor) : 0);
   const sizeHi = SIZE_HI;
-  const oneTurnHeight = groove.pitch - windingSpan(0, spec.wire.diameter) + (spec.layers.locked ? reserveFor(spec, spec.layers.value) : 0);
-  const baseHeightLo = Math.max(oneTurnHeight, centre.height);
+  const lockedReserve = spec.layers.locked ? reserveFor(spec, spec.layers.value) : 0;
+  const oneTurnHeight = groove.pitch - windingSpan(0, spec.wire.diameter) + lockedReserve;
+  const baseHeightLo = lowestHeightWithTurn(Math.max(oneTurnHeight, centre.height), spec.wire.diameter, lockedReserve);
   const heightLo = Math.max(baseHeightLo, heightFree ? jointHeightFloor : 0);
   const heightHi = HEIGHT_HI;
   const layersLo = 1;
