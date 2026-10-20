@@ -179,7 +179,7 @@ function StepWind({ design, n }: { design: Design; n: number }) {
           wireDiameter={design.spec.wire.diameter}
           showWire
           testId="guide-wind"
-          renderOverlay={layer0 && layer0.points.length >= 24 && layer0.turns > 0 ? (fit) => <PolylineArrow points={windDirectionPoints(layer0, fit)} /> : undefined}
+          renderOverlay={layer0.points.length >= 24 ? (fit) => <PolylineArrow points={windDirectionPoints(layer0, fit)} /> : undefined}
         />
       </div>
       <Callout icons={<WindIcon label="Wind the cable along the groove" />}>

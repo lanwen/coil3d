@@ -197,12 +197,12 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const wireDiameter = spec.wire.diameter;
   const groove = grooveShape(wireDiameter);
-  const layer1Turns = solution.layerResults[0]?.turns ?? 0;
+  const layer1Turns = solution.layerResults[0].turns;
 
   const woundLayers = solution.layerResults.filter((r) => r.turns > 0).length;
   const bendLimit = bendMultiplierOf(spec.wire) * wireDiameter;
   const wound = windLayers(solution.layerResults, outline, wireDiameter, spec.windingQuality, resolution, bendLimit);
-  const topFace = woundLayers > 0 && !solution.topCapEnabled;
+  const topFace = !solution.topCapEnabled;
   const bottomFace = !baseEnabled(spec);
   const reserve = crossingActive(solution.layers, solution.topCapEnabled) ? crossingReserve(wireDiameter, spec.tolerance) : 0;
   const outerStart = topFace ? outerStartOf(wound) : undefined;
@@ -219,7 +219,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       reserve,
       outerStart: withTop ? outerStart : undefined,
     });
-  let faceChannels = woundLayers === 0 ? undefined : planChannels(topFace);
+  let faceChannels = planChannels(topFace);
   if (topFace && outerStart && !faceChannels) {
     faceChannels = planChannels(false);
     note("The outer cable end stays a straight tail: there is no room to lead it over the top turns into the centre hole at this size and height.");
@@ -227,7 +227,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (faceChannels?.inner && 2 * faceChannels.channelRadius > FACE_BRIDGE_NOTE_WIDTH) {
     note(`The channel on the bottom face is ${(2 * faceChannels.channelRadius).toFixed(1)} mm wide, so its roof bridges more than 8 mm; check that your printer manages it.`);
   }
-  if ((bottomFace || (topFace && !outerStart)) && woundLayers > 0 && !faceChannels) {
+  if ((bottomFace || (topFace && !outerStart)) && !faceChannels) {
     problem("The cable's ends have no room to leave the core's centre at this size and height; the core needs to be bigger.");
   }
 
