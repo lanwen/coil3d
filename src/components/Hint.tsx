@@ -6,6 +6,7 @@ export function Hint({ text }: { text: string }) {
   const [tapped, setTapped] = useState(false);
   const open = hovered || focused || tapped;
   const bubbleId = useId();
+  const rootRef = useRef<HTMLSpanElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const bubbleRef = useRef<HTMLSpanElement | null>(null);
   const [alignEnd, setAlignEnd] = useState(false);
@@ -20,19 +21,29 @@ export function Hint({ text }: { text: string }) {
 
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
+    const close = () => {
       setHovered(false);
       setFocused(false);
       setTapped(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
       buttonRef.current?.focus();
+      close();
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) close();
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
   }, [open]);
 
   return (
-    <span className="hint">
+    <span ref={rootRef} className="hint">
       <button
         ref={buttonRef}
         type="button"
@@ -41,9 +52,9 @@ export function Hint({ text }: { text: string }) {
         aria-label="What does this setting do?"
         aria-describedby={bubbleId}
         aria-expanded={open}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onFocus={() => setFocused(true)}
+        onPointerEnter={(event) => setHovered(event.pointerType === "mouse")}
+        onPointerLeave={() => setHovered(false)}
+        onFocus={(event) => setFocused(event.currentTarget.matches(":focus-visible"))}
         onBlur={() => setFocused(false)}
         onClick={(event) => {
           event.stopPropagation();

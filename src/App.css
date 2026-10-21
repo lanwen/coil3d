@@ -552,7 +552,6 @@ a.build-label:focus-visible {
   cursor: pointer;
 }
 
-.hint-btn:hover,
 .hint-btn[aria-expanded="true"] {
   background: var(--ink);
   color: var(--paper);
