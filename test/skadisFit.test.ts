@@ -473,12 +473,13 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     }
   }, 120_000);
 
-  // Fuzz cases 1124 and 1615 (issue #361): a fillet limited by a cap or its other edge left a 0.017 mm flat next to its neighbour's fillet.
+  // Fuzz cases 1124, 1615 and 2111 (issue #361): a fillet limited by a cap or its other edge left a flat of about 0.02 mm next to its neighbour's fillet.
   const FLAT_CASES: CoilSpec[] = [
     { ...baseSpec(), wire: { length: 8823, diameter: 7.26, type: "stiff" }, windingQuality: 0.66, coreSize: { locked: true, dimension: "outer", value: 36.62 }, layers: { locked: false }, objective: "aspectRatio", topCap: "on", tolerance: 0.18, plateJoint: "snap", label: "Lamp 5 m", base: "off", strapSlots: false },
     { ...baseSpec(), wire: { length: 3741, diameter: 7.49, type: "flex" }, shape: { kind: "sq", cornerRadius: 16.8 }, windingQuality: 0.52, coreSize: { locked: true, dimension: "outer", value: 85.25 }, height: { locked: true, value: 62.06 }, layers: { locked: true, value: 2 }, objective: "aspectRatio", topCap: "on", joint: "bayonet", tolerance: 0.24, base: "on", strapSlots: false },
+    { ...baseSpec(), wire: { length: 6874, diameter: 4.08, type: "flex" }, shape: { kind: "sq", cornerRadius: 14.32 }, windingQuality: 0.66, coreSize: { locked: true, dimension: "outer", value: 63.18 }, height: { locked: true, value: 58.67 }, layers: { locked: false }, tolerance: 0.36, base: "on", strapSlots: false },
   ];
-  it.each(FLAT_CASES.map((spec, i) => ({ spec, label: `fuzz case ${[1124, 1615][i]}` })))("$label: neighbouring fillets leave no flat shorter than a facet", async ({ spec }) => {
+  it.each(FLAT_CASES.map((spec, i) => ({ spec, label: `fuzz case ${[1124, 1615, 2111][i]}` })))("$label: neighbouring fillets leave no flat shorter than a facet", async ({ spec }) => {
     const wasm = await getWasm();
     const d = await design(spec, "draft");
     for (const part of clipsOf(d)) {

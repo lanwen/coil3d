@@ -176,8 +176,8 @@ for both geometry backends.
 - **Fillets.** Every corner of the profile is rounded as far as its edges
   allow, up to 2 mm. A fillet takes at most half of each edge it touches (all
   of it where the other end is a sharp corner), then whatever a neighbour
-  leaves unused, so two fillets never overlap and never leave a sliver of flat
-  between them. The arcs are 8 facets per quarter turn, the same on every core and in the
+  leaves unused, so two fillets never overlap. A flat under 0.1 mm between two
+  fillets is taken up by one of them. The arcs are 8 facets per quarter turn, the same on every core and in the
   mesh and the STEP file. Four corners stay sharp: the latch tooth's catching
   face at both its ends, and the tongue's retaining face at both its ends. Two
   more are capped: the stem's root at the board face (0.8 mm, so it nests in

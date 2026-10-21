@@ -9,6 +9,7 @@ import {
   SKADIS_CLIP_FILLET_MAX,
   SKADIS_CLIP_FILLET_MIN_CONVEX,
   SKADIS_CLIP_FILLET_SEGMENTS_PER_90,
+  SKADIS_CLIP_MIN_FLAT,
   SKADIS_CLIP_WIDTH,
   SKADIS_ENVELOPE_CLEARANCE,
   SKADIS_HEAVY_CABLE_KG,
@@ -289,6 +290,15 @@ function fitCorners(ring: Pt[], corners: Corners): CornerFit[] {
     const before = fits[(i + n - 1) % n];
     const after = fits[(i + 1) % n];
     f.t = Math.max(f.t, Math.min(f.reach, f.ea - before.t, f.eb - after.t));
+  });
+  fits.forEach((f, i) => {
+    const next = fits[(i + 1) % n];
+    const flat = f.eb - f.t - next.t;
+    if (flat <= 0 || flat >= SKADIS_CLIP_MIN_FLAT) return;
+    const roomBefore = f.ea - fits[(i + n - 1) % n].t - f.t;
+    const roomAfter = next.eb - fits[(i + 2) % n].t - next.t;
+    if (roomBefore >= flat && !isSharp(f.p)) f.t += flat;
+    else if (roomAfter >= flat && !isSharp(next.p)) next.t += flat;
   });
   return fits;
 }
