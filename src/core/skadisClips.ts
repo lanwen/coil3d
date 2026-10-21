@@ -255,6 +255,44 @@ function arcSamples(cx: number, cz: number, r: number, from: number, sweep: numb
   return out;
 }
 
+interface CornerFit {
+  p: Pt;
+  ua: number[];
+  ub: number[];
+  turn: number;
+  k: number;
+  convex: boolean;
+  ea: number;
+  eb: number;
+  reach: number;
+  t: number;
+}
+
+function fitCorners(ring: Pt[], corners: Corners): CornerFit[] {
+  const n = ring.length;
+  const isSharp = (p: Pt) => corners.get(p) === 0;
+  const share = (edge: number, neighbour: Pt) => (isSharp(neighbour) ? edge : edge / 2);
+  const fits = ring.map((p, i): CornerFit => {
+    const a = ring[(i + n - 1) % n];
+    const b = ring[(i + 1) % n];
+    const ea = Math.hypot(a[0] - p[0], a[1] - p[1]);
+    const eb = Math.hypot(b[0] - p[0], b[1] - p[1]);
+    const ua = [(a[0] - p[0]) / ea, (a[1] - p[1]) / ea];
+    const ub = [(b[0] - p[0]) / eb, (b[1] - p[1]) / eb];
+    const turn = Math.acos(Math.max(-1, Math.min(1, -(ua[0] * ub[0] + ua[1] * ub[1]))));
+    const k = Math.tan(turn / 2);
+    const convex = (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]) > 0;
+    const reach = Math.min(SKADIS_CLIP_FILLET_MAX, corners.get(p) ?? Infinity) * k;
+    return { p, ua, ub, turn, k, convex, ea, eb, reach, t: Math.min(reach, Math.min(share(ea, a), share(eb, b))) };
+  });
+  fits.forEach((f, i) => {
+    const before = fits[(i + n - 1) % n];
+    const after = fits[(i + 1) % n];
+    f.t = Math.max(f.t, Math.min(f.reach, f.ea - before.t, f.eb - after.t));
+  });
+  return fits;
+}
+
 export function filletCorners(points: Pt[], corners: Corners): Pt[] {
   const ring = points.filter((p, i) => {
     const a = points[(i + points.length - 1) % points.length];
@@ -263,28 +301,14 @@ export function filletCorners(points: Pt[], corners: Corners): Pt[] {
     const dot = (p[0] - a[0]) * (b[0] - p[0]) + (p[1] - a[1]) * (b[1] - p[1]);
     return Math.abs(cross) > COLLINEAR_EPSILON * Math.hypot(p[0] - a[0], p[1] - a[1]) * Math.hypot(b[0] - p[0], b[1] - p[1]) || dot < 0;
   });
-  const n = ring.length;
-  const isSharp = (p: Pt) => corners.get(p) === 0;
-  const share = (edge: number, neighbour: Pt) => (isSharp(neighbour) ? edge : edge / 2);
   const out: Pt[] = [];
-  for (let i = 0; i < n; i++) {
-    const p = ring[i];
-    const a = ring[(i + n - 1) % n];
-    const b = ring[(i + 1) % n];
-    const ea = Math.hypot(a[0] - p[0], a[1] - p[1]);
-    const eb = Math.hypot(b[0] - p[0], b[1] - p[1]);
-    const ua = [(a[0] - p[0]) / ea, (a[1] - p[1]) / ea];
-    const ub = [(b[0] - p[0]) / eb, (b[1] - p[1]) / eb];
-    const turn = Math.acos(Math.max(-1, Math.min(1, -(ua[0] * ub[0] + ua[1] * ub[1]))));
-    const convex = (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]) > 0;
-    const k = Math.tan(turn / 2);
-    const r = Math.min(SKADIS_CLIP_FILLET_MAX, corners.get(p) ?? Infinity, Math.min(share(ea, a), share(eb, b)) / k);
+  for (const { p, ua, ub, turn, k, convex, t } of fitCorners(ring, corners)) {
+    const r = t / k;
     if (r <= 0) {
       out.push(p);
       continue;
     }
     if (convex && r < SKADIS_CLIP_FILLET_MIN_CONVEX - ARC_SEGMENT_EPSILON) throw new Error(`SKÅDIS clip corner at (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) leaves room for a ${r.toFixed(2)} mm fillet only`);
-    const t = r * k;
     const toCentre = [ua[0] + ub[0], ua[1] + ub[1]];
     const len = Math.hypot(toCentre[0], toCentre[1]);
     const reach = r / Math.cos(turn / 2);

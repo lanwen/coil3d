@@ -444,8 +444,8 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
         const sharp = turns.filter((t) => Math.abs(t.turn) > ARC_FACET_MAX_DEG);
         const latch = part.name.includes("-top-") && c.overrides.skadisLatch !== false;
         const label = `${c.label}, ${part.name}`;
-        // Corners joined tangent to tangent (the jaw's and the lip's rounded tips, the slit's end) are one arc run.
-        const expectedRuns = latch ? 16 : 8;
+        // Corners joined tangent to tangent (the jaw's and the lip's rounded tips, the slit's end, the arm's end) are one arc run.
+        const expectedRuns = latch ? 15 : 8;
         expect(runs.length, `${label}: filleted corners`).toBeGreaterThanOrEqual(expectedRuns);
         expect(sharp.length, `${label}: sharp corners`).toBe(latch ? 4 : 2);
         const rightAngles = sharp.filter((t) => Math.abs(Math.abs(t.turn) - 90) < 1);
@@ -470,6 +470,20 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
       const convex = arcRuns(turnsOf(midOutline(wasm, part))).filter((r) => r.turn > 0);
       expect(convex.length, `${part.name}: filleted convex corners`).toBeGreaterThan(0);
       expect(Math.min(...convex.map((r) => r.radius)), `${part.name}: smallest convex fillet`).toBeGreaterThan(0.5 - 0.01);
+    }
+  }, 120_000);
+
+  // Fuzz cases 1124 and 1615 (issue #361): a fillet limited by a cap or its other edge left a 0.017 mm flat next to its neighbour's fillet.
+  const FLAT_CASES: CoilSpec[] = [
+    { ...baseSpec(), wire: { length: 8823, diameter: 7.26, type: "stiff" }, windingQuality: 0.66, coreSize: { locked: true, dimension: "outer", value: 36.62 }, layers: { locked: false }, objective: "aspectRatio", topCap: "on", tolerance: 0.18, plateJoint: "snap", label: "Lamp 5 m", base: "off", strapSlots: false },
+    { ...baseSpec(), wire: { length: 3741, diameter: 7.49, type: "flex" }, shape: { kind: "sq", cornerRadius: 16.8 }, windingQuality: 0.52, coreSize: { locked: true, dimension: "outer", value: 85.25 }, height: { locked: true, value: 62.06 }, layers: { locked: true, value: 2 }, objective: "aspectRatio", topCap: "on", joint: "bayonet", tolerance: 0.24, base: "on", strapSlots: false },
+  ];
+  it.each(FLAT_CASES.map((spec, i) => ({ spec, label: `fuzz case ${[1124, 1615][i]}` })))("$label: neighbouring fillets leave no flat shorter than a facet", async ({ spec }) => {
+    const wasm = await getWasm();
+    const d = await design(spec, "draft");
+    for (const part of clipsOf(d)) {
+      const shortest = Math.min(...turnsOf(midOutline(wasm, part)).map((t) => t.edge));
+      expect(shortest, `${part.name}: shortest edge`).toBeGreaterThan(0.05);
     }
   }, 120_000);
 
