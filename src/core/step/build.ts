@@ -516,9 +516,8 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     const anchors = design.parts.some((p) => p.role === "mountPlate") ? mountPlateLayoutFor(design).anchors : [];
     const relieved = relieveFlangeSolid(kernel, flange, flangeSpec, innerEndCutter.layout, anchors, design.spec.tolerance);
     let flangeSolid = checkedCut(kernel, relieved, innerEndCutter.cutter);
-    for (const notch of flangeSpec.skadis?.notches ?? []) {
-      const loop: [number, number][] = notch.map((p) => [p.x, p.y]);
-      flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
+    for (const notch of flangeSpec.skadis?.notchCutters ?? []) {
+      flangeSolid = checkedCut(kernel, flangeSolid, clipFramePrismStep(flangeSpec.skadis!.axisDeg, notch.profile, notch.side0, notch.width));
     }
     if (flangeSpec.rimSlot) {
       const loop: [number, number][] = flangeSpec.rimSlot.outline.map((p) => [p.x, p.y]);
@@ -902,15 +901,18 @@ function mountPlateClipSolidStep(clip: ClipInstance, zBase: number): R.Shape3D {
   return openGridConnectorSolidStep().rotate(clip.rotationDeg, [0, 0, 0], [0, 0, 1]).translate([clip.x, clip.y, zBase]);
 }
 
-function skadisClipSolid(layout: SkadisClipLayout, clip: RimClip): R.Shape3D {
-  const frame = clipFrame(layout.axisDeg, clip.side);
-  const w = SKADIS_CLIP_WIDTH / 2;
-  const face = R.makePolygon(clip.profile.map(([u, z]): [number, number, number] => {
-    const p = frame.at(u, z, -w);
+function clipFramePrismStep(axisDeg: number, profile: Array<[number, number]>, s0: number, width: number): R.Shape3D {
+  const frame = clipFrame(axisDeg, s0);
+  const face = R.makePolygon(profile.map(([u, z]): [number, number, number] => {
+    const p = frame.at(u, z, 0);
     return [p.x, p.y, p.z];
   }));
   const sketch = new R.Sketch(face.outerWire(), { defaultOrigin: [0, 0, 0], defaultDirection: [frame.side.x, frame.side.y, 0] });
-  return sketch.extrude(2 * w);
+  return sketch.extrude(width);
+}
+
+function skadisClipSolid(layout: SkadisClipLayout, clip: RimClip): R.Shape3D {
+  return clipFramePrismStep(layout.axisDeg, clip.profile, clip.side - SKADIS_CLIP_WIDTH / 2, SKADIS_CLIP_WIDTH);
 }
 
 function pinHoleCutterSolid(anchor: AnchorPoint, tolerance: number, zFace: number, dir: 1 | -1): R.Shape3D {

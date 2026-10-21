@@ -4,7 +4,11 @@ import {
   SKADIS_BIGHT_THICKNESS,
   SKADIS_BOARD_THICKNESS,
   SKADIS_BOARD_THICKNESS_MAX,
-  SKADIS_CLIP_CHAMFER,
+  SKADIS_CLIP_BOARD_EDGE_MIN,
+  SKADIS_CLIP_BOARD_FILLET,
+  SKADIS_CLIP_FILLET_MAX,
+  SKADIS_CLIP_FILLET_MIN_CONVEX,
+  SKADIS_CLIP_FILLET_SEGMENTS_PER_90,
   SKADIS_CLIP_WIDTH,
   SKADIS_ENVELOPE_CLEARANCE,
   SKADIS_HEAVY_CABLE_KG,
@@ -32,6 +36,7 @@ import {
   SKADIS_TONGUE_GAP,
   SKADIS_TONGUE_LENGTH,
   SKADIS_TONGUE_THICKNESS,
+  WELD_OVERLAP,
 } from "./constants";
 import type { XY } from "./innerEnd";
 import { bestAxisDeg } from "./mount";
@@ -59,6 +64,14 @@ const MIN_CLIP_COUNTS = [3, 2];
 const BOTTOM_COLUMN_CHOICES = [[-20, 20], [-60, 60], [-20, -60], [20, 60], [0]];
 const LAST_RESORT_BOTTOM_COLUMNS = [[-40], [40]];
 const NOTCH_DEPTH_OUT = 50;
+const COLLINEAR_EPSILON = 1e-6;
+const ARC_SEGMENT_EPSILON = 1e-9;
+const BIGHT_FILLET_PLATE_SHARE = 4;
+
+function clearOfStemTop(jawTip: number, stemTop: number): number {
+  const step = jawTip - stemTop;
+  return step > 0 && step < SKADIS_CLIP_BOARD_EDGE_MIN ? stemTop + SKADIS_CLIP_BOARD_EDGE_MIN : jawTip;
+}
 const MARGIN_SEARCH_LIMIT = 1e4;
 const MARGIN_BISECTIONS = 30;
 const MARGIN_ROUNDING = 1e-6;
@@ -74,10 +87,17 @@ export interface RimClip {
   latch?: { toothTop: number; toothBottom: number; depth: number; armReach: number };
 }
 
+export interface NotchCutter {
+  side0: number;
+  width: number;
+  profile: Array<[number, number]>;
+}
+
 export interface SkadisClipLayout {
   axisDeg: number;
   clips: RimClip[];
   notches: XY[][];
+  notchCutters: NotchCutter[];
   boardFrontZ: number;
   warning?: string;
 }
@@ -209,30 +229,101 @@ export function chamferCorners(points: Pt[], soft: Pt[], d: number): Pt[] {
   return out;
 }
 
+function bightFilletRadius(z: Levels, c: number): number {
+  return c + (z.lipUnderside - z.outerJawFace - 2 * c) / BIGHT_FILLET_PLATE_SHARE;
+}
+
+type Corners = Map<Pt, number>;
+
+function cornerSet(): { corners: Corners; at: (u: number, zz: number, cap?: number) => Pt } {
+  const corners: Corners = new Map();
+  const at = (u: number, zz: number, cap?: number): Pt => {
+    const p: Pt = [u, zz];
+    if (cap !== undefined) corners.set(p, cap);
+    return p;
+  };
+  return { corners, at };
+}
+
+function arcSamples(cx: number, cz: number, r: number, from: number, sweep: number): Pt[] {
+  const n = Math.max(1, Math.ceil((SKADIS_CLIP_FILLET_SEGMENTS_PER_90 * Math.abs(sweep)) / (Math.PI / 2) - ARC_SEGMENT_EPSILON));
+  const out: Pt[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = from + (sweep * i) / n;
+    out.push([cx + r * Math.cos(a), cz + r * Math.sin(a)]);
+  }
+  return out;
+}
+
+export function filletCorners(points: Pt[], corners: Corners): Pt[] {
+  const ring = points.filter((p, i) => {
+    const a = points[(i + points.length - 1) % points.length];
+    const b = points[(i + 1) % points.length];
+    const cross = (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]);
+    const dot = (p[0] - a[0]) * (b[0] - p[0]) + (p[1] - a[1]) * (b[1] - p[1]);
+    return Math.abs(cross) > COLLINEAR_EPSILON * Math.hypot(p[0] - a[0], p[1] - a[1]) * Math.hypot(b[0] - p[0], b[1] - p[1]) || dot < 0;
+  });
+  const n = ring.length;
+  const isSharp = (p: Pt) => corners.get(p) === 0;
+  const share = (edge: number, neighbour: Pt) => (isSharp(neighbour) ? edge : edge / 2);
+  const out: Pt[] = [];
+  for (let i = 0; i < n; i++) {
+    const p = ring[i];
+    const a = ring[(i + n - 1) % n];
+    const b = ring[(i + 1) % n];
+    const ea = Math.hypot(a[0] - p[0], a[1] - p[1]);
+    const eb = Math.hypot(b[0] - p[0], b[1] - p[1]);
+    const ua = [(a[0] - p[0]) / ea, (a[1] - p[1]) / ea];
+    const ub = [(b[0] - p[0]) / eb, (b[1] - p[1]) / eb];
+    const turn = Math.acos(Math.max(-1, Math.min(1, -(ua[0] * ub[0] + ua[1] * ub[1]))));
+    const convex = (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]) > 0;
+    const k = Math.tan(turn / 2);
+    const r = Math.min(SKADIS_CLIP_FILLET_MAX, corners.get(p) ?? Infinity, Math.min(share(ea, a), share(eb, b)) / k);
+    if (r <= 0) {
+      out.push(p);
+      continue;
+    }
+    if (convex && r < SKADIS_CLIP_FILLET_MIN_CONVEX - ARC_SEGMENT_EPSILON) throw new Error(`SKÅDIS clip corner at (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) leaves room for a ${r.toFixed(2)} mm fillet only`);
+    const t = r * k;
+    const toCentre = [ua[0] + ub[0], ua[1] + ub[1]];
+    const len = Math.hypot(toCentre[0], toCentre[1]);
+    const reach = r / Math.cos(turn / 2);
+    const cx = p[0] + (toCentre[0] / len) * reach;
+    const cz = p[1] + (toCentre[1] / len) * reach;
+    const start = Math.atan2(p[1] + ua[1] * t - cz, p[0] + ua[0] * t - cx);
+    out.push(...arcSamples(cx, cz, r, start, convex ? turn : -turn));
+  }
+  return out.filter((q, i) => {
+    const prev = out[(i + out.length - 1) % out.length];
+    return Math.hypot(q[0] - prev[0], q[1] - prev[1]) > NEAR_POINT_COINCIDENT;
+  });
+}
+
 function topProfile(floor: number, z: Levels, c: number, latch: boolean): { profile: Pt[]; stemUp: number; latch?: RimClip["latch"] } {
   const uL = floor - SKADIS_JAW_OVERLAP;
   const uB0 = floor + c;
   const us = uB0 + SKADIS_BIGHT_THICKNESS;
   const uH = us + SKADIS_STEM_HEIGHT;
   const uTl = us - SKADIS_TONGUE_LENGTH;
-  const base: Array<[number, number]> = [
-    [uL, z.boardFront],
-    [uL, z.outerJawFace],
-    [uB0, z.outerJawFace],
-    [uB0, z.lipUnderside],
-    [uL, z.lipUnderside],
-    [uL, z.lipTop],
-    [uH, z.lipTop],
+  const { corners, at } = cornerSet();
+  const bight = bightFilletRadius(z, c);
+  const base: Pt[] = [
+    at(uL, z.boardFront),
+    at(uL, z.outerJawFace),
+    at(uB0, z.outerJawFace, bight),
+    at(uB0, z.lipUnderside, bight),
+    at(uL, z.lipUnderside),
+    at(uL, z.lipTop),
+    at(uH, z.lipTop),
   ];
-  const stem: Array<[number, number]> = [
-    [uH, z.tongueBack],
-    [uTl, z.tongueBack],
-    [uTl, z.tongueFace],
-    [us, z.tongueFace],
-    [us, z.boardFront],
+  const stem: Pt[] = [
+    at(uH, z.tongueBack),
+    at(uTl, z.tongueBack),
+    at(uTl, z.tongueFace, 0),
+    at(us, z.tongueFace, 0),
+    at(us, z.boardFront, SKADIS_CLIP_BOARD_FILLET),
   ];
-  const soft: Pt[] = [[uL, z.boardFront], [uL, z.lipTop], [uH, z.lipTop], [uH, z.tongueBack], [uTl, z.tongueBack]];
-  const finish = (points: Pt[]) => chamferCorners(ccwWithoutNearPoints(points), soft, SKADIS_CLIP_CHAMFER);
+  const finish = (points: Pt[]) => filletCorners(ccwWithoutNearPoints(points), corners);
   if (!latch) return { profile: finish([...base, ...stem]), stemUp: us };
 
   const slotTopTight = us + 2 * fullWidthHalf(SKADIS_SLOT_WIDTH_MIN, SKADIS_SLOT_LENGTH_MIN);
@@ -241,24 +332,24 @@ function topProfile(floor: number, z: Levels, c: number, latch: boolean): { prof
   const dt = SKADIS_LATCH_TOOTH_DEPTH;
   const uT2 = uT1 + dt * Math.tan((SKADIS_LATCH_FACE_DEG * Math.PI) / 180);
   const uA0 = uH + SKADIS_LATCH_END_GAP;
-  const uR0 = (uT0 + uT1) / 2 + SKADIS_LATCH_ARM_REACH;
+  const uR0 = (uT0 + uT1) / 2 + SKADIS_LATCH_ARM_REACH + SKADIS_LATCH_SLIT / 2;
   const uR1 = uR0 + SKADIS_LATCH_ROOT;
   const zA1 = z.boardFront + SKADIS_LATCH_ARM_THICKNESS;
   const zM0 = zA1 + SKADIS_LATCH_SLIT;
   const zM1 = zM0 + SKADIS_LATCH_MAST_THICKNESS;
-  const latchPts: Array<[number, number]> = [
-    [uH, zM1],
-    [uR1, zM1],
-    [uR1, z.boardFront],
-    [uT2, z.boardFront],
-    [uT1, z.boardFront - dt],
-    [uT0, z.boardFront - dt],
-    [Math.max(uA0, uT0 - dt), z.boardFront],
-    [uA0, z.boardFront],
-    [uA0, zA1],
-    [uR0, zA1],
-    [uR0, zM0],
-    [uH, zM0],
+  const latchPts: Pt[] = [
+    at(uH, zM1),
+    at(uR1, zM1),
+    at(uR1, z.boardFront),
+    at(uT2, z.boardFront, 0),
+    at(uT1, z.boardFront - dt, 0),
+    at(uT0, z.boardFront - dt),
+    at(Math.max(uA0, uT0 - dt), z.boardFront),
+    at(uA0, z.boardFront),
+    at(uA0, zA1),
+    at(uR0, zA1),
+    at(uR0, zM0),
+    at(uH, zM0, SKADIS_LATCH_END_GAP),
   ];
   return {
     profile: finish([...base, ...latchPts, ...stem]),
@@ -269,26 +360,28 @@ function topProfile(floor: number, z: Levels, c: number, latch: boolean): { prof
 
 function bottomProfile(floor: number, stemUp: number, z: Levels, c: number): Pt[] {
   const uB0 = floor - c;
-  const uB1 = uB0 - SKADIS_BIGHT_THICKNESS;
+  const stemBesideBight = stemUp >= uB0 - SKADIS_BIGHT_THICKNESS - STEM_SEAT_EPSILON;
+  const uB1 = stemBesideBight ? Math.min(uB0 - SKADIS_BIGHT_THICKNESS, stemUp - SKADIS_CLIP_BOARD_EDGE_MIN) : uB0 - SKADIS_BIGHT_THICKNESS;
   const uJ = floor + SKADIS_JAW_OVERLAP;
   const sTop = stemUp + SKADIS_STEM_HEIGHT;
   const uTl = stemUp - SKADIS_TONGUE_LENGTH;
-  const stem: Array<[number, number]> = [
-    [sTop, z.boardFront],
-    [sTop, z.tongueBack],
-    [uTl, z.tongueBack],
-    [uTl, z.tongueFace],
-    [stemUp, z.tongueFace],
-    [stemUp, z.boardFront],
+  const { corners, at } = cornerSet();
+  const bight = bightFilletRadius(z, c);
+  const stem: Pt[] = [
+    at(sTop, z.boardFront),
+    at(sTop, z.tongueBack),
+    at(uTl, z.tongueBack),
+    at(uTl, z.tongueFace, 0),
+    at(stemUp, z.tongueFace, 0),
+    at(stemUp, z.boardFront, SKADIS_CLIP_BOARD_FILLET),
   ];
-  const soft: Pt[] = [[uB1, z.lipTop], [uB1, z.boardFront], [stemUp, z.lipTop], [uJ, z.lipTop], [uJ, z.boardFront], [Math.max(uJ, sTop), z.boardFront], [sTop, z.tongueBack], [uTl, z.tongueBack]];
-  const finish = (points: Pt[]) => chamferCorners(ccwWithoutNearPoints(points), soft, SKADIS_CLIP_CHAMFER);
-  const stemBesideBight = stemUp >= uB1 - STEM_SEAT_EPSILON;
+  const finish = (points: Pt[]) => filletCorners(ccwWithoutNearPoints(points), corners);
   if (stemBesideBight) {
-    const top = Math.max(uJ, sTop);
-    return finish([[uB1, z.lipTop], [uJ, z.lipTop], [uJ, z.lipUnderside], [uB0, z.lipUnderside], [uB0, z.outerJawFace], [top, z.outerJawFace], [top, z.boardFront], ...stem, [uB1, z.boardFront]]);
+    const top = clearOfStemTop(Math.max(uJ, sTop), sTop);
+    return finish([at(uB1, z.lipTop), at(uJ, z.lipTop), at(uJ, z.lipUnderside), at(uB0, z.lipUnderside, bight), at(uB0, z.outerJawFace, bight), at(top, z.outerJawFace), at(top, z.boardFront), ...stem, at(uB1, z.boardFront)]);
   }
-  return finish([[stemUp, z.lipTop], [uJ, z.lipTop], [uJ, z.lipUnderside], [uB0, z.lipUnderside], [uB0, z.outerJawFace], [uJ, z.outerJawFace], [uJ, z.boardFront], ...stem]);
+  const jawTip = clearOfStemTop(uJ, sTop);
+  return finish([at(stemUp, z.lipTop), at(uJ, z.lipTop), at(uJ, z.lipUnderside), at(uB0, z.lipUnderside, bight), at(uB0, z.outerJawFace, bight), at(jawTip, z.outerJawFace), at(jawTip, z.boardFront), ...stem]);
 }
 
 function bottomStem(uB1: number, uJ: number, originSlot: number, parityOdd: boolean): number {
@@ -349,6 +442,7 @@ export function layoutSkadisClips(input: SkadisClipInput): SkadisClipLayout {
     axisDeg: axes[0],
     clips: [],
     notches: [],
+    notchCutters: [],
     boardFrontZ: levels(input.thickness, input.plateThickness, input.tolerance).boardFront,
     warning: "The flange is too small or too crowded for the SKÅDIS rim clips, so they were left out (try a bigger core).",
   };
@@ -447,13 +541,35 @@ function build(
     const stemUp = bottomStem(uB1, b.floor + SKADIS_JAW_OVERLAP, originSlot, parityOdd);
     clips.push({ role: "bottom", side: b.side, floor: b.floor, stemUp, slotUp: stemUp + SEAT, profile: bottomProfile(b.floor, stemUp, z, c) });
   }
+  const relief = bightFilletRadius(z, c) - c;
   const notches: XY[][] = [];
+  const notchCutters: NotchCutter[] = [];
   for (const clip of clips) {
     const dir = clip.role === "top" ? 1 : -1;
     const far = clip.floor + dir * NOTCH_DEPTH_OUT;
-    notches.push([toXY(clip.floor, clip.side - halfBand), toXY(clip.floor, clip.side + halfBand), toXY(far, clip.side + halfBand), toXY(far, clip.side - halfBand)]);
+    const near = clip.floor - dir * relief;
+    notches.push([toXY(near, clip.side - halfBand), toXY(near, clip.side + halfBand), toXY(far, clip.side + halfBand), toXY(far, clip.side - halfBand)]);
+    notchCutters.push({ side0: clip.side - halfBand, width: 2 * halfBand, profile: notchReliefProfile(clip.floor, dir, z, c, relief) });
   }
-  return { axisDeg, clips, notches, boardFrontZ: z.boardFront };
+  return { axisDeg, clips, notches, notchCutters, boardFrontZ: z.boardFront };
+}
+
+function notchReliefProfile(floor: number, dir: 1 | -1, z: Levels, c: number, relief: number): Pt[] {
+  const bottom = z.outerJawFace + c;
+  const top = z.lipUnderside - c;
+  const overshoot = WELD_OVERLAP + 1;
+  const toward = (u: number): number => floor + dir * (u - floor);
+  const back = floor - relief;
+  const ring: Pt[] = [
+    [back, bottom - overshoot],
+    [floor + NOTCH_DEPTH_OUT, bottom - overshoot],
+    [floor + NOTCH_DEPTH_OUT, overshoot],
+    [back, overshoot],
+    ...arcSamples(back, top - relief, relief, Math.PI / 2, -Math.PI / 2),
+    [floor, bottom + relief],
+    [back, bottom],
+  ].map(([u, zz]): Pt => [toward(u), zz]);
+  return dir === 1 ? ring : ring.reverse();
 }
 
 export function requiredSkadisMargin(outline: ShapeOutline, boreOutline: ShapeOutline, envelopeOffset: number, heavy: boolean, thickness: number, plateThickness: number, tolerance: number): number {

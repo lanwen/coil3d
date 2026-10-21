@@ -409,9 +409,8 @@ export async function fuseFlange(
     }
 
     if (flange.skadis) {
-      for (const notch of flange.skadis.notches) {
-        const poly: [number, number][] = notch.map((p) => [p.x, p.y]);
-        const cutter = prismAt(wasm, track, [poly], "NonZero", flange.thickness + 2 * WELD_OVERLAP, -flange.thickness - WELD_OVERLAP);
+      for (const notch of flange.skadis.notchCutters) {
+        const cutter = clipFramePrism(wasm, track, notch.profile, notch.side0, notch.width, flange.skadis.axisDeg);
         fused = track(fused.subtract(cutter));
         status = fused.status();
         if (status !== "NoError") {
@@ -694,21 +693,26 @@ export async function buildPeg(anchor: AnchorPoint, flangeThickness: number): Pr
   }
 }
 
+function clipFramePrism(wasm: ManifoldToplevel, track: Track, profile: [number, number][], s0: number, width: number, axisDeg: number): Manifold {
+  const { up, side } = clipFrame(axisDeg, s0);
+  const section = track(new wasm.CrossSection([profile], "NonZero"));
+  const prism = track(section.extrude(width));
+  return track(prism.transform([up.x, up.y, 0, 0, 0, 0, 1, 0, side.x, side.y, 0, 0, s0 * side.x, s0 * side.y, 0, 1]));
+}
+
 export async function buildSkadisClip(layout: SkadisClipLayout, clip: RimClip): Promise<CoilMesh> {
   const wasm = await getWasm();
-  const { up, side } = clipFrame(layout.axisDeg, clip.side);
-  const s0 = clip.side - SKADIS_CLIP_WIDTH / 2;
-  const section = new wasm.CrossSection([clip.profile], "NonZero");
-  const prism = section.extrude(SKADIS_CLIP_WIDTH);
-  const placed = prism.transform([up.x, up.y, 0, 0, 0, 0, 1, 0, side.x, side.y, 0, 0, s0 * side.x, s0 * side.y, 0, 1]);
+  const trash: { delete(): void }[] = [];
+  const track = <T extends { delete(): void }>(m: T): T => {
+    trash.push(m);
+    return m;
+  };
   try {
+    const placed = clipFramePrism(wasm, track, clip.profile, clip.side - SKADIS_CLIP_WIDTH / 2, SKADIS_CLIP_WIDTH, layout.axisDeg);
     if (placed.status() !== "NoError") throw new Error(`SKÅDIS clip is not a valid manifold: ${placed.status()}`);
-    const outMesh = placed.getMesh();
-    return coilMeshOf(outMesh);
+    return coilMeshOf(placed.getMesh());
   } finally {
-    section.delete();
-    prism.delete();
-    placed.delete();
+    for (const m of trash) m.delete();
   }
 }
 
