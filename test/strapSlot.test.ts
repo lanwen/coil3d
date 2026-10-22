@@ -1,22 +1,33 @@
 import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
-import { DEFAULT_SPEC, design, parseHash } from "../src/core";
+import {
+  CAP_THICKNESS,
+  DEFAULT_SPEC,
+  design,
+  MOUNT_PLATE_EDGE_MARGIN,
+  MOUNT_PLATE_THICKNESS,
+  offsetPerimeter,
+  outlineOffsetAt,
+  parseHash,
+  pointAt,
+  RIM_SLOT_LABEL_KEEP_OUT,
+  SCREW_MOUNT_HEAD_RADIUS,
+  STRAP_SLOT_INNER_WALL,
+  STRAP_SLOT_KEEP_OUT,
+  STRAP_SLOT_LENGTH,
+  STRAP_SLOT_MIN_SEPARATION_FRACTION,
+  STRAP_SLOT_OUTER_WALL,
+  STRAP_SLOT_PLATE_REACH,
+  STRAP_SLOT_WIDTH,
+  THROUGH_MOUNT_EDGE_MARGIN,
+} from "../src/core";
 import type { CoilMesh, CoilSpec, Design, ShapeSpec } from "../src/core";
-import { CAP_THICKNESS, MOUNT_PLATE_EDGE_MARGIN, MOUNT_PLATE_THICKNESS, RIM_SLOT_LABEL_KEEP_OUT, SCREW_MOUNT_HEAD_RADIUS, STRAP_SLOT_INNER_WALL, STRAP_SLOT_KEEP_OUT, STRAP_SLOT_LENGTH, STRAP_SLOT_MIN_SEPARATION_FRACTION, STRAP_SLOT_OUTER_WALL, STRAP_SLOT_PLATE_REACH, STRAP_SLOT_WIDTH, THROUGH_MOUNT_EDGE_MARGIN } from "../src/core/constants";
-import { layoutFlangeThroughHoles } from "../src/core/flangePads";
-import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
-import type { XY } from "../src/core/innerEnd";
-import { getLabelFont, labelLoops, resolveLabel } from "../src/core/label";
-import { layoutKeyholeMount } from "../src/core/mount";
-import { pegHoleRadius } from "../src/core/mountPlate";
-import { skadisClipFootprints } from "../src/core/skadisClips";
-import { tclipCutterPolys } from "../src/core/skadisTclips";
-import { offsetPerimeter, outlineOffsetAt, parameterAtOffsetArc, pointAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
-import type { StrapSlot } from "../src/core/strapSlot";
-import { rayHits } from "./support/rays";
+import { distanceToLabel } from "./support/flange";
+import { pegHoleRadius } from "./support/mountPlate";
 import { unsupportedOverhangs } from "./support/overhangs";
+import { rayHits } from "./support/rays";
+import type { StrapSlot, XY } from "./support/types";
 
 
 // Issue #314: with strapSlots on, the base and the cap each get two closed
@@ -276,12 +287,10 @@ describe("strap slots keep clear of the label and the face channels", () => {
       const longest = (await design({ ...roomy, label: "W".repeat(40) }, "draft")).labelFit!.maxChars;
       for (const label of ["USB-C 2m", "W".repeat(longest)]) {
         const d = await design({ ...roomy, label }, "draft");
-        const resolved = (await resolveLabel(label, d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, true)).label;
-        expect(resolved, `${shape.kind}/${label}`).toBeDefined();
+        expect(distanceToLabel(d, { x: 0, y: 0 }), `${shape.kind}/${label}: the label fits and is engraved`).toBeLessThan(Infinity);
         expect(d.strapSlots.cap, `${shape.kind}/${label}`).toHaveLength(2);
-        const loops = labelLoops(await getLabelFont(), resolved!).map((loop) => loop.map(([x, y]) => ({ x, y })));
         for (const slot of d.strapSlots.cap) {
-          for (const loop of loops) expect(nearest(d, slot.outline, loop), `${shape.kind}/${label}`).toBeGreaterThanOrEqual(RIM_SLOT_LABEL_KEEP_OUT - 0.3);
+          for (const p of inPlateSamples(d, slot.outline)) expect(distanceToLabel(d, p), `${shape.kind}/${label}`).toBeGreaterThanOrEqual(RIM_SLOT_LABEL_KEEP_OUT - 0.3);
         }
       }
     }
@@ -322,7 +331,7 @@ describe("strap slots keep clear of the mounts", () => {
       it(`${tag}: keyhole screw heads`, async () => {
         const d = await designOf(`keyhole ${tag}`, free("keyhole"));
         expect(d.strapSlots.base).toHaveLength(2);
-        const layout = layoutKeyholeMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, d.spec.keyholeRotation);
+        const layout = d.mountLayout!.keyhole!;
         expect(layout.slots.length).toBeGreaterThan(0);
         for (const slot of d.strapSlots.base) {
           for (const keyhole of layout.slots) {
@@ -335,9 +344,7 @@ describe("strap slots keep clear of the mounts", () => {
       it(`${tag}: through holes`, async () => {
         const d = await designOf(`through ${tag}`, free("through"));
         expect(d.strapSlots.base).toHaveLength(2);
-        const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-        const innerEnd = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness));
-        const { holes, holeRadius } = layoutFlangeThroughHoles(d.flangeSpec, innerEnd);
+        const { holes, holeRadius } = d.mountLayout!.through!;
         expect(holes.length).toBeGreaterThan(0);
         for (const slot of d.strapSlots.base) {
           for (const hole of holes) expect(nearestPoint(d, slot.outline, hole)).toBeGreaterThanOrEqual(holeRadius + THROUGH_MOUNT_EDGE_MARGIN + STRAP_SLOT_KEEP_OUT - 0.05);
@@ -350,7 +357,7 @@ describe("strap slots keep clear of the mounts", () => {
         expect(layout?.clips.length).toBeGreaterThan(0);
         expect(d.strapSlots.base).toHaveLength(2);
         for (const slot of d.strapSlots.base) {
-          for (const poly of [...skadisClipFootprints(layout!), ...layout!.notches]) {
+          for (const poly of [...d.mountLayout!.clipFootprints!, ...layout!.notches]) {
             expect(nearest(d, slot.outline, poly)).toBeGreaterThanOrEqual(STRAP_SLOT_KEEP_OUT - 0.02);
           }
         }
@@ -362,7 +369,7 @@ describe("strap slots keep clear of the mounts", () => {
         expect(layout?.clips.length).toBeGreaterThan(0);
         expect(d.strapSlots.base).toHaveLength(2);
         const reach = drawnReach(d);
-        for (const poly of layout!.cutters.flatMap(tclipCutterPolys)) {
+        for (const poly of d.mountLayout!.clipFootprints!) {
           for (const p of poly) expect(outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset).toBeLessThan(reach);
           for (const slot of d.strapSlots.base) expect(nearest(d, slot.outline, poly)).toBeGreaterThanOrEqual(STRAP_SLOT_KEEP_OUT);
         }
@@ -537,10 +544,12 @@ function arcApart(d: Design, a: XY, b: XY): { apart: number; perimeter: number }
   const outline = d.flangeSpec.outline;
   const offset = outlineOffsetAt(outline, a.x, a.y).offset;
   const perimeter = offsetPerimeter(outline, offset);
-  const step = 0.25;
-  const samples = Array.from({ length: Math.ceil(perimeter / step) }, (_, i) => pointAt(outline, parameterAtOffsetArc(outline, offset, i * step), offset));
+  const count = Math.ceil(perimeter / 0.1);
+  const samples = Array.from({ length: count }, (_, i) => pointAt(outline, i / count, offset));
+  const length = [0];
+  for (let i = 1; i < count; i++) length.push(length[i - 1] + Math.hypot(samples[i].x - samples[i - 1].x, samples[i].y - samples[i - 1].y));
   const indexOf = (p: XY) => samples.reduce((best, q, i) => (Math.hypot(q.x - p.x, q.y - p.y) < Math.hypot(samples[best].x - p.x, samples[best].y - p.y) ? i : best), 0);
-  const along = Math.abs(indexOf(a) - indexOf(b)) * step;
+  const along = Math.abs(length[indexOf(a)] - length[indexOf(b)]);
   return { apart: Math.min(along, perimeter - along), perimeter };
 }
 

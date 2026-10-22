@@ -1,20 +1,17 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
-import type { CoilSpec } from "../src/core";
-import { layoutMountPlate, mountPlateLayoutFor, openGridClipHalfExtents } from "../src/core/mountPlate";
-import { bestAxisDeg } from "../src/core/mount";
-import { makeOutline, offsetOutline } from "../src/core/shapes";
+import type { CoilSpec, ShapeSpec } from "../src/core";
+import { pegHoleRadius } from "./support/mountPlate";
 
 // Issue #14 acceptance criteria: mount=opengrid (the hidden placeholder; the
 // SKÅDIS mount used the same plate until issue #207) produces a separate
 // "mount plate" part that glues or snaps onto the bottom flange's wall face,
 // fits inside the flange outline, respects the hanging axis, warns when the
 // flange is too small for at least 2 clips, and stays manifold in every
-// export. These tests exercise ONLY the public `design()` interface plus
-// mountPlate.ts's own layout function (the same shared function both
-// geometry backends cut from -- mirrors test/design.test.ts's own treatment
-// of mount.ts's `layoutKeyholeMount`), per the testing rules in AGENTS.md.
+// export. These tests exercise ONLY the public `design()` interface (the layout both
+// geometry backends cut from, read from design().mountLayout), per the
+// testing rules in AGENTS.md.
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {
@@ -55,66 +52,57 @@ async function volumeCheck(mesh: { positions: Float32Array; indices: Uint32Array
   return volume;
 }
 
-describe("mountPlate.ts layout math (issue #14)", () => {
-  it("the plate's own outline always fits strictly inside the flange's outline", () => {
-    const flangeOutline = makeOutline("round", 120, 60);
-    const boreOutline = makeOutline("round", 94, 47);
-    const layout = layoutMountPlate(flangeOutline, boreOutline, 40, 6, 3.05);
-    expect(layout.outline.apothem).toBeLessThan(flangeOutline.apothem);
-    expect(layout.clips.length).toBeGreaterThan(0);
+describe("the mount plate's layout through design() (issues #14, #115)", () => {
+  it("the plate's own outline always fits strictly inside the flange's outline", async () => {
+    const d = await design(baseSpec({ mount: "opengrid", coreSize: { locked: true, dimension: "outer", value: 100 } }));
+    const plate = d.mountLayout!.plate!;
+    expect(plate.outline.apothem).toBeLessThan(d.flangeSpec.outline.apothem + d.flangeSpec.margin);
+    expect(plate.clips.length).toBeGreaterThan(0);
   });
 
-  it("warns and produces no clips when the flange is too small for at least 2", () => {
-    const flangeOutline = makeOutline("round", 20, 10);
-    const boreOutline = makeOutline("round", 14, 7);
-    const layout = layoutMountPlate(flangeOutline, boreOutline, 40, 6, 3.05);
-    expect(layout.clips).toHaveLength(0);
-    expect(layout.warning).toMatch(/too small/i);
-  });
-
-  it("places clip columns symmetric about the shape's own best axis (round)", () => {
-    const flangeOutline = makeOutline("round", 120, 60);
-    const boreOutline = makeOutline("round", 94, 47);
-    const layout = layoutMountPlate(flangeOutline, boreOutline, 40, 6, 3.05);
-    expect(layout.axisDeg).toBe(0);
+  it("places clip columns symmetric about the shape's own best axis (round)", async () => {
+    const d = await design(baseSpec({ mount: "opengrid" }));
+    const plate = d.mountLayout!.plate!;
+    expect(plate.axisDeg).toBe(0);
     // Round: axisDeg=0 means "up" is literal +Y, so every clip's x is a pure "side" coordinate, symmetric about x=0.
-    const xs = layout.clips.map((c) => c.x).sort((a, b) => a - b);
+    const xs = plate.clips.map((c) => c.x).sort((a, b) => a - b);
     for (let i = 0; i < xs.length / 2; i++) {
       expect(xs[i]).toBeCloseTo(-xs[xs.length - 1 - i], 6);
     }
   });
 
-  it("uses the shape's own bestAxisDeg for a triangle, matching mount.ts's keyhole convention", () => {
-    const outer = makeOutline("tri", 120, 30);
-    const boreOutline = makeOutline("tri", 94, 24);
-    const layout = layoutMountPlate(outer, boreOutline, 40, 6, 3.05);
-    expect(layout.axisDeg).toBeCloseTo(bestAxisDeg(boreOutline, 0), 9);
+  it("uses the shape's own best axis for a triangle, the same one the keyhole mount hangs on", async () => {
+    const shape: ShapeSpec = { kind: "tri", cornerRadius: 15 };
+    const plate = await design(baseSpec({ mount: "opengrid", shape }));
+    const keyhole = await design(baseSpec({ mount: "keyhole", shape }));
+    expect(plate.mountLayout!.plate!.axisDeg).toBeCloseTo(keyhole.mountAxisDeg!, 9);
   });
 
-  it("openGrid half-extents come from the actual geometry data, not a hand-maintained duplicate", () => {
-    const openGrid = openGridClipHalfExtents();
-    expect(openGrid.halfUp).toBeGreaterThan(0);
-    expect(openGrid.halfSide).toBeGreaterThan(0);
-  });
-
-  it("never puts a pin hole INSIDE the inner-end channel, however far it is from the channel's edges (issue #115)", () => {
-    const flange = makeOutline("round", 100, 50);
-    const bore = makeOutline("round", 60, 30);
-    const free = mountPlateLayoutFor(flange, bore);
-    expect(free.anchors.length).toBe(2);
-    // A wide strip whose edges are far (>3 mm) from the first free pin
-    // position, but which contains it -- the pre-#115 edge-distance check
-    // let that through (a stiff 8 mm cable's channel on a big square core
-    // did exactly this, and the pin hole tunnelled into the channel).
-    const p = free.anchors[0];
-    const strip = [
-      { x: p.x - 50, y: p.y - 5 },
-      { x: p.x + 50, y: p.y - 5 },
-      { x: p.x + 50, y: p.y + 5 },
-      { x: p.x - 50, y: p.y + 5 },
-    ];
-    const avoided = mountPlateLayoutFor(flange, bore, { channelRibbon: strip });
-    for (const a of avoided.anchors) expect(Math.hypot(a.x - p.x, a.y - p.y)).toBeGreaterThan(1);
+  // The pin hole's reach: a hole whose edge touched the cable's bore would tunnel into the channel. Issue #115: the
+  // pre-fix edge-distance check let a pin position inside the channel through (a stiff 8 mm cable on a big square core).
+  it.each([
+    { shape: { kind: "round" } as ShapeSpec, size: 60 },
+    { shape: { kind: "sq", cornerRadius: 15 } as ShapeSpec, size: 60 },
+    { shape: { kind: "sq", cornerRadius: 15 } as ShapeSpec, size: 140 },
+    { shape: { kind: "tri", cornerRadius: 15 } as ShapeSpec, size: 80 },
+    { shape: { kind: "tri", cornerRadius: 15 } as ShapeSpec, size: 140 },
+  ])("never puts a pin hole in the inner-end channel: $shape.kind core, $size mm", async ({ shape, size }) => {
+    for (const wire of [
+      { length: 2000, diameter: 3.8, type: "usb" as const },
+      { length: 2000, diameter: 8, type: "stiff" as const },
+    ]) {
+      const d = await design(baseSpec({ shape, wire, topCap: "off", base: "on", mount: "opengrid", coreSize: { locked: true, dimension: "outer", value: size } }), "draft");
+      const anchors = d.mountLayout!.plate!.anchors;
+      expect(anchors.length).toBe(2);
+      const lead = d.innerEndLeadIn;
+      const reach = (wire.diameter + d.spec.tolerance) / 2 + pegHoleRadius(d.spec.tolerance);
+      for (const a of anchors) {
+        for (let i = 0; i < lead.length; i += 3) {
+          if (lead[i + 2] >= 0) continue;
+          expect(Math.hypot(a.x - lead[i], a.y - lead[i + 1]), `${wire.diameter} mm cable`).toBeGreaterThanOrEqual(reach);
+        }
+      }
+    }
   });
 });
 
@@ -180,16 +168,13 @@ describe("design() clip mount plate (issue #14)", () => {
     expect(d.warnings.some((w) => /too small to fit/i.test(w))).toBe(false);
     const plate = d.parts.find((p) => p.role === "mountPlate");
     expect(plate).toBeDefined();
-    const layout = mountPlateLayoutFor(offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin), d.flangeSpec.boreOutline);
-    expect(layout.clips.length).toBeGreaterThanOrEqual(2);
+    expect(d.mountLayout!.plate!.clips.length).toBeGreaterThanOrEqual(2);
   });
 
   it("mountAxisDeg is surfaced for the clip mount plate too, matching mountPlate.ts's own layout.axisDeg", async () => {
     const d = await design(baseSpec({ mount: "opengrid", shape: { kind: "tri", cornerRadius: 15 } }));
     expect(d.mountAxisDeg).not.toBeUndefined();
-    const flangeOutline = offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin);
-    const layout = mountPlateLayoutFor(flangeOutline, d.flangeSpec.boreOutline);
-    expect(d.mountAxisDeg).toBeCloseTo(layout.axisDeg!, 9);
+    expect(d.mountAxisDeg).toBeCloseTo(d.mountLayout!.plate!.axisDeg!, 9);
   });
 
   it.each([

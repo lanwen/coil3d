@@ -1,10 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { design, exportDesign, parseHash } from "../src/core";
+import { CAP_THICKNESS, design, EDGE_CHAMFER, exportDesign, FLANGE_PAD_WALL, parseHash, pointAt } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
-import { CAP_THICKNESS, EDGE_CHAMFER, FLANGE_PAD_WALL } from "../src/core/constants";
-import { plateTopZ } from "../src/core/flangePads";
-import { pointAt } from "../src/core/shapes";
 import { STEP_TIMEOUT_MS, insideAt, stepContains, verticalCrossings } from "./support/step";
+import { plateTopZ } from "./support/flange";
 
 // Issues #229, #237: the outer perimeter edges of the bottom flange and the top cap are chamfered 1 mm x 45 degrees on
 // both faces. Checked on the built meshes, by casting vertical rays through them near the rim.
@@ -71,7 +69,7 @@ describe.each(DESIGNS)("edge chamfer: $label", ({ spec }) => {
   it("chamfers the flange's outer edge 45 degrees, about 1 mm, on both faces", async () => {
     const d = await design(spec);
     const T = d.flangeSpec.thickness;
-    const zPlate = plateTopZ(d.flangeSpec);
+    const zPlate = plateTopZ(d);
     const core = d.parts.find((p) => p.role === "core")!;
     for (const depth of [0.25, 0.5, 0.75]) {
       const spans = rimSpans(core.mesh, d, depth);

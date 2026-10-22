@@ -1,20 +1,16 @@
 // Issue #71 (keyhole mount: rotation option + a verified screw-catching
 // notch) and issue #70 (a new through-hole screw mount). These tests
-// exercise ONLY the core's public interface (`design`) plus mount.ts's own
-// exported layout functions -- the SAME shared, pure functions BOTH geometry
-// backends (manifold.ts, step/build.ts) cut from, per this repo's own
-// "one shared layout, several consumers" convention (see mount.ts's file
-// header) -- and, for the keyhole undercut, manifold-3d used as an
-// independent verification tool against the ACTUAL built mesh (slicing it,
-// per the ticket's own ask to "check the actual mesh... rather than trusting
-// the parameters"), never a re-implementation of the cut.
+// exercise ONLY the core's public interface (`design`, with the layouts it
+// returns in `mountLayout`) and, for the keyhole undercut, manifold-3d used
+// as an independent verification tool against the ACTUAL built mesh
+// (slicing it, per the ticket's own ask to "check the actual mesh... rather
+// than trusting the parameters"), never a re-implementation of the cut.
 
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design, parseHash } from "../src/core";
-import type { CoilSpec } from "../src/core";
 import {
-  DEFAULT_THROUGH_HOLE_DIAMETER,
+  design,
+  parseHash,
   SCREW_MOUNT_HEAD_DIAMETER,
   SCREW_MOUNT_HEAD_HEIGHT,
   SCREW_MOUNT_RECESS_DEPTH,
@@ -22,12 +18,8 @@ import {
   SCREW_MOUNT_SLOT_DEPTH,
   SCREW_MOUNT_UNDERCUT_DEPTH,
   THROUGH_MOUNT_EDGE_MARGIN,
-} from "../src/core/constants";
-import { distanceToClosedPolygon, layoutKeyholeMount, layoutThroughHoleMount, requiredFlangeMargin, requiredThroughMountMargin } from "../src/core/mount";
-import { layoutInnerEnd } from "../src/core/innerEnd";
-import { layoutFlangeThroughHoles } from "../src/core/flangePads";
-import { makeOutline, offsetOutline, radiusAtAngle } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
+} from "../src/core";
+import type { CoilSpec } from "../src/core";
 import { bruteForceRadiusAtAngle, coarseOutlineScan } from "./support/bruteForceRadius";
 import { KEYHOLE_ROOF_MAX_SPAN } from "./support/keyholeBridge";
 
@@ -54,29 +46,17 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 // --- Issue #71: keyhole rotation -----------------------------------------
 
 describe("keyhole mount rotation (issue #71)", () => {
-  // Test-audit report, C-B (B1+B2): this describe used to also have a
-  // "bestAxisDeg re-centres its search on keyholeRotation instead of literal
-  // vertical" test that called `bestAxisDeg` directly, and the test below
-  // derived its `expectedAxis` for `layout.axisDeg`/`d.mountAxisDeg` the same
-  // way -- so both checks were really `bestAxisDeg` agreeing with itself.
-  // Moved onto the public `design()` boundary: `layoutKeyholeMount`'s own
-  // axis must equal `design()`'s surfaced `d.mountAxisDeg` (the real
-  // cross-backend contract this repo cares about -- what design() reports
-  // is what the cutters actually use), and the "genuine mirror axis" check
-  // (a square's own natural axes are 45 degrees apart -- mount.ts's file
-  // header) now reads `d.mountAxisDeg` itself, not a value the helper under
-  // test produced.
-  it("design()'s mountAxisDeg follows spec.keyholeRotation (0 vs 45 place the 2-slot mount on a different axis), agrees with layoutKeyholeMount's own axis, and the mount still fits (still hangs level)", async () => {
+  // The "genuine mirror axis" check (a square's own natural axes are 45
+  // degrees apart) reads `d.mountAxisDeg` itself, the axis design() reports
+  // and the cutters use.
+  it("design()'s mountAxisDeg follows spec.keyholeRotation (0 vs 45 place the 2-slot mount on a different axis), and the mount still fits (still hangs level)", async () => {
     const axes: Record<number, number> = {};
     for (const kr of [0, 45] as const) {
       const d = await design(baseSpec({ shape: { kind: "sq", cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 100 }, mount: "keyhole", keyholeRotation: kr }));
       expect(d.warnings.some((w) => /too narrow/i.test(w))).toBe(false);
-      const layout = layoutKeyholeMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, kr);
+      const layout = d.mountLayout!.keyhole!;
       expect(layout.slots).toHaveLength(2); // this flange is well above the 2-slot threshold, for every rotation
-      // The real cross-backend contract: design()'s own surfaced axis is
-      // what the mount layout actually used.
       expect(d.mountAxisDeg).not.toBeUndefined();
-      expect(layout.axisDeg).toBeCloseTo(d.mountAxisDeg!, 6);
       // Both rotations still land on one of the shape's own genuine mirror
       // axes (see candidateAxisDegs's own doc comment) -- a multiple of 45
       // degrees for this square.
@@ -130,9 +110,8 @@ describe("issue #120: keyhole rotation and SKÅDIS mount regressions", () => {
     const [atZero, at45] = results;
     expect(atZero.mountAxisDeg).not.toBeCloseTo(at45.mountAxisDeg!, 6);
 
-    const layoutAt = (d: (typeof results)[number], kr: 0 | 45) => layoutKeyholeMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, kr);
-    const slotsZero = layoutAt(atZero, 0).slots;
-    const slots45 = layoutAt(at45, 45).slots;
+    const slotsZero = atZero.mountLayout!.keyhole!.slots;
+    const slots45 = at45.mountLayout!.keyhole!.slots;
     expect(slotsZero.length).toBeGreaterThan(0);
     expect(slots45.length).toBe(slotsZero.length);
     // At least one slot actually moved -- not just a coincidental relabeling.
@@ -175,7 +154,7 @@ describe("issue #120: keyhole rotation and SKÅDIS mount regressions", () => {
 describe("keyhole mount undercut (issue #71): verified against the built mesh, not just parameters", () => {
   it("head hole >= head diameter, slot width strictly between shank and head diameters, and the undercut is wider than the slot and >= head height deep", async () => {
     const d = await design(baseSpec({ mount: "keyhole" }));
-    const layout = layoutKeyholeMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, 0);
+    const layout = d.mountLayout!.keyhole!;
     expect(layout.slots).toHaveLength(1); // a 50mm round core stays under the 2-slot threshold
     const slot = layout.slots[0];
 
@@ -267,7 +246,7 @@ describe("keyhole mount undercut roof (issue #175): the only overhang is the acc
   it.each(CASES)("$label", async ({ shape, keyholeRotation, size }) => {
     const d = await design(baseSpec({ shape, mount: "keyhole", keyholeRotation: keyholeRotation as 0 | 45, coreSize: { locked: true, dimension: "outer", value: size } }));
     const f = d.flangeSpec;
-    const { slots } = layoutKeyholeMount(f.outline, f.boreOutline, f.margin, f.keyholeRotation);
+    const { slots } = d.mountLayout!.keyhole!;
     expect(slots.length).toBeGreaterThan(0);
     const core = d.parts.find((p) => p.role === "core")!;
     // The core prints as assembled, flange face on the bed (z = -thickness).
@@ -314,54 +293,43 @@ describe("keyhole mount undercut roof (issue #175): the only overhang is the acc
 
 // --- Issue #70: through-hole mount ----------------------------------------
 
-/** No real inner-end channel to avoid -- a stand-in far from the flange that never collides, for tests that aren't exercising the collision-avoidance behaviour itself. */
-const noChannel = { channelRibbon: [] };
-
-describe("through-hole mount layout (issue #70)", () => {
-
-  it("places one hole per corner for square/triangle, at the corner's own widest point", () => {
+describe("through-hole mount layout through design() (issues #70, #129, #239)", () => {
+  it("places one hole per corner for square/triangle", async () => {
     for (const shape of [
       { kind: "sq" as const, n: 4 },
       { kind: "tri" as const, n: 3 },
     ]) {
-      const outline = makeOutline(shape.kind, 100, 15);
-      const boreOutline = makeOutline(shape.kind, 90, 12);
-      const margin = requiredThroughMountMargin(outline, boreOutline, DEFAULT_THROUGH_HOLE_DIAMETER) + 1;
-      const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
-      expect(layout.holes).toHaveLength(shape.n);
-      expect(layout.warning).toBeUndefined();
+      const d = await design(baseSpec({ shape: { kind: shape.kind, cornerRadius: 15 }, coreSize: { locked: true, dimension: "outer", value: 100 }, mount: "through" }));
+      expect(d.mountLayout!.through!.holes).toHaveLength(shape.n);
+      expect(d.warnings.filter((w) => /through-hole/.test(w) && /skipped|too narrow/.test(w))).toEqual([]);
     }
   });
 
-  it("evenly spaces 4 holes on a round flange (falls back to 3 only when 4 doesn't fit)", () => {
-    const outline = makeOutline("round", 100, 50);
-    const boreOutline = makeOutline("round", 90, 45);
-    const margin = requiredThroughMountMargin(outline, boreOutline, DEFAULT_THROUGH_HOLE_DIAMETER) + 1;
-    const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
-    expect(layout.holes).toHaveLength(4);
-    // Evenly spaced: every hole sits at the SAME radius, 90 degrees apart.
-    const radii = layout.holes.map((h) => Math.hypot(h.x, h.y));
+  it("evenly spaces 4 holes on a round flange (falls back to 3 only when 4 doesn't fit)", async () => {
+    const d = await design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 100 }, mount: "through" }));
+    const { holes } = d.mountLayout!.through!;
+    expect(holes).toHaveLength(4);
+    // Evenly spaced: every hole sits at the SAME radius.
+    const radii = holes.map((h) => Math.hypot(h.x, h.y));
     for (const r of radii) expect(r).toBeCloseTo(radii[0], 6);
   });
 
-  it("keeps every hole outside the wall's own outer surface (never undermining it) and inside the flange's own outer edge", () => {
-    const outline = makeOutline("round", 100, 50);
-    const boreOutline = makeOutline("round", 90, 45);
-    const margin = requiredThroughMountMargin(outline, boreOutline, DEFAULT_THROUGH_HOLE_DIAMETER) + 1;
-    const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
-    for (const h of layout.holes) {
+  it("keeps every hole outside the wall's own outer surface (never undermining it) and inside the flange's own outer edge", async () => {
+    const d = await design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 100 }, mount: "through" }));
+    const { holes, holeRadius } = d.mountLayout!.through!;
+    const { outline, margin } = d.flangeSpec;
+    for (const h of holes) {
       const r = Math.hypot(h.x, h.y);
-      expect(r - layout.holeRadius).toBeGreaterThan(outline.apothem); // clear of the wall's own outer surface, not just the bore
-      expect(r + layout.holeRadius).toBeLessThan(outline.apothem + margin); // inside the flange's own outer edge
+      expect(r - holeRadius).toBeGreaterThan(outline.apothem); // clear of the wall's own outer surface, not just the bore
+      expect(r + holeRadius).toBeLessThan(outline.apothem + margin); // inside the flange's own outer edge
     }
   });
 
-  it("requiredThroughMountMargin grows to fit a bigger hole diameter", () => {
-    const outline = makeOutline("round", 40, 20);
-    const boreOutline = makeOutline("round", 34, 17);
-    const small = requiredThroughMountMargin(outline, boreOutline, 3);
-    const big = requiredThroughMountMargin(outline, boreOutline, 8);
-    expect(big).toBeGreaterThan(small);
+  it("grows the flange margin to fit a bigger hole diameter", async () => {
+    const through = (throughHoleDiameter: number) => design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 40 }, mount: "through", throughHoleDiameter }), "draft");
+    const small = await through(3);
+    const big = await through(8);
+    expect(big.flangeSpec.margin).toBeGreaterThan(small.flangeSpec.margin);
   });
 
   it("design() bumps the flange margin (never the thickness -- issue #129, no counterbore) to fit the through-hole mount, and every hole is placed with no warning on a comfortably large core", async () => {
@@ -374,53 +342,36 @@ describe("through-hole mount layout (issue #70)", () => {
     expect(d.flangeSpec.thickness).toBeCloseTo(none.flangeSpec.thickness, 9);
     expect(d.warnings.some((w) => /too narrow/i.test(w))).toBe(false);
     expect(d.warnings.some((w) => /thickness increased/i.test(w))).toBe(false);
-
-    const layout = layoutThroughHoleMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
-    expect(layout.holes).toHaveLength(4);
+    expect(d.mountLayout!.through!.holes).toHaveLength(4);
   });
 
-  it("turns a corner's hole round its corner to clear the inner-end cable channel, and skips (and warns about) it only when that can't (issue #239)", () => {
-    const outline = makeOutline("sq", 100, 15);
-    const boreOutline = makeOutline("sq", 88, 12);
-    const margin = requiredThroughMountMargin(outline, boreOutline, DEFAULT_THROUGH_HOLE_DIAMETER) + 1;
-    // First, the real (unobstructed) layout, to find EXACTLY where corner 0's
-    // own hole naturally sits (shapes.ts's own corner-i-at-standard-angle-
-    // 2*pi*i/n convention -- corner 0 is at standard angle 0).
-    const clear = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
-    expect(clear.holes).toHaveLength(4);
-    const corner0Hole = clear.holes[0];
-    expect(Math.atan2(corner0Hole.y, corner0Hole.x)).toBeCloseTo(0, 9);
-
-    const square = (c: { x: number; y: number }, half: number) => [
-      { x: c.x - half, y: c.y - half },
-      { x: c.x + half, y: c.y - half },
-      { x: c.x + half, y: c.y + half },
-      { x: c.x - half, y: c.y + half },
-    ];
-    // A small channel footprint right there: the hole turns round the corner, clear of it.
-    const small = square(corner0Hole, 1);
-    const nudged = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, { channelRibbon: small });
-    expect(nudged.holes.length).toBe(4);
-    expect(nudged.warning).toBeUndefined();
-    const moved = nudged.holes[0];
-    expect(Math.abs(Math.atan2(moved.y, moved.x))).toBeGreaterThan(0.01);
-    expect(distanceToClosedPolygon(moved.x, moved.y, small)).toBeGreaterThanOrEqual(nudged.holeRadius + THROUGH_MOUNT_EDGE_MARGIN - 1e-9);
-
-    // One covering the whole corner: corner 0 is skipped, the other 3 corners keep their own holes.
-    const big = square(corner0Hole, 20);
-    const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, { channelRibbon: big });
-    expect(layout.holes.length).toBe(3);
-    expect(layout.warning).toMatch(/skipped/i);
-    for (const h of layout.holes) {
-      expect(Math.hypot(h.x - corner0Hole.x, h.y - corner0Hole.y)).toBeGreaterThan(layout.holeRadius);
+  // Issue #239: a corner whose hole would sit on the inner-end cable channel is skipped, with a warning, and every
+  // hole that is placed keeps its screw head's bearing ring clear of the channel. The #239 print spec (sq, 50 mm,
+  // 3 mm cable, locked core) is the first case.
+  it.each([
+    { label: "the #239 print spec", kind: "sq" as const, cornerRadius: 5, size: 50, diameter: 3 },
+    { label: "sq 40 mm, 3 mm", kind: "sq" as const, cornerRadius: 15, size: 40, diameter: 3 },
+    { label: "sq 60 mm, 5 mm", kind: "sq" as const, cornerRadius: 15, size: 60, diameter: 5 },
+    { label: "tri 30 mm, 5 mm", kind: "tri" as const, cornerRadius: 15, size: 30, diameter: 5 },
+  ])("skips a corner too close to the inner-end channel with a warning, and keeps the rest clear of it: $label", async ({ kind, cornerRadius, size, diameter }) => {
+    const corners = kind === "sq" ? 4 : 3;
+    const d = await design(baseSpec({ shape: { kind, cornerRadius }, wire: { length: 2000, diameter, type: "usb" }, topCap: "off", coreSize: { locked: true, dimension: "outer", value: size }, mount: "through" }), "draft");
+    const { holes, holeRadius } = d.mountLayout!.through!;
+    expect(holes.length).toBeLessThan(corners);
+    expect(d.warnings.some((w) => /through-hole\(s\) skipped/.test(w))).toBe(true);
+    const lead = d.innerEndLeadIn;
+    const clearance = holeRadius + THROUGH_MOUNT_EDGE_MARGIN + (diameter + d.spec.tolerance) / 2;
+    for (const h of holes) {
+      for (let i = 0; i < lead.length; i += 3) {
+        if (lead[i + 2] >= 0) continue;
+        expect(Math.hypot(h.x - lead[i], h.y - lead[i + 1])).toBeGreaterThanOrEqual(clearance);
+      }
     }
   });
 
-  it("holeRadius is exactly half the requested hole diameter (issue #129: no counterbore margin added on top)", () => {
-    const outline = makeOutline("round", 100, 50);
-    const boreOutline = makeOutline("round", 90, 45);
-    const layout = layoutThroughHoleMount(outline, boreOutline, 10, 6, noChannel);
-    expect(layout.holeRadius).toBeCloseTo(3, 9);
+  it("holeRadius is exactly half the requested hole diameter (issue #129: no counterbore margin added on top)", async () => {
+    const d = await design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 100 }, mount: "through", throughHoleDiameter: 6 }), "draft");
+    expect(d.mountLayout!.through!.holeRadius).toBeCloseTo(3, 9);
   });
 });
 
@@ -434,15 +385,9 @@ describe("through-hole mount mesh (issue #70): manifold, single-piece, across sh
   describe.each(MOUNT_SPECS)("$label core", ({ shape }) => {
     it("stays a single, valid solid with the through-holes cut (one extra genus per hole -- each is a genuine, separate tunnel through the flange, not just a blind pocket)", async () => {
       const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: 100 }, mount: "through" }));
-      // The REAL inner-end channel (design()'s own layoutInnerEnd call, not
-      // `noChannel`): a corner close to it can legitimately be skipped (see
-      // the "skips ... a corner too close" test above), which changes how
-      // many holes actually get cut -- recomputed here identically to how
-      // design()/manifold.ts derive it, so this stays in sync rather than
-      // assuming every corner always fits.
-      const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-      const innerEndLayout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius);
-      const layout = layoutFlangeThroughHoles(d.flangeSpec, innerEndLayout);
+      // A corner close to the inner-end channel can legitimately be skipped, which changes how many holes actually
+      // get cut: the layout design() returns says how many.
+      const layout = d.mountLayout!.through!;
       expect(layout.holes.length).toBeGreaterThan(0);
 
       const wasm = await Module();
@@ -490,15 +435,17 @@ describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge an
         it(`keyhole mount, rotation=${kr}`, async () => {
           const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: size }, mount: "keyhole", keyholeRotation: kr }));
           if (d.warnings.some((w) => /too narrow/i.test(w))) return; // graceful skip, with a clear warning -- the accepted alternative to unsafe geometry
-          const layout = layoutKeyholeMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, kr);
+          const layout = d.mountLayout!.keyhole!;
           expect(layout.slots.length).toBeGreaterThan(0);
-          const flangeOutline = offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin);
+          const { outline, margin } = d.flangeSpec;
+          const wallScan = coarseOutlineScan(outline, 0);
+          const flangeScan = coarseOutlineScan(outline, margin);
           for (const slot of layout.slots) {
             for (const p of [slot.head, slot.shankEnd]) {
               const r = Math.hypot(p.x, p.y);
               const phi = Math.atan2(p.y, p.x);
-              const wallR = radiusAtAngle(d.flangeSpec.outline, phi);
-              const flangeR = radiusAtAngle(flangeOutline, phi);
+              const wallR = bruteForceRadiusAtAngle(wallScan, outline, 0, phi);
+              const flangeR = bruteForceRadiusAtAngle(flangeScan, outline, margin, phi);
               // The cut's own widest reach at this point is SCREW_MOUNT_HEAD_RADIUS (issue #71's undercut -- see mount.ts).
               expect(r - SCREW_MOUNT_HEAD_DIAMETER / 2 - wallR).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
               expect(flangeR - (r + SCREW_MOUNT_HEAD_DIAMETER / 2)).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
@@ -510,16 +457,16 @@ describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge an
       it("through-hole mount", async () => {
         const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: size }, mount: "through" }));
         if (d.warnings.some((w) => /too narrow/i.test(w))) return;
-        const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-        const innerEndLayout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius);
-        const layout = layoutFlangeThroughHoles(d.flangeSpec, innerEndLayout);
+        const layout = d.mountLayout!.through!;
         expect(layout.holes.length).toBeGreaterThan(0);
-        const flangeOutline = offsetOutline(d.flangeSpec.outline, d.flangeSpec.margin);
+        const { outline, margin } = d.flangeSpec;
+        const wallScan = coarseOutlineScan(outline, 0);
+        const flangeScan = coarseOutlineScan(outline, margin);
         for (const h of layout.holes) {
           const r = Math.hypot(h.x, h.y);
           const phi = Math.atan2(h.y, h.x);
-          const wallR = radiusAtAngle(d.flangeSpec.outline, phi);
-          const flangeR = radiusAtAngle(flangeOutline, phi);
+          const wallR = bruteForceRadiusAtAngle(wallScan, outline, 0, phi);
+          const flangeR = bruteForceRadiusAtAngle(flangeScan, outline, margin, phi);
           expect(r - layout.holeRadius - wallR).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
           expect(flangeR - (r + layout.holeRadius)).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
         }
@@ -530,79 +477,66 @@ describe("hard clearance (issue #71/#70 PR review): >= 2mm to the flange edge an
 
 // --- Issue #92: large flange margins and large corner radii ("big offsets")
 //
-// The clearance checks above route through `radiusAtAngle` on BOTH sides
-// (the layout functions AND the assertions), so a shared bug in that
-// function couldn't have shown up there -- self-consistent, not
-// independent. This describe instead checks every keyhole/through-hole
-// placement against test/support/bruteForceRadius.ts's own oracle (a direct
-// `pointAt` bisection, sharing none of `radiusAtAngle`'s classification
-// logic) -- AND drives the margin itself through mount.ts's own
-// `requiredFlangeMargin`/`requiredThroughMountMargin` (never a manually
-// chosen value), because that bisection is exactly where issue #92's bug
-// bit in practice: it calls `radiusAtAngle` in its own inner loop, so a
-// wrong classification there converges the search to a WRONG (too small)
-// margin instead of merely reporting a wrong number. Confirmed against this
-// exact test, pre-fix: `sq, cornerRadius=15, size=60, keyholeRotation=0`
-// converged `requiredFlangeMargin` to a margin that, measured against the
-// independent oracle, put the wall-side clearance at -7.76mm (the cut
-// actually broke through the wall's own outer surface) -- not merely
-// "less generous than it could be", a genuine violation of the >= 2mm
-// guarantee. Every combination below passes with the fix; this is the
-// regression guard that a future change to `radiusAtAngle` can't quietly
-// reopen it.
-describe("hard clearance holds through requiredFlangeMargin/requiredThroughMountMargin at large sizes and corner radii (issue #92)", () => {
+// The clearance checks above measure against test/support/bruteForceRadius.ts's own oracle (a direct `pointAt`
+// bisection, sharing none of the core's `radiusAtAngle` classification logic). Issue #92's bug bit where the
+// mount's required margin is found by a bisection that calls `radiusAtAngle` in its own inner loop, so a wrong
+// classification there converged the search to a WRONG (too small) margin: pre-fix, `sq, cornerRadius=15,
+// size=60, keyholeRotation=0` put the wall-side clearance at -7.76mm (the cut broke through the wall's own outer
+// surface). Here the margin comes from design() itself. The grid is thinned from sq/tri x 5 sizes x 6 corner
+// fractions to its corners (30 and 400 mm, 0.1 and 0.99 of the largest corner radius) plus that failing case,
+// each through design() (a design takes about as long as the old layout bisections did for the whole grid).
+describe("hard clearance holds at large sizes and corner radii (issue #92)", () => {
   const MIN_CLEARANCE = 2; // mm, same external requirement as the describe above
-  const KINDS = ["sq", "tri"] as const;
-  const SIZES = [30, 60, 100, 200, 400];
-  // Fractions of maxCornerRadius (size/2): spans small, moderate (the
-  // pre-fix failing case, cornerRadius=15 at size=60 is exactly crFrac=0.5),
-  // and near-fully-rounded corners -- the regime where `cornerRadius` grows
-  // large relative to `Rc` (see shapes.ts's `radiusAtAngle` doc comment).
-  const CR_FRACTIONS = [0.1, 0.3, 0.5, 0.7, 0.9, 0.99];
+  const GRID = [
+    { size: 30, crFrac: 0.1 },
+    { size: 30, crFrac: 0.99 },
+    { size: 60, crFrac: 0.5 },
+    { size: 400, crFrac: 0.1 },
+    { size: 400, crFrac: 0.99 },
+  ];
 
-  for (const kind of KINDS) {
-    describe(kind, () => {
-      describe.each(SIZES)("size=%dmm", (size) => {
-        describe.each(CR_FRACTIONS)("cornerRadius=%p * maxCornerRadius", (crFrac) => {
-          const cornerRadius = (size / 2) * crFrac;
-          const outline = makeOutline(kind, size, cornerRadius);
-          const boreOutline = makeOutline(kind, size * 0.7, cornerRadius * 0.7);
+  for (const kind of ["sq", "tri"] as const) {
+    describe.each(GRID)(`${kind}, size=$size mm, cornerRadius=$crFrac * maxCornerRadius`, ({ size, crFrac }) => {
+      const shape = { kind, cornerRadius: (size / 2) * crFrac };
+      const spec = (mount: CoilSpec["mount"], keyholeRotation: 0 | 45 = 0) =>
+        baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: size }, mount, keyholeRotation, print: { bedX: 1000, bedY: 1000, bedZ: 1000 } });
+
+      for (const kr of [0, 45] as const) {
+        it(`keyhole mount, rotation=${kr}`, async () => {
+          const d = await design(spec("keyhole", kr), "draft");
+          const { outline, margin } = d.flangeSpec;
+          const layout = d.mountLayout!.keyhole!;
+          expect(layout.slots.length).toBeGreaterThan(0);
           const wallScan = coarseOutlineScan(outline, 0);
-
-          for (const kr of [0, 45] as const) {
-            it(`keyhole mount, rotation=${kr}`, () => {
-              const margin = requiredFlangeMargin(outline, boreOutline, kr);
-              const layout = layoutKeyholeMount(outline, boreOutline, margin, kr);
-              expect(layout.slots.length).toBeGreaterThan(0); // requiredFlangeMargin's own contract: enough margin to place it
-              const flangeScan = coarseOutlineScan(outline, margin);
-              for (const slot of layout.slots) {
-                for (const p of [slot.head, slot.shankEnd]) {
-                  const r = Math.hypot(p.x, p.y);
-                  const phi = Math.atan2(p.y, p.x);
-                  const wallR = bruteForceRadiusAtAngle(wallScan, outline, 0, phi);
-                  const flangeR = bruteForceRadiusAtAngle(flangeScan, outline, margin, phi);
-                  expect(r - SCREW_MOUNT_HEAD_DIAMETER / 2 - wallR, `wall clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
-                  expect(flangeR - (r + SCREW_MOUNT_HEAD_DIAMETER / 2), `flange-edge clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
-                }
-              }
-            });
-          }
-
-          it("through-hole mount", () => {
-            const margin = requiredThroughMountMargin(outline, boreOutline, DEFAULT_THROUGH_HOLE_DIAMETER);
-            const layout = layoutThroughHoleMount(outline, boreOutline, margin, DEFAULT_THROUGH_HOLE_DIAMETER, noChannel);
-            expect(layout.holes.length).toBeGreaterThan(0);
-            const flangeScan = coarseOutlineScan(outline, margin);
-            for (const h of layout.holes) {
-              const r = Math.hypot(h.x, h.y);
-              const phi = Math.atan2(h.y, h.x);
+          const flangeScan = coarseOutlineScan(outline, margin);
+          for (const slot of layout.slots) {
+            for (const p of [slot.head, slot.shankEnd]) {
+              const r = Math.hypot(p.x, p.y);
+              const phi = Math.atan2(p.y, p.x);
               const wallR = bruteForceRadiusAtAngle(wallScan, outline, 0, phi);
               const flangeR = bruteForceRadiusAtAngle(flangeScan, outline, margin, phi);
-              expect(r - layout.holeRadius - wallR, `wall clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
-              expect(flangeR - (r + layout.holeRadius), `flange-edge clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+              expect(r - SCREW_MOUNT_HEAD_DIAMETER / 2 - wallR, `wall clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+              expect(flangeR - (r + SCREW_MOUNT_HEAD_DIAMETER / 2), `flange-edge clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
             }
-          });
+          }
         });
+      }
+
+      it("through-hole mount", async () => {
+        const d = await design(spec("through"), "draft");
+        const { outline, margin } = d.flangeSpec;
+        const layout = d.mountLayout!.through!;
+        expect(layout.holes.length).toBeGreaterThan(0);
+        const wallScan = coarseOutlineScan(outline, 0);
+        const flangeScan = coarseOutlineScan(outline, margin);
+        for (const h of layout.holes) {
+          const r = Math.hypot(h.x, h.y);
+          const phi = Math.atan2(h.y, h.x);
+          const wallR = bruteForceRadiusAtAngle(wallScan, outline, 0, phi);
+          const flangeR = bruteForceRadiusAtAngle(flangeScan, outline, margin, phi);
+          expect(r - layout.holeRadius - wallR, `wall clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+          expect(flangeR - (r + layout.holeRadius), `flange-edge clearance, phi=${phi.toFixed(4)}`).toBeGreaterThanOrEqual(MIN_CLEARANCE - 1e-6);
+        }
       });
     });
   }

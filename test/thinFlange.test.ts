@@ -1,15 +1,9 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design, parseHash } from "../src/core";
+import { design, FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PEG_HOLE_DEPTH, outlineOffsetAt, parseHash, pointAt, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
-import { FLANGE_PLATE_THICKNESS, INNER_CHANNEL_MIN_SHELF, MIN_FLANGE_THICKNESS_FOR_PLATE, MOUNT_PLATE_PEG_HOLE_DEPTH, SCREW_MOUNT_MIN_SHELF, SCREW_MOUNT_RECESS_DEPTH } from "../src/core/constants";
-import { layoutKeyholeMount, throughHoleCountersink } from "../src/core/mount";
-import { layoutFlangeThroughHoles } from "../src/core/flangePads";
-import { mountPlateLayoutFor, pegHoleRadius } from "../src/core/mountPlate";
-import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
-import { offsetOutline, outlineOffsetAt, pointAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
 import { encodeHashDoc } from "../e2e/hashDoc";
+import { pegHoleRadius } from "./support/mountPlate";
 
 // Issue #122: the bottom flange is a thin plate with its wall-facing face
 // flat, thickened (on pads) only under the wall, the inner-end channel and
@@ -145,7 +139,7 @@ describe("thin bottom flange (issue #122)", () => {
   it("keeps the keyhole's shelf on a pad", async () => {
     const d = await design(parseHash(REPRO).spec, "draft");
     const f = d.flangeSpec;
-    const { slots } = layoutKeyholeMount(f.outline, f.boreOutline, f.margin, f.keyholeRotation);
+    const { slots } = d.mountLayout!.keyhole!;
     expect(slots.length).toBeGreaterThan(0);
     for (const slot of slots) {
       for (const p of [slot.head, slot.shankEnd]) {
@@ -172,10 +166,7 @@ describe("thin bottom flange (issue #122)", () => {
     expect(through.flangeSpec.thickness).toBeCloseTo(none.flangeSpec.thickness, 9);
 
     const f = through.flangeSpec;
-    const wireDiameter = through.spec.wire.diameter;
-    const bendRadius = bendMultiplierOf(through.spec.wire) * wireDiameter;
-    const innerEndLayout = layoutInnerEnd(f.outline, f.margin, wireDiameter, through.spec.tolerance, bendRadius);
-    const layout = layoutFlangeThroughHoles(f, innerEndLayout);
+    const layout = through.mountLayout!.through!;
     expect(layout.holes.length).toBeGreaterThan(0);
 
     for (const hole of layout.holes) {
@@ -193,7 +184,7 @@ describe("thin bottom flange (issue #122)", () => {
       // counterbore was cut from that face). Issue #239: on the winding face, the 90 degree countersink: 0.3 mm out
       // from the hole, 0.3 mm below the plate's top; and past its rim, the plain plate.
       const plate = f.plateThickness ?? f.thickness;
-      const sink = throughHoleCountersink(layout.holeRadius, plate);
+      const sink = hole.countersink;
       expect(sink.depth).toBeGreaterThan(1);
       const inward = Math.atan2(-hole.y, -hole.x);
       for (const angleDeg of [0, 90, 180, 270]) {
@@ -218,9 +209,7 @@ describe("thin bottom flange (issue #122)", () => {
       const skadis = await design(plateSpec, "draft");
       const f = skadis.flangeSpec;
       expect(skadis.parts.some((p) => p.role === "mountPlate")).toBe(true);
-      const d = skadis.spec.wire.diameter;
-      const innerEnd = layoutInnerEnd(f.outline, f.margin, d, skadis.spec.tolerance, bendMultiplierOf(skadis.spec.wire) * d, resolveChannelDepth(d, f.thickness));
-      const layout = mountPlateLayoutFor(offsetOutline(f.outline, f.margin), f.boreOutline, innerEnd);
+      const layout = skadis.mountLayout!.plate!;
       expect(layout.anchors.length).toBeGreaterThan(0);
       for (const a of layout.anchors) {
         // Just beside the peg hole: solid from the wall face up to the inner face.
