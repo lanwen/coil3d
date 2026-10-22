@@ -123,8 +123,10 @@ test("the logo resets the view from the keyboard", async ({ page }) => {
 
 test("the logo is the first tab stop with a focus ring and a pointer cursor", async ({ page }) => {
   await page.goto("/");
-  await page.keyboard.press("Tab");
   const logo = page.getByTestId("reset-view");
+  // The load event fires before React mounts, and a Tab pressed into the empty page goes nowhere.
+  await expect(logo).toBeVisible();
+  await page.keyboard.press("Tab");
   await expect(logo).toBeFocused();
   expect(await logo.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
   expect(await logo.evaluate((el) => getComputedStyle(el).cursor)).toBe("pointer");
