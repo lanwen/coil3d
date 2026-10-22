@@ -1323,6 +1323,18 @@ and is dropped whole when one of its edges is short, however far the third corne
 is (#303, and #320, where the booleans on a pill's mirror plane left one with a
 corner 2.8 mm away).
 
+The SKÅDIS clips are built by hand from rings, not by the booleans, so the weld
+limit has to be met by the profile itself. A clip's fillets are faceted at
+11.25 degrees, and its cap edges are chamfered 0.4 mm by moving the profile in
+with mitred corners. Inside that chamfer an arc of radius r has facets of
+about 0.196 (r - 0.4) mm, so a 0.5 mm arc would leave facets of 0.0196 mm,
+under the weld limit. The smallest convex fillet is therefore 0.55 mm
+(`SKADIS_CLIP_FILLET_MIN_CONVEX`), and the shortest board-face edge between two
+fillets 1.1 mm. A flat under 0.1 mm between two fillets is taken up by one of
+them. The chamfer faces are marked as the rim's chamfers are (`rimTriangles`),
+and the clip's walls as the land, so the viewer inks the one crease where the
+chamfer meets the wall, at the old cap edge, and none where it meets the cap.
+
 The camera is refitted to the projected bounds when the geometry changes.
 The wound cable is drawn as one merged tube per layer, with smooth normals so
 the tube's facets do not draw lines. When the wire's on-screen diameter falls

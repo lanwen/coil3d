@@ -530,6 +530,7 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
         }
         expect(maxZ - minZ, `${c.label}, ${part.name}: lies on its face`).toBeCloseTo(4.4, 3);
         const slanted = new Set<number>();
+        const walls = new Set<number>();
         for (let t = 0; t < indices.length; t += 3) {
           const p = [0, 1, 2].map((k) => [positions[3 * indices[t + k]], positions[3 * indices[t + k] + 1], positions[3 * indices[t + k] + 2]]);
           const u = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
@@ -543,8 +544,10 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
           const chamfer = Math.abs(Math.abs(nz) - Math.SQRT1_2) < 1e-3 && (Math.max(...zs) < minZ + CAP_CHAMFER + 1e-3 || Math.min(...zs) > maxZ - CAP_CHAMFER - 1e-3);
           expect(flat || chamfer || Math.abs(nz) < 1e-4, `${c.label}, ${part.name}: a face that's neither vertical, nor the bed/top, nor a chamfer at a cap (nz=${nz.toFixed(4)})`).toBe(true);
           if (chamfer) slanted.add(t / 3);
+          if (Math.abs(nz) < 1e-4) walls.add(t / 3);
         }
         expect([...slanted].sort((a, b) => a - b), `${c.label}, ${part.name}: the chamfer triangles the viewer skips the creases of`).toEqual([...(part.mesh.rimTriangles?.chamfer ?? [])].sort((a, b) => a - b));
+        expect([...walls].sort((a, b) => a - b), `${c.label}, ${part.name}: the walls the viewer inks the chamfers' lower crease against`).toEqual([...(part.mesh.rimTriangles?.land ?? [])].sort((a, b) => a - b));
       }
     }
   }, 120_000);

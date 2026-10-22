@@ -723,7 +723,7 @@ export async function buildSkadisClip(layout: SkadisClipLayout, clip: RimClip): 
   } finally {
     solid.delete();
   }
-  return { positions, indices, rimTriangles: { chamfer: new Uint32Array(chamferTriangles), land: new Uint32Array(0) } };
+  return { positions, indices, rimTriangles: { chamfer: new Uint32Array(chamferTriangles), land: new Uint32Array(range(2 * m, 4 * m)) } };
 }
 
 function range(from: number, to: number): number[] {
