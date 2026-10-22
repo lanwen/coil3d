@@ -187,13 +187,23 @@ for both geometry backends.
   is rounded to match, concentric with them, so the gap to the clip stays one
   tolerance all round; on the bed side the round is a 45° chamfer of the same
   reach, so the flange still prints without supports. A board-face edge
-  between two fillets is kept at least 1 mm long: where a bottom clip's stem
+  between two fillets is kept at least 1.1 mm long (so no fillet is under
+  0.55 mm and the chamfer below leaves it an arc): where a bottom clip's stem
   would sit closer than that to the bight's back or the jaw's tip, the bight
   or the jaw grows by the difference.
+- **Cap chamfers.** The two cap faces (the bed face and the top face when the
+  clip is printed on its side) are chamfered all round, 0.4 mm at 45°. Each cap
+  outline is the profile moved inward by 0.4 mm with mitred corners, so every
+  chamfer face is a flat trapezoid in both the mesh and the STEP file, built
+  from the same four rings. The 45° faces are no overhang worth a support, and
+  the first layer is clear of elephant's foot.
 - **Frame and seat.** Like the keyhole layout, "up" and "side" follow the
   chosen axis. Every clip is one closed profile in the (up, z) plane, extruded
   4.4 mm along side. "Seated" means each stem rests on the bottom of a nominal
-  5 x 15 mm slot, on its lower corners at the rounded end.
+  5 x 15 mm slot, on its lower corners at the rounded end. The stem's bottom
+  corners are chamfered, so it touches at the chamfer's upper end and sits
+  0.4 mm deeper than a square stem would; the layout and the drawn slots carry
+  that, and the latch's tooth moves with it, so the lift is the same.
 - **The lips and the pads.** The lips lie on the plate, below the winding face.
   There the pad under the wall has flared at 45 degrees to the collar's
   2.5 mm plus the plate's depth below the face, and at the lip's underside (a

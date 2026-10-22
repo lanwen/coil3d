@@ -18,7 +18,6 @@ import {
   SCREW_MOUNT_SLOT_DEPTH,
   SCREW_MOUNT_SLOT_RADIUS,
   SCREW_MOUNT_UNDERCUT_DEPTH,
-  SKADIS_CLIP_WIDTH,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
@@ -48,7 +47,7 @@ import type { FlangePad } from "../flangePads";
 import type { KeyholeSlot, ThroughHole } from "../mount";
 import { mountPlateLayoutFor as layoutFor, pegHoleOutline, pegSweep } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
-import { clipFrame } from "../skadisClips";
+import { clipFrame, clipRings } from "../skadisClips";
 import type { RimClip, SkadisClipLayout } from "../skadisClips";
 import { tclipPieceLevels } from "../skadisTclips";
 import type { SkadisTclipLayout, Tclip, TclipCutter } from "../skadisTclips";
@@ -912,7 +911,7 @@ function clipFramePrismStep(axisDeg: number, profile: Array<[number, number]>, s
 }
 
 function skadisClipSolid(layout: SkadisClipLayout, clip: RimClip): R.Shape3D {
-  return clipFramePrismStep(layout.axisDeg, clip.profile, clip.side - SKADIS_CLIP_WIDTH / 2, SKADIS_CLIP_WIDTH);
+  return ringStripSolid(clipRings(layout, clip), (quad) => [quad]);
 }
 
 function pinHoleCutterSolid(anchor: AnchorPoint, tolerance: number, zFace: number, dir: 1 | -1): R.Shape3D {

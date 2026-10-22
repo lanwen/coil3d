@@ -14,7 +14,6 @@ import {
   SCREW_MOUNT_SLOT_DEPTH,
   SCREW_MOUNT_SLOT_RADIUS,
   SCREW_MOUNT_UNDERCUT_DEPTH,
-  SKADIS_CLIP_WIDTH,
   SNAP_SLOT_WIDTH,
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
@@ -39,7 +38,7 @@ import { weldShortEdges } from "./weld";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
-import { clipFrame } from "./skadisClips";
+import { clipFrame, clipRings } from "./skadisClips";
 import type { RimClip, SkadisClipLayout } from "./skadisClips";
 import { tclipPieceLevels } from "./skadisTclips";
 import type { SkadisTclipLayout, Tclip, TclipCutter } from "./skadisTclips";
@@ -702,18 +701,33 @@ function clipFramePrism(wasm: ManifoldToplevel, track: Track, profile: [number, 
 
 export async function buildSkadisClip(layout: SkadisClipLayout, clip: RimClip): Promise<CoilMesh> {
   const wasm = await getWasm();
-  const trash: { delete(): void }[] = [];
-  const track = <T extends { delete(): void }>(m: T): T => {
-    trash.push(m);
-    return m;
-  };
-  try {
-    const placed = clipFramePrism(wasm, track, clip.profile, clip.side - SKADIS_CLIP_WIDTH / 2, SKADIS_CLIP_WIDTH, layout.axisDeg);
-    if (placed.status() !== "NoError") throw new Error(`SKÅDIS clip is not a valid manifold: ${placed.status()}`);
-    return coilMeshOf(placed.getMesh());
-  } finally {
-    for (const m of trash) m.delete();
+  const rings = clipRings(layout, clip);
+  const m = rings[0].length;
+  const positions = new Float32Array(rings.length * m * 3);
+  rings.forEach((ring, r) => ring.forEach((p, j) => positions.set([p.x, p.y, p.z], (r * m + j) * 3)));
+  const triangles: number[] = [];
+  const at = (r: number, j: number) => r * m + (j % m);
+  for (let r = 0; r + 1 < rings.length; r++) {
+    for (let j = 0; j < m; j++) triangles.push(at(r, j), at(r, j + 1), at(r + 1, j + 1), at(r, j), at(r + 1, j + 1), at(r + 1, j));
   }
+  const chamferTriangles = [...range(0, 2 * m), ...range(4 * m, 6 * m)];
+  const { up } = clipFrame(layout.axisDeg, clip.side);
+  const outline: [number, number][] = rings[0].map((p) => [p.x * up.x + p.y * up.y, p.z]);
+  for (const [a, b, c] of wasm.triangulate([outline])) triangles.push(a, c, b);
+  const last = (rings.length - 1) * m;
+  for (const [a, b, c] of wasm.triangulate([outline])) triangles.push(last + a, last + b, last + c);
+  const indices = new Uint32Array(triangles);
+  const solid = new wasm.Manifold(new wasm.Mesh({ numProp: 3, vertProperties: positions, triVerts: indices }));
+  try {
+    if (solid.status() !== "NoError") throw new Error(`SKÅDIS clip is not a valid manifold: ${solid.status()}`);
+  } finally {
+    solid.delete();
+  }
+  return { positions, indices, rimTriangles: { chamfer: new Uint32Array(chamferTriangles), land: new Uint32Array(0) } };
+}
+
+function range(from: number, to: number): number[] {
+  return Array.from({ length: to - from }, (_, i) => from + i);
 }
 
 export async function buildSkadisTclip(layout: SkadisTclipLayout, clip: Tclip): Promise<CoilMesh> {
