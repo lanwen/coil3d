@@ -1,7 +1,6 @@
 import {
   MOUNT_PLATE_EDGE_MARGIN,
   MOUNT_PLATE_MAX_PER_SIDE,
-  MOUNT_PLATE_MIN_CLIPS,
   MOUNT_PLATE_PEG_CORNER,
   MOUNT_PLATE_PEG_LEAD_IN,
   MOUNT_PLATE_PEG_LENGTH,
@@ -33,7 +32,6 @@ export interface MountPlateLayout {
   clips: ClipInstance[];
   anchors: AnchorPoint[];
   axisDeg?: number;
-  warning?: string;
 }
 
 function clipRotationDeg(axisDeg: number): number {
@@ -42,7 +40,6 @@ function clipRotationDeg(axisDeg: number): number {
 
 const BOUNDARY_SAMPLES = 512;
 const FLAT_SEGMENT_EPSILON = 1e-9;
-const MIN_PLATE_APOTHEM = 1;
 const ANCHOR_BAND_MARGIN = 1;
 const ANCHOR_WALL = 1.5;
 const MARGIN_BISECTIONS = 30;
@@ -149,9 +146,6 @@ export function layoutMountPlate(
   avoid?: InnerEndKeepOut,
 ): MountPlateLayout {
   const outline = offsetOutline(flangeOutline, -MOUNT_PLATE_EDGE_MARGIN);
-  if (outline.apothem <= MIN_PLATE_APOTHEM || outline.cornerRadius < 0) {
-    return { outline, clips: [], anchors: [], warning: "The flange is too small to fit a mount plate at all." };
-  }
 
   const axisDeg = bestAxisDeg(boreOutline, 0);
   const rotationDeg = clipRotationDeg(axisDeg);
@@ -175,14 +169,7 @@ export function layoutMountPlate(
     }
   }
 
-  if (clips.length === 0) {
-    return {
-      outline,
-      clips: [],
-      anchors: [],
-      warning: `The flange is too small to fit at least ${MOUNT_PLATE_MIN_CLIPS} clips on the ${pitch} mm grid (increase the core size, or the mount plate was skipped).`,
-    };
-  }
+  if (clips.length === 0) return { outline, clips: [], anchors: [] };
 
   const pairOn = (turnDeg: typeof SIDE_AXIS_TURN_DEG | typeof UP_AXIS_TURN_DEG): AnchorPoint[] => {
     const bore = edgesAtUp(projectedBoundary(boreOutline, axisDeg + turnDeg), 0);

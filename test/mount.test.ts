@@ -345,20 +345,21 @@ describe("through-hole mount layout through design() (issues #70, #129, #239)", 
     expect(d.mountLayout!.through!.holes).toHaveLength(4);
   });
 
-  // Issue #239: a corner whose hole would sit on the inner-end cable channel is skipped, with a warning, and every
-  // hole that is placed keeps its screw head's bearing ring clear of the channel. The #239 print spec (sq, 50 mm,
-  // 3 mm cable, locked core) is the first case.
+  // Issues #239 and #373: a corner whose hole would sit on the inner-end cable channel keeps its hole by turning it
+  // round the corner (the flange margin grows by a hair, on a locked core too), and every hole keeps its screw
+  // head's bearing ring clear of the channel. The #239 print spec (sq, 50 mm, 3 mm cable, locked core) is the first case.
   it.each([
     { label: "the #239 print spec", kind: "sq" as const, cornerRadius: 5, size: 50, diameter: 3 },
     { label: "sq 40 mm, 3 mm", kind: "sq" as const, cornerRadius: 15, size: 40, diameter: 3 },
     { label: "sq 60 mm, 5 mm", kind: "sq" as const, cornerRadius: 15, size: 60, diameter: 5 },
     { label: "tri 30 mm, 5 mm", kind: "tri" as const, cornerRadius: 15, size: 30, diameter: 5 },
-  ])("skips a corner too close to the inner-end channel with a warning, and keeps the rest clear of it: $label", async ({ kind, cornerRadius, size, diameter }) => {
+  ])("keeps a corner hole near the inner-end channel by turning it, clear of the channel: $label", async ({ kind, cornerRadius, size, diameter }) => {
     const corners = kind === "sq" ? 4 : 3;
     const d = await design(baseSpec({ shape: { kind, cornerRadius }, wire: { length: 2000, diameter, type: "usb" }, topCap: "off", coreSize: { locked: true, dimension: "outer", value: size }, mount: "through" }), "draft");
     const { holes, holeRadius } = d.mountLayout!.through!;
-    expect(holes.length).toBeLessThan(corners);
-    expect(d.warnings.some((w) => /through-hole\(s\) skipped/.test(w))).toBe(true);
+    expect(holes).toHaveLength(corners);
+    expect(d.warnings.some((w) => /through-hole\(s\) skipped/.test(w))).toBe(false);
+    expect(d.warnings.some((w) => /Flange margin increased to [\d.]+ mm to fit the through-hole mount/.test(w))).toBe(true);
     const lead = d.innerEndLeadIn;
     const clearance = holeRadius + THROUGH_MOUNT_EDGE_MARGIN + (diameter + d.spec.tolerance) / 2;
     for (const h of holes) {
@@ -367,6 +368,31 @@ describe("through-hole mount layout through design() (issues #70, #129, #239)", 
         expect(Math.hypot(h.x - lead[i], h.y - lead[i + 1])).toBeGreaterThanOrEqual(clearance);
       }
     }
+  });
+
+  const offCornerDeg = (corners: number, h: { x: number; y: number }) => {
+    const step = 360 / corners;
+    const deg = (Math.atan2(h.y, h.x) * 180) / Math.PI;
+    return Math.abs(deg - Math.round(deg / step) * step);
+  };
+
+  const lockedSquare = (resolution: "draft" | "final") =>
+    design(baseSpec({ shape: { kind: "sq", cornerRadius: 5 }, wire: { length: 2000, diameter: 3.8, type: "usb" }, topCap: "off", coreSize: { locked: true, dimension: "outer", value: 40 }, height: { locked: true, value: 40 }, mount: "through" }), resolution);
+
+  it.each(["draft", "final"] as const)("a locked square core keeps all four corner holes, at least one turned off its corner, with no skip warning, at %s (issue #373)", async (resolution) => {
+    const d = await lockedSquare(resolution);
+    const { holes } = d.mountLayout!.through!;
+    expect(holes).toHaveLength(4);
+    expect(holes.filter((h) => offCornerDeg(4, h) >= 5).length).toBeGreaterThan(0);
+    expect(d.warnings.filter((w) => /skipped near a corner/.test(w))).toEqual([]);
+  });
+
+  it("a free square core turns the same corner hole instead of widening the flange to a bisector fit (issue #239, pinned in #373)", async () => {
+    const free = await design(baseSpec({ shape: { kind: "sq", cornerRadius: 5 }, wire: { length: 2000, diameter: 3.8, type: "usb" }, topCap: "off", coreSize: { locked: false }, height: { locked: true, value: 40 }, mount: "through" }), "draft");
+    const { holes } = free.mountLayout!.through!;
+    expect(holes).toHaveLength(4);
+    expect(holes.filter((h) => offCornerDeg(4, h) >= 5).length).toBeGreaterThan(0);
+    expect(free.warnings.filter((w) => /skipped near a corner/.test(w))).toEqual([]);
   });
 
   it("holeRadius is exactly half the requested hole diameter (issue #129: no counterbore margin added on top)", async () => {

@@ -78,6 +78,10 @@ coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
     shape's radius at an angle is not additive in the margin away from an exact
     corner or side centre. The target gets a hairline (1e-6 mm) so that the
     layout's own later fit check cannot read a few ULPs short.
+  - `layoutKeyholeMount` always places a slot. It must be given a margin of at
+    least the required one; `design()` always does, and no check or warning
+    stands behind that (issue #373: a sweep of free and locked cores never
+    reached one).
   - The layout reports the axis it used (`axisDeg`), so the viewer can show the
     real hung orientation: a triangle hangs level with that axis vertical, not
     local +Y.
@@ -100,9 +104,10 @@ coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
   hole turns up to 20 degrees round its corner to clear the channel pad
   before it is skipped. A round flange rotates the ring of holes to clear the
   inner-end channel pad. A round flange rotates the ring of holes to clear the
-  pads. A square or triangle flange skips a corner hole that is blocked and
-  warns, but only on a locked core size: with a free size the flange margin
-  grows until every hole fits. This mount is permanent.
+  pads. The flange margin grows until every hole fits, on a locked core size
+  too (the lock fixes the core, not the margin): by 0.02 mm at most where a
+  corner hole only needed to turn clear of the channel pad. This mount is
+  permanent.
   A round flange tries four holes, then three. A hole that does not clear the
   channel or a pad moves outward in 0.25 mm steps. The screw head bears on the
   flat top of the plate, so a hole sits 1 mm further from the rim than the
@@ -453,8 +458,10 @@ of roof thick there), aligned on two separately printed pegs, then glued.
   at 45 degrees or steeper, with no supports. The round hole grips the
   octagon's corners, so the peg goes in at any rotation.
 - The plate keeps at most 4 clip positions each side of the centre per axis, so
-  an oversized flange does not grow an absurd count, and it warns when fewer
-  than 2 clip columns fit.
+  an oversized flange does not grow an absurd count. A flange too small for any
+  clip returns no clips and no anchors, which `design()` reads as "grow the
+  margin"; the sized margin (`requiredMountPlateMargin`) already fits, so no
+  warning is ever shown (issue #373).
 
 - The clip mount plate is a separate part: a flat panel of the layout's
   outline with no bore, in the assembly frame at z = -(flange thickness +

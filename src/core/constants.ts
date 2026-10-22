@@ -199,7 +199,6 @@ export const MOUNT_PLATE_EDGE_MARGIN = 3;
 export const OPENGRID_PITCH = 28;
 
 export const MOUNT_PLATE_MAX_PER_SIDE = 4;
-export const MOUNT_PLATE_MIN_CLIPS = 2;
 
 export const SKADIS_SLOT_WIDTH = 5;
 export const SKADIS_SLOT_LENGTH = 15;

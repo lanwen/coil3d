@@ -84,8 +84,6 @@ export interface InnerEndLayout {
   rimExit: XY;
   channelRibbon: XY[];
   leadIn: XYZ[];
-  requiredMargin: number;
-  warning?: string;
 }
 
 export function clipRadius(wireDiameter: number, tolerance: number): number {
@@ -230,7 +228,7 @@ function planLeadIn(
   tolerance: number,
   bendRadius: number,
   channelDepth: number,
-  { forcedDrop, curve = 0, flatZ }: { forcedDrop?: number; curve?: number; flatZ?: number } = {},
+  { curve = 0, flatZ }: { curve?: number; flatZ?: number } = {},
 ): LeadInRoute {
   const d = wireDiameter;
   const groove = grooveShape(d);
@@ -284,14 +282,10 @@ function planLeadIn(
 
   const budget = CABLE_BEND_BUDGET / bendRadius;
   let route = plan(budget);
-  if (forcedDrop !== undefined || !route) {
-    const target = forcedDrop ?? Infinity;
+  if (!route) {
     let lo = budget;
     let hi = budget * 2;
-    const fits = (b: number) => {
-      const r = plan(b);
-      return r !== undefined && r.length <= target;
-    };
+    const fits = (b: number) => plan(b) !== undefined;
     while (!fits(hi) && hi < PLAN_CURVATURE_LIMIT) hi *= 2;
     for (let i = 0; i < PLAN_ITERATIONS; i++) {
       const mid = (lo + hi) / 2;
@@ -383,7 +377,6 @@ export function layoutInnerEnd(
   let route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { flatZ });
   const minClipEnd = route.settledAt + clipLen;
   const limit = clipLimit(margin, R);
-  const requiredMargin = chordOffset(outline, route, minClipEnd) + R + CABLE_CLIP_WALL;
 
   const findClipEnd = (lo: number, hi: number) => {
     for (let i = 0; i < BISECTION_ITERATIONS; i++) {
@@ -393,25 +386,15 @@ export function layoutInnerEnd(
     }
     return lo;
   };
-  let clipEnd: number;
-  let clipFrom: number;
-  let warning: string | undefined;
-  if (chordOffset(outline, route, minClipEnd) <= limit + COINCIDENT) {
-    let hi = minClipEnd * 2 + CLIP_SEARCH_PADDING;
-    while (chordOffset(outline, route, hi) <= limit && hi < SEARCH_RANGE_LIMIT) hi *= 2;
-    clipEnd = findClipEnd(minClipEnd, hi);
-    const halfFlat = sideLength(outline) / 2;
-    if (halfFlat > COINCIDENT && clipEnd > halfFlat) {
-      const bent = bendToRim(outline, wireDiameter, tolerance, bendRadius, channelDepth, limit, halfFlat, clipLen, flatZ);
-      if (bent) ({ route, clipEnd } = bent);
-    }
-    clipFrom = clipEnd - clipLen;
-  } else {
-    clipEnd = findClipEnd(0, minClipEnd);
-    clipFrom = Math.max(clipEnd - clipLen, clipEnd / 2);
-    route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { forcedDrop: clipFrom, flatZ });
-    warning = `The ${margin.toFixed(1)} mm flange margin is too narrow for the inner cable end to reach the groove within its ${bendRadius.toFixed(1)} mm bend radius; it needs at least ${requiredMargin.toFixed(1)} mm.`;
+  let hi = minClipEnd * 2 + CLIP_SEARCH_PADDING;
+  while (chordOffset(outline, route, hi) <= limit && hi < SEARCH_RANGE_LIMIT) hi *= 2;
+  let clipEnd = findClipEnd(minClipEnd, hi);
+  const halfFlat = sideLength(outline) / 2;
+  if (halfFlat > COINCIDENT && clipEnd > halfFlat) {
+    const bent = bendToRim(outline, wireDiameter, tolerance, bendRadius, channelDepth, limit, halfFlat, clipLen, flatZ);
+    if (bent) ({ route, clipEnd } = bent);
   }
+  const clipFrom = clipEnd - clipLen;
 
   const clipEndAt = route.at(clipEnd);
   const outward = outlineOffsetAt(outline, clipEndAt.x, clipEndAt.y);
@@ -478,8 +461,6 @@ export function layoutInnerEnd(
     rimExit: { x: atRim.x, y: atRim.y },
     channelRibbon,
     leadIn,
-    requiredMargin,
-    warning,
   };
 }
 
