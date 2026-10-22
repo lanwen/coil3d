@@ -1,15 +1,13 @@
 import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { design, FACE_TAIL_HANG, outlineOffsetAt } from "../src/core";
 import type { CoilSpec, Design, ShapeSpec, WireSpec } from "../src/core";
-import { FACE_TAIL_HANG } from "../src/core/constants";
-import { outlineOffsetAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
 import { expectWithinBendLimit } from "./support/cableBend";
 import { unsupportedOverhangs } from "./support/overhangs";
 import { rayHits } from "./support/rays";
 import { faceWebs, MIN_WEB, WEB_TOLERANCE } from "./support/faceWeb";
+import { minBendRadius } from "./support/wire";
 
 // Issue #254, part 2: a bare core's cable ends leave the winding onto a flat end face, run in a channel that sweeps in
 // to a hole at the centre, and turn through it. Everything here goes through design(): the drawn cable
@@ -80,7 +78,7 @@ describe.each(SHAPES.flatMap(([shapeName]) => CABLES.map(([cableName]) => [shape
   it("bends the whole cable, winding to both ends, within the cable's bend radius", async () => {
     for (const [layers, topCap] of [[1, "off"], [2, "on"]] as const) {
       const d = await bare(shapeName, cableName, layers, topCap);
-      const mbr = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
+      const mbr = minBendRadius(d.spec.wire);
       expect(d.faceChannels, `${layers} layer(s), cap ${topCap}`).toBeDefined();
       expectWithinBendLimit(d.innerEndLeadIn, mbr, "inner end");
       if (d.faceChannels?.outer) expectWithinBendLimit(d.outerEndLeadOut, mbr, "outer end");
@@ -283,7 +281,7 @@ describe.each(SHAPES.flatMap(([shapeName]) => STACK_CABLES.flatMap(([cableName])
 
   it("bends the whole cable within its bend radius, ramp included", async () => {
     const d = await stacked(shapeName, cableName, layers);
-    const mbr = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
+    const mbr = minBendRadius(d.spec.wire);
     expectWithinBendLimit(d.outerEndLeadOut, mbr, "outer end");
     expectWithinBendLimit(d.cablePath, mbr, "the whole cable");
   });

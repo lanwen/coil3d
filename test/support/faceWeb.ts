@@ -1,17 +1,13 @@
+import { outlineOffsetAt } from "../../src/core";
 import type { Design } from "../../src/core";
-import { faceDipSweep } from "../../src/core/faceChannel";
-import type { FaceEnd } from "../../src/core/faceChannel";
-import { outlineOffsetAt } from "../../src/core/shapes";
-import { grooveShape } from "../../src/core/wall";
 import { rayHits } from "./rays";
+import type { FaceEnd } from "./types";
 
 /** How far outside the hole's rim the channel's floor starts to curve into the hole (the web thins there on purpose). */
 function dipStart(d: Design, end: FaceEnd): number {
   const layout = d.faceChannels!;
-  const dip = faceDipSweep(end, layout);
-  if (!dip) return 0;
-  const ring = dip.rings[0];
-  const at = { x: ring.reduce((sum, q) => sum + q.x, 0) / ring.length, y: ring.reduce((sum, q) => sum + q.y, 0) / ring.length };
+  const at = end === layout.inner ? layout.innerDipStart : layout.outerDipStart;
+  if (!at) return 0;
   return Math.max(0, outlineOffsetAt(layout.holeOutline, at.x, at.y).offset);
 }
 
@@ -25,7 +21,7 @@ function webs(d: Design, path: Float32Array, direction: 1 | -1, end: FaceEnd): n
     const p: [number, number, number] = [path[3 * i], path[3 * i + 1], path[3 * i + 2]];
     if (Math.abs(p[2] - level) > 0.3) continue;
     if (outlineOffsetAt(layout.holeOutline, p[0], p[1]).offset < clear) continue;
-    if (outlineOffsetAt(d.wallSpec.outline, p[0], p[1]).offset > -(grooveShape(d.spec.wire.diameter).depth + 0.5)) continue;
+    if (outlineOffsetAt(d.wallSpec.outline, p[0], p[1]).offset > -(d.wallSpec.grooveDepth + 0.5)) continue;
     const hits = rayHits(d.mesh, p, [0, 0, direction]);
     if (hits.length >= 2) found.push(hits[1] - hits[0]);
   }
