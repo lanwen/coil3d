@@ -8,6 +8,7 @@ import {
   BAYONET_LUG_DROP,
   BAYONET_MIN_LAND,
   BAYONET_MIN_WALL,
+  COLLAR_FLOOR_GAP,
   CAP_COLLAR_WALL,
   CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
@@ -43,7 +44,15 @@ const MIN_SEAT_CLEARANCE = 1;
 const MIN_GROOVE_CLEARANCE = 1;
 const HOLE_OVERSHOOT = 1;
 
-export type JointWall = Pick<WallSpec, "boreOutline" | "height" | "outline" | "grooveDepth">;
+export type JointWall = Pick<WallSpec, "boreOutline" | "height" | "outline" | "grooveDepth"> & { wallHeight?: number };
+
+export function withBoreThrough(wall: JointWall, baseThickness: number): JointWall {
+  return { ...wall, height: wall.height + baseThickness, wallHeight: wall.wallHeight ?? wall.height };
+}
+
+export function collarDepth(joint: JointKind, boreDepth: number): number {
+  return joint === "press" ? Math.min(JOINT_ENGAGE_DEPTH, boreDepth - COLLAR_FLOOR_GAP) : JOINT_ENGAGE_DEPTH;
+}
 
 export interface JointGeometry {
   boreRadius: number;
@@ -196,6 +205,7 @@ function inset(o: ShapeOutline, amount: number): ShapeOutline {
 
 export function snapLayout(wallSpec: JointWall, tolerance: number): SnapLayout | undefined {
   const { boreOutline, height: coreHeight } = wallSpec;
+  const wallRoom = wallSpec.wallHeight ?? coreHeight;
   const { boreRadius, collarOutline, holeOutline } = jointGeometry(boreOutline, "snap", tolerance);
   const depth = SNAP_FINGER_LENGTH;
   if (boreRadius < JOINT_MIN_BORE_RADIUS || coreHeight < depth + MIN_HEIGHT_BELOW_ENGAGE) return undefined;
@@ -246,7 +256,7 @@ export function snapLayout(wallSpec: JointWall, tolerance: number): SnapLayout |
   if (holeOutline) {
     const seatTop = tip - SNAP_SEAT_GAP;
     const seatBottom = seatTop - chamferRunTo(holeOutline);
-    if (seatBottom > -coreHeight + MIN_SEAT_CLEARANCE) {
+    if (seatBottom > -wallRoom + MIN_SEAT_CLEARANCE) {
       rings.push({
         relief: [
           { outline: reliefOutline, z: seatBottom - RING_RUNOUT },

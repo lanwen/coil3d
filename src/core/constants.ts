@@ -6,6 +6,7 @@ export const GROOVE_LIP_ANGLE_DEG = 70;
 export const RIDGE_LAND = 0.3;
 export const MARGIN_BOTTOM = 0.2;
 export const MARGIN_TOP_FACTOR = 0.3;
+export const FLAT_GAP_CLEARANCE = 0.4;
 export const TAPER_TURNS = 0.15;
 export const RUN_IN_TURNS = 0.1;
 
@@ -46,6 +47,7 @@ export const DEFAULT_TOLERANCE = 0.2;
 export const TOLERANCE_MIN = 0.05;
 export const TOLERANCE_MAX = 0.8;
 export const JOINT_ENGAGE_DEPTH = 7;
+export const COLLAR_FLOOR_GAP = 1;
 
 export const CAP_COLLAR_WALL = 2;
 export const JOINT_TRANSITION_HEIGHT = 2;
@@ -354,6 +356,7 @@ export const RAMP_BULGE_SPANS = [0.15, 0.3, 0.6];
 
 export const CROSSING_MIN_LAYERS = 2;
 export const LEAD_OUT_TURNS_MAX = 4;
+export const FLAT_LEAD_OUT_TURNS_MAX = 0.3;
 export const CLIMB_TURNS_STEP = 0.15;
 export const CLIMB_OFFSET_SPAN = 0.2;
 export const CLIMB_BULGE_SPANS = [CLIMB_OFFSET_SPAN, 0.15, 0.1, 0.07, 0.05];

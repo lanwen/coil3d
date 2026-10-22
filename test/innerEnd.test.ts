@@ -252,11 +252,12 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
     }
   });
 
+  // A flat spiral needs only the cable plus 0.4 mm (4.2 mm here), so the lock sits below that to be raised.
   it("a locked height too short for one turn is raised, so layer 1 always winds and the lead-in exists", async () => {
     const d = await design(
       baseSpec({
         wire: { length: 50, diameter: 3.8, type: "usb" },
-        height: { locked: true, value: 5 },
+        height: { locked: true, value: 3 },
         topCap: "on",
       }),
     );

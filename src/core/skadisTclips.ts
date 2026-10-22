@@ -1,5 +1,4 @@
 import {
-  JOINT_ENGAGE_DEPTH,
   SKADIS_SLOT_LENGTH,
   SKADIS_SLOT_WIDTH,
   SKADIS_TCLIP_BAR_LENGTH,
@@ -79,6 +78,7 @@ export interface SkadisTclipInput {
   capHole?: ShapeOutline;
   ring?: { holeOutline: ShapeOutline; funnelFloor: number };
   wallTop: number;
+  engageDepth: number;
   thickness: number;
   tolerance: number;
 }
@@ -297,7 +297,7 @@ export function layoutSkadisTclips(input: SkadisTclipInput): SkadisTclipLayout {
 
   const zf = -SKADIS_TCLIP_RECESS_DEPTH;
   const capOn = !!input.capHole;
-  const finCeiling = input.ring ? input.ring.funnelFloor : wallTop - (capOn ? JOINT_ENGAGE_DEPTH : 0);
+  const finCeiling = input.ring ? input.ring.funnelFloor : wallTop - (capOn ? input.engageDepth : 0);
   const finRoom = finCeiling - SKADIS_TCLIP_FIN_TOP_GAP;
   const finTop = Math.max(zf + SKADIS_TCLIP_HANDLE_THICKNESS, Math.min(SKADIS_TCLIP_FIN_HEIGHT, finRoom));
   if (!chosen) {

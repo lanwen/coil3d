@@ -38,6 +38,14 @@ export function resolveBoreOutline(outline: ShapeOutline, wireDiameter: number):
   return { boreOutline: { ...outline, apothem: boreApothem, cornerRadius: boreCornerRadius }, reduced };
 }
 
+export function channelOnlyThicknessOf(wireDiameter: number): number {
+  return Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
+}
+
+export function minBaseThickness(spec: Pick<CoilSpec, "base" | "mount" | "wire">): number {
+  return baseEnabled(spec) ? channelOnlyThicknessOf(spec.wire.diameter) : 0;
+}
+
 export interface FlangeSizing {
   margin: number;
   thickness: number;
@@ -56,7 +64,7 @@ export function resolveFlangeSizing(
   flangeSizeEnvelope: number,
   wireDiameter: number,
   mount: MountKind,
-  leadIn: { tolerance: number; bendRadius: number; heavyCable?: boolean; woundLayers?: number; topCap?: boolean },
+  leadIn: { tolerance: number; bendRadius: number; heavyCable?: boolean; woundLayers?: number; topCap?: boolean; flatZ?: number },
   keyholeRotation = 0,
   throughHoleDiameter = DEFAULT_THROUGH_HOLE_DIAMETER,
   baseOn = true,
@@ -65,9 +73,9 @@ export function resolveFlangeSizing(
   const wantsThrough = mount === "through";
   const wantsPlate = mount === "opengrid";
 
-  const envelopeOffset = woundReachOffset(flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0), wireDiameter, leadIn.woundLayers ?? 1, leadIn.topCap ?? false);
+  const envelopeOffset = woundReachOffset(flangeSizeEnvelope / 2 - FLANGE_MARGIN - circumscribedRadius(outline, 0), wireDiameter, leadIn.woundLayers ?? 1, leadIn.topCap ?? false, leadIn.flatZ !== undefined);
   const baseMargin = Math.max(FLANGE_MARGIN, envelopeOffset + FLANGE_MARGIN);
-  const channelOnlyThickness = Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
+  const channelOnlyThickness = channelOnlyThicknessOf(wireDiameter);
   const mountMargin = mount === "skadis"
     ? Math.max(baseMargin, requiredSkadisMargin(outline, boreOutline, envelopeOffset, leadIn.heavyCable ?? false, channelOnlyThickness, Math.min(FLANGE_PLATE_THICKNESS, channelOnlyThickness), leadIn.tolerance))
     : wantsKeyhole
@@ -86,7 +94,7 @@ export function resolveFlangeSizing(
         ? Math.max(channelOnlyThickness, MIN_FLANGE_THICKNESS_FOR_TCLIP)
         : channelOnlyThickness;
 
-  const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness));
+  const innerEndMargin = requiredInnerEndMargin(outline, wireDiameter, leadIn.tolerance, leadIn.bendRadius, resolveChannelDepth(wireDiameter, thickness), leadIn.flatZ);
   const rimSlotMargin = requiredRimSlotMargin(wireDiameter, leadIn.tolerance);
   if (!baseOn) {
     const margin = leadIn.topCap ? Math.max(baseMargin, rimSlotMargin) : 0;

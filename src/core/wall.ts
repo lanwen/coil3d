@@ -96,6 +96,7 @@ export interface WallSpec {
   minCornerSegments: number;
   rings?: WallRings;
   faceLeads?: FaceLeads;
+  flat?: boolean;
 }
 
 const BEYOND_GROOVE = 1e9;
@@ -125,7 +126,24 @@ export function grooveCrest(groove: Pick<GrooveShape, "radius" | "depth">): numb
   return grooveReach(groove.radius, groove.depth).up;
 }
 
+function createFlatWallProfile(spec: WallSpec): WallProfile {
+  const { outline, pitch, grooveRadius, grooveDepth, marginBottom } = spec;
+  return {
+    pitch,
+    zStart: grooveStartHeight({ radius: grooveRadius, depth: grooveDepth }, marginBottom),
+    offset: () => -grooveDepth,
+    point: (t, z) => {
+      const p = pointAt(outline, t, -grooveDepth);
+      return [p.x, p.y, z];
+    },
+    phaseFraction: (t) => arcLengthFractionAt(outline, -grooveDepth, t),
+    rowOffsets: () => [],
+    fading: () => false,
+  };
+}
+
 export function createWallProfile(spec: WallSpec): WallProfile {
+  if (spec.flat) return createFlatWallProfile(spec);
   const { outline, pitch, grooveRadius: rho, grooveDepth: g, marginBottom, taperTurns: tau, runInTurns: tauIn, turns } = spec;
 
   const c = rho - g;
@@ -255,6 +273,7 @@ export function createWallProfile(spec: WallSpec): WallProfile {
 }
 
 export function grooveFadeTriangles(mesh: CoilMesh, spec: WallSpec): Uint32Array | undefined {
+  if (spec.flat) return undefined;
   const profile = createWallProfile(spec);
   const { outline, height } = spec;
   const N = OUTLINE_ANGLE_SAMPLES;

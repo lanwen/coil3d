@@ -136,6 +136,7 @@ export interface Solution {
   capacityRange: [min: number, max: number];
   capacityMinWinding: "nested" | "stacked";
   windingQualityUsed: number;
+  flat: boolean;
   envelopeDiameter: number;
   flangeSize: number;
   overallHeight?: number;

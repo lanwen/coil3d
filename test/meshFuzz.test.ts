@@ -5,6 +5,7 @@ import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, JointKind, MountKind, Part, Resolution, ShapeSpec } from "../src/core";
 import { collarSegments } from "../src/core/manifold";
 import { WELD_EPSILON, weldShortEdges } from "../src/core/weld";
+import { minSelfClearance, SELF_CLEARANCE_FRACTION, woundWithLeadOut } from "./support/cableClearance";
 import { yieldToEventLoop } from "./support/yieldToEventLoop";
 
 // Issue #208: the mesh clean-up passes (weld.ts, flatFaces.ts) must keep every
@@ -172,6 +173,14 @@ function unwoundLayers(d: Design): string[] {
   const out = empty.length > 0 ? [`layers ${empty.join(", ")} hold no turn`] : [];
   if (d.wirePaths.length !== d.solution.layers) out.push(`${d.wirePaths.length} wire paths for ${d.solution.layers} layers`);
   return out;
+}
+
+/** Issue #376: an ok flat spiral keeps its layers and its outer end a cable's width apart (at the final resolution, whose samples hug the curve). */
+function crowdedFlatCable(d: Design): string[] {
+  if (d.resolution !== "final" || !d.solution.flat || d.solution.diagnosis.status !== "ok") return [];
+  const dia = d.spec.wire.diameter;
+  const { min, at } = minSelfClearance(woundWithLeadOut(d), dia);
+  return min < SELF_CLEARANCE_FRACTION * dia ? [`two passes of the cable come ${min.toFixed(2)} mm apart near (${at.map((v) => v.toFixed(1)).join(", ")}) for a ${dia} mm cable`] : [];
 }
 
 /** What is wrong with a part (issues #208, #219): not one solid, edges under the weld's limit, or zero-thickness folds. */
@@ -439,6 +448,15 @@ const REPRODUCTIONS_227: Reproduction[] = [
     resolution: "final",
     segments: { round: 96, other: 96 },
   },
+  {
+    // Counting the bore through the base as joint room let a snap seat ring drop below the wall's foot, where its top
+    // edge sat 0.01 mm from a T-clip feature at z = 1 (fuzz case 2918, height 13.31, snap, SKÅDIS T-clips). The ring
+    // now stays within the wall, as before.
+    name: "a snap seat ring beside the T-clips on a core as tall as the finger (fuzz case 2918)",
+    spec: { wire: { length: 4736, diameter: 2.53, type: "flex" }, windingQuality: 0.72, coreSize: { locked: true, dimension: "inner", value: 65.66 }, height: { locked: true, value: 13.31 }, layers: { locked: false }, objective: "aspectRatio", joint: "snap", tolerance: 0.11, mount: "skadis-tclip", plateJoint: "snap", keyholeRotation: 0, throughHoleDiameter: 5.21, label: "HDMI", base: "on" },
+    resolution: "draft",
+    segments: { round: 192, other: 144 },
+  },
 ];
 
 describe("mesh clean-up reproductions (issue #227): every part is one solid, with no short edges or folds", () => {
@@ -451,6 +469,33 @@ describe("mesh clean-up reproductions (issue #227): every part is one solid, wit
     } finally {
       Object.assign(collarSegments, shipped);
     }
+  });
+});
+
+// Issue #376: a core as tall as the cable plus 0.4 mm winds a flat spiral on a plain wall, and the cap's collar hangs
+// into the base's bore. One case per shape at the thinnest and the thickest cable.
+const FLAT_CLEARANCE = 0.4;
+const FLAT_GAP_CASES: Array<{ name: string; spec: Partial<CoilSpec> }> = (["round", "sq", "tri"] as const).flatMap((kind) =>
+  [2, 8].map((diameter) => ({
+    name: `${kind}, ${diameter} mm cable`,
+    spec: {
+      base: "on" as const,
+      wire: { length: 600, diameter, type: "usb" as const },
+      shape: kind === "round" ? { kind } : { kind, cornerRadius: 10 },
+      coreSize: { locked: true as const, dimension: "outer" as const, value: 80 },
+      height: { locked: true as const, value: diameter + FLAT_CLEARANCE },
+      layers: { locked: true as const, value: 2 },
+      joint: kind === "round" ? ("bayonet" as const) : ("press" as const),
+    },
+  })),
+);
+
+describe("flat-spiral cores (issue #376): every part is one solid, with no short edges or folds", () => {
+  it.each(FLAT_GAP_CASES)("$name", async ({ spec: overrides }) => {
+    const d = await design(spec(overrides));
+    expect(d.solution.flat).toBe(true);
+    expect(d.parts.flatMap(problems)).toEqual([]);
+    expect(crowdedFlatCable(d)).toEqual([]);
   });
 });
 
@@ -551,6 +596,7 @@ describe("seeded fuzz: every part is one solid, with no short edges or folds, af
         // Issue #219: every part, the mount plate and the SKÅDIS clips too.
         for (const part of d.parts) bad.push(...problems(part).map((p) => `${what}: ${p}`));
         bad.push(...unwoundLayers(d).map((p) => `${what}: ${p}`));
+        bad.push(...crowdedFlatCable(d).map((p) => `${what}: ${p}`));
         if (COUNT > DEFAULT_CASES && (i - FROM + 1) % 250 === 0) console.log(`fuzz: ${i - FROM + 1} of ${COUNT} cases, ${bad.length} bad, ${Math.round((Date.now() - started) / 1000)} s`);
       }
     } finally {

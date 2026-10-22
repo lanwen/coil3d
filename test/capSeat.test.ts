@@ -56,6 +56,18 @@ for (const shape of SHAPES) {
   });
 }
 
+// Issue #376: a flat spiral's cap sits at the cable's diameter plus 0.4 mm, so the collar hangs into the base's bore.
+for (const joint of JOINTS) {
+  CASES.push({
+    name: `round, ${joint}, flat 4.2 mm`,
+    spec: spec({ joint, coreSize: { locked: true, dimension: "outer", value: 60 }, height: { locked: true, value: 4.2 }, layers: { locked: true, value: 1 }, wire: { length: 400, diameter: 3.8, type: "usb" } }),
+  });
+}
+CASES.push({
+  name: "round, press, flat 2.4 mm (d = 2)",
+  spec: spec({ coreSize: { locked: true, dimension: "outer", value: 40 }, height: { locked: true, value: 2.4 }, layers: { locked: true, value: 1 }, wire: { length: 200, diameter: 2, type: "usb" } }),
+});
+
 type Wasm = Awaited<ReturnType<typeof Module>>;
 let wasmPromise: Promise<Wasm> | undefined;
 const getWasm = () =>

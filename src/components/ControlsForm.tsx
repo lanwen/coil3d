@@ -16,7 +16,7 @@ import {
   TOLERANCE_MIN,
   WIRE_TYPE_PRESETS,
 } from "../core";
-import { FieldTop, LockRangeField, RangeField, Section, Switch, ceilMm, cmToMm, mmToCm, roundMm } from "./fields";
+import { FieldTop, LockRangeField, RangeField, Section, Switch, ceilTenthMm, cmToMm, mmToCm, roundMm } from "./fields";
 import { HINTS } from "./hints";
 import { LabelField } from "./LabelField";
 import { ShapePicker } from "./ShapePicker";
@@ -134,7 +134,7 @@ export function ControlsForm({
 
   const outerSizeMin = roundMm(Math.max(CORE_SIZE_FLOOR_MM, solution?.minOuterSizeForShape ?? CORE_SIZE_FLOOR_MM));
   const coreSizeRaised = spec.coreSize.locked && spec.coreSize.value < outerSizeMin - 0.05;
-  const heightMin = ceilMm(Math.max(1, solution?.minHeight ?? 1));
+  const heightMin = ceilTenthMm(Math.max(1, solution?.minHeight ?? 1));
   const heightRaised = spec.height.locked && spec.height.value < heightMin - 0.05;
 
   return (

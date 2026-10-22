@@ -1,15 +1,17 @@
-import { computeCapacity, envelopeDiameter, turnsForLayer } from "./capacity";
+import { computeCapacity, envelopeDiameter, flatCableZ, flatGap, turnsForLayer } from "./capacity";
 import type { CapacityResult } from "./capacity";
 import { crossingActive, crossingReserve, faceEndsLength, minFaceChannelHeight, minFaceChannelOuterSize, nominalOuterStart, planFaceChannels } from "./faceChannel";
-import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing } from "./flange";
-import { jointGeometry, resolveCapJoint } from "./joints";
+import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, minBaseThickness, resolveFlangeSizing } from "./flange";
+import { jointGeometry, resolveCapJoint, withBoreThrough } from "./joints";
 import { isHeavyCable } from "./skadisClips";
 import { layoutSkadisTclips } from "./skadisTclips";
 import {
   CENTRE_CONNECTOR_PASSAGE,
   DEFAULT_PILL_RADIUS,
   FLANGE_MARGIN,
+  FLAT_GAP_CLEARANCE,
   HEIGHT_HI,
+  JOINT_ENGAGE_DEPTH,
   LAYERS_HI,
   MAX_WIRE_LENGTH,
   MIN_FLANGE_THICKNESS_FOR_TCLIP,
@@ -78,6 +80,8 @@ function usefulMaxCornerRadius(kind: Extract<ShapeSpec["kind"], "sq" | "tri">, o
 const CAPACITY_EPS = 1e-6;
 const AT_FLOOR_TOLERANCE = 1e-6;
 const FLOOR_CEILING_TOLERANCE = 1e-9;
+const FLAT_FIT_EPS = 1e-9;
+const FLAT_NOTE_MIN_PLAY = 0.05;
 const ENVELOPE_BED_WARNING_MM = 500;
 const BISECTION_ITERATIONS = 60;
 const FIT_SEARCH_ITERATIONS = 40;
@@ -136,6 +140,10 @@ function lowestHeightWithTurn(height: number, wireDiameter: number, reserve: num
   return lowest;
 }
 
+function flatSpiralPossible(spec: CoilSpec): boolean {
+  return baseEnabled(spec) && resolveTopCap(spec);
+}
+
 function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
   const wire = spec.wire;
   const groove = grooveShape(wire.diameter);
@@ -149,6 +157,7 @@ function capacityOf(spec: CoilSpec, quality: number, g: Resolved) {
     grooveDepth: groove.depth,
     pitch: groove.pitch,
     quality,
+    flatFits: flatSpiralPossible(spec) && g.height >= flatGap(wire.diameter) - FLAT_FIT_EPS,
   });
 }
 
@@ -225,7 +234,7 @@ function smallestThat(fits: (value: number) => boolean, lo: number, hi: number):
 function coreAt(spec: CoilSpec, outerSize: number, height: number) {
   const outline = resolveOutline(spec.shape, outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
   const boreOutline = resolveBoreOutline(outline, spec.wire.diameter).boreOutline;
-  return { outline, boreOutline, height, grooveDepth: grooveShape(spec.wire.diameter).depth };
+  return withBoreThrough({ outline, boreOutline, height, grooveDepth: grooveShape(spec.wire.diameter).depth }, minBaseThickness(spec));
 }
 
 function capJointFits(spec: CoilSpec, outerSize: number, height: number): boolean {
@@ -250,6 +259,7 @@ function tclipsFit(spec: CoilSpec, outerSize: number): boolean {
       wallTop: HEIGHT_HI,
       thickness: MIN_FLANGE_THICKNESS_FOR_TCLIP,
       tolerance: spec.tolerance,
+      engageDepth: JOINT_ENGAGE_DEPTH,
     }).clips.length > 0
   );
 }
@@ -286,7 +296,7 @@ function realExtentsFor(spec: CoilSpec, g: Resolved, outline: ShapeOutline, cap:
     flangeSizeEnvelope,
     spec.wire.diameter,
     baseOn ? spec.mount : "none",
-    { tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * spec.wire.diameter, heavyCable: isHeavyCable(spec.wire.diameter, spec.wire.length), woundLayers: cap.layerResults.filter((r) => r.turns > 0).length, topCap: topCapEnabled },
+    { tolerance: spec.tolerance, bendRadius: bendMultiplierOf(spec.wire) * spec.wire.diameter, heavyCable: isHeavyCable(spec.wire.diameter, spec.wire.length), woundLayers: cap.layerResults.filter((r) => r.turns > 0).length, topCap: topCapEnabled, flatZ: cap.flat ? flatCableZ(spec.wire.diameter) : undefined },
     spec.keyholeRotation,
     spec.throughHoleDiameter,
     baseOn,
@@ -407,6 +417,7 @@ function finishSolution(
     capacityRange: [Math.min(lengthLo, lengthHi), Math.max(lengthLo, lengthHi)],
     capacityMinWinding,
     windingQualityUsed: cap.windingQualityUsed,
+    flat: cap.flat,
     envelopeDiameter: env,
     flangeSize,
     topCapEnabled,
@@ -559,13 +570,14 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   const sizeFree = !spec.coreSize.locked;
   const heightFree = !spec.height.locked;
   const fit = fitFloors(spec);
+  const flatSpiral = flatSpiralPossible(spec);
   const jointHeightFloor = !spec.coreSize.locked || toOuterSize(spec.coreSize, spec.wire.diameter) >= fit.jointSize ? fit.height : 0;
   const pillLengthFloor = spec.shape.kind === "pill" ? Math.min(SIZE_HI, PILL_LENGTH_TO_RADIUS * spec.shape.cornerRadius) : 0;
   const sizeLo = Math.max(SIZE_LO_FLOOR, minOuterSizeForShapeVal, sizeFree ? Math.max(fit.size, pillLengthFloor) : 0);
   const sizeHi = SIZE_HI;
   const lockedReserve = spec.layers.locked ? reserveFor(spec, spec.layers.value) : 0;
   const oneTurnHeight = groove.pitch - windingSpan(0, spec.wire.diameter) + lockedReserve;
-  const baseHeightLo = lowestHeightWithTurn(Math.max(oneTurnHeight, centre.height), spec.wire.diameter, lockedReserve);
+  const baseHeightLo = flatSpiral ? flatGap(spec.wire.diameter) : lowestHeightWithTurn(Math.max(oneTurnHeight, centre.height), spec.wire.diameter, lockedReserve);
   const heightLo = Math.max(baseHeightLo, heightFree ? jointHeightFloor : 0);
   const heightHi = HEIGHT_HI;
   const layersLo = 1;
@@ -592,7 +604,9 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   let lockedHeight = spec.height.locked ? spec.height.value : undefined;
   if (lockedHeight !== undefined && lockedHeight < baseHeightLo - FLOOR_CEILING_TOLERANCE) {
     const why =
-      centre.height >= oneTurnHeight
+      flatSpiral
+        ? `the cable needs its ${mm(spec.wire.diameter)} plus ${FLAT_GAP_CLEARANCE} mm clearance between the base and the cap`
+        : centre.height >= oneTurnHeight
         ? `the end rings at the bottom and top of a bare core take the cable's ends, and the inner end bends up to the top at its ${mbr.toFixed(1)} mm bend radius`
         : `the core needs room for at least one turn of this ${mm(spec.wire.diameter)} cable`;
     note(`Height raised from ${lockedHeight.toFixed(1)} mm to ${baseHeightLo.toFixed(1)} mm: ${why}.`);
@@ -788,6 +802,9 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
 
   const finished = finishSolution(spec, resolved, diagnosis, objectiveUsed, minOuterSizeForBend, minOuterSizeForShapeVal, baseHeightLo, endRadiusFloor);
   finished.solution.alternates = alternates;
+  if (finished.solution.flat && spec.height.locked && resolved.height > flatGap(spec.wire.diameter) + FLAT_NOTE_MIN_PLAY) {
+    note(`This core winds one turn per layer; at ${Math.ceil(flatGap(spec.wire.diameter) * 10 - 1e-9) / 10} mm the cap holds the cable without play.`);
+  }
   const overshoots = finished.solution.lengthDeltaPct > OVERSHOOT_NOTE_PCT;
   if (overshoots) {
     note(overshootNote(spec, resolved, { size: !sizeFree, height: !heightFree, layers: !layersFree }, sizeLo, heightLo, finished.solution.lengthDeltaPct, fit));

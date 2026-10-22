@@ -9,9 +9,10 @@ export function roundMm(value: number): number {
   const step = mmStep(value);
   return Math.round(value / step) * step;
 }
-export function ceilMm(value: number): number {
-  const step = mmStep(value);
-  return Math.ceil(value / step - 1e-9) * step;
+
+const TENTHS_PER_MM = 10;
+export function ceilTenthMm(value: number): number {
+  return Math.ceil(value * TENTHS_PER_MM - 1e-9) / TENTHS_PER_MM;
 }
 
 export const MM_PER_CM = 10;

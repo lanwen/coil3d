@@ -1,4 +1,5 @@
-import { circumscribedRadius, offsetPerimeter } from "./shapes";
+import { FLAT_GAP_CLEARANCE } from "./constants";
+import { circumscribedRadius, offsetPerimeter, spiralTurnLength } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import type { LayerResult } from "./types";
 
@@ -22,6 +23,14 @@ export function radialPitch(d: number, quality: number): number {
 
 export const MIN_TURNS_TO_NEST = 2;
 
+export function flatGap(wireDiameter: number): number {
+  return wireDiameter + FLAT_GAP_CLEARANCE;
+}
+
+export function flatCableZ(wireDiameter: number): number {
+  return flatGap(wireDiameter) / 2;
+}
+
 export function effectiveQuality(usableHeight: number, pitch: number, quality: number): number {
   return Math.floor(usableHeight / pitch) < MIN_TURNS_TO_NEST ? 0 : clamp01(quality);
 }
@@ -34,6 +43,7 @@ export interface GeometryInputs {
   grooveDepth: number;
   pitch: number;
   quality: number;
+  flatFits: boolean;
 }
 
 export interface CapacityResult {
@@ -41,6 +51,7 @@ export interface CapacityResult {
   totalWoundLength: number;
   outermostOffset: number;
   windingQualityUsed: number;
+  flat: boolean;
 }
 
 export function turnsForLayer(height: number, pitch: number, layer: number, quality: number): number {
@@ -51,6 +62,7 @@ export function turnsForLayer(height: number, pitch: number, layer: number, qual
 export function computeCapacity(g: GeometryInputs): CapacityResult {
   const { pitch } = g;
   const quality = effectiveQuality(g.usableHeight, pitch, g.quality);
+  const flat = g.flatFits && Math.floor(g.usableHeight / pitch) < MIN_TURNS_TO_NEST;
   const h = radialPitch(g.wireDiameter, quality);
   const o1 = g.wireDiameter / 2 - g.grooveDepth;
 
@@ -61,14 +73,14 @@ export function computeCapacity(g: GeometryInputs): CapacityResult {
   for (let k = 1; k <= g.layers; k++) {
     const offset = o1 + (k - 1) * h;
     const perimeter = offsetPerimeter(g.outline, offset);
-    const turns = turnsForLayer(g.usableHeight, pitch, k, quality);
-    const length = turns * Math.sqrt(perimeter * perimeter + pitch * pitch);
+    const turns = flat ? 1 : turnsForLayer(g.usableHeight, pitch, k, quality);
+    const length = flat ? spiralTurnLength(g.outline, offset, h) : turns * Math.sqrt(perimeter * perimeter + pitch * pitch);
     layerResults.push({ layer: k, turns, offset, perimeter, length });
     totalWoundLength += length;
     if (turns > 0) lastOffset = offset;
   }
 
-  return { layerResults, totalWoundLength, outermostOffset: lastOffset, windingQualityUsed: quality };
+  return { layerResults, totalWoundLength, outermostOffset: lastOffset, windingQualityUsed: quality, flat };
 }
 
 export function envelopeDiameter(outline: ShapeOutline, lastLayerOffset: number, wireDiameter: number): number {
