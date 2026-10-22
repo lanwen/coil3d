@@ -8,43 +8,25 @@
 // so `z = zStart + pitch*t` ran locally steeper there, bunching consecutive
 // rings together (measured: ~6.5% local pitch distortion for a rounded
 // square/triangle's default corner radius and groove depth -- round is
-// untouched, see shapes.ts's `arcLengthFractionAt`).
+// untouched).
 //
-// `arcLengthFractionAt`'s own correctness is checked here against an
-// independent brute-force arc-length integrator (same oracle style as
-// test/shapes-radius-at-angle.test.ts's `bruteForceRadius.ts`, never
-// reusing `arcLengthFractionAt`'s own formula), and the ticket's actual
-// acceptance criterion -- "the groove pitch is constant along the arc
-// length within 2%" -- is checked end-to-end through the public `design()`
-// interface's own `wallSpec`, for round/sq/tri.
+// The ticket's acceptance criterion -- "the groove pitch is constant along
+// the arc length within 2%" -- is checked on the wall's own helix
+// (`createWallProfile(d.wallSpec)`, the one listed exception in
+// test/seams.test.ts: the helix is internal to the core, and the mesh is too
+// coarse -- tens of microns of drift against facets of several tenths of a
+// millimetre -- to measure it through design()), against a brute-force
+// arc-length integrator over `pointAt`. The drawn cable that lies in the
+// groove is checked through design() alone.
 
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
-import type { CoilSpec, ShapeKind } from "../src/core";
+import { design, pointAt } from "../src/core";
+import type { CoilSpec, Design, ShapeKind } from "../src/core";
+import { createWallProfile } from "../src/core/wall";
+import type { WallSpec } from "./support/types";
 
 function shapeSpec(kind: ShapeKind): CoilSpec["shape"] {
   return kind === "round" ? { kind } : { kind, cornerRadius: 15 };
-}
-import { arcLengthFractionAt, pointAt } from "../src/core/shapes";
-import type { ShapeOutline } from "../src/core/shapes";
-import { createWallProfile } from "../src/core/wall";
-import type { WallSpec } from "../src/core/wall";
-
-/** Independent oracle: true arc length from t=0 to t (at the given offset),
- * by brute-force polyline integration -- never calls `arcLengthFractionAt`. */
-function bruteForceArcLengthFraction(o: ShapeOutline, offset: number, t: number, samples = 20_000): number {
-  let s = 0;
-  let total = 0;
-  let prev = pointAt(o, 0, offset);
-  for (let i = 1; i <= samples; i++) {
-    const ti = i / samples;
-    const p = pointAt(o, ti, offset);
-    const seg = Math.hypot(p.x - prev.x, p.y - prev.y);
-    total += seg;
-    if (ti <= t) s += seg;
-    prev = p;
-  }
-  return s / total;
 }
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
@@ -112,39 +94,24 @@ function maxLocalPitchDistortion(spec: WallSpec): number {
   return maxDev;
 }
 
-describe("arcLengthFractionAt matches a brute-force arc-length integrator (issue #103)", () => {
-  const round: ShapeOutline = { n: 4, apothem: 20, cornerRadius: 20 };
-  const sq: ShapeOutline = { n: 4, apothem: 20, cornerRadius: 8 };
-  const tri: ShapeOutline = { n: 3, apothem: 20, cornerRadius: 8 };
-
-  const cases: [string, ShapeOutline][] = [
-    ["round", round],
-    ["sq", sq],
-    ["tri", tri],
-  ];
-  const OFFSETS = [0, -0.5, -2, 3];
-  const TS = [0, 0.05, 0.13, 0.25, 0.37, 0.5, 0.61, 0.75, 0.9, 0.99];
-
-  for (const [name, outline] of cases) {
-    for (const offset of OFFSETS) {
-      it(`${name} at offset=${offset}mm matches the brute-force oracle within 0.2%`, () => {
-        for (const t of TS) {
-          const expected = bruteForceArcLengthFraction(outline, offset, t);
-          const actual = arcLengthFractionAt(outline, offset, t);
-          expect(Math.abs(actual - expected), `t=${t}: got ${actual}, expected ${expected}`).toBeLessThanOrEqual(0.002);
-        }
-      });
-    }
+/** The largest relative gap between the cable's local climb per mm of its own path (over a few samples) and its mean climb per mm, away from the first and last turn. */
+function maxCableClimbDistortion(d: Design): number {
+  const { points, turns } = d.wirePaths[0];
+  const count = points.length / 3;
+  const arc = [0];
+  for (let i = 1; i < count; i++) arc.push(arc[i - 1] + Math.hypot(points[3 * i] - points[3 * i - 3], points[3 * i + 1] - points[3 * i - 2]));
+  const total = arc[count - 1];
+  const nominalSlope = (points[3 * (count - 1) + 2] - points[2]) / total;
+  const turn = total / turns;
+  const WINDOW = 8;
+  let worst = 0;
+  for (let i = WINDOW; i < count; i++) {
+    if (arc[i - WINDOW] < turn || arc[i] > total - turn) continue;
+    const localSlope = (points[3 * i + 2] - points[3 * (i - WINDOW) + 2]) / (arc[i] - arc[i - WINDOW]);
+    worst = Math.max(worst, Math.abs(localSlope - nominalSlope) / nominalSlope);
   }
-
-  it("reduces to t exactly for round (no corners to distort)", () => {
-    for (const offset of OFFSETS) {
-      for (const t of TS) {
-        expect(arcLengthFractionAt(round, offset, t)).toBeCloseTo(t, 9);
-      }
-    }
-  });
-});
+  return worst;
+}
 
 describe("the groove pitch is constant along the arc length within 2% (issue #103 AC)", () => {
   const cases: Array<[string, CoilSpec["shape"]["kind"]]> = [
@@ -166,4 +133,14 @@ describe("the groove pitch is constant along the arc length within 2% (issue #10
     const distortion = maxLocalPitchDistortion(d.wallSpec);
     expect(distortion * 100).toBeLessThan(0.01);
   });
+});
+
+describe("the drawn cable's climb per mm of its own path is constant within 2% (winding pitch, through design())", () => {
+  for (const kind of ["round", "sq", "tri"] as const) {
+    it(`${kind}: max local climb distortion along the cable's own path is within 2%`, async () => {
+      const d = await design(baseSpec({ shape: shapeSpec(kind) }));
+      expect(d.wirePaths[0].turns).toBeGreaterThan(3);
+      expect(maxCableClimbDistortion(d) * 100).toBeLessThanOrEqual(2);
+    });
+  }
 });
