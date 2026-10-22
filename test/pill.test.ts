@@ -1,10 +1,10 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PILL_RADIUS, DEFAULT_SPEC, coreSizeForPill, design } from "../src/core";
+import { coreSizeForPill, DEFAULT_PILL_RADIUS, DEFAULT_SPEC, design, offsetPerimeter } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, MountKind } from "../src/core";
-import { circumscribedRadius, offsetPerimeter } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
 import { unsupportedOverhangs } from "./support/overhangs";
+import { circumscribedRadius } from "./support/outline";
+import { minBendRadius } from "./support/wire";
 
 // Issue #320: the pill (stadium) core. Through design() only. The pill is a 2-gon: two half-circle ends of radius r
 // joined by straight sides, the size is the overall length, ends included.
@@ -14,7 +14,7 @@ wasm.setup();
 
 const WIRE = { length: 2000, diameter: 3.8, type: "usb" as const };
 const GROOVE_DEPTH_FACTOR = 0.4;
-const BEND_LIMIT_RADIUS = bendMultiplierOf(WIRE) * WIRE.diameter - (WIRE.diameter / 2 - GROOVE_DEPTH_FACTOR * WIRE.diameter);
+const BEND_LIMIT_RADIUS = minBendRadius(WIRE) - (WIRE.diameter / 2 - GROOVE_DEPTH_FACTOR * WIRE.diameter);
 
 function spec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {

@@ -1,9 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { design, exportDesign } from "../src/core";
+import { BAYONET_LUG_COUNT, design, exportDesign } from "../src/core";
 import type { CoilSpec, JointKind } from "../src/core";
-import { BAYONET_LUG_COUNT } from "../src/core/constants";
-import { jointGeometry } from "../src/core/joints";
-import { STEP_TIMEOUT_MS, meshVolume, perPartVolumeErrors, reimportStep, snapProbes, stepContains, strapProbes } from "./support/step";
+import { meshVolume } from "./support/mesh";
+import { STEP_TIMEOUT_MS, perPartVolumeErrors, reimportStep, snapProbes, stepContains, strapProbes } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the round-core
 // two-part designs (core + top-cap, or core + mount-plate), kept in their
@@ -65,7 +64,8 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
         const { d, stepBytes } = await buildOnce("bayonet");
         const h = d.solution.height;
         const rIn = d.wallSpec.boreOutline.apothem;
-        const rc = jointGeometry(d.wallSpec.boreOutline, "bayonet", d.spec.tolerance).collarRadius;
+        expect(d.capJoint?.kind).toBe("bayonet");
+        const rc = d.capJoint!.collarRadius;
         const at = (r: number, deg: number, z: number): [number, number, number] => [r * Math.cos((deg * Math.PI) / 180), r * Math.sin((deg * Math.PI) / 180), z];
         const twist = 180 / BAYONET_LUG_COUNT;
         const probes: Array<{ p: [number, number, number]; inside: boolean; what: string }> = [];

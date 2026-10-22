@@ -1,8 +1,7 @@
 // Shared independent oracle for "the true distance from an outline's centre
-// to its own boundary at a given standard angle" -- used by
-// shapes-radius-at-angle.test.ts (issue #92's own property test) and by
-// mount.test.ts's large-margin/large-offset clearance checks, so that
-// neither test relies on `shapes.ts`'s `radiusAtAngle` to check itself.
+// to its own boundary at a given standard angle" -- used by mount.test.ts's
+// clearance checks (issue #71/#70/#92), so that they don't rely on the
+// core's own `radiusAtAngle` to check itself.
 //
 // It walks `pointAt` (arc-length parameterised, already trusted elsewhere in
 // this codebase -- see wire.ts's `outlineHuggingBridge` doc comment) around
@@ -12,8 +11,8 @@
 // approximation error would itself vary with curvature and swamp a tight
 // tolerance right where it matters most (near a corner/flat-side
 // transition, exactly what issue #92 is about).
-import { pointAt } from "../../src/core/shapes";
-import type { ShapeOutline } from "../../src/core/shapes";
+import { pointAt } from "../../src/core";
+import type { ShapeOutline } from "../../src/core";
 
 /** A coarse scan of `pointAt(base, ., offset)`, reusable across many query angles for the same (shape, offset) pair. */
 export function coarseOutlineScan(base: ShapeOutline, offset: number, samples = 2000): { t: number; x: number; y: number }[] {

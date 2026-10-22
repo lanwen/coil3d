@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { CoilMesh, Design } from "../src/core";
-import { FACE_ARC_JOINT_OVERLAP } from "../src/core/constants";
 import { CASES, designOf } from "./support/faceCases";
+import { FACE_ARC_JOINT_OVERLAP } from "../src/core";
 
 // Issue #321: where a face channel's cutter starts, the wall must meet it without an edge the line art draws. The viewer
 // draws a crease from 30 degrees; every transverse edge around the cutter's start face must stay under 20, and no face

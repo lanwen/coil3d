@@ -1,8 +1,5 @@
-import { printPlacements } from "../../src/core";
-import { faceDipSweep } from "../../src/core/faceChannel";
+import { FACE_BRIDGE_LIMIT, printPlacements, SCREW_MOUNT_RECESS_DEPTH, SCREW_MOUNT_SLOT_TRAVEL } from "../../src/core";
 import type { CoilMesh, CoilSpec, Design, PartRole, RigidTransform } from "../../src/core";
-import { FACE_BRIDGE_LIMIT, SCREW_MOUNT_RECESS_DEPTH, SCREW_MOUNT_SLOT_TRAVEL } from "../../src/core/constants";
-import { layoutKeyholeMount } from "../../src/core/mount";
 import { KEYHOLE_ROOF_MAX_SPAN } from "./keyholeBridge";
 
 // Issue #168: AGENTS.md's printability rule -- "every part prints flat on the
@@ -230,7 +227,7 @@ const ACCEPTED: Array<{ reason: string; applies: (spec: CoilSpec) => boolean; ma
       const inner = layout?.inner;
       if (role !== "core" || !layout || !inner || q.worstDeg < 60) return false;
       // Only the patch that holds the dip may stand that high: the dip starts inside its footprint (0.5 mm slack), and the rise is capped by the web.
-      const dip = faceDipSweep(inner, layout)?.start;
+      const dip = layout.innerDipStart;
       const holdsDip = !!dip && dip.x >= q.min[0] - 0.5 && dip.x <= q.max[0] + 0.5 && dip.y >= q.min[1] - 0.5 && dip.y <= q.max[1] + 0.5;
       const rise = holdsDip ? layout.bottomThickness - (inner.level + layout.channelRadius) : 0;
       return q.min[2] >= inner.level - layout.channelRadius - 0.5 && q.max[2] <= Math.max(inner.level, inner.windingZ) + layout.channelRadius + 0.5 + rise;
@@ -248,8 +245,7 @@ const ACCEPTED: Array<{ reason: string; applies: (spec: CoilSpec) => boolean; ma
     applies: (spec) => spec.mount === "keyhole",
     matches: (role, q, d) => {
       if (role !== "core" || q.worstDeg < 89 || Math.abs(q.printZ - SCREW_MOUNT_RECESS_DEPTH) > 0.1) return false;
-      const f = d.flangeSpec;
-      const { slots } = layoutKeyholeMount(f.outline, f.boreOutline, f.margin, f.keyholeRotation);
+      const slots = d.mountLayout?.keyhole?.slots ?? [];
       const cx = (q.min[0] + q.max[0]) / 2;
       const cy = (q.min[1] + q.max[1]) / 2;
       return slots.some((s) => Math.abs(cx - s.head.x) < 0.5 && Math.abs(cy - (s.head.y + s.shankEnd.y) / 2) < 0.5);

@@ -25,9 +25,9 @@ import { buildMountPlate, buildPeg, buildSkadisClip, buildSkadisTclip, buildTopC
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { jointGeometry, resolveCapJoint } from "./joints";
 import { layoutInnerEnd, layoutRimSlot, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
-import type { RimSlot, XY } from "./innerEnd";
+import type { RimSlot, SweepSolid, XY } from "./innerEnd";
 import { printBBox } from "./plate";
-import { distanceToClosedPolygon, layoutKeyholeMount } from "./mount";
+import { distanceToClosedPolygon, layoutKeyholeMount, throughHoleCountersink, throughHoleSinkThickness } from "./mount";
 import { channelPadFootprints, layoutFlangePads, layoutFlangeThroughHoles } from "./flangePads";
 import type { MountLayout, ThroughMountLayout } from "./mount";
 import { mountPlateLayoutFor, pegHoleRadius } from "./mountPlate";
@@ -42,9 +42,9 @@ import { getLabelFont, labelLoops, resolveLabel } from "./label";
 import { solve } from "./solve";
 import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
-import type { CoilMesh, CoilSpec, Design, Part, Resolution, Solution } from "./types";
+import type { CoilMesh, CoilSpec, Design, DesignMountLayout, Part, Resolution, Solution } from "./types";
 import { buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
-import { boreFilletRadius, crossingActive, crossingReserve, faceTopFloor, planFaceChannels } from "./faceChannel";
+import { boreFilletRadius, crossingActive, crossingReserve, faceDipSweep, faceTopFloor, planFaceChannels } from "./faceChannel";
 import { buildCable, outerStartOf, windLayers } from "./wire";
 
 const STADIUM_ARC_SEGMENTS = 12;
@@ -265,12 +265,13 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const wantsKeyhole = spec.mount === "keyhole";
   const wantsThrough = spec.mount === "through";
   const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness, marginBeforeStrap } = planFlange(spec, solution, outline, boreOutline);
-  const capJointForTclips = resolveCapJoint(spec, wallSpec);
+  const capJoint = resolveCapJoint(spec, wallSpec);
+  const capGeometry = solution.topCapEnabled ? jointGeometry(boreOutline, capJoint.joint, spec.tolerance) : undefined;
   const tclipLayout: SkadisTclipLayout | undefined =
     spec.mount === "skadis-tclip"
       ? layoutSkadisTclips({
           boreOutline,
-          capHole: solution.topCapEnabled ? jointGeometry(boreOutline, capJointForTclips.joint, spec.tolerance).holeOutline : undefined,
+          capHole: capGeometry?.holeOutline,
           ring: faceChannels?.topThickness !== undefined ? { holeOutline: faceChannels.holeOutline, funnelFloor: faceTopFloor(faceChannels) } : undefined,
           wallTop: solution.height,
           thickness,
@@ -333,10 +334,9 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     skadis: skadisLayout && skadisLayout.clips.length > 0 ? skadisLayout : undefined,
     skadisTclip: tclipLayout && tclipLayout.clips.length > 0 ? tclipLayout : undefined,
   };
-  if (wantsThrough) {
-    const throughLayout = layoutFlangeThroughHoles(flangeSpec, innerEndLayout);
-    if (throughLayout.warning) problem(throughLayout.warning);
-  }
+  const throughLayout = wantsThrough ? layoutFlangeThroughHoles(flangeSpec, innerEndLayout) : undefined;
+  if (throughLayout?.warning) problem(throughLayout.warning);
+  const skadisFootprints = flangeSpec.skadis ? skadisClipFootprints(flangeSpec.skadis) : undefined;
 
   let mountPlateLayout: ReturnType<typeof mountPlateLayoutFor> | undefined;
   if (mountKindForPlate) {
@@ -350,7 +350,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       : undefined;
 
   const topCapEnabled = solution.topCapEnabled;
-  const capJoint = resolveCapJoint(spec, wallSpec);
   if (topCapEnabled && capJoint.warning) note(capJoint.warning);
   const coreJoint: CoreJointCut | undefined =
     topCapEnabled && capJoint.joint !== "press"
@@ -385,8 +384,8 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       .filter((pad) => pad.shape.kind !== "collar")
       .map((pad) => pad.footprint),
     ...(mountLayout?.slots ?? []).map((slot) => stadiumPolygon(slot.head, slot.shankEnd, SCREW_MOUNT_HEAD_RADIUS)),
-    ...(wantsThrough ? throughHoleKeepOut(layoutFlangeThroughHoles(flangeSpec, innerEndLayout)) : []),
-    ...(flangeSpec.skadis ? skadisClipFootprints(flangeSpec.skadis) : []),
+    ...(throughLayout ? throughHoleKeepOut(throughLayout) : []),
+    ...(skadisFootprints ?? []),
   ].filter((poly) => poly.length >= 3) : [];
   const baseSlot = baseOn ? layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, baseKeepOut, RIM_SLOT_KEEP_OUT) : undefined;
   if (baseOn && !baseSlot) note("The base's rim cable slot doesn't fit anywhere round the rim beside the mount, so it's left out.");
@@ -437,15 +436,27 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     }
   }
   const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot, strapSlots: platesSlots.base };
+  const designMountLayout: DesignMountLayout = {
+    keyhole: mountLayout && { slots: mountLayout.slots, recessDepth: mountLayout.recessDepth, axisDeg: mountLayout.axisDeg },
+    through: throughLayout && {
+      holes: throughLayout.holes.map((hole) => ({ ...hole, r: throughLayout.holeRadius, countersink: throughHoleCountersink(throughLayout.holeRadius, throughHoleSinkThickness(flangeSpec)) })),
+      holeRadius: throughLayout.holeRadius,
+    },
+    plate: mountPlateLayout,
+    clipFootprints: skadisFootprints ?? flangeSpec.skadisTclip?.cutters.flatMap(tclipCutterPolys),
+  };
 
   const wall = buildWall(wallSpec);
-  const coreMesh = await fuseFlange(wall, coreFlangeSpec, coreJoint, innerEndCut, mountPlateCut, faceChannels);
+  const innerDip = faceChannels?.inner && faceDipSweep(faceChannels.inner, faceChannels);
+  const outerDip = faceChannels?.outer && faceDipSweep(faceChannels.outer, faceChannels);
+  const faceChannelCut = faceChannels && { layout: faceChannels, dips: [innerDip, outerDip].filter((dip): dip is SweepSolid => dip !== undefined) };
+  const coreMesh = await fuseFlange(wall, coreFlangeSpec, coreJoint, innerEndCut, mountPlateCut, faceChannelCut);
   coreMesh.fadeTriangles = grooveFadeTriangles(coreMesh, wallSpec);
 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
 
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot, strapSlots: platesSlots.cap });
+    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot, strapSlots: platesSlots.cap, geometry: capGeometry! });
     const assembled = translateMesh(capMesh, [0, 0, solution.height]);
     parts.push({
       name: "top-cap",
@@ -530,15 +541,25 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
         ? skadisTclipBoardSection(flangeSpec.skadisTclip, circumscribedRadius(outline, margin) + 45)
         : undefined,
     innerEndLeadIn: cable.innerEndLeadIn,
-    innerEndClip: innerEndLayout?.clip,
+    innerEndClip: innerEndLayout && { ...innerEndLayout.clip, opening: innerEndLayout.clipOpening, rimExit: innerEndLayout.rimExit, channelDepth },
+    mountLayout: Object.values(designMountLayout).some((part) => part !== undefined) ? designMountLayout : undefined,
+    capJoint: capGeometry && { kind: capJoint.joint, collarRadius: capGeometry.collarRadius, holeOutline: capGeometry.holeOutline },
     layerTransitions: cable.layerTransitions,
     outerEndLeadOut: cable.outerEndLeadOut,
     cablePath: cable.cablePath,
-    faceChannels,
+    faceChannels: faceChannels && {
+      ...faceChannels,
+      innerDipStart: dipStartOf(innerDip),
+      outerDipStart: dipStartOf(outerDip),
+    },
     rimSlots: { base: baseSlot, cap: capSlot },
     strapSlots: platesSlots,
     strapSlotsNote,
   };
+}
+
+function dipStartOf(dip: SweepSolid | undefined): XY | undefined {
+  return dip && { x: dip.start.x, y: dip.start.y };
 }
 
 function stadiumPolygon(a: XY, b: XY, r: number): XY[] {

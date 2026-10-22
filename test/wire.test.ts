@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { design, outlineOffsetAt } from "../src/core";
 import type { CoilSpec } from "../src/core";
-import { outlineOffsetAt } from "../src/core/shapes";
 
 // Issue #4 acceptance criteria: `design()` returns the schematic wound-cable
 // path per layer (orthocyclic offset and half-pitch shift), consistent with

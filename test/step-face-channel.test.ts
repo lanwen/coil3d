@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { design, exportDesign } from "../src/core";
+import { design, exportDesign, FACE_ARC_JOINT_OVERLAP, outlineOffsetAt } from "../src/core";
 import type { CoilSpec, Design, ShapeSpec } from "../src/core";
-import type { FaceEnd } from "../src/core/faceChannel";
-import { FACE_ARC_JOINT_OVERLAP } from "../src/core/constants";
-import { evalOutline, outlineOffsetAt } from "../src/core/shapes";
-import { grooveShape } from "../src/core/wall";
 import { STEP_TIMEOUT_MS, insideAt, perPartVolumeErrors, reimportStep, verticalCrossings } from "./support/step";
+import { segmentMidpoint } from "./support/outline";
+import type { FaceEnd } from "./support/types";
 
 // Issue #287: the bare core's STEP is built from sewn faces with one boolean for the channels. The probes sit on each
 // channel's centre line, a hair either side of every surface the mesh has there, so a channel missing from the STEP
@@ -41,7 +39,7 @@ function endProbes(d: Design, path: Float32Array, end: FaceEnd): { points: Probe
     const [x, y, z] = [path[3 * i], path[3 * i + 1], path[3 * i + 2]];
     if (Math.abs(z - end.level) > 0.3) continue;
     if (outlineOffsetAt(layout.holeOutline, x, y).offset < 0.3) continue;
-    if (outlineOffsetAt(d.wallSpec.outline, x, y).offset > -(grooveShape(d.spec.wire.diameter).depth + 0.5)) continue;
+    if (outlineOffsetAt(d.wallSpec.outline, x, y).offset > -(d.wallSpec.grooveDepth + 0.5)) continue;
     onFace.push([x, y]);
   }
   const points: Probe[] = [];
@@ -70,7 +68,7 @@ function boreProbes(d: Design): { points: Probe[]; expected: boolean[]; crossing
   const layout = d.faceChannels!;
   const core = d.parts.find((p) => p.role === "core")!.mesh;
   const columns: Array<[number, number]> = [0, 1, 2].map((seg) => {
-    const p = evalOutline(d.wallSpec.boreOutline, { seg, u: 0.5 }, 0);
+    const p = segmentMidpoint(d.wallSpec.boreOutline, seg);
     return [p.x - p.nx * FILLET_PROBE_INSET, p.y - p.ny * FILLET_PROBE_INSET];
   });
   const along = (path: Float32Array, end: FaceEnd) => {

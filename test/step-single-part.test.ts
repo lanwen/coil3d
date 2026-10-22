@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
 import type { CoilSpec } from "../src/core";
-import { STEP_TIMEOUT_MS, meshVolume, reimportStep } from "./support/step";
+import { meshVolume } from "./support/mesh";
+import { STEP_TIMEOUT_MS, reimportStep } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the five single-part
 // (one-solid) STEP designs, kept in their own file so this file's OCCT

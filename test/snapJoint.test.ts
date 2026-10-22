@@ -1,8 +1,7 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design, JOINT_TRANSITION_HEIGHT } from "../src/core";
+import { design, JOINT_TRANSITION_HEIGHT, SNAP_FINGER_LENGTH, SNAP_PRELOAD } from "../src/core";
 import type { CoilMesh, CoilSpec, ShapeSpec } from "../src/core";
-import { SNAP_FINGER_LENGTH, SNAP_PRELOAD } from "../src/core/constants";
 
 // Issue #168: the snap joint still snaps once its overhangs are chamfered
 // for printing. The cap and the core are checked against each other, as

@@ -1,14 +1,15 @@
 import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
+import { outlineOffsetAt } from "../src/core";
 import type { CoilMesh, Design } from "../src/core";
-import { evalOutline, outlineOffsetAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
 import { worstCurvature } from "./support/cableBend";
 import { MIN_WEB, WEB_TOLERANCE, faceWebs } from "./support/faceWeb";
 import { CASES, designOf } from "./support/faceCases";
 import { unsupportedOverhangs } from "./support/overhangs";
 import { rayHits } from "./support/rays";
+import { segmentMidpoint } from "./support/outline";
+import { minBendRadius } from "./support/wire";
 
 // Issue #321: the face channels leave the groove and the bore without steps. Through design() only. The rim of each
 // channel's junction with the groove, the channel's floor or roof curving into the hole, and the fillet at the foot of
@@ -201,7 +202,7 @@ function filletRises(d: Design, radius: number): number[] {
   const layout = d.faceChannels!;
   const mesh = coreOf(d);
   return [0, 1, 2].map((seg) => {
-    const p = evalOutline(d.wallSpec.boreOutline, { seg, u: 0.5 }, 0);
+    const p = segmentMidpoint(d.wallSpec.boreOutline, seg);
     const origin: Vec = [p.x - p.nx * FILLET_PROBE, p.y - p.ny * FILLET_PROBE, layout.bottomThickness + radius + FILLET_CLEAR];
     const hit = rayHits(mesh, origin, [0, 0, -1])[0] ?? Infinity;
     return origin[2] - hit - layout.bottomThickness;
@@ -281,7 +282,7 @@ describe.sequential.each(CASES)("face channels without steps (issue #321): $name
     const d = await designOf(entry);
     expect(solidCount(coreOf(d))).toBe(1);
     expect(unsupportedOverhangs(d, entry.name)).toEqual([]);
-    const limit = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
+    const limit = minBendRadius(d.spec.wire);
     expect(worstCurvature(d.cablePath).k * limit).toBeLessThanOrEqual(1.05);
     const { roof, floor } = faceWebs(d);
     for (const web of [...roof, ...floor]) expect(web).toBeGreaterThanOrEqual(MIN_WEB - WEB_TOLERANCE);

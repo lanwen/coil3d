@@ -1,18 +1,8 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
-import type { CoilSpec, ShapeSpec } from "../src/core";
-// innerEnd.ts's layout is the SAME shared function every backend (manifold.ts,
-// step/build.ts) and the wound-cable schematic (wire.ts) cut/draw from --
-// calling it here on design()'s own PUBLIC `flangeSpec`/`spec` (not a
-// reimplementation) verifies the actual layout that was cut, the same
-// "vitest check through design()" convention test/design.test.ts already
-// uses for mount.ts's `layoutKeyholeMount`.
-import { baseClipOpeningFraction, layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
-import { fuseFlange } from "../src/core/manifold";
-import { outlineOffsetAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
-import { buildWall } from "../src/core/wall";
+import { design, outlineOffsetAt } from "../src/core";
+import type { CoilSpec, Design, ShapeSpec } from "../src/core";
+import { rayHits } from "./support/rays";
 
 // Issue #8 acceptance criteria: "The keyhole is sized from the cable diameter
 // plus tolerance", "A recessed channel on the flange's inner face leads from
@@ -23,9 +13,8 @@ import { buildWall } from "../src/core/wall";
 // issue #117 replaced the keyhole with a clip along the cable and sweeps the
 // channel along it (test/cableClip.test.ts checks the cut cross-sections);
 // test/cableBend.test.ts checks the bend radius along the whole cable.
-// These tests exercise ONLY the public `design()` interface (plus the shared
-// `layoutInnerEnd` pure-math function, mirroring test/design.test.ts's own
-// treatment of mount.ts), per the testing rules in AGENTS.md.
+// These tests exercise ONLY the public `design()` interface, per the testing
+// rules in AGENTS.md.
 
 function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
   return {
@@ -63,13 +52,6 @@ async function assertManifold(mesh: { positions: Float32Array; indices: Uint32Ar
   }
 }
 
-/** The real layout design() cut, re-derived from its own public fields. */
-function layoutOf(d: Awaited<ReturnType<typeof design>>) {
-  const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-  const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness);
-  return layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, channelDepth);
-}
-
 /** Layer 1's first sample and unit xy tangent (the groove start the lead-in aims at). */
 function grooveStartOf(d: Awaited<ReturnType<typeof design>>) {
   const p = d.wirePaths[0].points;
@@ -82,16 +64,30 @@ function distanceFromTangentLine(j: { x: number; y: number; tx: number; ty: numb
   return Math.abs((x - j.x) * j.ty - (y - j.y) * j.tx);
 }
 
+/** The channel's floor (z) straight below each lead-in sample that lies over the flange, outside the wall, with the cable's centre height there. */
+function channelFloors(d: Design): Array<{ floor: number; cableZ: number }> {
+  const lead = d.innerEndLeadIn;
+  const floors: Array<{ floor: number; cableZ: number }> = [];
+  for (let i = 0; i < lead.length; i += 3) {
+    const { offset } = outlineOffsetAt(d.flangeSpec.outline, lead[i], lead[i + 1]);
+    if (offset < 1 || offset > d.flangeSpec.margin - 1) continue;
+    const top = d.solution.height + 5;
+    const hits = rayHits(d.mesh, [lead[i], lead[i + 1], top], [0, 0, -1]);
+    floors.push({ floor: top - hits[0], cableZ: lead[i + 2] });
+  }
+  return floors;
+}
+
 describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #117)", () => {
   it("sizes the clip from wire diameter + tolerance, puts it on the tangent chord inside the flange rim, and leads the cable out through the rim (issue #117)", async () => {
     const wireDiameter = 4.2;
     const tolerance = 0.25;
     for (const shape of [{ kind: "round" }, { kind: "sq", cornerRadius: 15 }, { kind: "tri", cornerRadius: 15 }] as ShapeSpec[]) {
       const d = await design(baseSpec({ shape, wire: { length: 2000, diameter: wireDiameter, type: "usb" }, tolerance, coreSize: { locked: true, dimension: "outer", value: 60 } }));
-      const layout = layoutOf(d);
-      expect(layout.channelRadius).toBeCloseTo((wireDiameter + tolerance) / 2, 9);
+      const clip = d.innerEndClip!;
+      const channelRadius = (wireDiameter + tolerance) / 2;
       // The opening is narrower than the cable, so it snaps in.
-      expect(layout.clipOpening).toBeLessThan(wireDiameter);
+      expect(clip.opening).toBeLessThan(wireDiameter);
 
       // Issue #115: on the straight line the cable leaves the groove start
       // along (backwards along layer 1's own tangent), give or take the
@@ -100,7 +96,7 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
       // the clip to the rim by the side's middle (innerEnd.ts's `bendToRim`;
       // it reaches 1.6 mm here once the flange is wide enough to need it).
       const j = grooveStartOf(d);
-      for (const at of [layout.clip.from, layout.clip.to]) {
+      for (const at of [clip.from, clip.to]) {
         expect(distanceFromTangentLine(j, at.x, at.y), `${shape.kind}: clip off the tangent chord`).toBeLessThan((wireDiameter + tolerance) / 2 + (shape.kind === "round" ? 1 : 2));
         // Behind the groove start (the side the cable comes from), not ahead.
         expect((at.x - j.x) * j.tx + (at.y - j.y) * j.ty).toBeLessThan(0);
@@ -108,46 +104,43 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
 
       // Both lips inside the flange, a wall short of its rim; the cable
       // crosses the rim further along the same chord and ends outside it.
-      const clipEnd = outlineOffsetAt(d.flangeSpec.outline, layout.clip.to.x, layout.clip.to.y);
-      expect(clipEnd.offset).toBeLessThanOrEqual(d.flangeSpec.margin - layout.channelRadius - 1 + 1e-6);
-      expect(clipEnd.offset).toBeGreaterThan(layout.channelRadius);
-      expect(outlineOffsetAt(d.flangeSpec.outline, layout.rimExit.x, layout.rimExit.y).offset).toBeCloseTo(d.flangeSpec.margin, 6);
-      const tailEnd = layout.leadIn[0];
+      const clipEnd = outlineOffsetAt(d.flangeSpec.outline, clip.to.x, clip.to.y);
+      expect(clipEnd.offset).toBeLessThanOrEqual(d.flangeSpec.margin - channelRadius - 1 + 1e-6);
+      expect(clipEnd.offset).toBeGreaterThan(channelRadius);
+      expect(outlineOffsetAt(d.flangeSpec.outline, clip.rimExit.x, clip.rimExit.y).offset).toBeCloseTo(d.flangeSpec.margin, 6);
+      const tailEnd = { x: d.innerEndLeadIn[0], y: d.innerEndLeadIn[1] };
       expect(outlineOffsetAt(d.flangeSpec.outline, tailEnd.x, tailEnd.y).offset).toBeGreaterThan(d.flangeSpec.margin + 5);
     }
   });
 
-  it("the base clip's opening scales with the cable: a few percent under its diameter, never past the 45 degree overhang limit", () => {
-    for (let d = 2; d <= 8; d += 0.25) {
+  it("the base clip's opening scales with the cable: a few percent under its diameter, never past the 45 degree overhang limit", async () => {
+    // Half the old 0.25 mm diameter grid: each point is a whole design(), and the opening is smooth in the diameter.
+    for (let wireDiameter = 2; wireDiameter <= 8; wireDiameter += 0.5) {
       for (const tolerance of [0.05, 0.2, 0.4, 0.8]) {
-        const fraction = baseClipOpeningFraction(d, tolerance);
+        const d = await design(baseSpec({ wire: { length: 200, diameter: wireDiameter, type: "usb" }, coreSize: { locked: false }, height: { locked: false }, topCap: "off", tolerance }), "draft");
+        const opening = d.innerEndClip!.opening;
+        const fraction = opening / (wireDiameter + tolerance);
         // The lips' underside overhangs by acos(fraction) from vertical.
-        expect((Math.acos(fraction) * 180) / Math.PI, `d=${d} tol=${tolerance}`).toBeLessThanOrEqual(45);
+        expect((Math.acos(fraction) * 180) / Math.PI, `d=${wireDiameter} tol=${tolerance}`).toBeLessThanOrEqual(45);
         // A modest interference: at the default tolerance and at tighter fits the cable is
         // squeezed by 8% of its diameter (a looser print only gets the overhang floor).
-        const opening = fraction * (d + tolerance);
-        if (tolerance <= 0.2) expect(d - opening, `d=${d} tol=${tolerance}`).toBeCloseTo(0.08 * d, 9);
-        expect(opening, `d=${d} tol=${tolerance}`).toBeGreaterThan(0.75 * d);
+        if (tolerance <= 0.2) expect(wireDiameter - opening, `d=${wireDiameter} tol=${tolerance}`).toBeCloseTo(0.08 * wireDiameter, 9);
+        expect(opening, `d=${wireDiameter} tol=${tolerance}`).toBeGreaterThan(0.75 * wireDiameter);
       }
     }
   });
 
-  it("the channel is swept around the drawn cable: every cross-section is the round bore about the cable's own centre, from above the face to past the rim (issue #117)", async () => {
+  it("the channel is cut round the drawn cable: open from past the rim, down to the bore's bottom at the channel's depth (issue #117)", async () => {
     for (const shape of [{ kind: "round" }, { kind: "sq", cornerRadius: 15 }, { kind: "tri", cornerRadius: 15 }] as ShapeSpec[]) {
       const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: 60 } }));
-      const layout = layoutOf(d);
-      const { rings } = layout.channel;
-      expect(rings.length).toBeGreaterThanOrEqual(10);
-      expect(new Set(rings.map((r) => r.length)).size, "same vertex count everywhere").toBe(1);
-      // Starts with the bore still above the flange face (zero depth)...
-      expect(Math.min(...rings[0].map((p) => p.z))).toBeGreaterThan(0);
-      // ...and ends with the whole bore past the rim.
-      for (const p of rings[rings.length - 1]) expect(outlineOffsetAt(d.flangeSpec.outline, p.x, p.y).offset).toBeGreaterThan(d.flangeSpec.margin);
+      const lead = d.innerEndLeadIn;
+      const { channelDepth } = d.innerEndClip!;
+      expect(outlineOffsetAt(d.flangeSpec.outline, lead[0], lead[1]).offset, `${shape.kind}: the lead-in starts past the rim`).toBeGreaterThan(d.flangeSpec.margin);
       // Its deepest cut is the bore's bottom around the cable resting in the
       // channel: channelDepth to the cable's bottom, tolerance/2 more for the bore.
-      const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness);
-      const deepest = Math.min(...rings.flat().map((p) => p.z));
-      expect(deepest).toBeCloseTo(-channelDepth - d.spec.tolerance / 2, 3);
+      const floors = channelFloors(d);
+      expect(floors.length, `${shape.kind}: samples in the channel`).toBeGreaterThanOrEqual(10);
+      expect(Math.min(...floors.map((f) => f.floor)), shape.kind).toBeCloseTo(-channelDepth - d.spec.tolerance / 2, 3);
     }
   });
 
@@ -163,24 +156,9 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
     expect(d.warnings.some((w) => /bends tighter|too narrow for the inner cable end/i.test(w))).toBe(false);
   });
 
-  it("warns when the flange margin is too narrow for the lead-in, and says how wide it must be", () => {
-    // design() grows the margin itself (next test), so this checks the
-    // shared `layoutInnerEnd` function directly with a deliberately
-    // too-narrow margin.
-    const outline = { n: 4, apothem: 30, cornerRadius: 30 };
-    const layout = layoutInnerEnd(outline, 4 /* mm, deliberately narrow */, 3.8, 0.2, 15.2);
-    expect(layout.requiredMargin).toBeGreaterThan(4);
-    expect(layout.warning).toMatch(/too narrow.*bend radius/i);
-    expect(layout.warning).toContain(layout.requiredMargin.toFixed(1));
-    // At the required margin it fits, with no warning.
-    expect(layoutInnerEnd(outline, layout.requiredMargin + 1e-6, 3.8, 0.2, 15.2).warning).toBeUndefined();
-  });
-
   it("design() grows the flange margin to fit the lead-in, and says so", async () => {
     const d = await design(baseSpec({ wire: { length: 2000, diameter: 3.8, type: "stiff" }, coreSize: { locked: true, dimension: "outer", value: 80 } }));
-    const layout = layoutOf(d);
-    expect(layout.warning).toBeUndefined();
-    expect(d.flangeSpec.margin).toBeGreaterThanOrEqual(layout.requiredMargin - 1e-9);
+    expect(d.warnings.filter((w) => /too narrow.*bend radius/i.test(w))).toEqual([]);
     expect(d.warnings.some((w) => /Flange margin increased to .* so the inner cable end can reach the groove within its 24\.7 mm bend radius/.test(w))).toBe(true);
     await assertManifold(d.mesh, "stiff-cable core");
   });
@@ -194,7 +172,7 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
         layers: { locked: true, value: 1 },
       }),
     );
-    expect(layoutOf(d).warning).toBeUndefined();
+    expect(d.warnings.filter((w) => /too narrow.*bend radius/i.test(w))).toEqual([]);
     await assertManifold(d.mesh, "thick-cable core");
   });
 
@@ -211,26 +189,16 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
   });
 
   it("removes real material from the core (the cutout, not a no-op)", async () => {
-    // Issue #43: the flange's own thickness now tracks the wire diameter
-    // too (a bigger cable also wants a thicker flange for a flush first
-    // layer), so comparing two designs at different diameters (the
-    // previous approach here) no longer isolates the cutout's own effect --
-    // most of the volume delta would just be the thicker flange. Instead,
-    // build the SAME wall/flange one design() actually produced (via its
-    // own public `wallSpec`/`flangeSpec`) and call the exported
-    // `fuseFlange` a second time with no `innerEnd` cutter at all, so the
-    // only difference between the two meshes is the cutout itself.
-    // Issue #122: on a full-thickness plate (no pads), so the channel's own
-    // pad -- present only with the cut -- doesn't muddy the comparison.
+    // Issue #122: on a full-thickness plate, so the channel's own pad doesn't muddy the comparison. The core's top
+    // face is flat flange there, so a ray down onto the channel's centreline meets solid at the face unless the cutout
+    // is real: it must find air all the way down to the channel's floor.
     const d = await design(baseSpec({ wire: { length: 2000, diameter: 3.8, type: "usb" } }));
-    const wall = buildWall(d.wallSpec);
-    const flat = { ...d.flangeSpec, plateThickness: d.flangeSpec.thickness };
-    const diameter = d.spec.wire.diameter;
-    const cut = { wireDiameter: diameter, tolerance: d.spec.tolerance, bendRadius: bendMultiplierOf(d.spec.wire) * diameter, channelDepth: resolveChannelDepth(diameter, flat.thickness), flangeThickness: flat.thickness };
-    const withoutCut = await fuseFlange(wall, flat); // no innerEnd argument -- no cutout at all
-    const thick = await assertManifold(await fuseFlange(wall, flat, undefined, cut), "3.8mm core, with cutout");
-    const thin = await assertManifold(withoutCut, "3.8mm core, no cutout (reference)");
-    expect(thin - thick).toBeGreaterThan(20); // a few tens of mm^3, comfortably more than mesh noise
+    const { channelDepth } = d.innerEndClip!;
+    const floors = channelFloors(d);
+    expect(floors.length).toBeGreaterThanOrEqual(10);
+    const boreRadius = (d.spec.wire.diameter + d.spec.tolerance) / 2;
+    for (const { floor, cableZ } of floors) expect(floor).toBeLessThanOrEqual(cableZ - boreRadius + 0.05);
+    expect(Math.min(...floors.map((f) => f.floor))).toBeCloseTo(-channelDepth - d.spec.tolerance / 2, 3);
   });
 
   // Test-audit report, C-C: this used to also have "the mount's own recess
@@ -248,27 +216,24 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
   it("the drawn lead-in runs from past the rim, level through the clip and flush in the channel, straight along the chord to EXACTLY layer 1's first sample", async () => {
     for (const shape of SHAPES) {
       const d = await design(baseSpec({ shape, coreSize: { locked: true, dimension: "outer", value: 60 } }));
-      const layout = layoutOf(d);
+      const clip = d.innerEndClip!;
       const lead = d.innerEndLeadIn;
       const n = lead.length / 3;
       expect(n).toBeGreaterThanOrEqual(2);
-      expect(lead[0]).toBeCloseTo(layout.leadIn[0].x, 4);
-      expect(lead[1]).toBeCloseTo(layout.leadIn[0].y, 4);
 
       // Level from its free end through the rim and the clip, resting on the
       // channel floor: its top is flush with the flange face (issue #43), not
       // proud of it.
-      const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness);
-      const zChannel = -channelDepth + d.spec.wire.diameter / 2;
+      const zChannel = -clip.channelDepth + d.spec.wire.diameter / 2;
       expect(lead[2] + d.spec.wire.diameter / 2).toBeLessThanOrEqual(1e-4);
       for (let i = 0; i < n; i++) {
-        const dx = lead[i * 3] - layout.leadIn[0].x;
-        const dy = lead[i * 3 + 1] - layout.leadIn[0].y;
-        const toClipStart = Math.hypot(layout.clip.to.x - layout.leadIn[0].x, layout.clip.to.y - layout.leadIn[0].y);
+        const dx = lead[i * 3] - lead[0];
+        const dy = lead[i * 3 + 1] - lead[1];
+        const toClipStart = Math.hypot(clip.to.x - lead[0], clip.to.y - lead[1]);
         if (Math.hypot(dx, dy) > toClipStart) break;
         expect(lead[i * 3 + 2], `${shape.kind}: sample ${i} level through the clip`).toBeCloseTo(zChannel, 4);
       }
-      expect(layout.clip.from.z - zChannel, "the lips start once the cable has (nearly) settled").toBeLessThanOrEqual(0.25 + 1e-6);
+      expect(clip.from.z - zChannel, "the lips start once the cable has (nearly) settled").toBeLessThanOrEqual(0.25 + 1e-6);
 
       // Ends bit-for-bit at layer 1's own first sample.
       const first = d.wirePaths[0].points;
@@ -281,7 +246,7 @@ describe("inner-end fixing: bottom flange channel and clip (issues #8, #115, #11
       // rest runs on out through the rim, then straight).
       const j = grooveStartOf(d);
       for (let i = 0; i < n; i++) {
-        if (outlineOffsetAt(d.flangeSpec.outline, lead[i * 3], lead[i * 3 + 1]).offset > outlineOffsetAt(d.flangeSpec.outline, layout.clip.to.x, layout.clip.to.y).offset + 1e-6) continue;
+        if (outlineOffsetAt(d.flangeSpec.outline, lead[i * 3], lead[i * 3 + 1]).offset > outlineOffsetAt(d.flangeSpec.outline, clip.to.x, clip.to.y).offset + 1e-6) continue;
         expect(distanceFromTangentLine(j, lead[i * 3], lead[i * 3 + 1]), `${shape.kind}: sample ${i} off the chord`).toBeLessThan(d.spec.wire.diameter);
       }
     }

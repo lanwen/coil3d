@@ -41,7 +41,7 @@ import { boreFilletRadius, faceCutArcs, faceDipSweep, holeOutlineOf } from "../f
 import type { DipFit, FaceChannelLayout, FaceCutArc, FaceEnd } from "../faceChannel";
 import type { InnerEndLayout, SweepSolid } from "../innerEnd";
 import { meshVolume } from "../meshVolume";
-import { layoutKeyholeMount, throughHoleCountersink } from "../mount";
+import { layoutKeyholeMount, throughHoleCountersink, throughHoleSinkThickness } from "../mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, offsetAtZ, padLevels, plateTopZ } from "../flangePads";
 import type { FlangePad } from "../flangePads";
 import type { KeyholeSlot, ThroughHole } from "../mount";
@@ -558,7 +558,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   if (design.flangeSpec.mount === "through") {
     const layout = layoutFlangeThroughHoles(flangeSpec, innerEndCutter?.layout);
     for (const hole of layout.holes) {
-      for (const cutter of throughHoleCutterSolid(hole, layout.holeRadius, flangeSpec.thickness, plateTopZ(flangeSpec) ?? 0, Math.min(flangeSpec.plateThickness ?? flangeSpec.thickness, flangeSpec.thickness))) coreSolid = coreSolid.cut(cutter);
+      for (const cutter of throughHoleCutterSolid(hole, layout.holeRadius, flangeSpec.thickness, plateTopZ(flangeSpec) ?? 0, throughHoleSinkThickness(flangeSpec))) coreSolid = coreSolid.cut(cutter);
     }
   }
 

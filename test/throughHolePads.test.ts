@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { design, exportDesign, parseHash } from "../src/core";
+import { design, EDGE_CHAMFER, exportDesign, parseHash } from "../src/core";
 import type { CoilSpec, Design } from "../src/core";
-import { EDGE_CHAMFER } from "../src/core/constants";
-import { throughHoleCountersink } from "../src/core/mount";
 import { STEP_TIMEOUT_MS, reimportStep, stepContains } from "./support/step";
 
 // Issue #139: a through-hole's screw head bears on the plate's winding-side
@@ -126,7 +124,7 @@ describe("through-hole screw heads sit on the plain plate, clear of every pad (i
             const y = hole.y + rr * Math.sin(phi);
             const hits = rayHits(d.mesh, tris, x, y);
             // Issue #239: inside the countersink the top is its 45 degree cone (a 32-sided one, so within 0.05 mm).
-            const sink = throughHoleCountersink(hole.r, d.flangeSpec.plateThickness ?? T);
+            const sink = d.mountLayout!.through!.holes[0].countersink;
             const top = plateTop - Math.max(0, sink.radius - rr);
             const plain = hits.length === 2 && Math.abs(hits[0] + T) < 1e-3 && Math.abs(hits[1] - top) < (rr < sink.radius ? 0.05 : 1e-3);
             // Under the head itself the plate must be plain; in the margin past it, the rim may end the plate, or

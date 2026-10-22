@@ -1,8 +1,7 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { design, SNAP_FINGER_LENGTH } from "../src/core";
 import type { CoilMesh, CoilSpec, JointKind, ShapeSpec } from "../src/core";
-import { SNAP_FINGER_LENGTH } from "../src/core/constants";
 
 // Issue #172: the seated top cap sits on the core's rim and doesn't run into
 // it, for every joint and shape. Both parts' meshes share the assembly frame,
