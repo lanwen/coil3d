@@ -607,11 +607,12 @@ describe("design() is one continuous cable, inner end to outer end (issue #68)",
     expect(d.outerEndLeadOut.length).toBeGreaterThanOrEqual(6);
   });
 
+  // A flat spiral needs only the cable plus 0.4 mm (4.2 mm here), so the lock sits below that to be raised.
   it("a locked height too short for one turn is raised, so layer 1 always winds and the lead-in and lead-out exist", async () => {
     const d = await design(
       baseSpec({
         wire: { length: 50, diameter: 3.8, type: "usb" },
-        height: { locked: true, value: 5 },
+        height: { locked: true, value: 3 },
       }),
     );
     expect(d.solution.height).toBeCloseTo(d.solution.minHeight, 6);

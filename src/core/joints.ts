@@ -8,6 +8,7 @@ import {
   BAYONET_LUG_DROP,
   BAYONET_MIN_LAND,
   BAYONET_MIN_WALL,
+  COLLAR_FLOOR_GAP,
   CAP_COLLAR_WALL,
   CAP_THICKNESS,
   JOINT_ENGAGE_DEPTH,
@@ -44,6 +45,14 @@ const MIN_GROOVE_CLEARANCE = 1;
 const HOLE_OVERSHOOT = 1;
 
 export type JointWall = Pick<WallSpec, "boreOutline" | "height" | "outline" | "grooveDepth">;
+
+export function withBoreThrough(wall: JointWall, baseThickness: number): JointWall {
+  return { ...wall, height: wall.height + baseThickness };
+}
+
+export function collarDepth(joint: JointKind, boreDepth: number): number {
+  return joint === "press" ? Math.min(JOINT_ENGAGE_DEPTH, boreDepth - COLLAR_FLOOR_GAP) : JOINT_ENGAGE_DEPTH;
+}
 
 export interface JointGeometry {
   boreRadius: number;

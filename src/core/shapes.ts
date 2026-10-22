@@ -110,6 +110,13 @@ export function offsetPerimeter(o: ShapeOutline, offset: number): number {
   return straightLength(o) + 2 * Math.PI * (o.cornerRadius + offset);
 }
 
+export function spiralTurnLength(o: ShapeOutline, offset: number, growth: number): number {
+  const side = sideLength(o);
+  const cornerArc = ((2 * Math.PI) / o.n) * o.cornerRadius;
+  const lateness = (Math.PI * side) / (o.n * (cornerArc + side));
+  return Math.hypot(offsetPerimeter(o, offset + growth / 2) - growth * lateness, growth);
+}
+
 export function inscribedRadius(o: ShapeOutline, offset: number): number {
   return o.apothem + offset;
 }

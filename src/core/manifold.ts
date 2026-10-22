@@ -1,7 +1,6 @@
 import Module, { type ManifoldToplevel } from "manifold-3d";
 import {
   CAP_THICKNESS,
-  JOINT_ENGAGE_DEPTH,
   JOINT_TRANSITION_HEIGHT,
   LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
@@ -483,6 +482,7 @@ export interface TopCapSpec {
   rimSlot?: RimSlot;
   strapSlots?: StrapSlot[];
   geometry: JointGeometry;
+  engageDepth: number;
 }
 
 export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
@@ -495,7 +495,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, label, rimSlot, strapSlots, bayonet, snap, geometry } = spec;
+    const { flange, joint, label, rimSlot, strapSlots, bayonet, snap, geometry, engageDepth } = spec;
     const plate = track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, 0, CAP_THICKNESS), flange.columns, flange.minCornerSegments));
     if (plate.status() !== "NoError") {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
@@ -504,7 +504,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     const { collarOutline, holeOutline } = geometry;
     const segments = !isPill(collarOutline) && collarOutline.cornerRadius >= collarOutline.apothem - 1e-6 ? collarSegments.round : collarSegments.other;
 
-    const straight = () => outlinePrismSolid(wasm, track, collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH, segments, flange.minCornerSegments);
+    const straight = () => outlinePrismSolid(wasm, track, collarOutline, engageDepth + WELD_OVERLAP, -engageDepth, segments, flange.minCornerSegments);
     let collar: Manifold;
     if (joint === "bayonet") {
       const slots = track(Manifold.union(bayonet!.cuts.map((f) => revolvedFeature(wasm, track, f, 0))));
@@ -519,7 +519,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     if (snap?.hole) {
       assembled = track(assembled.subtract(stackSolid(wasm, track, snap.hole, segments, flange.minCornerSegments)));
     } else if (holeOutline) {
-      const hole = outlinePrismSolid(wasm, track, holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2 * CUTTER_OVERSHOOT, -JOINT_ENGAGE_DEPTH - CUTTER_OVERSHOOT, segments, flange.minCornerSegments);
+      const hole = outlinePrismSolid(wasm, track, holeOutline, CAP_THICKNESS + engageDepth + 2 * CUTTER_OVERSHOOT, -engageDepth - CUTTER_OVERSHOOT, segments, flange.minCornerSegments);
       assembled = track(assembled.subtract(hole));
     }
     if (rimSlot) assembled = track(assembled.subtract(rimPrismCutter(wasm, track, rimSlot.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP)));

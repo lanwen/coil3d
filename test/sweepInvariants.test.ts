@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { design, FLANGE_MARGIN, outlineOffsetAt } from "../src/core";
 import type { CoilSpec, Design, JointKind, MountKind, ShapeSpec } from "../src/core";
 import { expectWithinBendLimit } from "./support/cableBend";
+import { expectSelfClear, woundWithLeadOut } from "./support/cableClearance";
 import { faceWebs, MIN_WEB, WEB_TOLERANCE } from "./support/faceWeb";
 import { unsupportedOverhangs } from "./support/overhangs";
 import { minBendRadius } from "./support/wire";
@@ -80,13 +81,71 @@ function sweepCases(): Case[] {
   return cases;
 }
 
-const CASES = sweepCases();
+const FLAT_CLEARANCE = 0.4;
+const FLAT_CORE_SIZE = 90;
+const FLAT_LIFT_PER_DIAMETER = 2;
+const FLAT_ROUND_DIGITS = 100;
+
+// Issue #376: cores in the flat band (cap and base on, under two helical turns tall): half of them with a free height
+// (which settles at the cable plus 0.4 mm), the rest locked up to two cable diameters above that. Each joint, each
+// shape, 1-3 layers, and both ends of the diameter range.
+function flatCases(): Case[] {
+  const cases: Case[] = [];
+  let step = 0;
+  const add = (shape: ShapeSpec, layers: number, diameter: number, joint: JointKind, lift: number | undefined) => {
+    const length = Math.round(0.4 * layers * Math.PI * FLAT_CORE_SIZE);
+    const height: CoilSpec["height"] = lift === undefined ? { locked: false } : { locked: true, value: diameter + FLAT_CLEARANCE + lift };
+    const spec = { ...caseSpec(shape, layers, "on", "on", diameter, "none", { locked: true, dimension: "outer", value: FLAT_CORE_SIZE }, joint), height };
+    cases.push({ name: `flat ${shape.kind} layers=${layers} d=${diameter} ${lift === undefined ? "height free" : `height=${(diameter + FLAT_CLEARANCE + lift).toFixed(2)}`}${joint === "press" ? "" : ` joint=${joint}`}`, spec: { ...spec, wire: { ...spec.wire, length } } });
+  };
+  for (const shape of SHAPES) {
+    for (const joint of JOINTS) {
+      const diameter = Math.round((DIAMETER_MIN + (DIAMETER_MAX - DIAMETER_MIN) * ((++step * GOLDEN_STEP) % 1)) * FLAT_ROUND_DIGITS) / FLAT_ROUND_DIGITS;
+      const lift = step % 2 === 0 ? undefined : Math.round(FLAT_LIFT_PER_DIAMETER * diameter * ((step * SECOND_STEP) % 1) * 10) / 10;
+      add(shape, 1 + (step % 3), diameter, joint, lift);
+    }
+    for (const diameter of [DIAMETER_MIN, DIAMETER_MAX]) add(shape, 2, diameter, "press", undefined);
+  }
+  return cases;
+}
+
+const CASES = [...sweepCases(), ...flatCases()];
 const designs = new Map<string, Promise<Design>>();
 const designOf = (c: Case) => {
   let d = designs.get(c.name);
   if (!d) designs.set(c.name, (d = design(c.spec, "final")));
   return d;
 };
+
+const FLAT_CASES = CASES.filter((c) => c.name.startsWith("flat "));
+
+describe("a flat-band design lies flat on the base under the cap, over the swept flat designs (issue #376)", () => {
+  const minZ = (d: Design, role: string) => {
+    const p = d.parts.find((q) => q.role === role)!.mesh.positions;
+    let lo = Infinity;
+    for (let i = 2; i < p.length; i += 3) lo = Math.min(lo, p[i]);
+    return lo;
+  };
+
+  it.each(FLAT_CASES)("$name", async (c) => {
+    const d = await designOf(c);
+    if (d.solution.diagnosis.status !== "ok") return;
+    expect(d.solution.flat, "a core under two helical turns tall with the cap and base on is flat").toBe(true);
+    const z = (c.spec.wire.diameter + FLAT_CLEARANCE) / 2;
+    for (const w of d.wirePaths) {
+      for (let i = 2; i < w.points.length; i += 3) expect(Math.abs(w.points[i] - z), `layer ${w.layer} sample ${i / 3}`).toBeLessThan(1e-3);
+    }
+    const jointRaised = d.notices.some((n) => /Height raised to .*bore needs room/.test(n.message));
+    if (!c.spec.height.locked && !jointRaised) expect(d.solution.height - c.spec.wire.diameter, "the cap closes on the cable").toBeLessThanOrEqual(FLAT_CLEARANCE + 1e-6);
+    expect(minZ(d, "topCap"), "the cap's collar stops above the core's underside").toBeGreaterThanOrEqual(minZ(d, "core"));
+    expectSelfClear(woundWithLeadOut(d), c.spec.wire.diameter, c.name);
+  });
+
+  it("checks enough flat designs to mean something", async () => {
+    const flat = await Promise.all(FLAT_CASES.map(async (c) => (await designOf(c)).solution.flat && (await designOf(c)).solution.diagnosis.status === "ok"));
+    expect(flat.filter(Boolean).length).toBeGreaterThanOrEqual(FLAT_CASES.length * 0.75);
+  });
+});
 
 describe("every printed part prints without supports, over the swept designs (issue #274)", () => {
   it.each(CASES)("$name", async (c) => {

@@ -21,13 +21,13 @@ test("a share link with a too-small locked height opens raised, with the note an
   await settle(page);
 
   const input = page.getByTestId("input-height");
-  await expect(input).toHaveValue("9.5");
-  await expect(input).toHaveAttribute("min", "9.5");
-  await expect(page.getByTestId("height-raised-note")).toContainText("Minimum for this cable: 9.5 mm. Your value was raised to it.");
+  await expect(input).toHaveValue("4.2");
+  await expect(input).toHaveAttribute("min", "4.2");
+  await expect(page.getByTestId("height-raised-note")).toContainText("Minimum for this cable: 4.2 mm. Your value was raised to it.");
   await expect(page.getByTestId("warnings").locator("li", { hasText: /height raised/i })).toHaveAttribute("data-severity", "note");
 
   const built = Number((await page.getByTestId("height").textContent())?.match(/([\d.]+)/)?.[1]);
-  expect(Math.abs(built - 9.5)).toBeLessThan(1);
+  expect(Math.abs(built - 4.2)).toBeLessThan(1);
 });
 
 test("typing a height below the minimum clamps it to the minimum", async ({ page }) => {
@@ -37,28 +37,28 @@ test("typing a height below the minimum clamps it to the minimum", async ({ page
   const input = page.getByTestId("input-height");
   await input.fill("1");
   await input.blur();
-  await expect(input).toHaveValue("9.5");
-  await expect(input).toHaveAttribute("min", "9.5");
-  await expect.poll(() => decodeHashDoc(page.url()).h).toBe(9.5);
+  await expect(input).toHaveValue("4.2");
+  await expect(input).toHaveAttribute("min", "4.2");
+  await expect.poll(() => decodeHashDoc(page.url()).h).toBe(4.2);
   await expect(page.getByTestId("height-raised-note")).toHaveCount(0);
 });
 
 test("a locked height falls below a floor that rises with a thicker cable, then clears when it drops back", async ({ page }) => {
-  await page.goto(capped(12));
+  await page.goto(capped(6));
   await settle(page);
-  await expect(page.getByTestId("input-height")).toHaveValue("12");
+  await expect(page.getByTestId("input-height")).toHaveValue("6");
   await expect(page.getByTestId("height-raised-note")).toHaveCount(0);
 
   const diameter = page.getByTestId("input-wireDiameter");
   await diameter.fill("8");
   await diameter.blur();
-  await expect(page.getByTestId("input-height")).toHaveValue("19");
-  await expect(page.getByTestId("input-height")).toHaveAttribute("min", "19");
+  await expect(page.getByTestId("input-height")).toHaveValue("8.4");
+  await expect(page.getByTestId("input-height")).toHaveAttribute("min", "8.4");
   await expect(page.getByTestId("height-raised-note")).toBeVisible();
 
   await diameter.fill("3.8");
   await diameter.blur();
-  await expect(page.getByTestId("input-height")).toHaveValue("12");
+  await expect(page.getByTestId("input-height")).toHaveValue("6");
   await expect(page.getByTestId("height-raised-note")).toHaveCount(0);
 });
 

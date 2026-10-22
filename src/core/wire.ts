@@ -10,6 +10,7 @@ import {
   DRAFT_WIRE_MIN_SAMPLES_PER_TURN,
   FINAL_WIRE_MAX_ARC_LENGTH,
   FINAL_WIRE_MIN_SAMPLES_PER_TURN,
+  FLAT_LEAD_OUT_TURNS_MAX,
   LEAD_OUT_TURNS_MAX,
   MARGIN_BOTTOM,
 } from "./constants";
@@ -44,8 +45,9 @@ export interface LayerRun {
   slope: number;
 }
 
-function layerRun(result: LayerResult, start: number, pitch: number, zStart: number, windingQuality: number, offsetAt: (local: number) => number): LayerRun {
+function layerRun(result: LayerResult, start: number, pitch: number, zStart: number, windingQuality: number, offsetAt: (local: number) => number, flatZ?: number): LayerRun {
   const { layer, turns } = result;
+  if (flatZ !== undefined) return { layer, turns, offsetAt, start, z: () => flatZ, slope: 0 };
   const shift = phaseShiftTurns(layer, windingQuality);
   const climbs = (layer - 1) % 2 === 0;
   return {
@@ -76,7 +78,8 @@ function sampleLayer(outline: ShapeOutline, run: LayerRun, perimeter: number, pi
   return points;
 }
 
-export function woundReachOffset(envelopeOffset: number, wireDiameter: number, woundLayers: number, topCap: boolean): number {
+export function woundReachOffset(envelopeOffset: number, wireDiameter: number, woundLayers: number, topCap: boolean, flat = false): number {
+  if (flat) return envelopeOffset + wireDiameter * (1 + FLAT_LEAD_OUT_TURNS_MAX);
   if (woundLayers % 2 === 0 && (topCap || woundLayers > 0)) return envelopeOffset + wireDiameter;
   if (!topCap) return envelopeOffset;
   return Math.max(envelopeOffset, wireDiameter + CAP_LEAD_OUT_WALL_GAP);
@@ -126,7 +129,7 @@ export interface WoundLayers {
   warnings: string[];
 }
 
-export function windLayers(layerResults: LayerResult[], outline: ShapeOutline, wireDiameter: number, windingQuality: number, resolution: Resolution, bendRadius: number): WoundLayers {
+export function windLayers(layerResults: LayerResult[], outline: ShapeOutline, wireDiameter: number, windingQuality: number, resolution: Resolution, bendRadius: number, flatZ?: number): WoundLayers {
   const groove = grooveShape(wireDiameter);
   const { pitch } = groove;
   const zStart = grooveStartHeight(groove, MARGIN_BOTTOM);
@@ -141,10 +144,12 @@ export function windLayers(layerResults: LayerResult[], outline: ShapeOutline, w
     if (result.turns <= 0) continue;
     const prev = runs.at(-1);
     let start = 0;
-    if (prev) {
+    if (prev && flatZ !== undefined) {
+      start = prev.start + prev.turns;
+    } else if (prev) {
       const prevPoints = wirePaths.at(-1)!.points;
       const u0 = prev.start + prev.turns;
-      const next = layerRun(result, 0, pitch, zStart, windingQuality, () => result.offset);
+      const next = layerRun(result, 0, pitch, zStart, windingQuality, () => result.offset, flatZ);
       const z0 = prev.z(prev.turns);
       const z1 = next.z(0);
       const o1 = result.offset;
@@ -164,7 +169,8 @@ export function windLayers(layerResults: LayerResult[], outline: ShapeOutline, w
       layerTransitions.push(found.points);
       start = u0 + found.turns;
     }
-    const run = layerRun(result, start, pitch, zStart, windingQuality, () => result.offset);
+    const offsetAt = flatZ === undefined ? () => result.offset : (local: number) => result.offset + wireDiameter * (local / result.turns);
+    const run = layerRun(result, start, pitch, zStart, windingQuality, offsetAt, flatZ);
     runs.push(run);
     wirePaths.push({ layer: run.layer, turns: run.turns, points: sampleLayer(outline, run, result.perimeter, pitch, resolution) });
   }
@@ -225,17 +231,22 @@ function capLeadOut(outline: ShapeOutline, last: LayerRun, lastPoints: Float32Ar
   const d = wireDiameter;
   const zKey = ends.wallHeight + capCableZ(d);
   const o0 = last.offsetAt(last.turns);
-  const climbsAll = last.slope < 0;
-  const oKey = climbsAll ? o0 + d : Math.max(o0, d / 2 + CAP_LEAD_OUT_WALL_GAP);
-  const offsetAt = climbsAll ? (s: number) => o0 + (oKey - o0) * unitRamp(Math.min(1, s / CLIMB_OFFSET_SPAN)) : (s: number) => o0 + (oKey - o0) * unitRamp(s);
+  const spirals = last.slope === 0;
+  const shiftsOut = last.slope < 0;
+  const oKeyAfter = (turns: number) => (spirals ? o0 + d * turns : shiftsOut ? o0 + d : Math.max(o0, d / 2 + CAP_LEAD_OUT_WALL_GAP));
+  const offsetFor = (turns: number) => {
+    const oKey = oKeyAfter(turns);
+    return shiftsOut ? (s: number) => o0 + (oKey - o0) * unitRamp(Math.min(1, s / CLIMB_OFFSET_SPAN)) : spirals ? (s: number) => o0 + (oKey - o0) * s : (s: number) => o0 + (oKey - o0) * unitRamp(s);
+  };
   const found = searchBlend(
     (turns) => {
-      const points = outlineBlend(outline, uEnd, turns, offsetAt, zEnd, last.slope, zKey, 0);
+      const points = outlineBlend(outline, uEnd, turns, offsetFor(turns), zEnd, last.slope, zKey, 0);
       return { points, check: withNeighbours(nthFromEnd(lastPoints, 1), points) };
     },
     limit,
-    LEAD_OUT_TURNS_MAX,
+    spirals ? FLAT_LEAD_OUT_TURNS_MAX : LEAD_OUT_TURNS_MAX,
   );
+  const oKey = oKeyAfter(found.turns);
   const warning = found.ok ? undefined : `On its way up to the top cap the cable bends tighter than it should (its bend radius is ${(ends.bendRadius / 10).toFixed(1)} cm).`;
   const outerEndU = uEnd + found.turns;
   const tail = capTailPath(outline, ends.flangeMargin, oKey, d, ends.bendRadius, outerEndU).flatMap((p) => [p.x, p.y, zKey]);

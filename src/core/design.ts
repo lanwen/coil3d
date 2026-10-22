@@ -23,7 +23,7 @@ import {
 } from "./constants";
 import { buildMountPlate, buildPeg, buildSkadisClip, buildSkadisTclip, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
-import { jointGeometry, resolveCapJoint } from "./joints";
+import { collarDepth, jointGeometry, resolveCapJoint, withBoreThrough } from "./joints";
 import { layoutInnerEnd, layoutRimSlot, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
 import type { RimSlot, SweepSolid, XY } from "./innerEnd";
 import { printBBox } from "./plate";
@@ -46,12 +46,18 @@ import type { CoilMesh, CoilSpec, Design, DesignMountLayout, Part, Resolution, S
 import { buildWall, grooveFadeTriangles, grooveShape, wallThickness } from "./wall";
 import { boreFilletRadius, crossingActive, crossingReserve, faceDipSweep, faceTopFloor, planFaceChannels } from "./faceChannel";
 import { buildCable, outerStartOf, windLayers } from "./wire";
+import { flatCableZ } from "./capacity";
 
 const STADIUM_ARC_SEGMENTS = 12;
 const CABLE_END_EPSILON = 0.01;
 
+function flatCableZOf(spec: CoilSpec, solution: Solution): number | undefined {
+  return solution.flat ? flatCableZ(spec.wire.diameter) : undefined;
+}
+
 function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, boreOutline: ShapeOutline) {
   const wireDiameter = spec.wire.diameter;
+  const flatZ = flatCableZOf(spec, solution);
   const mountKindForPlate = spec.mount === "opengrid" ? spec.mount : undefined;
   const heavyCable = isHeavyCable(wireDiameter, spec.wire.length);
 
@@ -63,7 +69,7 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
     solution.flangeSize,
     wireDiameter,
     spec.mount,
-    { tolerance: spec.tolerance, bendRadius, heavyCable, woundLayers: solution.layerResults.filter((r) => r.turns > 0).length, topCap: solution.topCapEnabled },
+    { tolerance: spec.tolerance, bendRadius, heavyCable, woundLayers: solution.layerResults.filter((r) => r.turns > 0).length, topCap: solution.topCapEnabled, flatZ },
     spec.keyholeRotation,
     spec.throughHoleDiameter,
     baseOn,
@@ -72,7 +78,7 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
 
   const layoutsAt = (margin: number) => {
     let thickness = sized.thickness;
-    const innerEndLayout = baseOn ? layoutInnerEnd(outline, margin, wireDiameter, spec.tolerance, bendRadius, channelDepth) : undefined;
+    const innerEndLayout = baseOn ? layoutInnerEnd(outline, margin, wireDiameter, spec.tolerance, bendRadius, channelDepth, flatZ) : undefined;
 
     let mountLayout: MountLayout | undefined;
     if (spec.mount === "keyhole") {
@@ -201,7 +207,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const woundLayers = solution.layerResults.filter((r) => r.turns > 0).length;
   const bendLimit = bendMultiplierOf(spec.wire) * wireDiameter;
-  const wound = windLayers(solution.layerResults, outline, wireDiameter, solution.windingQualityUsed, resolution, bendLimit);
+  const wound = windLayers(solution.layerResults, outline, wireDiameter, solution.windingQualityUsed, resolution, bendLimit, flatCableZOf(spec, solution));
   const topFace = !solution.topCapEnabled;
   const bottomFace = !baseEnabled(spec);
   const reserve = crossingActive(solution.layers, solution.topCapEnabled) ? crossingReserve(wireDiameter, spec.tolerance) : 0;
@@ -247,6 +253,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     columns,
     minCornerSegments: cornerSegs,
     rowsPerPitch,
+    flat: solution.flat,
     faceLeads: faceChannels && {
       bottom: faceChannels.inner !== undefined,
       top: faceChannels.outer !== undefined && faceChannels.outer.ramp === undefined && woundLayers === 1,
@@ -265,7 +272,8 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const wantsKeyhole = spec.mount === "keyhole";
   const wantsThrough = spec.mount === "through";
   const { mountKindForPlate, bendRadius, sizing, channelDepth, innerEndLayout, mountLayout, skadisLayout, thickness, marginBeforeStrap } = planFlange(spec, solution, outline, boreOutline);
-  const capJoint = resolveCapJoint(spec, wallSpec);
+  const capJoint = resolveCapJoint(spec, withBoreThrough(wallSpec, thickness));
+  const engageDepth = collarDepth(capJoint.joint, solution.height + thickness);
   const capGeometry = solution.topCapEnabled ? jointGeometry(boreOutline, capJoint.joint, spec.tolerance) : undefined;
   const tclipLayout: SkadisTclipLayout | undefined =
     spec.mount === "skadis-tclip"
@@ -276,6 +284,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
           wallTop: solution.height,
           thickness,
           tolerance: spec.tolerance,
+          engageDepth,
         })
       : undefined;
   const { margin, thickness: sizedThickness, plateThickness, baseMargin, mountMargin, innerEndMargin, rimSlotMargin, channelOnlyThickness, envelopeOffset } = sizing;
@@ -456,7 +465,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
 
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot, strapSlots: platesSlots.cap, geometry: capGeometry! });
+    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot, strapSlots: platesSlots.cap, geometry: capGeometry!, engageDepth });
     const assembled = translateMesh(capMesh, [0, 0, solution.height]);
     parts.push({
       name: "top-cap",

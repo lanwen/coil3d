@@ -230,13 +230,13 @@ function planLeadIn(
   tolerance: number,
   bendRadius: number,
   channelDepth: number,
-  { forcedDrop, curve = 0 }: { forcedDrop?: number; curve?: number } = {},
+  { forcedDrop, curve = 0, flatZ }: { forcedDrop?: number; curve?: number; flatZ?: number } = {},
 ): LeadInRoute {
   const d = wireDiameter;
   const groove = grooveShape(d);
   const layerOneOffset = d / 2 - groove.depth;
   const { pitch } = groove;
-  const zStart = grooveStartHeight(groove, MARGIN_BOTTOM);
+  const zStart = flatZ ?? grooveStartHeight(groove, MARGIN_BOTTOM);
 
   const j = pointAt(outline, 0, layerOneOffset);
   const ahead = pointAt(outline, TANGENT_PROBE_PHI, layerOneOffset);
@@ -247,7 +247,7 @@ function planLeadIn(
   const ty = tyRaw / (xyPerPhi * TANGENT_PROBE_PHI);
   const nx = j.nx;
   const ny = j.ny;
-  const helixSlope = pitch / xyPerPhi;
+  const helixSlope = flatZ === undefined ? pitch / xyPerPhi : 0;
 
   const zOnChannelFloor = -channelDepth + d / 2;
   const drop = zStart - zOnChannelFloor;
@@ -256,7 +256,7 @@ function planLeadIn(
   const plan = (curvature: number) => {
     const ease = zStart - (d + tolerance) / 2;
     const easeA = Math.min(ease > NEGLIGIBLE ? (helixSlope * helixSlope) / (2 * ease) : Infinity, curvature / 2);
-    const easeLength = helixSlope / easeA;
+    const easeLength = helixSlope > NEGLIGIBLE ? helixSlope / easeA : 0;
     const lateralA = Math.sqrt(Math.max(0, curvature * curvature - easeA * easeA)) - curve;
     const dropA = Math.sqrt(Math.max(0, curvature * curvature - curve * curve));
     if (lateralA <= 0 || dropA <= 0) return undefined;
@@ -331,19 +331,20 @@ function bendToRim(
   limit: number,
   target: number,
   clipLen: number,
+  flatZ?: number,
 ): { route: LeadInRoute; clipEnd: number } | undefined {
   const maxCurve = (EXIT_BEND_BUDGET_SHARE * CABLE_BEND_BUDGET) / bendRadius;
   let at = target;
   for (let pass = 0; pass < BEND_TO_RIM_PASSES; pass++) {
     let lo = 0;
     let hi = maxCurve;
-    if (chordOffset(outline, planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: hi }), at) < limit) lo = hi;
+    if (chordOffset(outline, planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: hi, flatZ }), at) < limit) lo = hi;
     for (let i = 0; i < BEND_TO_RIM_ITERATIONS && lo < hi; i++) {
       const mid = (lo + hi) / 2;
-      if (chordOffset(outline, planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: mid }), at) < limit) lo = mid;
+      if (chordOffset(outline, planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: mid, flatZ }), at) < limit) lo = mid;
       else hi = mid;
     }
-    const route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: lo });
+    const route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { curve: lo, flatZ });
     if (route.settledAt + clipLen <= at + COINCIDENT) return { route, clipEnd: at };
     at = route.settledAt + clipLen;
   }
@@ -354,8 +355,8 @@ function clipLimit(margin: number, R: number): number {
   return margin - R - CABLE_CLIP_WALL;
 }
 
-export function requiredInnerEndMargin(outline: ShapeOutline, wireDiameter: number, tolerance: number, bendRadius: number, channelDepth = idealChannelDepth(wireDiameter)): number {
-  const route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth);
+export function requiredInnerEndMargin(outline: ShapeOutline, wireDiameter: number, tolerance: number, bendRadius: number, channelDepth = idealChannelDepth(wireDiameter), flatZ?: number): number {
+  const route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { flatZ });
   return chordOffset(outline, route, route.settledAt + clipLength(wireDiameter)) + clipRadius(wireDiameter, tolerance) + CABLE_CLIP_WALL;
 }
 
@@ -373,12 +374,13 @@ export function layoutInnerEnd(
   tolerance: number,
   bendRadius: number,
   channelDepth = idealChannelDepth(wireDiameter),
+  flatZ?: number,
 ): InnerEndLayout {
   const R = clipRadius(wireDiameter, tolerance);
   const clipLen = clipLength(wireDiameter);
   const closed = baseClipOpeningFraction(wireDiameter, tolerance) * R;
 
-  let route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth);
+  let route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { flatZ });
   const minClipEnd = route.settledAt + clipLen;
   const limit = clipLimit(margin, R);
   const requiredMargin = chordOffset(outline, route, minClipEnd) + R + CABLE_CLIP_WALL;
@@ -400,14 +402,14 @@ export function layoutInnerEnd(
     clipEnd = findClipEnd(minClipEnd, hi);
     const halfFlat = sideLength(outline) / 2;
     if (halfFlat > COINCIDENT && clipEnd > halfFlat) {
-      const bent = bendToRim(outline, wireDiameter, tolerance, bendRadius, channelDepth, limit, halfFlat, clipLen);
+      const bent = bendToRim(outline, wireDiameter, tolerance, bendRadius, channelDepth, limit, halfFlat, clipLen, flatZ);
       if (bent) ({ route, clipEnd } = bent);
     }
     clipFrom = clipEnd - clipLen;
   } else {
     clipEnd = findClipEnd(0, minClipEnd);
     clipFrom = Math.max(clipEnd - clipLen, clipEnd / 2);
-    route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { forcedDrop: clipFrom });
+    route = planLeadIn(outline, wireDiameter, tolerance, bendRadius, channelDepth, { forcedDrop: clipFrom, flatZ });
     warning = `The ${margin.toFixed(1)} mm flange margin is too narrow for the inner cable end to reach the groove within its ${bendRadius.toFixed(1)} mm bend radius; it needs at least ${requiredMargin.toFixed(1)} mm.`;
   }
 

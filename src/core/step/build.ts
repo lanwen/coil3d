@@ -6,7 +6,6 @@ import { createWallProfile, wallColumnParams } from "../wall";
 import type { WallProfile, WallSpec } from "../wall";
 import {
   CAP_THICKNESS,
-  JOINT_ENGAGE_DEPTH,
   JOINT_TRANSITION_HEIGHT,
   LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
@@ -32,7 +31,7 @@ import {
 } from "../constants";
 import { chamferedRim, chamferWedgeRows, SLAB_BELOW_FACE } from "../edgeChamfer";
 import type { RimRow } from "../edgeChamfer";
-import { jointGeometry, resolveCapJoint } from "../joints";
+import { collarDepth, jointGeometry, resolveCapJoint, withBoreThrough } from "../joints";
 import type { OutlineStack, RevolvedFeature } from "../joints";
 import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
 import type { LabelLoop, ResolvedLabel } from "../label";
@@ -535,7 +534,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     coreSolid = tube.fuse(flangeSolid);
   }
 
-  const capJoint = resolveCapJoint(design.spec, design.wallSpec);
+  const capJoint = resolveCapJoint(design.spec, withBoreThrough(design.wallSpec, design.flangeSpec.thickness));
   if (design.solution.topCapEnabled && (capJoint.joint === "bayonet" || capJoint.joint === "snap")) {
     coreSolid = applyCoreJointCutSolid(coreSolid, {
       boreOutline,
@@ -845,9 +844,10 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   const { flangeSpec, spec, solution } = design;
   const plate = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, 0, CAP_THICKNESS));
 
-  const capJoint = resolveCapJoint(spec, design.wallSpec);
+  const capJoint = resolveCapJoint(spec, withBoreThrough(design.wallSpec, flangeSpec.thickness));
+  const engageDepth = collarDepth(capJoint.joint, design.wallSpec.height + flangeSpec.thickness);
   const { collarOutline, holeOutline } = jointGeometry(flangeSpec.boreOutline, capJoint.joint, spec.tolerance);
-  const straight = () => outlineSolid(collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH);
+  const straight = () => outlineSolid(collarOutline, engageDepth + WELD_OVERLAP, -engageDepth);
   const snap = capJoint.snap;
 
   let collar: R.Shape3D;
@@ -863,7 +863,7 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
 
   let assembled = plate.fuse(collar);
   if (snap?.hole) assembled = assembled.cut(stackSolidStep(snap.hole));
-  else if (holeOutline) assembled = assembled.cut(outlineSolid(holeOutline, CAP_THICKNESS + JOINT_ENGAGE_DEPTH + 2, -JOINT_ENGAGE_DEPTH - 1));
+  else if (holeOutline) assembled = assembled.cut(outlineSolid(holeOutline, CAP_THICKNESS + engageDepth + 2, -engageDepth - 1));
 
   const { label } = await resolveLabel(spec.label, flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin, solution.topCapEnabled);
   if (label) {

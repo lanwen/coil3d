@@ -644,7 +644,14 @@ defect.
   3 mm thick, above the wall's top the way the flange is below z=0.
 - The collar's outer diameter keeps 0.3 mm (`JOINT_FIT_GAP`) from the bore's
   inscribed circle, before the tolerance. That keeps it clear of a non-round
-  bore's corners too. It reaches 7 mm into the bore.
+  bore's corners too. It reaches 7 mm into the bore. The bore runs through
+  the base flange, so the room a joint has is the wall's height plus the
+  flange's thickness (#376): a core only as tall as its cable still takes the
+  twist lock (9 mm), and a press collar stops `COLLAR_FLOOR_GAP` (1 mm) short
+  of the flange's underside, so the coil stands flat. The snap clips need
+  their 12 mm finger plus 2 mm; where that is more than the bore has, the cap
+  falls back to the press collar with the usual note, and a free height is
+  raised to fit the clips as before.
 - The collar is a tube 2 mm thick, and the hole through its middle runs
   straight through the cap. No floor, ledge or roof over it would print as a
   bridge. The snap collar flares at its root over 2 mm; press and bayonet
@@ -795,6 +802,38 @@ turns as layer 1, the radial step is `d`, and there is no phase shift. The
 solver, the drawn cable and the outer-end crossing all read that same
 quality, so locking many layers on a core one turn tall adds length instead of
 empty flange. The envelope counts only layers that hold a turn.
+
+**A flat spiral lies on the base and the cap closes on it** (#376). With the
+base and the cap both on and `floor(H / p)` below 2, the helical climb is
+pointless: a layer needs a full groove pitch of height per turn, which left
+5.7 mm of play above a 3.8 mm cable. The cable is drawn planar instead, at
+`(d + 0.4) / 2` above the base; the wall is a plain face at the groove floor
+(no groove, so layer 1 keeps the same offset), and the lowest height is
+`d + FLAT_GAP_CLEARANCE`: 4.2 mm for a 3.8 mm cable, 2.4 mm for 2 mm, 8.4 mm
+for 8 mm. The layers are the turns of one spiral: the outline offset grows by
+`d` over each turn, so every turn lies exactly `d` outside the one before it at
+every angle, and there is no hop between layers (a layer that stepped out by
+`d` over part of a turn passed through its own first turn). A turn's length is
+that of its mid-offset curve, `spiralTurnLength` in `shapes.ts`; it matches the
+drawn cable within 0.01 %. Capacity is constant from the gap up to the height
+of two helical turns, where the helical model takes over unchanged. A free
+height settles at the gap (the solver picks the lowest height that covers the
+cable); a locked height above it is honoured, the cable still lies on the base,
+and a note names the snug height. The clearance is a fixed 0.4 mm, not the
+tolerance: it forgives a top layer the slicer prints a layer short and a jacket
+thicker than its nominal diameter, and the cap never presses on the cable. The
+tolerance would have made it print-calibration dependent in a place where the
+cable, not the printer, sets the fit. The last turn ends `d` outside where it
+began, and the outer end keeps spiralling out for up to
+`FLAT_LEAD_OUT_TURNS_MAX` of a turn so it stays `d` clear of the turn inside
+it. A flat core's flange margin carries that reach. The inner lead-in settles
+at the same height, with no slope.
+
+The cable never passes through itself. `test/support/cableClearance.ts` checks
+that any two samples of the layers and the outer end more than 3 cable
+diameters apart along the path are at least 0.98 d apart (centre to centre). The
+inner lead-in is not covered: it crosses the stack at the layers' height for its
+first few millimetres, which is a known gap.
 
 **Length.** `L_wound = sum_k n_k sqrt(P(o_k)^2 + p^2)`. The helix correction
 is small, but free.
