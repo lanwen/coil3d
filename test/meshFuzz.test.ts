@@ -448,6 +448,15 @@ const REPRODUCTIONS_227: Reproduction[] = [
     resolution: "final",
     segments: { round: 96, other: 96 },
   },
+  {
+    // Counting the bore through the base as joint room let a snap seat ring drop below the wall's foot, where its top
+    // edge sat 0.01 mm from a T-clip feature at z = 1 (fuzz case 2918, height 13.31, snap, SKÅDIS T-clips). The ring
+    // now stays within the wall, as before.
+    name: "a snap seat ring beside the T-clips on a core as tall as the finger (fuzz case 2918)",
+    spec: { wire: { length: 4736, diameter: 2.53, type: "flex" }, windingQuality: 0.72, coreSize: { locked: true, dimension: "inner", value: 65.66 }, height: { locked: true, value: 13.31 }, layers: { locked: false }, objective: "aspectRatio", joint: "snap", tolerance: 0.11, mount: "skadis-tclip", plateJoint: "snap", keyholeRotation: 0, throughHoleDiameter: 5.21, label: "HDMI", base: "on" },
+    resolution: "draft",
+    segments: { round: 192, other: 144 },
+  },
 ];
 
 describe("mesh clean-up reproductions (issue #227): every part is one solid, with no short edges or folds", () => {

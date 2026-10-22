@@ -2,7 +2,7 @@ import { computeCapacity, envelopeDiameter, flatCableZ, flatGap, turnsForLayer }
 import type { CapacityResult } from "./capacity";
 import { crossingActive, crossingReserve, faceEndsLength, minFaceChannelHeight, minFaceChannelOuterSize, nominalOuterStart, planFaceChannels } from "./faceChannel";
 import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, minBaseThickness, resolveFlangeSizing } from "./flange";
-import { jointGeometry, resolveCapJoint } from "./joints";
+import { jointGeometry, resolveCapJoint, withBoreThrough } from "./joints";
 import { isHeavyCable } from "./skadisClips";
 import { layoutSkadisTclips } from "./skadisTclips";
 import {
@@ -234,7 +234,7 @@ function smallestThat(fits: (value: number) => boolean, lo: number, hi: number):
 function coreAt(spec: CoilSpec, outerSize: number, height: number) {
   const outline = resolveOutline(spec.shape, outerSize, bendCornerRadiusFloor(spec.wire), spec.wire);
   const boreOutline = resolveBoreOutline(outline, spec.wire.diameter).boreOutline;
-  return { outline, boreOutline, height: height + minBaseThickness(spec), grooveDepth: grooveShape(spec.wire.diameter).depth };
+  return withBoreThrough({ outline, boreOutline, height, grooveDepth: grooveShape(spec.wire.diameter).depth }, minBaseThickness(spec));
 }
 
 function capJointFits(spec: CoilSpec, outerSize: number, height: number): boolean {
