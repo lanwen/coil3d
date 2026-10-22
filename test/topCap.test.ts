@@ -1,12 +1,8 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design, exportDesign } from "../src/core";
+import { design, EDGE_CHAMFER, exportDesign, offsetArea } from "../src/core";
 import type { CoilSpec, JointKind, ShapeSpec } from "../src/core";
-import { bedRestingTransform } from "../src/core/plate";
-import { applyRigidTransform } from "../src/core/transform";
-import { offsetArea } from "../src/core/shapes";
-import { jointGeometry } from "../src/core/joints";
-import { EDGE_CHAMFER } from "../src/core/constants";
+import { restOnBed } from "./support/transform";
 
 // Issue #9 acceptance criteria: "Top cap auto-on when layers > 1" (since #292 auto is
 // off whatever the base, so these specs ask for the cap); override
@@ -245,7 +241,7 @@ describe("exportDesign for a two-part design (issue #9)", () => {
 
   // Issue #10 review: a bed-fit fix in this same ticket found the core
   // sitting a few mm below the plate in the 3MF export; the STL exporter
-  // shares the exact same `bedRestingTransform` (plate.ts), so pin the
+  // shares the same rest-on-the-bed rule (`restOnBed`), so pin the
   // invariant here too, per part, not just for 3MF -- "each exported STL
   // part's min z is 0".
   it("every part in the STL zip rests exactly on the bed (min Z = 0), not just the 3MF export", async () => {
@@ -319,9 +315,9 @@ describe("exportDesign for a two-part design (issue #9)", () => {
 describe("issue #67/#127: the top cap rests on one flat face, with nothing below it and no bridges", () => {
   // The cap's flat outer face: the flange's outer outline (offset out by
   // margin, less the rim's chamfer since issue #229) minus the through-hole
-  // (joints.ts's `holeOutline`).
+  // (the cap joint's `holeOutline`).
   function faceArea(d: Awaited<ReturnType<typeof design>>): number {
-    const { holeOutline } = jointGeometry(d.flangeSpec.boreOutline, d.spec.joint, d.spec.tolerance);
+    const holeOutline = d.capJoint?.holeOutline;
     return offsetArea(d.flangeSpec.outline, d.flangeSpec.margin - EDGE_CHAMFER) - (holeOutline ? offsetArea(holeOutline, 0) : 0);
   }
 
@@ -357,7 +353,7 @@ describe("issue #67/#127: the top cap rests on one flat face, with nothing below
 
   // Test-audit report, C-A (A3): this used to also have a `belowRestingPlane`
   // helper + `expect(belowRestingPlane(resting.positions)).toBe(0)` alongside
-  // every `flatArea` check below. `bedRestingTransform` (plate.ts) translates
+  // every `flatArea` check below. `restOnBed` (test/support/transform.ts) translates
   // by `-printBBox(part).minZ`, so the resting mesh's global min Z is 0 BY
   // CONSTRUCTION -- that assertion was a self-comparison against the same
   // transform under test, not an independent geometry check (its own comment
@@ -379,7 +375,7 @@ describe("issue #67/#127: the top cap rests on one flat face, with nothing below
         }),
       );
       const cap = d.parts.find((p) => p.role === "topCap")!;
-      const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
+      const resting = restOnBed(cap);
       const minZ = minZOf(resting.positions);
       expect(flatArea(resting, minZ) / faceArea(d)).toBeGreaterThanOrEqual(0.9);
     });
@@ -397,7 +393,7 @@ describe("issue #67/#127: the top cap rests on one flat face, with nothing below
         }),
       );
       const cap = d.parts.find((p) => p.role === "topCap")!;
-      const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
+      const resting = restOnBed(cap);
       const minZ = minZOf(resting.positions);
       expect(flatArea(resting, minZ) / faceArea(d)).toBeGreaterThanOrEqual(0.9);
     });
@@ -418,7 +414,7 @@ describe("issue #67/#127: the top cap rests on one flat face, with nothing below
       }),
     );
     const cap = d.parts.find((p) => p.role === "topCap")!;
-    const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
+    const resting = restOnBed(cap);
     const minZ = minZOf(resting.positions);
     expect(flatArea(resting, minZ) / faceArea(d)).toBeGreaterThanOrEqual(0.9);
   });
@@ -503,7 +499,7 @@ describe("issue #67/#127: the top cap rests on one flat face, with nothing below
     it.each(SHAPES)("$kind: nothing prints as a bridge in the cap's print orientation", async (shape) => {
       for (const label of [undefined, "USB-C 2m"]) {
         const cap = await capOf(shape, joint, label);
-        const resting = applyRigidTransform(cap.mesh, bedRestingTransform(cap));
+        const resting = restOnBed(cap);
         const minZ = minZOf(resting.positions);
         expect(widestBridge(resting, minZ), `${shape.kind}/${joint}/${label ?? "no label"}: widest downward face over open air, mm`).toBeLessThan(2);
       }

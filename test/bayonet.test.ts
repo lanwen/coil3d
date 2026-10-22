@@ -1,10 +1,9 @@
 import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { BAYONET_LUG_COUNT, design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, ShapeSpec } from "../src/core";
-import { BAYONET_LUG_COUNT } from "../src/core/constants";
-import { applyRigidTransform } from "../src/core/transform";
+import { applyRigidTransform } from "./support/transform";
 
 // Issue #167: the bayonet (twist lock) top cap, through design() only. The
 // core's lugs must line up with the collar's entry slots when the cap is

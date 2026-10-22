@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilSpec, Design, JointKind, MountKind, ShapeSpec } from "../src/core";
-import { resolveCapJoint } from "../src/core/joints";
 
 // Issue #259: a free-size design grows its core (or the flange margin) until the chosen mount and joint fit, instead of
 // dropping holes, clips or the twist lock. Swept through design(): every shape, cable diameters 2-8 mm in fractional
@@ -78,7 +77,7 @@ function expectNothingSkipped(d: Design, label: string) {
     expect(parts("peg"), `${label}: plate pegs`).toBe(2);
   }
   if (d.spec.topCap === "on" && !bayonetOnCorner) {
-    expect(resolveCapJoint(d.spec, d.wallSpec).joint, `${label}: the chosen joint`).toBe(d.spec.joint);
+    expect(d.capJoint?.kind, `${label}: the chosen joint`).toBe(d.spec.joint);
   }
 }
 
