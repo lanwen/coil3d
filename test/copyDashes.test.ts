@@ -32,7 +32,7 @@ function sweep(): Array<{ name: string; spec: CoilSpec }> {
   cases.push({ name: "strap slots", spec: spec({ strapSlots: true, base: "on", topCap: "on" }) });
   cases.push({ name: "thin flange", spec: spec({ wire: { length: 1000, diameter: 2.4, type: "usb" }, shape: SHAPES[2], mount: "keyhole", base: "on", topCap: "on", height: { locked: true, value: 33 } }) });
   cases.push({
-    name: "loose winding shortfall",
+    name: "tight winding shortfall",
     spec: spec({ wire: { length: 3000, diameter: 4, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: 60 }, height: { locked: false }, layers: { locked: false } }),
   });
   cases.push({
@@ -85,7 +85,7 @@ describe("shown text uses no double-hyphen dash (issue #318)", () => {
 
   it("the sweep reaches the solver's own notes, so the check above is not vacuous", async () => {
     const messages = (await Promise.all(cases.map(async ({ spec: s }) => (await design(s, "draft")).notices.map((n) => n.message)))).flat();
-    for (const fragment of [/loose winding may not fit/, /Envelope footprint/]) {
+    for (const fragment of [/tight winding may not fit/, /Envelope footprint/]) {
       expect(messages.some((m) => fragment.test(m)), String(fragment)).toBe(true);
     }
     const diagnoses = await Promise.all(cases.map(async ({ spec: s }) => (await design(s, "draft")).solution.diagnosis));

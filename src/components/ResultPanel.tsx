@@ -187,7 +187,10 @@ function Verdict({ design, problemCount }: { design: Design; problemCount: numbe
   const tone = short ? "bad" : problemCount > 0 ? "warn" : "good";
   let detail: string;
   if (short) detail = `This coil holds only ${cmWhole(holds)}. Unlock a size or shorten the cable.`;
-  else if (solution.capacityRange[0] < target * (1 - 1e-6)) detail = `Wind it snugly: a loose winding holds only ${cmWhole(solution.capacityRange[0])}.`;
+  else if (solution.capacityRange[0] < target * (1 - 1e-6)) {
+    const held = cmWhole(solution.capacityRange[0]);
+    detail = solution.capacityMinWinding === "nested" ? `Wind it looser: a tight, nested winding holds only ${held}.` : `Wind it snugly: a loose, stacked winding holds only ${held}.`;
+  }
   else if (solution.lengthDeltaPct > 10) detail = `Room for ${cmWhole(holds)}, ${Math.round(solution.lengthDeltaPct)}% more than you need.`;
   else detail = `Room for ${cmWhole(holds)}.`;
   if (!short) detail += problemCount > 0 ? ` Check ${problemCount === 1 ? "one thing" : `${problemCount} things`} below before printing.` : " Ready to print.";

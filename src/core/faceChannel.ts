@@ -46,7 +46,7 @@ import {
   TAPER_TURNS,
 } from "./constants";
 import { maxCurvature, outlineBlend, unitRamp, withNeighbours } from "./blend";
-import { phaseShiftTurns, radialPitch, turnsForLayer } from "./capacity";
+import { effectiveQuality, phaseShiftTurns, radialPitch, turnsForLayer } from "./capacity";
 import { isFullCircle, evalOutline, inscribedRadius, offsetPerimeter, outlineOffsetAt, paramAt, pointAt, sideLength } from "./shapes";
 import type { ShapeOutline } from "./shapes";
 import { grooveCrest, grooveShape, grooveStartHeight, windingSpan } from "./wall";
@@ -154,11 +154,12 @@ export function crossingReserve(wireDiameter: number, tolerance: number): number
   return Math.max(over, clear);
 }
 
-export function nominalOuterStart(layers: number, wireDiameter: number, quality: number, height: number, reserve: number): OuterStart | undefined {
+export function nominalOuterStart(layers: number, wireDiameter: number, windingQuality: number, height: number, reserve: number): OuterStart | undefined {
   if (layers < CROSSING_MIN_LAYERS) return undefined;
   const groove = grooveShape(wireDiameter);
   const zStart = grooveStartHeight(groove, MARGIN_BOTTOM);
   const span = Math.max(0, windingSpan(height, wireDiameter) - reserve);
+  const quality = effectiveQuality(span, groove.pitch, windingQuality);
   const turns = (layer: number) => turnsForLayer(span, groove.pitch, layer, quality);
   const step = radialPitch(wireDiameter, quality);
   const first = wireDiameter / 2 - groove.depth;

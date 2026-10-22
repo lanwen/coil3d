@@ -2,7 +2,7 @@ import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
 import { design } from "../src/core";
-import type { CoilMesh, CoilSpec, JointKind, MountKind, Part, Resolution, ShapeSpec } from "../src/core";
+import type { CoilMesh, CoilSpec, Design, JointKind, MountKind, Part, Resolution, ShapeSpec } from "../src/core";
 import { collarSegments } from "../src/core/manifold";
 import { WELD_EPSILON, weldShortEdges } from "../src/core/weld";
 import { yieldToEventLoop } from "./support/yieldToEventLoop";
@@ -45,6 +45,8 @@ interface FuzzCase {
   segments: { round: number; other: number };
 }
 
+const NEAR_FLOOR_HEIGHT_PER_DIAMETER = 5.5;
+
 function sample(index: number, seed = SEED, pills = false): FuzzCase {
   const r = prng(Math.imul(seed ^ index, 0x9e3779b9) ^ index);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)];
@@ -77,6 +79,9 @@ function sample(index: number, seed = SEED, pills = false): FuzzCase {
   spec.base = r() < 0.33 ? "off" : "on";
   // Issue #240: drawn after the base for the same reason.
   spec.strapSlots = r() < 0.4;
+  // Issue #374: drawn last again. A fifth of the cases sit a few turns above the locked-height floor, where a layer
+  // holds one or two turns, so the flat spiral and the first nested layers get meshed.
+  if (r() < 0.2) spec.height = { locked: true, value: between(2 * spec.wire.diameter, NEAR_FLOOR_HEIGHT_PER_DIAMETER * spec.wire.diameter) };
   return { spec, resolution, segments };
 }
 
@@ -158,6 +163,15 @@ function solids(mesh: CoilMesh): number {
   pieces.forEach((p) => p.delete());
   m.delete();
   return n;
+}
+
+/** Issue #374: an ok design winds every layer it reports. */
+function unwoundLayers(d: Design): string[] {
+  if (d.solution.diagnosis.status !== "ok") return [];
+  const empty = d.solution.layerResults.filter((l) => l.turns < 1).map((l) => l.layer);
+  const out = empty.length > 0 ? [`layers ${empty.join(", ")} hold no turn`] : [];
+  if (d.wirePaths.length !== d.solution.layers) out.push(`${d.wirePaths.length} wire paths for ${d.solution.layers} layers`);
+  return out;
 }
 
 /** What is wrong with a part (issues #208, #219): not one solid, edges under the weld's limit, or zero-thickness folds. */
@@ -536,6 +550,7 @@ describe("seeded fuzz: every part is one solid, with no short edges or folds, af
         }
         // Issue #219: every part, the mount plate and the SKÅDIS clips too.
         for (const part of d.parts) bad.push(...problems(part).map((p) => `${what}: ${p}`));
+        bad.push(...unwoundLayers(d).map((p) => `${what}: ${p}`));
         if (COUNT > DEFAULT_CASES && (i - FROM + 1) % 250 === 0) console.log(`fuzz: ${i - FROM + 1} of ${COUNT} cases, ${bad.length} bad, ${Math.round((Date.now() - started) / 1000)} s`);
       }
     } finally {
@@ -642,6 +657,7 @@ describe("seeded fuzz of pill cores: every part is one solid, with no short edge
           continue;
         }
         for (const part of d.parts) bad.push(...problems(part).map((p) => `${what}: ${p}`));
+        bad.push(...unwoundLayers(d).map((p) => `${what}: ${p}`));
       }
     } finally {
       Object.assign(collarSegments, shipped);

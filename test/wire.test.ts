@@ -261,7 +261,7 @@ describe("design().wirePaths (issue #4)", () => {
     }
   });
 
-  it("omits layers with zero turns (a locked height barely above one turn only winds the first layer)", async () => {
+  it("a locked height barely above one turn winds every locked layer as a flat spiral (issue #374)", async () => {
     const d = await design(
       baseSpec({
         wire: { length: 2000, diameter: 3.8, type: "usb" },
@@ -270,8 +270,8 @@ describe("design().wirePaths (issue #4)", () => {
         layers: { locked: true, value: 3 },
       }),
     );
-    expect(d.solution.layerResults.map((l) => l.turns > 0)).toEqual([true, false, false]);
-    expect(d.wirePaths.map((p) => p.layer)).toEqual([1]);
+    expect(d.solution.layerResults.map((l) => l.turns)).toEqual([1, 1, 1]);
+    expect(d.wirePaths.map((p) => p.layer)).toEqual([1, 2, 3]);
   });
 
   it("a many-turn coil still returns a bounded, densely-sampled path (no runaway sample count)", async () => {

@@ -201,7 +201,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const woundLayers = solution.layerResults.filter((r) => r.turns > 0).length;
   const bendLimit = bendMultiplierOf(spec.wire) * wireDiameter;
-  const wound = windLayers(solution.layerResults, outline, wireDiameter, spec.windingQuality, resolution, bendLimit);
+  const wound = windLayers(solution.layerResults, outline, wireDiameter, solution.windingQualityUsed, resolution, bendLimit);
   const topFace = !solution.topCapEnabled;
   const bottomFace = !baseEnabled(spec);
   const reserve = crossingActive(solution.layers, solution.topCapEnabled) ? crossingReserve(wireDiameter, spec.tolerance) : 0;

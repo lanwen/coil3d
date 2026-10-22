@@ -358,11 +358,16 @@ function finishSolution(
   if (deltaPct < -CAPACITY_SHORTFALL_NOTE_PCT) {
     note(`Resulting capacity is ${deltaPct.toFixed(0)}% vs. the target cable length.`);
   }
-  const capacityLo = Math.min(lengthLo, lengthHi);
-  if (capacityLo < target * (1 - CAPACITY_EPS)) {
-    const pctOfTarget = (capacityLo / target) * 100;
+  const capacityMin = Math.min(lengthLo, lengthHi);
+  const capacityMinWinding = lengthHi < lengthLo ? "nested" : "stacked";
+  const qualityMatters = Math.abs(lengthLo - lengthHi) > target * CAPACITY_EPS;
+  if (qualityMatters && capacityMin < target * (1 - CAPACITY_EPS)) {
+    const pctOfTarget = (capacityMin / target) * 100;
+    const shortfall = `capacity is only ${capacityMin.toFixed(0)} mm (${pctOfTarget.toFixed(0)}% of the ${target.toFixed(0)} mm target)`;
     note(
-      `At the loosest winding quality, capacity is only ${capacityLo.toFixed(0)} mm (${pctOfTarget.toFixed(0)}% of the ${target.toFixed(0)} mm target): a loose winding may not fit; wind snugly to reach the full target length.`,
+      capacityMinWinding === "nested"
+        ? `At the tightest winding quality (nested layers), ${shortfall}: a tight winding may not fit the full length; wind looser for more.`
+        : `At the loosest winding quality (stacked layers), ${shortfall}: a loose winding may not fit the full length; wind snugly for more.`,
     );
   }
   if (spec.shape.kind === "pill") {
@@ -400,6 +405,8 @@ function finishSolution(
     targetWireLength: target,
     lengthDeltaPct: deltaPct,
     capacityRange: [Math.min(lengthLo, lengthHi), Math.max(lengthLo, lengthHi)],
+    capacityMinWinding,
+    windingQualityUsed: cap.windingQualityUsed,
     envelopeDiameter: env,
     flangeSize,
     topCapEnabled,

@@ -324,7 +324,7 @@ describe("design() solver (min-volume objective and capacity range, issue #23)",
     }
   });
 
-  it("warns when the loosest winding quality's capacity falls short of the target, even though the chosen quality is 'ok'", async () => {
+  it("warns when some winding quality in the range falls short of the target, even though the chosen quality is 'ok'", async () => {
     const spec = baseSpec({
       wire: { length: 3000, diameter: 4, type: "usb" },
       coreSize: { locked: true, dimension: "outer", value: 60 },
@@ -336,7 +336,9 @@ describe("design() solver (min-volume objective and capacity range, issue #23)",
 
     expect(d.solution.diagnosis.status).toBe("ok");
     expect(d.solution.capacityRange[0]).toBeLessThan(d.solution.targetWireLength);
-    expect(d.warnings.some((w) => /loose winding may not fit/i.test(w))).toBe(true);
+    expect(d.solution.capacityMinWinding).toBe("nested");
+    expect(d.warnings.some((w) => /tightest winding quality \(nested layers\).*tight winding may not fit/i.test(w))).toBe(true);
+    expect(d.warnings.some((w) => /loosest/i.test(w))).toBe(false);
   });
 
   it("does not warn about the capacity range when capacity is quality-independent (single fully-locked layer)", async () => {
@@ -353,7 +355,7 @@ describe("design() solver (min-volume objective and capacity range, issue #23)",
     const d = await design(spec);
 
     expect(d.solution.capacityRange[0]).toBeCloseTo(d.solution.capacityRange[1], 6);
-    expect(d.warnings.some((w) => /loose winding may not fit/i.test(w))).toBe(false);
+    expect(d.warnings.some((w) => /winding may not fit/i.test(w))).toBe(false);
   });
 });
 

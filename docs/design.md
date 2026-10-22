@@ -788,6 +788,14 @@ top face. Higher layers have `floor((H - q p / 2) / p)`. This is a
 continuous approximation that keeps the solver monotonic. Check it against a
 real wound coil before relying on it at the last turn.
 
+**A one-turn-tall core is a flat spiral.** A layer nests in the valleys of the
+layer below, and one turn leaves no valley. When `floor(H / p)` is below 2 the
+model uses `q = 0` everywhere (`effectiveQuality`): every layer has as many
+turns as layer 1, the radial step is `d`, and there is no phase shift. The
+solver, the drawn cable and the outer-end crossing all read that same
+quality, so locking many layers on a core one turn tall adds length instead of
+empty flange. The envelope counts only layers that hold a turn.
+
 **Length.** `L_wound = sum_k n_k sqrt(P(o_k)^2 + p^2)`. The helix correction
 is small, but free.
 

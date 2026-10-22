@@ -20,6 +20,12 @@ export function radialPitch(d: number, quality: number): number {
   return ideal * q + worst * (1 - q);
 }
 
+export const MIN_TURNS_TO_NEST = 2;
+
+export function effectiveQuality(usableHeight: number, pitch: number, quality: number): number {
+  return Math.floor(usableHeight / pitch) < MIN_TURNS_TO_NEST ? 0 : clamp01(quality);
+}
+
 export interface GeometryInputs {
   outline: ShapeOutline;
   usableHeight: number;
@@ -34,6 +40,7 @@ export interface CapacityResult {
   layerResults: LayerResult[];
   totalWoundLength: number;
   outermostOffset: number;
+  windingQualityUsed: number;
 }
 
 export function turnsForLayer(height: number, pitch: number, layer: number, quality: number): number {
@@ -43,7 +50,8 @@ export function turnsForLayer(height: number, pitch: number, layer: number, qual
 
 export function computeCapacity(g: GeometryInputs): CapacityResult {
   const { pitch } = g;
-  const h = radialPitch(g.wireDiameter, g.quality);
+  const quality = effectiveQuality(g.usableHeight, pitch, g.quality);
+  const h = radialPitch(g.wireDiameter, quality);
   const o1 = g.wireDiameter / 2 - g.grooveDepth;
 
   const layerResults: LayerResult[] = [];
@@ -53,14 +61,14 @@ export function computeCapacity(g: GeometryInputs): CapacityResult {
   for (let k = 1; k <= g.layers; k++) {
     const offset = o1 + (k - 1) * h;
     const perimeter = offsetPerimeter(g.outline, offset);
-    const turns = turnsForLayer(g.usableHeight, pitch, k, g.quality);
+    const turns = turnsForLayer(g.usableHeight, pitch, k, quality);
     const length = turns * Math.sqrt(perimeter * perimeter + pitch * pitch);
     layerResults.push({ layer: k, turns, offset, perimeter, length });
     totalWoundLength += length;
-    lastOffset = offset;
+    if (turns > 0) lastOffset = offset;
   }
 
-  return { layerResults, totalWoundLength, outermostOffset: lastOffset };
+  return { layerResults, totalWoundLength, outermostOffset: lastOffset, windingQualityUsed: quality };
 }
 
 export function envelopeDiameter(outline: ShapeOutline, lastLayerOffset: number, wireDiameter: number): number {

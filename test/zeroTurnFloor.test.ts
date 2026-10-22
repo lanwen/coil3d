@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SPEC, design } from "../src/core";
 import type { CoilSpec } from "../src/core";
 
-// Issue #357: since the locked-height floor (#353) layer 1 always carries at
+// Issues #357 and #374: since the locked-height floor (#353) layer 1 always carries at
 // least one turn, so the cable always has a wound path with an inner-end
-// lead-in and an outer-end lead-out. This is an invariant guard over design().
+// lead-in and an outer-end lead-out, and no locked layer stays empty. This is an invariant guard over design().
 
 type Shape = CoilSpec["shape"];
 const SHAPES: Shape[] = [{ kind: "round" }, { kind: "sq", cornerRadius: 10 }, { kind: "tri", cornerRadius: 10 }, { kind: "pill", cornerRadius: 15 }];
@@ -27,7 +27,8 @@ function make(shape: Shape, d: number, cb: Pick<CoilSpec, "base" | "topCap">, la
 async function expectCable(spec: CoilSpec, label: string) {
   const r = await design(spec, "draft");
   expect(r.solution.layerResults[0].turns, label).toBeGreaterThanOrEqual(1);
-  expect(r.wirePaths.length, label).toBeGreaterThan(0);
+  for (const layer of r.solution.layerResults) expect(layer.turns, `${label}, layer ${layer.layer}`).toBeGreaterThanOrEqual(1);
+  expect(r.wirePaths.length, label).toBe(r.solution.layers);
   expect(r.wirePaths[0].turns, label).toBeGreaterThanOrEqual(1);
   expect(r.innerEndLeadIn.length, label).toBeGreaterThanOrEqual(6);
   expect(r.outerEndLeadOut.length, label).toBeGreaterThanOrEqual(6);
