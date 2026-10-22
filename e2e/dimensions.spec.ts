@@ -58,7 +58,8 @@ type ProbeWindow = Window & {
     // says the model doesn't occlude that point. `labelRect` is the drawn
     // label's own canvas-space bounding box (issue #99), or null while it's
     // hidden (occluded, foreshortened, or -- round shapes -- merged away).
-    arms: { id: string; from: number[]; to: number[]; occludedAt: boolean[]; labelRect: LabelRect | null }[];
+    // `local` is the arm's own end points in the frame `box` and `origin` are in (the model's, flats-aligned).
+    arms: { id: string; from: number[]; to: number[]; local: { from: number[]; to: number[] }; occludedAt: boolean[]; labelRect: LabelRect | null }[];
   };
 };
 
@@ -242,6 +243,53 @@ test.describe("overall-dimension axes (issues #50, #69)", () => {
         // The axes sit flush with the flats, so a square reads the panel's
         // across-flats flange width on both (to the label's 0.1 cm: 101.5 mm reads 10.1 or 10.2 cm).
         if (label === "square") expect(Math.abs(cm - acrossFlatsCm), which).toBeLessThanOrEqual(0.05 + 1e-9);
+      }
+    });
+  }
+
+  // Issue #93: the axes are fixed geometry on the model's flats-aligned bounding box. Read in the model's own frame, in
+  // the Iso view (the camera the front-left-bottom corner is chosen for).
+  for (const [kind, hash] of [
+    ["round", ROUND_CAP],
+    ["sq", SQUARE],
+    ["tri", TRIANGLE],
+  ] as const) {
+    test(`${kind}: each axis spans exactly the box's extent along its own edge, from the front-left-bottom corner (issue #93)`, async ({ page }) => {
+      await gotoDesign(page, hash);
+      await showPreset(page, "iso");
+      const probe = await readProbe(page);
+      const { min, max } = probe.box;
+      const size = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+      expect(probe.arms.map((a) => a.id)).toEqual(["width", "depth", "height"]);
+      const [width, depth, height] = probe.arms.map((a) => a.local);
+      const length = (arm: { from: number[]; to: number[] }) => Math.hypot(arm.to[0] - arm.from[0], arm.to[1] - arm.from[1], arm.to[2] - arm.from[2]);
+      expect(length(width)).toBeCloseTo(size[0], 6);
+      expect(length(depth)).toBeCloseTo(size[1], 6);
+      expect(length(height)).toBeCloseTo(size[2], 6);
+      // Along the box's X, Y and Z edges.
+      const direction = (arm: { from: number[]; to: number[] }) => arm.to.map((v, i) => (v - arm.from[i]) / length(arm));
+      for (const [arm, axis] of [[width, 0], [depth, 1], [height, 2]] as const) {
+        direction(arm).forEach((v, i) => expect(Math.abs(v - (i === axis ? 1 : 0)), `${axis} axis, component ${i}`).toBeLessThan(1e-9));
+      }
+      // The origin: the front-left-bottom corner (-X, -Y, the lowest point), a gap out on every axis.
+      const g = probe.gap;
+      expect(g).toBeGreaterThan(0);
+      expect(g).toBeLessThan(0.1 * Math.max(size[0], size[1]) + 4);
+      expect(probe.origin).toEqual([min[0] - g, min[1] - g, min[2] - g]);
+      expect(width.from).toEqual([min[0], min[1] - g, probe.origin[2]]);
+      expect(depth.from).toEqual([min[0] - g, min[1], probe.origin[2]]);
+      expect(height.from).toEqual([min[0] - g, min[1] - g, min[2]]);
+      // Flats-aligned: a square's width and depth are its across-flats flange width, as the result panel gives it
+      // (to 0.1 mm, which the panel rounds to: so up to 0.05 mm apart).
+      const flats = toCm(await readText(page.getByTestId("flange"))) * 10;
+      if (kind === "sq") {
+        expect(Math.abs(size[0] - flats)).toBeLessThanOrEqual(0.05 + 1e-6);
+        expect(Math.abs(size[1] - flats)).toBeLessThanOrEqual(0.05 + 1e-6);
+      } else if (kind === "tri") {
+        // A triangle standing on a flat: its box is the flat's width by base-to-apex height.
+        const corners = toCm(await readText(page.getByTestId("flange-across-corners"))) * 10;
+        expect(Math.min(size[0], size[1])).toBeGreaterThan(flats - 0.5);
+        expect(Math.max(size[0], size[1])).toBeLessThan(corners + 0.5);
       }
     });
   }

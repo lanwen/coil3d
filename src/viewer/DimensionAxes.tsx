@@ -52,7 +52,7 @@ export interface DimensionAxesProbe {
   box: { min: number[]; max: number[] };
   gap: number;
   origin: number[];
-  arms: { id: AxisId; from: number[]; to: number[]; occludedAt: boolean[]; labelRect: CanvasRect | null }[];
+  arms: { id: AxisId; from: number[]; to: number[]; local: { from: number[]; to: number[] }; occludedAt: boolean[]; labelRect: CanvasRect | null }[];
 }
 
 declare global {
@@ -169,7 +169,7 @@ export function DimensionAxes({ axes, rotation, labels, roundGroundLabel, occlud
       const worldOf = (p: THREE.Vector3) => p.clone().applyMatrix4(group.matrixWorld);
 
       const ink: number[] = [];
-      const drawn: { id: AxisId; from: number[]; to: number[]; probePoints: THREE.Vector3[] }[] = [];
+      const drawn: { id: AxisId; from: number[]; to: number[]; local: { from: number[]; to: number[] }; probePoints: THREE.Vector3[] }[] = [];
       const mvp = new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).multiply(group.matrixWorld);
       const toCanvas = (p: THREE.Vector3) => {
         const ndc = p.clone().applyMatrix4(mvp);
@@ -228,7 +228,7 @@ export function DimensionAxes({ axes, rotation, labels, roundGroundLabel, occlud
         if (id === "height") place(id, mid, pixel, s, !isOccluded);
         else groundCandidates.push({ id, mid, dir: dir.clone(), pixel, length, occluded: isOccluded, s });
         const probePoints = OCCLUSION_PROBE_TS.map((t) => worldOf(from.clone().lerp(to, t)));
-        drawn.push({ id, from: toCanvas(from), to: toCanvas(to), probePoints });
+        drawn.push({ id, from: toCanvas(from), to: toCanvas(to), local: { from: from.toArray(), to: to.toArray() }, probePoints });
         ink.push(...b.out);
       }
 
