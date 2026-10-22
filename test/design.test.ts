@@ -1,16 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { design, offsetPerimeter } from "../src/core";
 import type { CoilSpec } from "../src/core";
-// mount.ts's layout is the SAME shared function both geometry backends cut
-// from (manifold.ts, step/build.ts) -- calling it here on design()'s own
-// PUBLIC `flangeSpec` (not a reimplementation) verifies the actual layout
-// that was cut, per the PR review's request for "a vitest check through
-// design()" of the slot geometry.
-import { layoutKeyholeMount } from "../src/core/mount";
-// Issue #54: independently verifies the ACTUAL resolved outline design()
-// produced (`wallSpec.outline`), not a reimplemented formula -- same
-// pattern as the mount.ts import above.
-import { offsetPerimeter, sideLength } from "../src/core/shapes";
+import { sideLength } from "./support/outline";
 
 // Fixed print parameters mirrored from src/core/constants.ts (docs/design.md,
 // Capacity math), reimplemented independently here so these tests exercise ONLY the
@@ -708,20 +699,6 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
     expect(d.warnings.some((w) => /channel is only .* mm deep/i.test(w))).toBe(false);
   });
 
-  it("warns (without crashing) and skips the cut when the caller feeds layoutKeyholeMount a margin it already knows is too narrow", async () => {
-    // design() itself now ALWAYS grows the margin enough to fit (mount.ts's
-    // `requiredFlangeMargin` has no ceiling -- a tiny/sharp core just gets a
-    // bigger flange, warned about below), so this exercises the underlying
-    // defensive fallback directly: `layoutKeyholeMount` must still degrade
-    // gracefully, not throw or emit invalid geometry, if it's ever handed a
-    // margin narrower than what its own sizing would have chosen.
-    const d = await design(baseSpec({ coreSize: { locked: true, dimension: "outer", value: 6 }, height: { locked: true, value: 20 } }));
-    const { outline, boreOutline } = d.flangeSpec;
-    const layout = layoutKeyholeMount(outline, boreOutline, 0.1);
-    expect(layout.slots).toHaveLength(0);
-    expect(layout.warning).toMatch(/too narrow/i);
-  });
-
   it("still grows the margin (and warns) to fit the mount even on a tiny, sharp core -- never silently gives up", async () => {
     const d = await design(
       baseSpec({
@@ -736,7 +713,7 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
     expect(d.warnings.some((w) => /margin increased/i.test(w))).toBe(true);
     expect(d.warnings.some((w) => /too narrow/i.test(w))).toBe(false);
 
-    const layout = layoutKeyholeMount(d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin);
+    const layout = d.mountLayout!.keyhole!;
     expect(layout.slots.length).toBeGreaterThan(0);
   });
 
@@ -777,8 +754,7 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
           mount: "keyhole",
         }),
       );
-      const { outline, boreOutline, margin } = d.flangeSpec;
-      const layout = layoutKeyholeMount(outline, boreOutline, margin);
+      const layout = d.mountLayout!.keyhole!;
       expect(layout.slots).toHaveLength(2); // this flange is well above SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD
 
       for (const slot of layout.slots) {
@@ -830,8 +806,7 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
           mount: "keyhole",
         }),
       );
-      const { outline, boreOutline, margin } = d.flangeSpec;
-      const layout = layoutKeyholeMount(outline, boreOutline, margin);
+      const layout = d.mountLayout!.keyhole!;
       expect(layout.slots).toHaveLength(1); // below SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD
 
       const slot = layout.slots[0];

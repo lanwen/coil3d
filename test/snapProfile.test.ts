@@ -1,8 +1,7 @@
 import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { design, SNAP_FINGER_LENGTH, SNAP_SEAT_GAP } from "../src/core";
 import type { CoilMesh, CoilSpec, ShapeSpec } from "../src/core";
-import { SNAP_FINGER_LENGTH, SNAP_SEAT_GAP } from "../src/core/constants";
 
 // Issue #186 and the snap-joint rework: the snap clips' shape, measured on
 // design() output in the assembly frame (the cap as drawn is the cap seated

@@ -1,14 +1,12 @@
 import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { design, FLANGE_MARGIN, outlineOffsetAt } from "../src/core";
 import type { CoilSpec, Design, JointKind, MountKind, ShapeSpec } from "../src/core";
-import { FLANGE_MARGIN } from "../src/core/constants";
-import { outlineOffsetAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
 import { expectWithinBendLimit } from "./support/cableBend";
 import { faceWebs, MIN_WEB, WEB_TOLERANCE } from "./support/faceWeb";
 import { unsupportedOverhangs } from "./support/overhangs";
+import { minBendRadius } from "./support/wire";
 
 // Issue #274: the defects that were first seen in screenshots -- an overhang, the cable outside the plate, a kink in
 // the drawn cable -- as invariants over one swept set of designs: shapes x 1-3 layers x cap on/off x base on/off, with
@@ -143,7 +141,7 @@ describe("the whole drawn cable respects the bend radius, over the swept designs
     const d = await designOf(c);
     if (d.solution.diagnosis.status !== "ok") return;
     expect(d.cablePath.length, "the cable is drawn").toBeGreaterThan(0);
-    expectWithinBendLimit(d.cablePath, bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter, c.name);
+    expectWithinBendLimit(d.cablePath, minBendRadius(d.spec.wire), c.name);
   });
 
   it("checks enough ok designs to mean something", async () => {

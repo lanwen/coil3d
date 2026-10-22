@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { design, FLANGE_MARGIN, outlineOffsetAt } from "../src/core";
 import type { CoilSpec, Design, ShapeSpec } from "../src/core";
-import { FLANGE_MARGIN } from "../src/core/constants";
-import { outlineOffsetAt } from "../src/core/shapes";
 
 // The flange and the top cap must cover the drawn wound cable as it really
 // runs, plus the FLANGE_MARGIN lip: the layers, the hops between them, and
