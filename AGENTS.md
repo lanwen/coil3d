@@ -64,8 +64,9 @@ something fails without it.
 - The two seams are vitest on the core's public interface (Node; `test/`,
   shared checks in `test/support/`) and Playwright end to end (URL hash → UI,
   screenshots, downloads; helpers in `e2e/*.ts`, e.g. `withHashDoc`,
-  `openAdvanced`). Write new tests on them. The existing suite is being
-  migrated to the two seams (#367).
+  `openAdvanced`). Write new tests on them. `test/seams.test.ts` fails when a
+  test imports a `src/` module other than the core index (its table lists each
+  exception with its reason) or an e2e file imports `src/`.
 - A regression test fails on the pre-fix code for the intended reason. Run it
   there before you claim the fix.
 - A failing test gets a code fix. A threshold, fixture or timeout changes only
