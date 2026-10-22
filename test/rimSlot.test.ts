@@ -1,15 +1,11 @@
 import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
-import { design, parseHash } from "../src/core";
+import { CAP_LEAD_OUT_WALL_GAP, design, EDGE_CHAMFER, FLANGE_MARGIN, outlineOffsetAt, parseHash, RIM_SLOT_KEEP_OUT, RIM_SLOT_LABEL_KEEP_OUT, RIM_SLOT_NECK, THROUGH_MOUNT_EDGE_MARGIN } from "../src/core";
 import type { CoilSpec, Design, ShapeSpec } from "../src/core";
-import { CAP_LEAD_OUT_WALL_GAP, EDGE_CHAMFER, FLANGE_MARGIN, RIM_SLOT_KEEP_OUT, RIM_SLOT_LABEL_KEEP_OUT, RIM_SLOT_NECK, THROUGH_MOUNT_EDGE_MARGIN } from "../src/core/constants";
-import { layoutFlangeThroughHoles } from "../src/core/flangePads";
-import { layoutInnerEnd, resolveChannelDepth, rimSlotWidths } from "../src/core/innerEnd";
-import type { XY } from "../src/core/innerEnd";
-import { getLabelFont, labelLoops, resolveLabel } from "../src/core/label";
-import { outlineOffsetAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
+import { rimSlotNeckWidth } from "./support/rimSlot";
+import { distanceToLabel } from "./support/flange";
+import type { XY } from "./support/types";
 
 // Issue #241: the top cap's clips are gone; the cap and the base each get a
 // rim slot the cable is pressed into from the edge. The slot's own shape is
@@ -92,7 +88,7 @@ describe("rim cable slots (issue #241)", () => {
             const seat = outlineOffsetAt(d.flangeSpec.outline, slot!.seat.x, slot!.seat.y).offset;
             // Its neck ends at the rim chamfer's foot, and the seat is clear of the wall.
             const R = (diameter + d.spec.tolerance) / 2;
-            const { neck } = rimSlotWidths(diameter, d.spec.tolerance);
+            const neck = rimSlotNeckWidth(slot!);
             expect(seat + Math.sqrt(R * R - (neck / 2) ** 2) + RIM_SLOT_NECK).toBeCloseTo(d.flangeSpec.margin - EDGE_CHAMFER, 6);
             expect(seat - R).toBeGreaterThan(1);
             // Open at the rim.
@@ -107,9 +103,7 @@ describe("rim cable slots (issue #241)", () => {
   it("the base slot keeps clear of the through-hole mount's screw heads", async () => {
     for (const shape of SHAPES) {
       const d = await design(baseSpec({ shape, mount: "through" }), "draft");
-      const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-      const innerEnd = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness));
-      const { holes, holeRadius } = layoutFlangeThroughHoles(d.flangeSpec, innerEnd);
+      const { holes, holeRadius } = d.mountLayout!.through!;
       expect(holes.length).toBeGreaterThan(0);
       for (const hole of holes) {
         for (const q of cutInside(d, d.rimSlots.base!)) {
@@ -126,14 +120,9 @@ describe("rim cable slots (issue #241)", () => {
       const longest = (await design({ ...roomy, label: "W".repeat(40) }, "draft")).labelFit!.maxChars;
       for (const label of ["USB-C 2m", "W".repeat(longest)]) {
         const d = await design({ ...roomy, label }, "draft");
-        const resolved = (await resolveLabel(label, d.flangeSpec.outline, d.flangeSpec.boreOutline, d.flangeSpec.margin, true)).label;
-        expect(resolved, `${shape.kind}/${label}: the label fits`).toBeDefined();
-        const loops = labelLoops(await getLabelFont(), resolved!);
-        for (const loop of loops) {
-          for (const [x, y] of loop) {
-            for (const q of cutInside(d, d.rimSlots.cap!)) expect(Math.hypot(q.x - x, q.y - y), `${shape.kind}/${label}`).toBeGreaterThanOrEqual(RIM_SLOT_LABEL_KEEP_OUT - 0.3);
-          }
-        }
+        const cut = cutInside(d, d.rimSlots.cap!);
+        expect(distanceToLabel(d, { x: 0, y: 0 }), `${shape.kind}/${label}: the label fits and is engraved`).toBeLessThan(Infinity);
+        for (const q of cut) expect(distanceToLabel(d, q), `${shape.kind}/${label}`).toBeGreaterThanOrEqual(RIM_SLOT_LABEL_KEEP_OUT - 0.3);
       }
     }
   });

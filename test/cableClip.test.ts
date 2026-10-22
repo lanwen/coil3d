@@ -1,16 +1,10 @@
 import Module from "manifold-3d";
 import type { ManifoldToplevel } from "manifold-3d";
 import { beforeAll, describe, expect, it } from "vitest";
-import { design, parseHash } from "../src/core";
+import { CABLE_BASE_CLIP_LAND, CABLE_CLIP_WALL, design, EDGE_CHAMFER, outlineOffsetAt, parseHash, RIM_SLOT_KEEP_OUT } from "../src/core";
 import type { CoilSpec, Design, ShapeSpec, WireTypeId } from "../src/core";
-// The SAME shared layout functions every backend cuts from (see
-// test/innerEnd.test.ts's own note), used here only to know WHERE along the
-// cable to look; what is checked is the real, cut mesh.
-import { baseClipOpeningFraction, layoutInnerEnd, resolveChannelDepth, rimSlotWidths } from "../src/core/innerEnd";
-import type { RimSlot } from "../src/core/innerEnd";
-import { CABLE_BASE_CLIP_LAND, CABLE_CLIP_WALL, EDGE_CHAMFER, RIM_SLOT_KEEP_OUT } from "../src/core/constants";
-import { outlineOffsetAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
+import { rimSlotNeckWidth } from "./support/rimSlot";
+import type { RimSlot } from "./support/types";
 
 // Issue #117: the cable's fix points. The bottom flange's channel must be
 // round (a bore of about d + tolerance around the cable), its depth must
@@ -113,12 +107,6 @@ function tangentAt(points: Float32Array, i: number) {
   return { dir: { x: b.x - a.x, y: b.y - a.y }, slope: (b.z - a.z) / plan };
 }
 
-function layoutOf(d: Design) {
-  const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-  const channelDepth = resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness);
-  return { layout: layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, channelDepth), channelDepth };
-}
-
 /** The core cropped to the box around the inner-end lead-in, so the many slices below stay cheap. */
 function croppedCore(d: Design): Manifold {
   const lead = d.innerEndLeadIn;
@@ -146,7 +134,8 @@ function croppedCore(d: Design): Manifold {
  * narrower than the cable.
  */
 function checkInnerEnd(d: Design, label: string) {
-  const { layout, channelDepth } = layoutOf(d);
+  const clip = d.innerEndClip!;
+  const channelDepth = clip.channelDepth;
   const R = (d.spec.wire.diameter + d.spec.tolerance) / 2;
   const zChannel = -channelDepth + d.spec.wire.diameter / 2;
   const { outline, margin } = d.flangeSpec;
@@ -192,13 +181,13 @@ function checkInnerEnd(d: Design, label: string) {
 
     // The clip: the opening at the face is narrower than the cable; just
     // outside it the channel is open to its full width.
-    const mid = { x: (layout.clip.from.x + layout.clip.to.x) / 2, y: (layout.clip.from.y + layout.clip.to.y) / 2 };
+    const mid = { x: (clip.from.x + clip.to.x) / 2, y: (clip.from.y + clip.to.y) / 2 };
     let best = 0;
     for (let i = 0; i < n; i++) if (Math.hypot(lead[i * 3] - mid.x, lead[i * 3 + 1] - mid.y) < Math.hypot(lead[best * 3] - mid.x, lead[best * 3 + 1] - mid.y)) best = i;
     const inClip = sectionAcross(core, sample(lead, best), tangentAt(lead, best).dir);
     // Issue: the base clip's own opening, a few percent under the cable, with
     // a short vertical land above the bore and a 45 degree funnel above that.
-    const fraction = baseClipOpeningFraction(d.spec.wire.diameter, d.spec.tolerance);
+    const fraction = clip.opening / (2 * R);
     // From the cable's own height there: the lips may start while it settles the last CABLE_CLIP_DEPTH_SLACK into
     // the channel, which a slim flange (issue #239) puts under the clip's middle.
     const edge = sample(lead, best).z + Math.sqrt(R * R - (fraction * R) ** 2);
@@ -214,7 +203,7 @@ function checkInnerEnd(d: Design, label: string) {
     const belly = gapAt(inClip, zChannel);
     expectNear(belly.right - belly.left, 2 * R, `${label}: bore under the lips`);
     // Both lips stay inside the rim, with a wall of flange behind them.
-    expect(outlineOffsetAt(outline, layout.clip.to.x, layout.clip.to.y).offset + R + CABLE_CLIP_WALL).toBeLessThanOrEqual(margin + 1e-6);
+    expect(outlineOffsetAt(outline, clip.to.x, clip.to.y).offset + R + CABLE_CLIP_WALL).toBeLessThanOrEqual(margin + 1e-6);
   } finally {
     core.delete();
   }
@@ -275,8 +264,7 @@ function checkRimSlot(mesh: { positions: Float32Array; indices: Uint32Array }, s
   const part = toManifold(mesh);
   try {
     const slice = sliceAt(part, z);
-    const { seat, neck } = rimSlotWidths(wd, d.spec.tolerance);
-    expect(seat, `${tag}: the seat is the cable plus a tolerance`).toBeCloseTo(wd + d.spec.tolerance, 6);
+    const neck = rimSlotNeckWidth(slot);
     expect(neck, `${tag}: the cable has to snap in`).toBeLessThan(wd);
     expect(neck, `${tag}: a stiff cable needs only a little interference`).toBeGreaterThan(0.9 * wd);
     // The seat: round, d + tolerance across (the 32-facet circle's chords sit a little inside it).

@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { design, parseHash } from "../src/core";
+import { design, FLANGE_MARGIN, outlineOffsetAt, parseHash, RIM_SLOT_WALL_GAP } from "../src/core";
 import type { CoilSpec, Design, ShapeSpec } from "../src/core";
-import { FLANGE_MARGIN } from "../src/core/constants";
-import { layoutFlangeThroughHoles } from "../src/core/flangePads";
-import { layoutInnerEnd, requiredRimSlotMargin, resolveChannelDepth } from "../src/core/innerEnd";
-import { outlineOffsetAt } from "../src/core/shapes";
-import { bendMultiplierOf } from "../src/core/types";
 
 // Issue #239: the base flange and the top cap reach only a small lip past the
 // wound cable, and the through-hole mount moves in toward the core (under the
@@ -58,7 +53,9 @@ describe("slim base and cap (issue #239)", () => {
     const d = await design({ ...parseHash(FEEDBACK).spec, base: "on" }, "draft");
     // 9.8 mm with the cap clips, 6.1 mm with a 4 mm lip; the wound cable reaches 2.1 mm.
     expect(d.flangeSpec.margin).toBeLessThan(5.5);
-    expect(d.flangeSpec.margin).toBeGreaterThan(requiredRimSlotMargin(3, d.spec.tolerance));
+    const slot = d.rimSlots.base!;
+    const R = (d.spec.wire.diameter + d.spec.tolerance) / 2;
+    expect(outlineOffsetAt(d.flangeSpec.outline, slot.seat.x, slot.seat.y).offset - R, "the base's rim slot clears the wall").toBeGreaterThan(RIM_SLOT_WALL_GAP);
     expect(d.warnings.some((w) => /margin increased to .* inner cable end/i.test(w))).toBe(true);
   });
 
@@ -86,9 +83,7 @@ describe("slim base and cap (issue #239)", () => {
     for (const shape of SHAPES) {
       const d = await design(baseSpec({ shape, mount: "through", layers: { locked: true, value: 5 }, wire: { length: 8000, diameter: 3, type: "usb" } }), "draft");
       const f = d.flangeSpec;
-      const bendRadius = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
-      const innerEnd = layoutInnerEnd(f.outline, f.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, resolveChannelDepth(d.spec.wire.diameter, f.thickness));
-      const { holes, holeRadius } = layoutFlangeThroughHoles(f, innerEnd);
+      const { holes, holeRadius } = d.mountLayout!.through!;
       expect(holes.length, shape.kind).toBeGreaterThanOrEqual(2);
       const wound = woundOffset(d);
       for (const h of holes) {

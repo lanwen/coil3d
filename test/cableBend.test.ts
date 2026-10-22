@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { design } from "../src/core";
+import { CABLE_CLIP_DEPTH_SLACK, design, outlineOffsetAt } from "../src/core";
 import type { CoilSpec, Design, MountKind, ShapeSpec, WireTypeId } from "../src/core";
-import { bendMultiplierOf } from "../src/core/types";
-import { layoutInnerEnd, resolveChannelDepth } from "../src/core/innerEnd";
-import { outlineOffsetAt } from "../src/core/shapes";
-import { CABLE_CLIP_DEPTH_SLACK } from "../src/core/constants";
 import { expectWithinBendLimit } from "./support/cableBend";
+import { minBendRadius } from "./support/wire";
 
 // Issue #115: the WHOLE drawn cable -- inner-end lead-in, every wound layer,
 // every layer-to-layer transition and the outer end -- is one smooth path
@@ -96,11 +93,11 @@ function expectEveryBendWithinLimit(d: Design, mbr: number) {
  */
 function expectFixPointsWithinBendLimit(d: Design, mbr: number, label: string) {
   const bendRadius = mbr;
-  const layout = layoutInnerEnd(d.flangeSpec.outline, d.flangeSpec.margin, d.spec.wire.diameter, d.spec.tolerance, bendRadius, resolveChannelDepth(d.spec.wire.diameter, d.flangeSpec.thickness));
+  const clip = d.innerEndClip!;
   const lead = d.innerEndLeadIn;
   // From the free end up to the clip's far end (the one nearer the groove).
-  const tail = layout.leadIn[0];
-  const reach = Math.hypot(layout.clip.from.x - tail.x, layout.clip.from.y - tail.y);
+  const tail = { x: lead[0], y: lead[1] };
+  const reach = Math.hypot(clip.from.x - tail.x, clip.from.y - tail.y);
   const segment: number[] = [];
   for (let i = 0; i < lead.length; i += 3) {
     if (Math.hypot(lead[i] - tail.x, lead[i + 1] - tail.y) > reach) break;
@@ -110,7 +107,7 @@ function expectFixPointsWithinBendLimit(d: Design, mbr: number, label: string) {
   expect(fix.length / 3, `${label}: inner fix-point segment samples`).toBeGreaterThanOrEqual(4);
   // Level from the clip's rim end out (the lips may start while the cable
   // settles the last CABLE_CLIP_DEPTH_SLACK into the channel).
-  const level = Math.hypot(layout.clip.to.x - tail.x, layout.clip.to.y - tail.y);
+  const level = Math.hypot(clip.to.x - tail.x, clip.to.y - tail.y);
   for (let i = 2; i < fix.length; i += 3) {
     const along = Math.hypot(fix[i - 2] - tail.x, fix[i - 1] - tail.y);
     if (along <= level) expect(fix[i], `${label}: the inner end leaves level through the clip and the rim`).toBeCloseTo(fix[2], 6);
@@ -154,7 +151,7 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
         mount: "keyhole",
       }),
     );
-    const mbr = bendMultiplierOf(d.spec.wire) * d.spec.wire.diameter;
+    const mbr = minBendRadius(d.spec.wire);
     expectWithinBendLimit(joinedPieces(d), mbr, "repro joined pieces");
     expectWithinBendLimit(d.cablePath, mbr, "repro cablePath");
     expectFixPointsWithinBendLimit(d, mbr, "repro");
@@ -173,7 +170,7 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
     });
     const d = await design(spec);
     expect(d.solution.diagnosis.status).toBe("ok");
-    expectEveryBendWithinLimit(d, bendMultiplierOf(spec.wire) * spec.wire.diameter);
+    expectEveryBendWithinLimit(d, minBendRadius(spec.wire));
     expect(d.warnings.filter((w) => /bends tighter/i.test(w))).toEqual([]);
     expect(d.solution.outerSize, "the locked size is raised to the bend-limit floor").toBeCloseTo(d.solution.minOuterSizeForBend, 6);
     expect(d.warnings.some((w) => /core size raised/i.test(w))).toBe(true);
@@ -188,7 +185,7 @@ describe("the whole cable respects the bend radius (issue #115)", () => {
           it(`shape=${shape.kind} type=${type} layers=${layers} cap=${topCap} mount=${mount}`, async () => {
             const spec = baseSpec({ shape, wire: { length: 3000, diameter, type }, layers: { locked: true, value: layers }, topCap, mount });
             const d = await design(spec);
-            const mbr = bendMultiplierOf(spec.wire) * diameter;
+            const mbr = minBendRadius(spec.wire);
             expect(d.wirePaths).toHaveLength(layers);
             const joined = joinedPieces(d);
             expectWithinBendLimit(joined, mbr, "joined pieces");
@@ -228,7 +225,7 @@ describe("an ok design never bends the cable tighter than its bend radius (issue
             const d = await design(spec);
             if (d.solution.diagnosis.status !== "ok") return;
             ok++;
-            expectEveryBendWithinLimit(d, bendMultiplierOf(spec.wire) * diameter);
+            expectEveryBendWithinLimit(d, minBendRadius(spec.wire));
             expect(d.warnings.filter((w) => /bends tighter/i.test(w))).toEqual([]);
           });
         }
@@ -251,7 +248,7 @@ describe("a bare core's whole cable respects the bend radius (issue #254)", () =
           it(`shape=${shape.kind} type=${type} layers=${layers} cap=${topCap} base=off`, async () => {
             const spec = baseSpec({ shape, wire: { length: 3000, diameter, type }, layers: { locked: true, value: layers }, topCap, base: "off" });
             const d = await design(spec);
-            const mbr = bendMultiplierOf(spec.wire) * diameter;
+            const mbr = minBendRadius(spec.wire);
             expect(d.faceChannels, "the ends use the face channels").toBeDefined();
             expect(d.wirePaths).toHaveLength(layers);
             expectEveryBendWithinLimit(d, mbr);
@@ -279,7 +276,7 @@ describe("a stacked coil's outer end respects the bend radius (issue #286)", () 
           it(`shape=${shape.kind} d=${diameter} layers=${layers} base=${base}`, async () => {
             const spec = baseSpec({ shape, wire: { length: 800 * diameter, diameter, type: "usb" }, layers: { locked: true, value: layers }, topCap: "off", base });
             const d = await design(spec);
-            const mbr = bendMultiplierOf(spec.wire) * diameter;
+            const mbr = minBendRadius(spec.wire);
             expect(d.faceChannels?.outer, "the outer end goes into the top channel").toBeDefined();
             expect(d.faceChannels!.outer!.ramp!.length, "over the stack by a ramp").toBeGreaterThan(8);
             expect(d.wirePaths).toHaveLength(layers);
@@ -309,7 +306,7 @@ describe("a pill core respects the bend radius (issue #320)", () => {
   it.each(PILLS)("$name", async ({ overrides }) => {
     const spec = baseSpec({ wire: { length: 3000, diameter: 3.8, type: "usb" }, ...overrides });
     const d = await design(spec);
-    const mbr = bendMultiplierOf(spec.wire) * spec.wire.diameter;
+    const mbr = minBendRadius(spec.wire);
     expect(d.solution.diagnosis.status).not.toBe("infeasible");
     expectEveryBendWithinLimit(d, mbr);
     expectWithinBendLimit(joinedPieces(d), mbr, "joined pieces");
