@@ -34,6 +34,7 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 
 const LATTICE = 20; // mm between neighbouring columns, and their vertical shift
 const FILLET = 1; // mm, the slot edges' round-over on both faces
+const CAP_CHAMFER = 0.4; // mm, SKADIS_CLIP_CAP_CHAMFER
 const ARC_FACET_MAX_DEG = 12.5; // a fillet's facets turn at most 11.25 degrees
 const BOARDS = [
   { label: "tight 4.8 x 14.8 slot, 5.2 mm board", slotWidth: 4.8, slotLength: 14.8, thickness: 5.2 },
@@ -77,10 +78,15 @@ function stemOf(clip: M, z: number, f: Frame) {
   const pts = clip.slice(z).toPolygons().flat();
   const ups = pts.map((p) => p[0] * f.up.x + p[1] * f.up.y);
   const sides = pts.map((p) => p[0] * f.side.x + p[1] * f.side.y);
-  return { bottom: Math.min(...ups), top: Math.max(...ups), side: (Math.max(...sides) + Math.min(...sides)) / 2, halfWidth: (Math.max(...sides) - Math.min(...sides)) / 2 };
+  const side = (Math.max(...sides) + Math.min(...sides)) / 2;
+  return { bottom: Math.min(...ups), top: Math.max(...ups), side, halfWidth: (Math.max(...sides) - Math.min(...sides)) / 2, outline: pts.map((_, i) => [sides[i] - side, ups[i]] as const) };
 }
 
+/** Where a slot's centre is when the stem's outline rests on its rounded bottom end, as the real chamfered corners do. */
+const slotUpOf = (stem: ReturnType<typeof stemOf>, slotWidth: number, slotLength: number) => tclipSeat(stem.outline, slotWidth, slotLength);
+
 /** Where a stem with this half width rests, below its slot's centre: its lower corners on the slot's rounded end. */
+/** The unchamfered stem's seat, kept for the insertion test: conservative, as the chamfers only widen the passage. */
 const seatOf = (slotWidth: number, slotLength: number, w: number) => slotLength / 2 - (slotWidth / 2 - Math.sqrt((slotWidth / 2) ** 2 - w * w));
 
 /**
@@ -126,7 +132,7 @@ const overlap = (a: M, b: M) => {
 const shifted = (m: M, f: Frame, dUp: number, dSide: number, dz: number) => m.translate([dUp * f.up.x + dSide * f.side.x, dUp * f.up.y + dSide * f.side.y, dz]);
 
 // Bottom clips whose stem sits close to a corner that a fillet would round: 0.07 mm from the bight's back edge, and 0.61 mm short of the jaw tip.
-// There the bight or the jaw grows to leave a 1 mm board-face edge between two fillets.
+// There the bight or the jaw grows to leave a 1.1 mm board-face edge between two fillets.
 const spec3 = (size: number) => ({ coreSize: { locked: true as const, dimension: "outer" as const, value: size }, wire: { length: 2000, diameter: 3.8, type: "flex" as const } });
 const SHORT_EDGE_CASES = [
   { label: "round 157.5 (stem 0.07 mm from the bight's back edge)", overrides: spec3(157.5), clips: 3 },
@@ -160,7 +166,7 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     const origin = stems[tops[0].i];
 
     // Every clip's slot (its stem's seat in a nominal slot) is a lattice vector from the first top clip's: (20a, 20b), a + b even.
-    const nominalSeat = (s: (typeof stems)[number]) => s.bottom + seatOf(5, 15, s.halfWidth);
+    const nominalSeat = (s: (typeof stems)[number]) => slotUpOf(s, 5, 15);
     for (const s of stems) {
       const a = (s.side - origin.side) / LATTICE;
       const b = (nominalSeat(s) - nominalSeat(origin)) / LATTICE;
@@ -178,9 +184,8 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     for (const board of BOARDS) {
       // The slots sit where the first top clip's stem rests on this board's slot bottom; every clip is seated with it
       // (0.01 mm above exact contact, so faceted-arc rounding never reads as an overlap).
-      const seat = seatOf(board.slotWidth, board.slotLength, origin.halfWidth);
       const lift = 0.01;
-      const slab = buildBoard(wasm, f, frontZ, { up: origin.bottom + seat, side: origin.side }, board, radius);
+      const slab = buildBoard(wasm, f, frontZ, { up: slotUpOf(origin, board.slotWidth, board.slotLength), side: origin.side }, board, radius);
       for (const { part, m } of clips) {
         const seated = shifted(m, f, lift, 0, 0);
         expect(overlap(seated, slab), `${board.label}, ${part.name}: seated clip intersects the board`).toBeLessThan(1e-3);
@@ -241,8 +246,7 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     const m = manifoldOf(wasm, top.mesh);
     const stem = stemOf(m, frontZ - 3, f);
     for (const board of BOARDS) {
-      const seat = seatOf(board.slotWidth, board.slotLength, stem.halfWidth);
-      const slab = buildBoard(wasm, f, frontZ, { up: stem.bottom + seat, side: stem.side }, board, 80);
+      const slab = buildBoard(wasm, f, frontZ, { up: slotUpOf(stem, board.slotWidth, board.slotLength), side: stem.side }, board, 80);
       const firstContact = (from: number, to: number) => {
         let miss = from;
         let hit = to;
@@ -256,6 +260,7 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
         return hit;
       };
       const expected = BASELINE_REACH[board.label];
+      expect(slotUpOf(stem, board.slotWidth, board.slotLength) - (stem.bottom + seatOf(board.slotWidth, board.slotLength, stem.halfWidth)), `${board.label}: the chamfered stem sits deeper in its slot by the chamfer`).toBeCloseTo(CAP_CHAMFER, 2);
       expect(Math.abs(firstContact(0, 3) - expected.lift), `${board.label}: lift`).toBeLessThan(CONTACT_TOLERANCE);
       expect(Math.abs(-firstContact(0, -3) - expected.drop), `${board.label}: drop`).toBeLessThan(CONTACT_TOLERANCE);
       slab.delete();
@@ -307,8 +312,7 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     const top = clipsOf(d).find((p) => p.name.includes("-top-"))!;
     const m = manifoldOf(wasm, top.mesh);
     const stem = stemOf(m, frontZ - 3, f);
-    const seat = seatOf(5, 15, stem.halfWidth);
-    const slab = buildBoard(wasm, f, frontZ, { up: stem.bottom + seat, side: stem.side }, BOARDS[1], 80);
+    const slab = buildBoard(wasm, f, frontZ, { up: slotUpOf(stem, 5, 15), side: stem.side }, BOARDS[1], 80);
     expect(overlap(shifted(m, f, 4, 0, 0), slab)).toBeLessThan(1e-3);
     slab.delete();
     m.delete();
@@ -461,7 +465,7 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     }
   }, 120_000);
 
-  it.each(SHORT_EDGE_CASES)("$label: every convex corner of a bottom clip still has a 0.5 mm fillet", async ({ overrides }) => {
+  it.each(SHORT_EDGE_CASES)("$label: every convex corner of a bottom clip still has a 0.55 mm fillet", async ({ overrides }) => {
     const wasm = await getWasm();
     const d = await design(baseSpec(overrides));
     const bottoms = clipsOf(d).filter((p) => p.name.includes("-bottom-"));
@@ -469,7 +473,7 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     for (const part of bottoms) {
       const convex = arcRuns(turnsOf(midOutline(wasm, part))).filter((r) => r.turn > 0);
       expect(convex.length, `${part.name}: filleted convex corners`).toBeGreaterThan(0);
-      expect(Math.min(...convex.map((r) => r.radius)), `${part.name}: smallest convex fillet`).toBeGreaterThan(0.5 - 0.01);
+      expect(Math.min(...convex.map((r) => r.radius)), `${part.name}: smallest convex fillet`).toBeGreaterThan(0.55 - 0.01);
     }
   }, 120_000);
 
@@ -488,7 +492,28 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     }
   }, 120_000);
 
-  it("prints without supports: every clip is one solid, lying on its flat face with every other face vertical", async () => {
+  it("the cap edges are chamfered 0.4 mm at 45 degrees: the outline 0.2 mm above the bed is the mid outline moved 0.2 mm in", async () => {
+    const wasm = await getWasm();
+    for (const c of CASES) {
+      const d = await design(baseSpec(c.overrides), "draft");
+      for (const part of clipsOf(d)) {
+        const m = manifoldOf(wasm, printPosed(part));
+        const box = m.boundingBox();
+        const mid = m.slice((box.min[2] + box.max[2]) / 2).toPolygons();
+        const near = m.slice(box.min[2] + CAP_CHAMFER / 2).toPolygons();
+        m.delete();
+        const label = `${c.label}, ${part.name}`;
+        expect(mid.length, `${label}: one mid outline`).toBe(1);
+        expect(near.length, `${label}: one outline near the bed`).toBe(1);
+        expect(polygonArea(near[0]), `${label}: smaller than mid`).toBeLessThan(polygonArea(mid[0]));
+        const [a, b] = longestEdge(mid[0] as Ring);
+        const centre = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        expect(distanceToRing(centre, near[0] as Ring), `${label}: the long edge has moved in by half the chamfer`).toBeCloseTo(CAP_CHAMFER / 2, 2);
+      }
+    }
+  }, 120_000);
+
+  it("prints without supports: every clip is one solid, lying on its flat face with every other face vertical or a 45 degree chamfer within 0.4 mm of a cap", async () => {
     const wasm = await getWasm();
     for (const c of CASES) {
       const d = await design(baseSpec(c.overrides));
@@ -504,6 +529,8 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
           maxZ = Math.max(maxZ, positions[i]);
         }
         expect(maxZ - minZ, `${c.label}, ${part.name}: lies on its face`).toBeCloseTo(4.4, 3);
+        const slanted = new Set<number>();
+        const walls = new Set<number>();
         for (let t = 0; t < indices.length; t += 3) {
           const p = [0, 1, 2].map((k) => [positions[3 * indices[t + k]], positions[3 * indices[t + k] + 1], positions[3 * indices[t + k] + 2]]);
           const u = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
@@ -514,8 +541,13 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
           const nz = n[2] / len;
           const zs = p.map((q) => q[2]);
           const flat = Math.abs(Math.abs(nz) - 1) < 1e-4 && (Math.max(...zs) < minZ + 1e-4 || Math.min(...zs) > maxZ - 1e-4);
-          expect(flat || Math.abs(nz) < 1e-4, `${c.label}, ${part.name}: a face that's neither vertical nor the bed/top (nz=${nz.toFixed(4)})`).toBe(true);
+          const chamfer = Math.abs(Math.abs(nz) - Math.SQRT1_2) < 1e-3 && (Math.max(...zs) < minZ + CAP_CHAMFER + 1e-3 || Math.min(...zs) > maxZ - CAP_CHAMFER - 1e-3);
+          expect(flat || chamfer || Math.abs(nz) < 1e-4, `${c.label}, ${part.name}: a face that's neither vertical, nor the bed/top, nor a chamfer at a cap (nz=${nz.toFixed(4)})`).toBe(true);
+          if (chamfer) slanted.add(t / 3);
+          if (Math.abs(nz) < 1e-4) walls.add(t / 3);
         }
+        expect([...slanted].sort((a, b) => a - b), `${c.label}, ${part.name}: the chamfer triangles the viewer skips the creases of`).toEqual([...(part.mesh.rimTriangles?.chamfer ?? [])].sort((a, b) => a - b));
+        expect([...walls].sort((a, b) => a - b), `${c.label}, ${part.name}: the walls the viewer inks the chamfers' lower crease against`).toEqual([...(part.mesh.rimTriangles?.land ?? [])].sort((a, b) => a - b));
       }
     }
   }, 120_000);
@@ -577,6 +609,32 @@ function arcRuns(turns: Turn[]): Array<{ turn: number; radius: number }> {
   }
   close();
   return runs;
+}
+
+function polygonArea(ring: ReadonlyArray<ReadonlyArray<number>>): number {
+  return Math.abs(ring.reduce((sum, p, i) => sum + p[0] * ring[(i + 1) % ring.length][1] - ring[(i + 1) % ring.length][0] * p[1], 0)) / 2;
+}
+
+function longestEdge(ring: Ring): [Ring[number], Ring[number]] {
+  let best: [Ring[number], Ring[number]] = [ring[0], ring[1]];
+  let length = 0;
+  ring.forEach((p, i) => {
+    const q = ring[(i + 1) % ring.length];
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    if (len > length) [best, length] = [[p, q], len];
+  });
+  return best;
+}
+
+function distanceToRing(point: number[], ring: Ring): number {
+  return Math.min(
+    ...ring.map((p, i) => {
+      const q = ring[(i + 1) % ring.length];
+      const len2 = (q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2;
+      const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((point[0] - p[0]) * (q[0] - p[0]) + (point[1] - p[1]) * (q[1] - p[1])) / len2));
+      return Math.hypot(point[0] - (p[0] + t * (q[0] - p[0])), point[1] - (p[1] + t * (q[1] - p[1])));
+    }),
+  );
 }
 
 /** A part's mesh in its own print pose (rotate about Z, then X, then translate -- the public `RigidTransform`). */

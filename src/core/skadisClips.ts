@@ -6,6 +6,7 @@ import {
   SKADIS_BOARD_THICKNESS_MAX,
   SKADIS_CLIP_BOARD_EDGE_MIN,
   SKADIS_CLIP_BOARD_FILLET,
+  SKADIS_CLIP_CAP_CHAMFER,
   SKADIS_CLIP_FILLET_MAX,
   SKADIS_CLIP_FILLET_MIN_CONVEX,
   SKADIS_CLIP_FILLET_SEGMENTS_PER_90,
@@ -169,10 +170,10 @@ export function stemSeat(slotWidth: number, slotLength: number): number {
   return slotLength / 2 - (r - Math.sqrt(r * r - w * w));
 }
 function fullWidthHalf(slotWidth: number, slotLength: number): number {
-  return stemSeat(slotWidth, slotLength);
+  return stemSeat(slotWidth, slotLength) + SKADIS_CLIP_CAP_CHAMFER;
 }
 
-const SEAT = stemSeat(SKADIS_SLOT_WIDTH, SKADIS_SLOT_LENGTH);
+const SEAT = stemSeat(SKADIS_SLOT_WIDTH, SKADIS_SLOT_LENGTH) + SKADIS_CLIP_CAP_CHAMFER;
 
 export function ccwWithoutNearPoints(points: Array<[number, number]>): Array<[number, number]> {
   const near = (p: [number, number], q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) < WELD_EPSILON;
@@ -628,6 +629,40 @@ export function clipFrame(axisDeg: number, side: number) {
     side: sv,
     at: (u: number, zz: number, t: number) => ({ x: u * up.x + (side + t) * sv.x, y: u * up.y + (side + t) * sv.y, z: zz }),
   };
+}
+
+export type Point3 = { x: number; y: number; z: number };
+
+export function insetProfile(profile: Array<[number, number]>, depth: number): Array<[number, number]> {
+  const n = profile.length;
+  const left = profile.map((p, i) => {
+    const q = profile[(i + 1) % n];
+    const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+    return [-(q[1] - p[1]) / len, (q[0] - p[0]) / len];
+  });
+  const inset = profile.map((p, i): [number, number] => {
+    const a = left[(i + n - 1) % n];
+    const b = left[i];
+    const miter = depth / (1 + a[0] * b[0] + a[1] * b[1]);
+    return [p[0] + (a[0] + b[0]) * miter, p[1] + (a[1] + b[1]) * miter];
+  });
+  inset.forEach((p, i) => {
+    const q = inset[(i + 1) % n];
+    const r = profile[(i + 1) % n];
+    if ((q[0] - p[0]) * (r[0] - profile[i][0]) + (q[1] - p[1]) * (r[1] - profile[i][1]) <= 0) {
+      throw new Error(`SKÅDIS clip profile folds when its cap edges are chamfered, near (${profile[i][0].toFixed(2)}, ${profile[i][1].toFixed(2)})`);
+    }
+  });
+  return inset;
+}
+
+export function clipRings(layout: SkadisClipLayout, clip: RimClip): Point3[][] {
+  const { at } = clipFrame(layout.axisDeg, clip.side);
+  const half = SKADIS_CLIP_WIDTH / 2;
+  const d = SKADIS_CLIP_CAP_CHAMFER;
+  const inset = insetProfile(clip.profile, d);
+  const ring = (points: Array<[number, number]>, t: number): Point3[] => points.map(([u, z]) => at(u, z, t));
+  return [ring(inset, -half), ring(clip.profile, -half + d), ring(clip.profile, half - d), ring(inset, half)];
 }
 
 export function clipPrintRotateZ(axisDeg: number): number {

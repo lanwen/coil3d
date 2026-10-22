@@ -173,3 +173,19 @@ test.describe("SKÅDIS clip screenshots (issue #207)", () => {
     await expect(canvas).toHaveScreenshot("skadis-exploded-round-85.png");
   });
 });
+
+// Issue #361: the clips' cap edges are chamfered. With no inked line where a chamfer meets its wall, each face lost its
+// closing outline and the creases of the stem and the bight stopped in the middle of a face. These close-ups, at the
+// default iso view of the 85 mm design, exist for those dangling lines.
+test.describe("SKÅDIS clip close-ups (issue #361)", () => {
+  test.use({ deviceScaleFactor: 4 });
+  for (const { label, clip } of [
+    { label: "top-latch", clip: { x: 1040, y: 262, width: 95, height: 85 } },
+    { label: "bottom", clip: { x: 795, y: 470, width: 70, height: 75 } },
+  ]) {
+    test(`${label}: every face of the clip is closed by an outline, and no line ends in mid-face`, async ({ page }) => {
+      await gotoDesign(page, ROUND_85);
+      await expect(page).toHaveScreenshot(`skadis-closeup-${label}.png`, { clip, scale: "device" });
+    });
+  }
+});
