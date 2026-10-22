@@ -123,11 +123,13 @@ Neither end of the cable has a connector pocket. Both connectors hang outside.
   with what is left of the budget, because a chord that meets the rim at a
   grazing angle leaves a long knife-edge sliver of rim beside the channel. Past
   the rim it goes straight on.
-- If the flange margin is too narrow to hold the clip past the end of the drop,
-  the drop is squeezed into the length the rim leaves and the layout warns. A
-  real design never gets there: the margin grows to the narrowest width that
-  fits (`requiredInnerEndMargin`), which is cheap and independent of the margin,
-  so the solver can ask for it on every candidate.
+- The flange margin must be at least the narrowest width that holds the clip
+  past the end of the drop (`requiredInnerEndMargin`), which is cheap and
+  independent of the margin, so the solver can ask for it on every candidate.
+  `layoutInnerEnd` assumes it and has no fallback for a narrower margin: the
+  margin the sizing step picks is never narrower, a sweep of free and locked
+  cores never produced one, and the squeezed-drop warning that used to cover it
+  was removed (issue #373).
 - The channel is swept along the drawn cable, not cut as a flat-bottomed box.
   Every cross-section is a round bore of one cable diameter plus tolerance
   around the cable's centre, open straight up to the face (a "U"). Its depth
@@ -900,7 +902,14 @@ candidates; it can't buy proportions with extra capacity.
   pegs depend on the flange margin more than on the size (the channel for the
   inner cable end can block them at any size), so a free-size design grows
   the margin instead, to the smallest value at which the layout fits. A locked
-  size keeps the old behaviour: the feature is skipped and a warning says so.
+  size keeps that behaviour for the through-holes only: the lock fixes the core,
+  not the margin. The closed-form margin leaves a corner hole a band about a
+  micrometre wide, so the margin grows by the bisected minimum (0.02 mm at most
+  on a square or triangle, 0.23 mm on a pill, about 2 mm where a small round
+  flange's ring of large holes cannot clear the channel) and a corner hole
+  turns clear of the channel pad. For the SKÅDIS rim clips and the
+  openGrid plate a locked size keeps the old behaviour: the feature is skipped
+  and a warning says so.
   A twist lock on a square or triangle core falls back to the press-fit collar
   at every size.
 - The whole drawn cable (lead-in, layer transitions, outer end) stays within

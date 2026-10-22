@@ -114,7 +114,6 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
   };
 
   const mountFits = (plan: ReturnType<typeof layoutsAt>): boolean => {
-    if (spec.mount === "keyhole") return plan.mountLayout?.warning === undefined;
     if (spec.mount === "skadis") return plan.skadisLayout?.warning === undefined;
     if (spec.mount === "through") {
       const flange = {
@@ -139,7 +138,7 @@ function planFlange(spec: CoilSpec, solution: Solution, outline: ShapeOutline, b
 
   let plan = layoutsAt(sized.margin);
   let sizing = sized;
-  if (baseOn && !spec.coreSize.locked && !mountFits(plan)) {
+  if (baseOn && (!spec.coreSize.locked || spec.mount === "through") && !mountFits(plan)) {
     const grown = growMargin(sized.margin, (margin) => mountFits(layoutsAt(margin)));
     if (grown !== undefined) {
       plan = layoutsAt(grown);
@@ -324,8 +323,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       `The inner-end channel is only ${channelDepth.toFixed(1)} mm deep, limited by the flange's own thickness; the first turn may sit slightly proud of the surrounding flange face.`,
     );
   }
-  if (innerEndLayout?.warning) problem(innerEndLayout.warning);
-  if (mountLayout?.warning) problem(mountLayout.warning);
   if (wantsKeyhole && thickness > channelOnlyThickness + 1e-9) {
     note(`Flange thickness increased to ${thickness.toFixed(1)} mm to fit the recessed screw-keyhole mount.`);
   }
@@ -350,7 +347,6 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   let mountPlateLayout: ReturnType<typeof mountPlateLayoutFor> | undefined;
   if (mountKindForPlate) {
     mountPlateLayout = mountPlateLayoutFor(offsetOutline(outline, margin), boreOutline, innerEndLayout);
-    if (mountPlateLayout.warning) problem(mountPlateLayout.warning);
     if (spec.plateJoint === "snap") note("Snap tabs can't print without supports, so the mount plate uses two printed pegs and glue instead.");
   }
   const mountPlateCut: MountPlateFlangeCut | undefined =

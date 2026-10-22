@@ -113,7 +113,6 @@ export interface KeyholeSlot {
 export interface MountLayout {
   slots: KeyholeSlot[];
   recessDepth: number;
-  warning?: string;
   axisDeg?: number;
 }
 
@@ -121,14 +120,19 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
   const halfTravel = SCREW_MOUNT_SLOT_TRAVEL / 2;
   const flangeOutline = offsetOutline(outline, margin);
 
-  const slotAt = (axisDeg: number): KeyholeSlot | null => {
+  const bandAt = (axisDeg: number): { lo: number; hi: number } => {
     const phi = standardAngleRad(axisDeg);
     const innerLimit = radiusAtAngle(outline, phi) + SCREW_MOUNT_EDGE_MARGIN + SCREW_MOUNT_HEAD_RADIUS;
     const outerLimit = radiusAtAngle(flangeOutline, phi) - SCREW_MOUNT_EDGE_MARGIN - SCREW_MOUNT_HEAD_RADIUS;
-    const bandLo = innerLimit + halfTravel;
-    const bandHi = outerLimit - halfTravel;
-    if (bandHi < bandLo) return null;
-    const R = (bandLo + bandHi) / 2;
+    return { lo: innerLimit + halfTravel, hi: outerLimit - halfTravel };
+  };
+  const fitsAt = (axisDeg: number): boolean => {
+    const band = bandAt(axisDeg);
+    return band.hi >= band.lo;
+  };
+  const slotAt = (axisDeg: number): KeyholeSlot => {
+    const band = bandAt(axisDeg);
+    const R = (band.lo + band.hi) / 2;
     const a = (axisDeg * Math.PI) / 180;
     const x = R * Math.sin(a);
     const y = R * Math.cos(a);
@@ -140,20 +144,13 @@ export function layoutKeyholeMount(outline: ShapeOutline, boreOutline: ShapeOutl
 
   if (wantsTwoSlots) {
     const axis = bestAxisDeg(boreOutline, SCREW_MOUNT_TWO_SLOT_ANGLE_DEG, keyholeRotation);
-    const left = slotAt(axis - SCREW_MOUNT_TWO_SLOT_ANGLE_DEG);
-    const right = slotAt(axis + SCREW_MOUNT_TWO_SLOT_ANGLE_DEG);
-    if (left && right) return { slots: [left, right], recessDepth: SCREW_MOUNT_RECESS_DEPTH, axisDeg: axis };
+    const leftAxis = axis - SCREW_MOUNT_TWO_SLOT_ANGLE_DEG;
+    const rightAxis = axis + SCREW_MOUNT_TWO_SLOT_ANGLE_DEG;
+    if (fitsAt(leftAxis) && fitsAt(rightAxis)) return { slots: [slotAt(leftAxis), slotAt(rightAxis)], recessDepth: SCREW_MOUNT_RECESS_DEPTH, axisDeg: axis };
   }
 
   const singleAxis = bestAxisDeg(boreOutline, 0, keyholeRotation);
-  const single = slotAt(singleAxis);
-  if (single) return { slots: [single], recessDepth: SCREW_MOUNT_RECESS_DEPTH, axisDeg: singleAxis };
-
-  return {
-    slots: [],
-    recessDepth: SCREW_MOUNT_RECESS_DEPTH,
-    warning: "The flange is too narrow to fit the screw-keyhole mount (increase the core size, or the mount was skipped).",
-  };
+  return { slots: [slotAt(singleAxis)], recessDepth: SCREW_MOUNT_RECESS_DEPTH, axisDeg: singleAxis };
 }
 
 export interface ThroughHole {
