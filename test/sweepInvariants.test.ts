@@ -136,6 +136,15 @@ describe("a plate covers the drawn cable plus the lip, over the swept designs (i
   });
 });
 
+describe("every layer of an ok design holds a turn, over the swept designs (issue #374)", () => {
+  it.each(CASES)("$name", async (c) => {
+    const d = await designOf(c);
+    if (d.solution.diagnosis.status !== "ok") return;
+    for (const layer of d.solution.layerResults) expect(layer.turns, `layer ${layer.layer}`).toBeGreaterThanOrEqual(1);
+    expect(d.wirePaths.length).toBe(d.solution.layers);
+  });
+});
+
 describe("the whole drawn cable respects the bend radius, over the swept designs (issue #274)", () => {
   it.each(CASES)("$name", async (c) => {
     const d = await designOf(c);

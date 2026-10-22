@@ -133,7 +133,9 @@ export interface Solution {
   totalWireLength: number;
   targetWireLength: number;
   lengthDeltaPct: number;
-  capacityRange: [stacked: number, orthocyclic: number];
+  capacityRange: [min: number, max: number];
+  capacityMinWinding: "nested" | "stacked";
+  windingQualityUsed: number;
   envelopeDiameter: number;
   flangeSize: number;
   overallHeight?: number;

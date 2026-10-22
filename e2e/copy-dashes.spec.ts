@@ -7,7 +7,7 @@ import { expectSettled } from "./settled";
 
 const DASH = "--";
 
-const LOOSE_WINDING = encodeHashDoc({ L: 3000, d: 4, lock: ["outer"], size: 60 });
+const TIGHT_WINDING = encodeHashDoc({ L: 3000, d: 4, lock: ["outer"], size: 60 });
 const ALL_THREE_LOCKED = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h", "ly"], size: 64, h: 40, ly: 1 });
 const SKADIS = encodeHashDoc({ L: 2000, d: 3.8, mount: "skadis", base: "on" });
 const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on", cap: "on" });
@@ -35,9 +35,9 @@ function expectNoDash(text: string) {
 
 test.describe("no double-hyphen dash in shown text (issue #318)", () => {
   test("the app, with every note under All numbers and the solver line", async ({ page }) => {
-    await open(page, LOOSE_WINDING);
+    await open(page, TIGHT_WINDING);
     await openAllNumbers(page);
-    await expect(page.getByTestId("warnings")).toContainText("loose winding may not fit");
+    await expect(page.getByTestId("warnings")).toContainText("tight winding may not fit");
     await expect(page.getByTestId("diagnosis-message")).toBeVisible();
     expectNoDash(await shownText(page));
   });

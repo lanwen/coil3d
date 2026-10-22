@@ -69,3 +69,20 @@ describe("the flange and the cap cover the drawn wound cable plus the lip", () =
     }
   }
 });
+
+// Issue #374: a core one turn tall winds a flat spiral, one turn per layer, and the flange is sized from the
+// same radial step the drawn cable uses.
+describe("the flange covers a flat spiral's wound turns and hops (issue #374)", () => {
+  const FLAT_SPIRALS: Array<[string, CoilSpec]> = [
+    ["25 layers at 9.5 mm, 3.8 mm cable", spec({ wire: { length: 2000, diameter: 3.8, type: "usb" }, coreSize: { locked: false }, height: { locked: true, value: 9.5 }, layers: { locked: true, value: 25 } })],
+    ["3 layers at the height floor, 8 mm cable", spec({ wire: { length: 300, diameter: 8, type: "usb" }, coreSize: { locked: false }, height: { locked: true, value: 1 }, layers: { locked: true, value: 3 } })],
+  ];
+  for (const [name, flat] of FLAT_SPIRALS) {
+    it(name, async () => {
+      const d = await design(flat, "final");
+      expect(d.solution.layerResults.every((l) => l.turns === 1)).toBe(true);
+      const { reach: r, where } = reach(d);
+      expect(r + FLANGE_MARGIN, `${where} reaches ${r.toFixed(2)} mm; margin ${d.flangeSpec.margin.toFixed(2)} mm`).toBeLessThanOrEqual(d.flangeSpec.margin + 1e-3);
+    });
+  }
+});
