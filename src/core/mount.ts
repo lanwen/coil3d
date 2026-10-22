@@ -180,6 +180,10 @@ export function requiredThroughMountMargin(
   return Math.max(0, target - outlineR0);
 }
 
+export function throughHoleSinkThickness(flange: { thickness: number; plateThickness?: number }): number {
+  return Math.min(flange.plateThickness ?? flange.thickness, flange.thickness);
+}
+
 export function throughHoleCountersink(holeRadius: number, plateThickness: number): { radius: number; depth: number } {
   const radius = Math.max(holeRadius, Math.min(2 * holeRadius, holeRadius + THROUGH_MOUNT_EDGE_MARGIN, holeRadius + plateThickness - THROUGH_MOUNT_COUNTERSINK_LAND));
   return { radius, depth: radius - holeRadius };

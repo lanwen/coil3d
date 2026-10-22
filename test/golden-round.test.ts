@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { design, parseHash } from "../src/core";
 import { encodeHashDoc } from "../e2e/hashDoc";
+import { meshVolume } from "./support/mesh";
 
 // Regression guard (PR #24 review): issue #6 generalises the round core's
 // geometry construction (shapes.ts/wall.ts/manifold.ts) to share code with
@@ -16,22 +17,6 @@ import { encodeHashDoc } from "../e2e/hashDoc";
 // axis (mesh volume is rotation-invariant by construction) -- see the
 // note above test/geometry.test.ts's `describe` blocks for why that class
 // of bug is an e2e-screenshot concern, not a vitest one.
-function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): number {
-  const { positions: v, indices: t } = mesh;
-  let volume = 0;
-  for (let i = 0; i < t.length; i += 3) {
-    const a = t[i] * 3;
-    const b = t[i + 1] * 3;
-    const c = t[i + 2] * 3;
-    volume +=
-      (v[a] * (v[b + 1] * v[c + 2] - v[b + 2] * v[c + 1]) -
-        v[a + 1] * (v[b] * v[c + 2] - v[b + 2] * v[c]) +
-        v[a + 2] * (v[b] * v[c + 1] - v[b + 1] * v[c])) /
-      6;
-  }
-  return Math.abs(volume);
-}
-
 describe("round core matches main's golden numbers for a fixed hash (issue #6 regression)", () => {
   it("L=2000, d=3.8, outer size 60", async () => {
     const { spec, notice } = parseHash(encodeHashDoc({ L: 2000, d: 3.8, size: 60, base: "on" }));

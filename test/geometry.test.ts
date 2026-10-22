@@ -2,27 +2,11 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design, exportDesign } from "../src/core";
 import type { CoilSpec } from "../src/core";
+import { meshVolume } from "./support/mesh";
 
 // These tests exercise ONLY the core's public interface (design,
 // exportDesign). manifold-3d and a hand-rolled STL parser are used here as
 // independent verification tools, not as access to core internals.
-
-/** Volume of a closed, consistently-oriented triangle mesh, by the divergence theorem -- an independent check, not core/meshVolume.ts (or manifold-3d's own .volume(), for a mesh this file never wraps in a wasm.Manifold). */
-function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): number {
-  const { positions: v, indices: t } = mesh;
-  let volume = 0;
-  for (let i = 0; i < t.length; i += 3) {
-    const a = t[i] * 3;
-    const b = t[i + 1] * 3;
-    const c = t[i + 2] * 3;
-    volume +=
-      (v[a] * (v[b + 1] * v[c + 2] - v[b + 2] * v[c + 1]) -
-        v[a + 1] * (v[b] * v[c + 2] - v[b + 2] * v[c]) +
-        v[a + 2] * (v[b] * v[c + 1] - v[b + 1] * v[c])) /
-      6;
-  }
-  return Math.abs(volume);
-}
 
 const baseSpec: CoilSpec = {
   wire: { length: 2000, diameter: 3.8, type: "usb" },

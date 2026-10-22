@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, Part } from "../src/core";
 import { JOINT_ENGAGE_DEPTH, SKADIS_LATCH_FACE_DEG, SKADIS_LATCH_TOOTH_DEPTH, SKADIS_TONGUE_LENGTH, SKADIS_TCLIP_FIN_HEIGHT, SKADIS_TCLIP_FIN_TOP_GAP, SKADIS_TCLIP_HANDLE_THICKNESS, SKADIS_TCLIP_NOTCH_DEPTH, SKADIS_TCLIP_NOTCH_FLOOR, SKADIS_TCLIP_NOTCH_LEAD, SKADIS_TCLIP_NOTCH_WIDTH, SKADIS_TCLIP_RECESS_DEPTH, SKADIS_TCLIP_WIDTH } from "../src/core/constants";
-import { meshVolume } from "../src/core/meshVolume";
+import { meshVolume } from "./support/mesh";
 
 // Issue #207: do the printed rim clips really hang on a SKÅDIS board and hold
 // the coil? The board here is built ONLY from the researched facts

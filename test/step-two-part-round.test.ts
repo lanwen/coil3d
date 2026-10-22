@@ -3,7 +3,8 @@ import { design, exportDesign } from "../src/core";
 import type { CoilSpec, JointKind } from "../src/core";
 import { BAYONET_LUG_COUNT } from "../src/core/constants";
 import { jointGeometry } from "../src/core/joints";
-import { STEP_TIMEOUT_MS, meshVolume, perPartVolumeErrors, reimportStep, snapProbes, stepContains, strapProbes } from "./support/step";
+import { meshVolume } from "./support/mesh";
+import { STEP_TIMEOUT_MS, perPartVolumeErrors, reimportStep, snapProbes, stepContains, strapProbes } from "./support/step";
 
 // Split from test/step.test.ts (test-audit report, S1): the round-core
 // two-part designs (core + top-cap, or core + mount-plate), kept in their

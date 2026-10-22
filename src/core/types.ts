@@ -1,6 +1,9 @@
 import type { WallSpec } from "./wall";
 import type { FlangeSpec } from "./manifold";
-import type { RimSlot } from "./innerEnd";
+import type { RimSlot, XY, XYZ } from "./innerEnd";
+import type { KeyholeSlot, ThroughHole } from "./mount";
+import type { MountPlateLayout } from "./mountPlate";
+import type { ShapeOutline } from "./shapes";
 import type { StrapSlot } from "./strapSlot";
 import type { FaceChannelLayout } from "./faceChannel";
 
@@ -180,6 +183,19 @@ export interface PegboardSection {
   axisDeg: number;
 }
 
+export interface DesignMountLayout {
+  keyhole?: { slots: KeyholeSlot[]; recessDepth: number; axisDeg?: number };
+  through?: { holes: Array<ThroughHole & { r: number; countersink: { radius: number; depth: number } }>; holeRadius: number };
+  plate?: MountPlateLayout;
+  clipFootprints?: XY[][];
+}
+
+export interface DesignCapJoint {
+  kind: JointKind;
+  collarRadius: number;
+  holeOutline?: ShapeOutline;
+}
+
 export interface Design {
   spec: CoilSpec;
   solution: Solution;
@@ -196,14 +212,16 @@ export interface Design {
   mountAxisDeg?: number;
   pegboard?: PegboardSection;
   innerEndLeadIn: Float32Array;
-  innerEndClip?: { from: { x: number; y: number; z: number }; to: { x: number; y: number; z: number } };
+  innerEndClip?: { from: XYZ; to: XYZ; opening: number; rimExit: XY; channelDepth: number };
+  mountLayout?: DesignMountLayout;
+  capJoint?: DesignCapJoint;
   layerTransitions: Float32Array[];
   outerEndLeadOut: Float32Array;
   cablePath: Float32Array;
   rimSlots: { base?: RimSlot; cap?: RimSlot };
   strapSlots: { base: StrapSlot[]; cap: StrapSlot[]; mountPlate: StrapSlot[] };
   strapSlotsNote?: string;
-  faceChannels?: FaceChannelLayout;
+  faceChannels?: FaceChannelLayout & { innerDipStart?: XY; outerDipStart?: XY };
 }
 
 export type ExportFormat = "stl" | "step" | "3mf";

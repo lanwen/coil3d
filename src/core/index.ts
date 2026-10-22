@@ -31,27 +31,9 @@ export type {
   WireTypePreset,
 } from "./types";
 export { DEFAULT_CUSTOM_BEND_MULTIPLIER, WIRE_TYPE_PRESETS } from "./types";
-export {
-  BED_SIZE_MAX,
-  BED_SIZE_MIN,
-  CAP_THICKNESS,
-  DEFAULT_BASE,
-  DEFAULT_BED_SIZE,
-  DEFAULT_CORNER_RADIUS,
-  DEFAULT_PILL_RADIUS,
-  DEFAULT_THROUGH_HOLE_DIAMETER,
-  DEFAULT_TOLERANCE,
-  JOINT_ENGAGE_DEPTH,
-  JOINT_TRANSITION_HEIGHT,
-  KEYHOLE_ROTATION_OPTIONS,
-  LABEL_MAX_LENGTH,
-  THROUGH_HOLE_DIAMETER_MAX,
-  THROUGH_HOLE_DIAMETER_MIN,
-  TOLERANCE_MAX,
-  TOLERANCE_MIN,
-} from "./constants";
-export { SHAPES, defaultCornerRadius } from "./shapes";
-export type { ShapePlugin } from "./shapes";
+export * from "./constants";
+export { SHAPES, defaultCornerRadius, offsetArea, offsetPerimeter, outlineOffsetAt, pointAt } from "./shapes";
+export type { ShapeOutline, ShapePlugin } from "./shapes";
 export { printPlacements } from "./plate";
 export type { PartPlacement } from "./plate";
 export { parseHash, toHash, DEFAULT_SPEC, DEFAULT_SHOW_WIRE } from "./hash";

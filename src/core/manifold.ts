@@ -18,8 +18,7 @@ import {
   WELD_OVERLAP,
   INNER_CHANNEL_WALL_GUARD,
 } from "./constants";
-import { jointGeometry } from "./joints";
-import type { BayonetLayout, OutlineStack, RevolvedFeature, SnapLayout } from "./joints";
+import type { BayonetLayout, JointGeometry, OutlineStack, RevolvedFeature, SnapLayout } from "./joints";
 import { getLabelFont, labelLoops } from "./label";
 import type { ResolvedLabel } from "./label";
 import { chamferedRim, chamferWedgeRows, rimTriangles } from "./edgeChamfer";
@@ -27,11 +26,11 @@ import type { RimRow } from "./edgeChamfer";
 import { buildOutlineRing } from "./wall";
 import { layoutInnerEnd, sweepMesh } from "./innerEnd";
 import { FACE_CUT_OVERSHOOT, FACE_DOME_SEGMENTS, FACE_REVOLVE_SEGMENTS } from "./constants";
-import { faceCutArcs, faceDipSweep } from "./faceChannel";
+import { faceCutArcs } from "./faceChannel";
 import type { FaceCutArc, FaceChannelLayout, FaceEnd } from "./faceChannel";
 import type { InnerEndLayout, RimSlot, SweepSolid, XY } from "./innerEnd";
 import type { StrapSlot } from "./strapSlot";
-import { layoutKeyholeMount, throughHoleCountersink } from "./mount";
+import { layoutKeyholeMount, throughHoleCountersink, throughHoleSinkThickness } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
 import { weldShortEdges } from "./weld";
@@ -316,12 +315,14 @@ function faceArcCutter(wasm: ManifoldToplevel, track: Track, arc: FaceCutArc, en
   return track(turned.translate([arc.centre.x, arc.centre.y, 0]));
 }
 
-function faceChannelCutter(wasm: ManifoldToplevel, track: Track, layout: FaceChannelLayout): Manifold {
+export interface FaceChannelCut {
+  layout: FaceChannelLayout;
+  dips: SweepSolid[];
+}
+
+function faceChannelCutter(wasm: ManifoldToplevel, track: Track, { layout, dips: dipSweeps }: FaceChannelCut): Manifold {
   const ends = [...(layout.inner ? [layout.inner] : []), ...(layout.outer ? [layout.outer] : [])];
-  const dips = ends.flatMap((end) => {
-    const dip = faceDipSweep(end, layout);
-    return dip ? [track(sweepSolid(wasm, dip))] : [];
-  });
+  const dips = dipSweeps.map((dip) => track(sweepSolid(wasm, dip)));
   const pieces = [...dips, ...ends.flatMap((end) => faceCutArcs(end).map((arc) => faceArcCutter(wasm, track, arc, end, layout)))];
   return track(wasm.Manifold.union(pieces));
 }
@@ -332,7 +333,7 @@ export async function fuseFlange(
   coreJoint?: CoreJointCut,
   innerEnd?: InnerEndCut,
   mountPlateCut?: MountPlateFlangeCut,
-  faceChannels?: FaceChannelLayout,
+  faceChannels?: FaceChannelCut,
 ): Promise<CoilMesh> {
   const wasm = await getWasm();
   const { Manifold, Mesh } = wasm;
@@ -398,7 +399,7 @@ export async function fuseFlange(
     if (flange.mount === "through") {
       const layout = layoutFlangeThroughHoles(flange, innerEndLayout);
       for (const hole of layout.holes) {
-        const cutter = throughHoleCutter(wasm, track, hole, layout.holeRadius, flange.thickness, plateTopZ(flange) ?? 0, Math.min(flange.plateThickness ?? flange.thickness, flange.thickness));
+        const cutter = throughHoleCutter(wasm, track, hole, layout.holeRadius, flange.thickness, plateTopZ(flange) ?? 0, throughHoleSinkThickness(flange));
         fused = track(fused.subtract(cutter));
         status = fused.status();
         if (status !== "NoError") {
@@ -481,6 +482,7 @@ export interface TopCapSpec {
   label?: ResolvedLabel;
   rimSlot?: RimSlot;
   strapSlots?: StrapSlot[];
+  geometry: JointGeometry;
 }
 
 export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
@@ -493,13 +495,13 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, tolerance, label, rimSlot, strapSlots, bayonet, snap } = spec;
+    const { flange, joint, label, rimSlot, strapSlots, bayonet, snap, geometry } = spec;
     const plate = track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, 0, CAP_THICKNESS), flange.columns, flange.minCornerSegments));
     if (plate.status() !== "NoError") {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
     }
 
-    const { collarOutline, holeOutline } = jointGeometry(flange.boreOutline, joint, tolerance);
+    const { collarOutline, holeOutline } = geometry;
     const segments = !isPill(collarOutline) && collarOutline.cornerRadius >= collarOutline.apothem - 1e-6 ? collarSegments.round : collarSegments.other;
 
     const straight = () => outlinePrismSolid(wasm, track, collarOutline, JOINT_ENGAGE_DEPTH + WELD_OVERLAP, -JOINT_ENGAGE_DEPTH, segments, flange.minCornerSegments);

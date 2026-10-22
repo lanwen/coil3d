@@ -15,8 +15,9 @@
 // WASM heap across files.
 import { beforeEach } from "vitest";
 import type { OpenCascadeInstance } from "replicad-opencascadejs";
-import { CAP_THICKNESS, SNAP_FINGER_LENGTH, STRAP_SLOT_INNER_WALL, STRAP_SLOT_OUTER_WALL, STRAP_SLOT_WIDTH } from "../../src/core/constants";
+import { CAP_THICKNESS, SNAP_FINGER_LENGTH, STRAP_SLOT_INNER_WALL, STRAP_SLOT_OUTER_WALL, STRAP_SLOT_WIDTH } from "../../src/core";
 import type { Design } from "../../src/core";
+import { meshVolume } from "./mesh";
 
 // Issue #163: OCCT runs inline in the test worker, so one STEP test blocks
 // its event loop for 30+ s (60+ s on a busy machine). Vitest's worker->main
@@ -31,23 +32,6 @@ beforeEach(() => new Promise((resolve) => setTimeout(resolve, 500)));
 // suite, and gets much slower under CPU contention -- so every test using it
 // gets this generous explicit timeout instead of vitest's 5s default.
 export const STEP_TIMEOUT_MS = 60_000;
-
-/** Volume of a closed, consistently-oriented triangle mesh, by the divergence theorem -- an independent check, not core/meshVolume.ts. */
-export function meshVolume(mesh: { positions: Float32Array; indices: Uint32Array }): number {
-  const { positions: v, indices: t } = mesh;
-  let volume = 0;
-  for (let i = 0; i < t.length; i += 3) {
-    const a = t[i] * 3;
-    const b = t[i + 1] * 3;
-    const c = t[i + 2] * 3;
-    volume +=
-      (v[a] * (v[b + 1] * v[c + 2] - v[b + 2] * v[c + 1]) -
-        v[a + 1] * (v[b] * v[c + 2] - v[b + 2] * v[c]) +
-        v[a + 2] * (v[b] * v[c + 1] - v[b + 1] * v[c])) /
-      6;
-  }
-  return Math.abs(volume);
-}
 
 let ocPromise: Promise<OpenCascadeInstance> | undefined;
 async function getOC(): Promise<OpenCascadeInstance> {
