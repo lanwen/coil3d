@@ -239,6 +239,8 @@ describe("thin bottom flange (issue #122)", () => {
   });
 });
 
+const LIP_FLAT_REACH = 3.5; // mm from the lip tip
+
 describe("SKÅDIS rim clips on the thin flange (issue #207)", () => {
   it("the rim each clip grips is the flange's plain plate (no pad), flat on the wall face, and notched where the clip sits", async () => {
     for (const d of [await design(DESIGNS[4].spec, "draft"), await design(spec({ shape: { kind: "sq", cornerRadius: 10 }, coreSize: { locked: true, dimension: "outer", value: 85 }, mount: "skadis" }), "draft")]) {
@@ -268,7 +270,8 @@ describe("SKÅDIS rim clips on the thin flange (issue #207)", () => {
         expect(under[0][1]).toBeCloseTo(-T + plate, 3);
         // The lip lies on the plate's top face, a tolerance above it (not at the winding face, which is higher).
         const above: number[] = [];
-        for (let i = 2; i < P.length; i += 3) if (P[i] > -T + plate + 1e-3) above.push(P[i]);
+        // (Only the lip's flat part, clear of the bight's inside fillet, which dips below it.)
+        for (let i = 2; i < P.length; i += 3) if (P[i] > -T + plate + 1e-3 && Math.abs(P[i - 2] * up.x + P[i - 1] * up.y - inner) < LIP_FLAT_REACH) above.push(P[i]);
         expect(Math.min(...above), `${clip.name}: the lip's underside`).toBeCloseTo(-T + plate + d.spec.tolerance, 3);
         // Just past the notch floor (towards the rim): no flange, the clip's bight is there.
         expect(at(top ? inner + 5.3 : inner - 5.3), `${clip.name}: notch`).toHaveLength(0);

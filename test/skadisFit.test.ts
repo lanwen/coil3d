@@ -2,7 +2,7 @@ import Module from "manifold-3d";
 import { describe, expect, it } from "vitest";
 import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, Part } from "../src/core";
-import { JOINT_ENGAGE_DEPTH, SKADIS_TCLIP_FIN_HEIGHT, SKADIS_TCLIP_FIN_TOP_GAP, SKADIS_TCLIP_HANDLE_THICKNESS, SKADIS_TCLIP_NOTCH_DEPTH, SKADIS_TCLIP_NOTCH_FLOOR, SKADIS_TCLIP_NOTCH_LEAD, SKADIS_TCLIP_NOTCH_WIDTH, SKADIS_TCLIP_RECESS_DEPTH, SKADIS_TCLIP_WIDTH } from "../src/core/constants";
+import { JOINT_ENGAGE_DEPTH, SKADIS_LATCH_FACE_DEG, SKADIS_LATCH_TOOTH_DEPTH, SKADIS_TONGUE_LENGTH, SKADIS_TCLIP_FIN_HEIGHT, SKADIS_TCLIP_FIN_TOP_GAP, SKADIS_TCLIP_HANDLE_THICKNESS, SKADIS_TCLIP_NOTCH_DEPTH, SKADIS_TCLIP_NOTCH_FLOOR, SKADIS_TCLIP_NOTCH_LEAD, SKADIS_TCLIP_NOTCH_WIDTH, SKADIS_TCLIP_RECESS_DEPTH, SKADIS_TCLIP_WIDTH } from "../src/core/constants";
 import { meshVolume } from "../src/core/meshVolume";
 
 // Issue #207: do the printed rim clips really hang on a SKÅDIS board and hold
@@ -34,12 +34,22 @@ function baseSpec(overrides: Partial<CoilSpec> = {}): CoilSpec {
 
 const LATTICE = 20; // mm between neighbouring columns, and their vertical shift
 const FILLET = 1; // mm, the slot edges' round-over on both faces
-const CHAMFER = 0.5; // mm, the clips' outer corners (SKADIS_CLIP_CHAMFER)
+const ARC_FACET_MAX_DEG = 12.5; // a fillet's facets turn at most 11.25 degrees
 const BOARDS = [
   { label: "tight 4.8 x 14.8 slot, 5.2 mm board", slotWidth: 4.8, slotLength: 14.8, thickness: 5.2 },
   { label: "nominal 5 x 15 slot, 5 mm board", slotWidth: 5, slotLength: 15, thickness: 5 },
   { label: "nominal 5 x 15 slot, thin 4 mm board", slotWidth: 5, slotLength: 15, thickness: 4 },
 ];
+
+// A contact measure: the shift at which the clip and the board overlap by more than this volume. The latch's real
+// lift is shorter than the 1 mm the docs give (#364); these are main's values before the fillets (#361).
+const CONTACT_VOLUME = 1e-3;
+const CONTACT_TOLERANCE = 0.05;
+const BASELINE_REACH: Record<string, { lift: number; drop: number }> = {
+  [BOARDS[0].label]: { lift: 0.434, drop: 0.025 },
+  [BOARDS[1].label]: { lift: 0.88, drop: 0.024 },
+  [BOARDS[2].label]: { lift: 0.88, drop: 0.029 },
+};
 
 type Wasm = Awaited<ReturnType<typeof Module>>;
 type M = InstanceType<Wasm["Manifold"]>;
@@ -115,6 +125,14 @@ const overlap = (a: M, b: M) => {
 };
 const shifted = (m: M, f: Frame, dUp: number, dSide: number, dz: number) => m.translate([dUp * f.up.x + dSide * f.side.x, dUp * f.up.y + dSide * f.side.y, dz]);
 
+// Bottom clips whose stem sits close to a corner that a fillet would round: 0.07 mm from the bight's back edge, and 0.61 mm short of the jaw tip.
+// There the bight or the jaw grows to leave a 1 mm board-face edge between two fillets.
+const spec3 = (size: number) => ({ coreSize: { locked: true as const, dimension: "outer" as const, value: size }, wire: { length: 2000, diameter: 3.8, type: "flex" as const } });
+const SHORT_EDGE_CASES = [
+  { label: "round 157.5 (stem 0.07 mm from the bight's back edge)", overrides: spec3(157.5), clips: 3 },
+  { label: "round 160 (stem 0.61 mm short of the jaw tip)", overrides: spec3(160), clips: 3 },
+];
+
 const CASES: Array<{ label: string; overrides: Partial<CoilSpec>; clips: number }> = [
   { label: "round 60", overrides: { coreSize: { locked: true, dimension: "outer", value: 60 } }, clips: 3 },
   { label: "round 85", overrides: {}, clips: 3 },
@@ -122,6 +140,7 @@ const CASES: Array<{ label: string; overrides: Partial<CoilSpec>; clips: number 
   { label: "square 85", overrides: { shape: { kind: "sq", cornerRadius: 10 } }, clips: 3 },
   { label: "triangle 85", overrides: { shape: { kind: "tri", cornerRadius: 10 } }, clips: 3 },
   { label: "round 85, 10 m of 8 mm cable (heavy: two top clips)", overrides: { wire: { length: 10000, diameter: 8, type: "flex" }, layers: { locked: true, value: 4 } }, clips: 4 },
+  ...SHORT_EDGE_CASES,
 ];
 
 describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () => {
@@ -213,6 +232,37 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     }
   }, 60_000);
 
+  it("lift and seat baseline: how far a seated top clip lifts before the slot stops it, and how far it can drop (unchanged by #361)", async () => {
+    const wasm = await getWasm();
+    const d = await design(baseSpec());
+    const f = frameOf(d.mountAxisDeg!);
+    const frontZ = d.pegboard!.frontZ;
+    const top = clipsOf(d).find((p) => p.name.includes("-top-"))!;
+    const m = manifoldOf(wasm, top.mesh);
+    const stem = stemOf(m, frontZ - 3, f);
+    for (const board of BOARDS) {
+      const seat = seatOf(board.slotWidth, board.slotLength, stem.halfWidth);
+      const slab = buildBoard(wasm, f, frontZ, { up: stem.bottom + seat, side: stem.side }, board, 80);
+      const firstContact = (from: number, to: number) => {
+        let miss = from;
+        let hit = to;
+        for (let i = 0; i < 24; i++) {
+          const mid = (miss + hit) / 2;
+          const moved = shifted(m, f, mid, 0, 0);
+          if (overlap(moved, slab) > CONTACT_VOLUME) hit = mid;
+          else miss = mid;
+          moved.delete();
+        }
+        return hit;
+      };
+      const expected = BASELINE_REACH[board.label];
+      expect(Math.abs(firstContact(0, 3) - expected.lift), `${board.label}: lift`).toBeLessThan(CONTACT_TOLERANCE);
+      expect(Math.abs(-firstContact(0, -3) - expected.drop), `${board.label}: drop`).toBeLessThan(CONTACT_TOLERANCE);
+      slab.delete();
+    }
+    m.delete();
+  }, 120_000);
+
   it("the latch arm bends along the layers, and little: at most 1.5 % strain to clear the board face", async () => {
     const wasm = await getWasm();
     const d = await design(baseSpec());
@@ -300,6 +350,44 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
 
   // Issue #222: the jaws grip the flange's plain plate -- the same base as the through-hole mount -- so a clip doesn't
   // depend on how thick the flange is under the wall and the channel, and no clip meets the thickened parts around them.
+  it("the rim's notch floor is rounded round the bight's inside fillets at an even gap, so the coil stays clear of every jaw face", async () => {
+    const wasm = await getWasm();
+    for (const c of CASES) {
+      const d = await design(baseSpec(c.overrides));
+      const f = frameOf(d.mountAxisDeg!);
+      const angle = (Math.atan2(f.up.x, f.up.y) * 180) / Math.PI;
+      const { thickness, plateThickness, skadis } = d.flangeSpec;
+      const plate = Math.min(plateThickness ?? thickness, thickness);
+      const relief = plate / 4;
+      const core = manifoldOf(wasm, d.parts.find((p) => p.role === "core")!.mesh);
+      for (const clip of skadis!.clips) {
+        const strip = wasm.Manifold.cube([0.1, 1000, 100], true).rotate([0, 0, -angle]).translate([clip.side * f.side.x, clip.side * f.side.y, -50]);
+        const section = core.intersect(strip);
+        strip.delete();
+        const { vertProperties } = section.getMesh();
+        for (const cornerZ of [-thickness, -thickness + plate]) {
+          let nearest = Infinity;
+          for (let i = 0; i < vertProperties.length; i += 3) {
+            const u = vertProperties[i] * f.up.x + vertProperties[i + 1] * f.up.y;
+            nearest = Math.min(nearest, Math.hypot(u - clip.floor, vertProperties[i + 2] - cornerZ));
+          }
+          expect(nearest, `${c.label}, ${clip.role} clip at ${clip.side.toFixed(1)}: the rim's corner at z=${cornerZ.toFixed(2)} is rounded off`).toBeGreaterThan(0.9 * relief * (Math.SQRT2 - 1));
+        }
+        section.delete();
+      }
+      for (const part of clipsOf(d)) {
+        const m = manifoldOf(wasm, part.mesh);
+        for (const dz of [-0.1, 0.1]) {
+          const nearer = shifted(core, f, 0, 0, dz);
+          expect(overlap(nearer, m), `${c.label}, ${part.name}: the coil ${dz < 0 ? "down" : "up"} by 0.1 mm meets the clip`).toBeLessThan(1e-3);
+          nearer.delete();
+        }
+        m.delete();
+      }
+      core.delete();
+    }
+  }, 180_000);
+
   it("the clip is the same part on every core, and clears the thick parts of the flange (no pad under it)", async () => {
     const wasm = await getWasm();
     const volumes: number[] = [];
@@ -344,36 +432,59 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     }
   }, 180_000);
 
-  it("the clips' outer corners are chamfered 45 degrees", async () => {
+  it("every profile corner is filleted but the latch's catching face and the tongue's retaining face, which stay sharp", async () => {
     const wasm = await getWasm();
-    for (const c of CASES) {
+    const scenarios = [...CASES.map((c) => ({ label: c.label, overrides: c.overrides })), { label: "round 85, no latch", overrides: { skadisLatch: false } }];
+    for (const c of scenarios) {
       const d = await design(baseSpec(c.overrides), "draft");
       for (const part of clipsOf(d)) {
-        // The clip's profile at mid-thickness, in its print pose (the extrusion axis is Z).
-        const posed = printPosed(part);
-        const m = manifoldOf(wasm, posed);
-        const box = m.boundingBox();
-        const polys = m.slice((box.min[2] + box.max[2]) / 2).toPolygons();
-        expect(polys.length, `${c.label}, ${part.name}: one outline`).toBe(1);
-        // The mesh splits long flat edges into short ones: merge the collinear points back into the outline's corners.
-        const ring = polys[0];
-        const poly = ring.filter((q, i) => {
-          const p = ring[(i + ring.length - 1) % ring.length];
-          const n = ring[(i + 1) % ring.length];
-          return Math.abs((q[0] - p[0]) * (n[1] - q[1]) - (q[1] - p[1]) * (n[0] - q[0])) > 1e-3;
-        });
-        let chamfers = 0;
-        for (let i = 0; i < poly.length; i++) {
-          const [x0, y0] = poly[i];
-          const [x1, y1] = poly[(i + 1) % poly.length];
-          const len = Math.hypot(x1 - x0, y1 - y0);
-          const deg = Math.abs((Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI) % 90;
-          if (Math.abs(len - CHAMFER * Math.SQRT2) < 0.02 && Math.abs(deg - 45) < 0.5) chamfers++;
+        const ring = midOutline(wasm, part);
+        const turns = turnsOf(ring);
+        const runs = arcRuns(turns);
+        const sharp = turns.filter((t) => Math.abs(t.turn) > ARC_FACET_MAX_DEG);
+        const latch = part.name.includes("-top-") && c.overrides.skadisLatch !== false;
+        const label = `${c.label}, ${part.name}`;
+        // Corners joined tangent to tangent (the jaw's and the lip's rounded tips, the slit's end, the arm's end) are one arc run.
+        const expectedRuns = latch ? 15 : 8;
+        expect(runs.length, `${label}: filleted corners`).toBeGreaterThanOrEqual(expectedRuns);
+        expect(sharp.length, `${label}: sharp corners`).toBe(latch ? 4 : 2);
+        const rightAngles = sharp.filter((t) => Math.abs(Math.abs(t.turn) - 90) < 1);
+        expect(rightAngles.length, `${label}: the retaining face's two ends`).toBe(2);
+        expect(Math.hypot(rightAngles[0].at[0] - rightAngles[1].at[0], rightAngles[0].at[1] - rightAngles[1].at[1]), `${label}: the retaining face spans the tongue`).toBeCloseTo(SKADIS_TONGUE_LENGTH, 2);
+        if (latch) {
+          const faceEnds = sharp.filter((t) => Math.abs(Math.abs(t.turn) - (90 - SKADIS_LATCH_FACE_DEG)) < 1);
+          expect(faceEnds.length, `${label}: the catching face's two ends`).toBe(2);
+          expect(Math.hypot(faceEnds[0].at[0] - faceEnds[1].at[0], faceEnds[0].at[1] - faceEnds[1].at[1]), `${label}: the catching face`).toBeCloseTo(SKADIS_LATCH_TOOTH_DEPTH / Math.cos((SKADIS_LATCH_FACE_DEG * Math.PI) / 180), 2);
+          expect(Math.sign(faceEnds[0].turn), `${label}: one end convex, one concave`).not.toBe(Math.sign(faceEnds[1].turn));
         }
-        // The jaw's tip and the lip's tip, the spine's top and the stem's back, at least.
-        expect(chamfers, `${c.label}, ${part.name}: chamfered corners`).toBeGreaterThanOrEqual(4);
-        m.delete();
       }
+    }
+  }, 120_000);
+
+  it.each(SHORT_EDGE_CASES)("$label: every convex corner of a bottom clip still has a 0.5 mm fillet", async ({ overrides }) => {
+    const wasm = await getWasm();
+    const d = await design(baseSpec(overrides));
+    const bottoms = clipsOf(d).filter((p) => p.name.includes("-bottom-"));
+    expect(bottoms.length).toBeGreaterThan(0);
+    for (const part of bottoms) {
+      const convex = arcRuns(turnsOf(midOutline(wasm, part))).filter((r) => r.turn > 0);
+      expect(convex.length, `${part.name}: filleted convex corners`).toBeGreaterThan(0);
+      expect(Math.min(...convex.map((r) => r.radius)), `${part.name}: smallest convex fillet`).toBeGreaterThan(0.5 - 0.01);
+    }
+  }, 120_000);
+
+  // Fuzz cases 1124, 1615 and 2111 (issue #361): a fillet limited by a cap or its other edge left a flat of about 0.02 mm next to its neighbour's fillet.
+  const FLAT_CASES: CoilSpec[] = [
+    { ...baseSpec(), wire: { length: 8823, diameter: 7.26, type: "stiff" }, windingQuality: 0.66, coreSize: { locked: true, dimension: "outer", value: 36.62 }, layers: { locked: false }, objective: "aspectRatio", topCap: "on", tolerance: 0.18, plateJoint: "snap", label: "Lamp 5 m", base: "off", strapSlots: false },
+    { ...baseSpec(), wire: { length: 3741, diameter: 7.49, type: "flex" }, shape: { kind: "sq", cornerRadius: 16.8 }, windingQuality: 0.52, coreSize: { locked: true, dimension: "outer", value: 85.25 }, height: { locked: true, value: 62.06 }, layers: { locked: true, value: 2 }, objective: "aspectRatio", topCap: "on", joint: "bayonet", tolerance: 0.24, base: "on", strapSlots: false },
+    { ...baseSpec(), wire: { length: 6874, diameter: 4.08, type: "flex" }, shape: { kind: "sq", cornerRadius: 14.32 }, windingQuality: 0.66, coreSize: { locked: true, dimension: "outer", value: 63.18 }, height: { locked: true, value: 58.67 }, layers: { locked: false }, tolerance: 0.36, base: "on", strapSlots: false },
+  ];
+  it.each(FLAT_CASES.map((spec, i) => ({ spec, label: `fuzz case ${[1124, 1615, 2111][i]}` })))("$label: neighbouring fillets leave no flat shorter than a facet", async ({ spec }) => {
+    const wasm = await getWasm();
+    const d = await design(spec, "draft");
+    for (const part of clipsOf(d)) {
+      const shortest = Math.min(...turnsOf(midOutline(wasm, part)).map((t) => t.edge));
+      expect(shortest, `${part.name}: shortest edge`).toBeGreaterThan(0.05);
     }
   }, 120_000);
 
@@ -409,6 +520,64 @@ describe("the SKÅDIS rim clips hang on a real SKÅDIS board (issue #207)", () =
     }
   }, 120_000);
 });
+
+type Ring = Array<[number, number]>;
+type Turn = { turn: number; at: [number, number]; edge: number };
+
+function midOutline(wasm: Wasm, part: Part): Ring {
+  const m = manifoldOf(wasm, printPosed(part));
+  const box = m.boundingBox();
+  const polys = m.slice((box.min[2] + box.max[2]) / 2).toPolygons();
+  m.delete();
+  expect(polys.length, `${part.name}: one outline`).toBe(1);
+  return polys[0] as Ring;
+}
+
+/** The signed turn at each real vertex of a counter-clockwise outline (left is positive), and the length of the edge after it; the mesh's split points on straight edges and facets are left out. */
+function turnsOf(outline: Ring): Turn[] {
+  const angle = (p: Ring[number], q: Ring[number], r: Ring[number]) =>
+    (Math.atan2((q[0] - p[0]) * (r[1] - q[1]) - (q[1] - p[1]) * (r[0] - q[0]), (q[0] - p[0]) * (r[0] - q[0]) + (q[1] - p[1]) * (r[1] - q[1])) * 180) / Math.PI;
+  let ring = outline.filter((q, i) => Math.hypot(q[0] - outline[(i + 1) % outline.length][0], q[1] - outline[(i + 1) % outline.length][1]) > 1e-6);
+  ring = ring.filter((q, i) => Math.abs(angle(ring[(i + ring.length - 1) % ring.length], q, ring[(i + 1) % ring.length])) > 0.05);
+  const n = ring.length;
+  return ring.map((q, i) => ({ turn: angle(ring[(i + n - 1) % n], q, ring[(i + 1) % n]), at: q, edge: Math.hypot(ring[(i + 1) % n][0] - q[0], ring[(i + 1) % n][1] - q[1]) }));
+}
+
+/** Runs of at least 4 consecutive vertices that each turn by a fillet's facet angle or less, the same way: the faceted arcs. */
+function arcRuns(turns: Turn[]): Array<{ turn: number; radius: number }> {
+  const n = turns.length;
+  const gentle = (t: Turn) => Math.abs(t.turn) > 1 && Math.abs(t.turn) <= ARC_FACET_MAX_DEG;
+  const start = turns.findIndex((t) => !gentle(t));
+  const runs: Array<{ turn: number; radius: number }> = [];
+  let run: Turn[] = [];
+  const close = () => {
+    if (run.length >= 4) {
+      const facet = Math.max(...run.map((t) => Math.abs(t.turn)));
+      const radii: number[] = [];
+      for (let i = 0; i + 1 < run.length; i++) {
+        if (Math.abs(run[i].turn) < 0.75 * facet || Math.abs(run[i + 1].turn) < 0.75 * facet) continue;
+        const chord = Math.hypot(run[i].at[0] - run[i + 1].at[0], run[i].at[1] - run[i + 1].at[1]);
+        radii.push(chord / (2 * Math.sin(((facet * Math.PI) / 180) / 2)));
+      }
+      runs.push({ turn: Math.sign(run[0].turn), radius: Math.min(...radii) });
+    }
+    run = [];
+  };
+  const differs = (x: number, y: number) => Math.abs(x - y) > 0.05 * Math.max(x, y);
+  for (let k = 1; k <= n; k++) {
+    const idx = (start + k) % n;
+    const t = turns[idx];
+    if (gentle(t) && (run.length === 0 || Math.sign(run[0].turn) === Math.sign(t.turn))) run.push(t);
+    else {
+      close();
+      if (gentle(t)) run.push(t);
+    }
+    const before = run[run.length - 2];
+    if (before && differs(t.edge, before.edge) && differs(t.edge, turns[(idx + 1) % n].edge)) close();
+  }
+  close();
+  return runs;
+}
 
 /** A part's mesh in its own print pose (rotate about Z, then X, then translate -- the public `RigidTransform`). */
 function printPosed(part: Part): CoilMesh {

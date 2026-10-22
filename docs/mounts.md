@@ -165,14 +165,31 @@ for both geometry backends.
   side walls at least 15 degrees steeply, so no sliver of rim is left beside a
   notch. The lip keeps 1 mm from the wound cable's outer surface.
 - **The latch's dimensions.** The arm is 1.6 mm thick and flexes into a 2.9 mm
-  slit, beside a 3 mm mast. From the tooth's centre to the arm's root it is
-  21 mm: long enough to keep the bending strain under 1.5 % (3 t d / 2 a²).
-  The tooth is 2.5 mm deep and 4 mm long. Seated, its top sits 1 mm below the
-  top of the slot's full-width part (tightest slot), which is the most the coil
-  can lift. 0.8 mm separates the stem's top from the arm's free end.
-- **Chamfers.** The clip's outer corners (the jaw and lip tips, the spine's
-  top and the stem's back) are cut at 45°, 0.5 mm, so they are not sharp to
-  handle. The hook faces, the latch, the jaw faces and the stem are as before.
+  slit, beside a 3 mm mast. From the tooth's centre to where the slit's rounded
+  end meets the arm it is 21 mm: long enough to keep the bending strain under
+  1.5 % (3 t d / 2 a²). The tooth is 2.5 mm deep and 4 mm long. Its top is
+  modelled 1 mm below the top of the slot's full-width part (tightest slot), but
+  the tooth's slanted face meets the board's rounded slot edge first: measured
+  against that board, a seated clip lifts 0.43 mm in the tightest slot and
+  0.88 mm in a nominal one before the slot stops it (issue #364). 0.8 mm
+  separates the stem's top from the arm's free end.
+- **Fillets.** Every corner of the profile is rounded as far as its edges
+  allow, up to 2 mm. A fillet takes at most half of each edge it touches (all
+  of it where the other end is a sharp corner), then whatever a neighbour
+  leaves unused, so two fillets never overlap. A flat under 0.1 mm between two
+  fillets is taken up by one of them. The arcs are 8 facets per quarter turn, the same on every core and in the
+  mesh and the STEP file. Four corners stay sharp: the latch tooth's catching
+  face at both its ends, and the tongue's retaining face at both its ends. Two
+  more are capped: the stem's root at the board face (0.8 mm, so it nests in
+  the board's 1 mm round-over) and the latch's end gap (0.8 mm, so the fillet
+  doesn't reach over the arm's free end). The bight's two inside corners take
+  0.95 mm, which leaves a 1.5 mm flat for the rim to rest on. The rim's notch
+  is rounded to match, concentric with them, so the gap to the clip stays one
+  tolerance all round; on the bed side the round is a 45° chamfer of the same
+  reach, so the flange still prints without supports. A board-face edge
+  between two fillets is kept at least 1 mm long: where a bottom clip's stem
+  would sit closer than that to the bight's back or the jaw's tip, the bight
+  or the jaw grows by the difference.
 - **Frame and seat.** Like the keyhole layout, "up" and "side" follow the
   chosen axis. Every clip is one closed profile in the (up, z) plane, extruded
   4.4 mm along side. "Seated" means each stem rests on the bottom of a nominal
@@ -186,9 +203,8 @@ for both geometry backends.
   and no flare.
 - **Clean-up.** A point closer than the weld's limit to the one before it is
   dropped from a profile (a jaw's end and the stem's top fell 0.01 mm apart,
-  and both backends built an edge that short, #219). A chamfer skips a corner
-  whose neighbouring edge is too short to give up the chamfer's length (twice
-  that, if the corner at its other end is cut too).
+  and both backends built an edge that short, #219), and so is a vertex on a
+  straight line.
 - **Fallbacks.** The default columns come first. When the inner-end channel is
   in the way, the layout tries other columns, a top pair over one bottom clip,
   or one clip above the other. Three or more clips if any arrangement allows
