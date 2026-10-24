@@ -5,6 +5,7 @@ import { design } from "../src/core";
 import type { CoilMesh, CoilSpec, Design, JointKind, MountKind, Part, Resolution, ShapeSpec } from "../src/core";
 import { collarSegments } from "../src/core/manifold";
 import { WELD_EPSILON, weldShortEdges } from "../src/core/weld";
+import { recordFingerprint } from "./support/fingerprint";
 import { minSelfClearance, SELF_CLEARANCE_FRACTION, woundWithLeadOut } from "./support/cableClearance";
 import { yieldToEventLoop } from "./support/yieldToEventLoop";
 
@@ -593,6 +594,7 @@ describe("seeded fuzz: every part is one solid, with no short edges or folds, af
           bad.push(`${what}: threw ${(e as Error).message}`);
           continue;
         }
+        recordFingerprint(`fuzz ${i}`, d);
         // Issue #219: every part, the mount plate and the SKÅDIS clips too.
         for (const part of d.parts) bad.push(...problems(part).map((p) => `${what}: ${p}`));
         bad.push(...unwoundLayers(d).map((p) => `${what}: ${p}`));
@@ -702,6 +704,7 @@ describe("seeded fuzz of pill cores: every part is one solid, with no short edge
           bad.push(`${what}: threw ${(e as Error).message}`);
           continue;
         }
+        recordFingerprint(`pill ${i}`, d);
         for (const part of d.parts) bad.push(...problems(part).map((p) => `${what}: ${p}`));
         bad.push(...unwoundLayers(d).map((p) => `${what}: ${p}`));
       }

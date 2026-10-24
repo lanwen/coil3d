@@ -6,6 +6,7 @@ import type { CoilSpec, Design, JointKind, MountKind, ShapeSpec } from "../src/c
 import { expectWithinBendLimit } from "./support/cableBend";
 import { expectSelfClear, woundWithLeadOut } from "./support/cableClearance";
 import { faceWebs, MIN_WEB, WEB_TOLERANCE } from "./support/faceWeb";
+import { recordFingerprint } from "./support/fingerprint";
 import { unsupportedOverhangs } from "./support/overhangs";
 import { minBendRadius } from "./support/wire";
 
@@ -113,7 +114,14 @@ const CASES = [...sweepCases(), ...flatCases()];
 const designs = new Map<string, Promise<Design>>();
 const designOf = (c: Case) => {
   let d = designs.get(c.name);
-  if (!d) designs.set(c.name, (d = design(c.spec, "final")));
+  if (!d)
+    designs.set(
+      c.name,
+      (d = design(c.spec, "final").then((made) => {
+        recordFingerprint(`sweep ${c.name}`, made);
+        return made;
+      })),
+    );
   return d;
 };
 
