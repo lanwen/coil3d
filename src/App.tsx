@@ -73,7 +73,7 @@ export default function App() {
     window.history.replaceState(null, "", toHash(currentSpec, showWire, view));
   }, [currentSpec, showWire, view]);
 
-  const { result, error, finalReady } = useDesignPreview(customize?.draft ?? currentSpec);
+  const { result, error, finalReady } = useDesignPreview(customize?.draft ?? currentSpec, currentSpec);
 
   const builtFaces = result ? FACES.filter((face) => result.faces[face]) : [];
   const startCustomize = () => {

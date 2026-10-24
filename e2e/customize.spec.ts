@@ -285,6 +285,83 @@ test.describe("the draft, Save and Cancel", () => {
   });
 });
 
+test.describe("leaving Customize needs no rebuild", () => {
+  // Counts and, once held, swallows every message sent to the geometry
+  // worker, so a design shown after Cancel or Save can only come from the
+  // cache, not from a new solve that happens to finish in time.
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __hold: boolean; __held: number };
+      w.__hold = false;
+      w.__held = 0;
+      const send = Worker.prototype.postMessage;
+      Worker.prototype.postMessage = function (this: Worker, ...args: unknown[]) {
+        if (w.__hold) w.__held++;
+        else (send as (...a: unknown[]) => void).apply(this, args);
+      } as typeof Worker.prototype.postMessage;
+    });
+  });
+
+  // The flag is still true for a moment after an edit, so wait for it to drop
+  // (the debounce keeps it down for 300 ms) and come back.
+  async function settleDraft(page: Page) {
+    const panel = page.getByTestId("customize-panel");
+    await expect(panel).toHaveAttribute("data-final-ready", "false");
+    await expect(panel).toHaveAttribute("data-final-ready", "true");
+  }
+
+  const holdWorker = (page: Page) => page.evaluate(() => ((window as unknown as { __hold: boolean }).__hold = true));
+  const heldRequests = (page: Page) => page.evaluate(() => (window as unknown as { __held: number }).__held);
+
+  test("Cancel shows the committed design again at once, without asking the worker", async ({ page }) => {
+    await gotoDesign(page, SQUARE);
+    const committed = await page.getByTestId("mesh-detail").textContent();
+
+    await openCustomize(page);
+    await page.getByTestId("strap-slots").check();
+    await settleDraft(page);
+    await holdWorker(page);
+    await page.getByTestId("customize-cancel").click();
+
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await expect(page.getByTestId("mesh-detail")).toHaveText(committed!);
+    expect(await heldRequests(page)).toBe(0);
+  });
+
+  test("Save keeps the draft's final design, without asking the worker", async ({ page }) => {
+    await gotoDesign(page, SQUARE);
+    const committed = await page.getByTestId("mesh-detail").textContent();
+
+    await openCustomize(page);
+    await page.getByTestId("strap-slots").check();
+    await settleDraft(page);
+    await holdWorker(page);
+    await saveCustomize(page);
+
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await expect(page.getByTestId("mesh-detail")).not.toHaveText(committed!);
+    expect(await heldRequests(page)).toBe(0);
+  });
+
+  test("Cancel after several draft edits still finds the committed design", async ({ page }) => {
+    await gotoDesign(page, SQUARE);
+    const committed = await page.getByTestId("mesh-detail").textContent();
+
+    await openCustomize(page);
+    for (const label of ["A", "AB", "ABC"]) {
+      await page.getByTestId("label-enabled").check();
+      await page.getByTestId("input-label").fill(label);
+      await settleDraft(page);
+    }
+    await holdWorker(page);
+    await page.getByTestId("customize-cancel").click();
+
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await expect(page.getByTestId("mesh-detail")).toHaveText(committed!);
+    expect(await heldRequests(page)).toBe(0);
+  });
+});
+
 test.describe("with real motion", () => {
   test.use({ contextOptions: { reducedMotion: "no-preference" } });
 

@@ -7,13 +7,26 @@ const DRAFT_FALLBACK_MS = 600;
 
 const INITIAL_DRAFT_DEBOUNCE_MS = 60;
 
+const FINAL_CACHE_SIZE = 3;
+
+const specKey = (spec: CoilSpec) => JSON.stringify(spec);
+
+function rememberFinal(cache: Map<string, Design>, key: string, design: Design, keepKey: string) {
+  cache.delete(key);
+  cache.set(key, design);
+  for (const oldest of cache.keys()) {
+    if (cache.size <= FINAL_CACHE_SIZE) break;
+    if (oldest !== keepKey) cache.delete(oldest);
+  }
+}
+
 export interface DesignPreview {
   result: Design | null;
   error: string | null;
   finalReady: boolean;
 }
 
-export function useDesignPreview(spec: CoilSpec): DesignPreview {
+export function useDesignPreview(spec: CoilSpec, keepSpec: CoilSpec = spec): DesignPreview {
   const clientRef = useRef<GeometryWorkerClient | null>(null);
   useEffect(() => {
     const client = new GeometryWorkerClient();
@@ -23,6 +36,11 @@ export function useDesignPreview(spec: CoilSpec): DesignPreview {
       clientRef.current = null;
     };
   }, []);
+
+  const finals = useRef(new Map<string, Design>());
+  const keepKey = specKey(keepSpec);
+  const keepKeyRef = useRef(keepKey);
+  keepKeyRef.current = keepKey;
 
   const generation = useRef(0);
   const hasShown = useRef(false);
@@ -35,6 +53,15 @@ export function useDesignPreview(spec: CoilSpec): DesignPreview {
     setError(null);
     setFinalReady(false);
 
+    const key = specKey(spec);
+    const cached = finals.current.get(key);
+    if (cached) {
+      hasShown.current = true;
+      setResult(cached);
+      setFinalReady(true);
+      return;
+    }
+
     let finalArrived = false;
 
     const isSuperseded = () => generation.current !== myGeneration;
@@ -42,6 +69,7 @@ export function useDesignPreview(spec: CoilSpec): DesignPreview {
       if (isSuperseded()) return;
       hasShown.current = true;
       finalArrived = true;
+      rememberFinal(finals.current, key, d, keepKeyRef.current);
       setResult(d);
       setFinalReady(true);
     };
