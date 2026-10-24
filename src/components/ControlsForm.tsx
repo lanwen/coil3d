@@ -1,5 +1,5 @@
 import { useId, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, Design, JointKind, KeyholeRotation, Lock, MountKind, ShapeKind, Solution, WireTypeId } from "../core";
+import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, ShapeKind, Solution, WireTypeId } from "../core";
 import {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
@@ -18,7 +18,6 @@ import {
 } from "../core";
 import { FieldTop, LockRangeField, RangeField, Section, Switch, ceilTenthMm, cmToMm, mmToCm, roundMm } from "./fields";
 import { HINTS } from "./hints";
-import { LabelField } from "./LabelField";
 import { ShapePicker } from "./ShapePicker";
 
 const WIRE_LENGTH_MIN_CM = 20;
@@ -44,6 +43,8 @@ const MOUNT_KIND_OPTIONS: Array<{ id: Exclude<MountKind, "none">; label: string 
   { id: "skadis-tclip", label: "IKEA SKÅDIS T-clips: twist to lock" },
 ];
 
+const CUSTOMIZE_DISABLED_NOTE = "Turn on the top cap or the base first: there is no face to customize yet.";
+
 const CORNER_RADIUS_STEP_MM = 0.5;
 const ROUND_CORNER_RADIUS_MAX_MM = 250;
 const CORE_SIZE_FLOOR_MM = 5;
@@ -59,14 +60,14 @@ const KEYHOLE_ROTATION_LABELS: Record<KeyholeRotation, string> = {
 export function ControlsForm({
   spec,
   solution,
-  design,
-  finalReady,
+  canCustomize,
+  onCustomize,
   onChange,
 }: {
   spec: CoilSpec;
   solution?: Solution;
-  design?: Design | null;
-  finalReady?: boolean;
+  canCustomize: boolean;
+  onCustomize: () => void;
   onChange: (next: CoilSpec) => void;
 }) {
   const setWire = (patch: Partial<CoilSpec["wire"]>) => onChange({ ...spec, wire: { ...spec.wire, ...patch } });
@@ -98,8 +99,8 @@ export function ControlsForm({
   const bayonetUnavailable = spec.shape.kind !== "round";
   const jointHint = bayonetUnavailable ? `${HINTS.joint} Twist lock needs a round core.` : HINTS.joint;
 
-  const labelEnabled = spec.label !== undefined;
-  const setLabelEnabled = (checked: boolean) => onChange({ ...spec, label: checked ? (spec.label ?? "") : undefined });
+  const customized = !!spec.label?.trim() || spec.strapSlots === true;
+  const customizeHint = canCustomize ? HINTS.customize : `${HINTS.customize} ${CUSTOMIZE_DISABLED_NOTE}`;
 
   const setShapeKind = (kind: ShapeKind) => {
     const shape = kind === "round" ? { kind } : { kind, cornerRadius: defaultCornerRadius(kind) };
@@ -415,19 +416,6 @@ export function ControlsForm({
             </span>
           </div>
         </div>
-        {(baseOn || topCapOn) && (
-          <div className="field">
-            <div className="field-top">
-              <FieldTop label="Strap slots" hint={HINTS.strapSlots} />
-              <Switch testId="strap-slots" ariaLabel="Strap slots" checked={spec.strapSlots ?? false} onChange={(on) => onChange({ ...spec, strapSlots: on })} />
-            </div>
-            {spec.strapSlots && design?.strapSlotsNote && (
-              <p className="field-note" data-testid="strap-slots-note">
-                {design.strapSlotsNote}
-              </p>
-            )}
-          </div>
-        )}
         {topCapOn && (
           <>
             <div className="field">
@@ -451,17 +439,23 @@ export function ControlsForm({
               hint={HINTS.tolerance}
               onChange={(v) => onChange({ ...spec, tolerance: v })}
             />
-            <div className="field">
-              <div className="field-top">
-                <FieldTop label="Label (engraved on the top cap)" hint={HINTS.label} />
-                <Switch testId="label-enabled" ariaLabel="Engrave a label on the top cap" checked={labelEnabled} onChange={setLabelEnabled} />
-              </div>
-            </div>
-            {labelEnabled && (
-              <LabelField spec={spec} design={design} finalReady={finalReady} onChange={onChange} />
-            )}
           </>
         )}
+        <div className="field">
+          <div className="field-top">
+            <FieldTop label="Customize" hint={customizeHint} />
+            <span className="cap-toggle-row">
+              {customized && (
+                <span className="tag-custom" data-testid="customize-custom-tag">
+                  Custom
+                </span>
+              )}
+              <button type="button" className="customize-btn" data-testid="customize-open" disabled={!canCustomize} onClick={onCustomize}>
+                Customize
+              </button>
+            </span>
+          </div>
+        </div>
       </Section>
 
       <Section title="Print bed">

@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openAdvanced } from "./advanced";
+import { openCustomize } from "./customize";
 import { encodeHashDoc } from "./hashDoc";
 
 // An open (i) hint bubble must be painted on top of everything around it --
@@ -71,5 +72,13 @@ for (const [name, viewport] of [
     // Open the advanced disclosure too, so its hints are checked as well.
     await openAdvanced(page);
     await checkEveryHint(page, page.locator(".sidebar"), "controls panel");
+  });
+
+  test(`${name}: every open (i) hint in the Customize panel paints on top`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto(`/${SKADIS}`);
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await openCustomize(page);
+    await checkEveryHint(page, page.locator(".sidebar"), "Customize panel");
   });
 }

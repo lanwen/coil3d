@@ -1815,9 +1815,18 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
 - The wall mount switch off is `mount: "none"`. Turning it on again restores the last
   chosen kind. openGrid is not offered in the list (and the hash rejects it), because
   its connector is a placeholder that would print a plate that does not fit.
-- The strap slots switch sits under the top cap switch and shows while the base
-  or the top cap is on. It is off by default. A note under it appears when a
-  plate gets no slots.
+- The strap slots switch and the label switch live in the Customize panel, not the
+  main form (issue #385). The strap slots are off by default, are one setting for the
+  cap and the base, and show a note when a plate gets no slots.
+- Customize (a row in the main form, with a "Custom" tag while a label is set or the
+  strap slots are on) turns the viewer straight down onto the cap, or straight up onto
+  the base when there is no cap, and locks it: no rotation, no pan, zoom still works.
+  The Cap / Base toggle replaces the preset bar and offers only the built faces. The
+  panel edits a draft that previews live and reaches the hash only on Save. Cancel,
+  Escape and the logo drop the draft. The viewer forces an isometric projection, no
+  exploded view and no wound cable while it is open, and the user's own settings come
+  back untouched. The face view turns the part about Z so the label reads upright,
+  using the cap outline's first-side bearing (180 / n degrees, 90 for a circle).
 - The label switch means "the user turned it on", not "there is text". An empty label
   with the switch on stays visible. Turning it off clears the label, which the hash
   leaves out. The twist lock needs a round core: on other shapes its option is greyed,

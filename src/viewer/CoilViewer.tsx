@@ -5,17 +5,17 @@ import * as THREE from "three";
 import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { CAP_THICKNESS, JOINT_ENGAGE_DEPTH, JOINT_TRANSITION_HEIGHT } from "../core";
-import type { CoilMesh, MountKind, Part, PegboardSection, PrintSpec, Resolution, ShapeKind, WireLayerPath } from "../core";
+import type { CoilMesh, MountKind, Part, PegboardSection, PrintSpec, Resolution, ShapeKind, ShapeOutline, WireLayerPath } from "../core";
 import { DimensionAxes, type DimensionLabels } from "./DimensionAxes";
 import { dimensionAxesGeometry, dimensionFramePoints, measureDimensionFrame } from "./dimensionGeometry";
-import { frontFacingDimensionSpin, frontFacingRotation } from "./frontFacing";
+import { frontFacingDimensionSpin, frontFacingRotation, labelUprightDeg } from "./frontFacing";
 import { LineArtRenderer, markFaceKinds, type Projection } from "./lineArt/LineArtRenderer";
-import { getPreset, presetQuaternion, type PresetId } from "./lineArt/presets";
+import { FACE_PRESET_ID, getPreset, presetQuaternion, type BarPresetId, type FaceId, type PresetId } from "./lineArt/presets";
 import { mountClipsLabel } from "./partLabels";
 import { PegboardSlots } from "./PegboardSlots";
 import { PrintLayoutLabels } from "./PrintLayoutLabels";
 import { buildBedGeometry, buildPrintLayout } from "./printLayoutScene";
-import { ViewControls } from "./ViewControls";
+import { FaceToggle, ViewControls } from "./ViewControls";
 import { useThrowOnContextLoss } from "./ViewerBoundary";
 import { WALL_MOUNT_VIEW_ROTATION, WALL_VIEW_ROTATION, withMountAxisCorrection } from "./wallRotations";
 import { buildCableStandIn } from "./cableStandIn";
@@ -54,6 +54,10 @@ export interface CoilViewerProps {
   pegboard?: PegboardSection;
   projection?: Projection;
   viewResetKey?: number;
+  faceOutline?: ShapeOutline;
+  lockedFace?: FaceId;
+  lockableFaces?: FaceId[];
+  onLockedFaceChange?: (face: FaceId) => void;
 }
 
 function singleTurnPath(points: Float32Array): WireLayerPath {
@@ -175,14 +179,16 @@ function ExplodedPart({
 }
 
 
-type ViewMode = "standing" | "wallRoom" | "mountSide" | "printLayout";
+type ChosenViewMode = "standing" | "wallRoom" | "mountSide" | "printLayout";
+type ViewMode = ChosenViewMode | "face";
 
-function buildViewRotations(mountAxisDeg: number | undefined, shapeKind: ShapeKind | undefined): Record<ViewMode, THREE.Matrix4 | null> {
+function buildViewRotations(mountAxisDeg: number | undefined, shapeKind: ShapeKind | undefined, faceTurnDeg: number): Record<ViewMode, THREE.Matrix4 | null> {
   return {
     standing: frontFacingRotation(shapeKind),
     wallRoom: withMountAxisCorrection(WALL_VIEW_ROTATION, mountAxisDeg),
     mountSide: withMountAxisCorrection(WALL_MOUNT_VIEW_ROTATION, mountAxisDeg),
     printLayout: null,
+    face: faceTurnDeg === 0 ? null : new THREE.Matrix4().makeRotationZ((faceTurnDeg * Math.PI) / 180),
   };
 }
 
@@ -193,6 +199,7 @@ const EXPLODE_AXES: Record<ViewMode, THREE.Vector3> = {
   wallRoom: new THREE.Vector3(1, 0, 0),
   mountSide: new THREE.Vector3(0, 0, 1).applyMatrix4(WALL_MOUNT_VIEW_ROTATION),
   printLayout: new THREE.Vector3(0, 0, 1),
+  face: new THREE.Vector3(0, 0, 1),
 };
 
 const VIEW_CAPTION: Partial<Record<ViewMode, string>> = {
@@ -253,13 +260,18 @@ export function CoilViewer({
   pegboard,
   projection = "ortho",
   viewResetKey = 0,
+  faceOutline,
+  lockedFace,
+  lockableFaces = [],
+  onLockedFaceChange,
 }: CoilViewerProps) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const frameRef = useRef<HTMLDivElement | null>(null);
   const prevResolution = useRef<Resolution>(resolution);
   const reducedMotion = usePrefersReducedMotion();
   const frameHeight = useElementHeight(frameRef);
-  const [viewMode, setViewMode] = useState<ViewMode>("standing");
+  const [chosenViewMode, setViewMode] = useState<ChosenViewMode>("standing");
+  const viewMode: ViewMode = lockedFace ? "face" : chosenViewMode;
   const debugFocusEnd = useDebugFocusEnd();
   const { fromBelow: debugFocusFromBelow, radius: debugFocusRadius } = useDebugFocusOptions();
   const focusPath = useMemo(() => {
@@ -276,7 +288,8 @@ export function CoilViewer({
   useEffect(() => {
     onPrintLayoutActiveChange?.(viewMode === "printLayout");
   }, [viewMode, onPrintLayoutActiveChange]);
-  const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg, shapeKind), [mountAxisDeg, shapeKind]);
+  const faceTurnDeg = labelUprightDeg(faceOutline);
+  const viewRotations = useMemo(() => buildViewRotations(mountAxisDeg, shapeKind, faceTurnDeg), [mountAxisDeg, shapeKind, faceTurnDeg]);
 
   const prevMountKind = useRef<MountKind | undefined>(mountKind);
   useEffect(() => {
@@ -300,7 +313,7 @@ export function CoilViewer({
   const partGeometries = useMemo(() => parts.map((part) => ({ part, geometry: buildCreasedGeometry(part.mesh) })), [parts]);
   useEffect(() => () => partGeometries.forEach(({ geometry }) => geometry.dispose()), [partGeometries]);
 
-  const [preset, setPreset] = useState<PresetId>("iso");
+  const [preset, setPreset] = useState<BarPresetId>("iso");
   const [seenResetKey, setSeenResetKey] = useState(viewResetKey);
   if (seenResetKey !== viewResetKey) {
     setSeenResetKey(viewResetKey);
@@ -308,9 +321,10 @@ export function CoilViewer({
     setPreset("iso");
   }
 
-  const effectivePreset: PresetId = viewMode === "standing" ? preset : viewMode;
+  const effectivePreset: PresetId = lockedFace ? FACE_PRESET_ID[lockedFace] : chosenViewMode === "standing" ? preset : chosenViewMode;
+  const barPreset: BarPresetId = chosenViewMode === "standing" ? preset : chosenViewMode;
 
-  const handlePresetChange = (id: PresetId) => {
+  const handlePresetChange = (id: BarPresetId) => {
     if (id === "wallRoom" || id === "mountSide" || id === "printLayout") {
       setViewMode(id);
     } else {
@@ -471,7 +485,7 @@ export function CoilViewer({
       }
       return shifted;
     });
-    if (!exploded && dimensionLabels && viewMode !== "mountSide") {
+    if (!exploded && dimensionLabels && viewMode !== "mountSide" && viewMode !== "face") {
       const points = dimensionFramePoints(dimensionAxes);
       new THREE.BufferAttribute(points, 3).applyMatrix4(dimensionMatrix);
       chunks.push(points);
@@ -526,7 +540,7 @@ export function CoilViewer({
     restartCssAnimation(el, "edge-fade");
   }, [parts, resolution]);
 
-  const dimensionsShown = showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && viewMode !== "mountSide";
+  const dimensionsShown = showDimensions && !exploded && !focusFramingGeometry && !printLayoutParts && viewMode !== "mountSide" && viewMode !== "face";
 
   const onCanvasCreated = useThrowOnContextLoss();
   const onSettledChange = useCallback((settled: boolean) => {
@@ -586,7 +600,7 @@ export function CoilViewer({
         {dimensionsShown && dimensionLabels && (
           <DimensionAxes axes={dimensionAxes} rotation={dimensionMatrix} labels={dimensionLabels} roundGroundLabel={shapeKind === "round"} occluders={occluders} />
         )}
-        <OrbitControls ref={controlsRef} makeDefault enableDamping={false} />
+        <OrbitControls ref={controlsRef} makeDefault enableDamping={false} enableRotate={!lockedFace} enablePan={!lockedFace} />
       </Canvas>
       {dimensionsShown && dimensionLabels && (
         <ul className="visually-hidden" data-testid="dimensions" aria-label="Overall dimensions">
@@ -610,7 +624,11 @@ export function CoilViewer({
           ))}
         </ul>
       )}
-      <ViewControls preset={effectivePreset} onPresetChange={handlePresetChange} showMountSide={!!pegboard} />
+      {lockedFace ? (
+        <FaceToggle faces={lockableFaces} face={lockedFace} onFaceChange={(face) => onLockedFaceChange?.(face)} />
+      ) : (
+        <ViewControls preset={barPreset} onPresetChange={handlePresetChange} showMountSide={!!pegboard} />
+      )}
     </div>
   );
 }

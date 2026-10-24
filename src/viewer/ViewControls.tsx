@@ -1,12 +1,12 @@
 import { TwoSidedToggle } from "../components/fields";
 import { HINTS } from "../components/hints";
-import { VIEW_PRESETS, type PresetId } from "./lineArt/presets";
+import { VIEW_PRESETS, type BarPresetId, type FaceId } from "./lineArt/presets";
 import { PresetIcon } from "./presetIcons";
 import type { Projection } from "./lineArt/LineArtRenderer";
 
 export interface ViewControlsProps {
-  preset: PresetId;
-  onPresetChange: (preset: PresetId) => void;
+  preset: BarPresetId;
+  onPresetChange: (preset: BarPresetId) => void;
   showMountSide?: boolean;
 }
 
@@ -27,6 +27,27 @@ export function ViewControls({ preset, onPresetChange, showMountSide = false }: 
           <span className="preset-tip" aria-hidden="true">
             {p.label}
           </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const FACE_LABELS: Record<FaceId, string> = { cap: "Cap", base: "Base" };
+
+export function FaceToggle({ faces, face, onFaceChange }: { faces: FaceId[]; face: FaceId; onFaceChange: (face: FaceId) => void }) {
+  return (
+    <div className="view-controls preset-bar face-toggle" role="group" aria-label="Face to customize">
+      {faces.map((id) => (
+        <button
+          key={id}
+          type="button"
+          className={`preset-btn face-btn${face === id ? " active" : ""}`}
+          data-testid={`customize-face-${id}`}
+          aria-pressed={face === id}
+          onClick={() => onFaceChange(id)}
+        >
+          {FACE_LABELS[id]}
         </button>
       ))}
     </div>

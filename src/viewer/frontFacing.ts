@@ -1,6 +1,6 @@
 
 import * as THREE from "three";
-import type { ShapeKind } from "../core";
+import type { ShapeKind, ShapeOutline } from "../core";
 import { SHAPES } from "../core";
 
 const FRONT_CAMERA_SIDE_ANGLE_DEG = 270;
@@ -16,6 +16,17 @@ export function frontFacingRotation(shapeKind: ShapeKind | undefined): THREE.Mat
   if (!shapeKind || shapeKind === "round") return null;
   const degrees = frontFlatRotationDeg(SHAPES[shapeKind].corners);
   return new THREE.Matrix4().makeRotationZ((degrees * Math.PI) / 180);
+}
+
+const LABEL_UP_DEG = 90;
+const PILL_SIDES = 2;
+
+export function labelUprightDeg(outline: ShapeOutline | undefined): number {
+  if (!outline) return 0;
+  const isFullCircle = outline.cornerRadius >= outline.apothem && outline.n !== PILL_SIDES;
+  if (isFullCircle) return 0;
+  const firstSideBearingDeg = 180 / outline.n;
+  return LABEL_UP_DEG - firstSideBearingDeg;
 }
 
 export function frontFacingDimensionSpin(shapeKind: ShapeKind | undefined): number | undefined {

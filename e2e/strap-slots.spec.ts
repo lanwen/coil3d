@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { cancelCustomize, openCustomize, saveCustomize } from "./customize";
 import { hoverHint } from "./hint";
 import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 import { expectSettled } from "./settled";
@@ -30,18 +31,26 @@ async function lookDown(page: Page) {
   await expectSettled(page);
 }
 
-test.describe("strap slots switch (issues #240, #314)", () => {
-  test("it shows only while the base or the top cap is on, with a hint", async ({ page }) => {
+test.describe("strap slots switch (issues #240, #314, #385)", () => {
+  test("it is offered only while the base or the top cap is on, in the Customize panel, with a hint", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("strap-slots")).toHaveCount(0);
+    await expect(page.getByTestId("customize-open")).toBeDisabled();
 
     await page.getByTestId("base").check();
+    await expect(page.getByTestId("customize-open")).toBeEnabled();
+    await expect(page.getByTestId("strap-slots")).toHaveCount(0);
+    await openCustomize(page);
     await expect(page.getByTestId("strap-slots")).toBeVisible();
     await expect(page.getByTestId("strap-slots")).not.toBeChecked();
+    await cancelCustomize(page);
     await page.getByTestId("base").uncheck();
+    await expect(page.getByTestId("customize-open")).toBeDisabled();
     await expect(page.getByTestId("strap-slots")).toHaveCount(0);
 
     await page.getByTestId("topCap").check();
+    await expect(page.getByTestId("customize-open")).toBeEnabled();
+    await openCustomize(page);
     await expect(page.getByTestId("strap-slots")).toBeVisible();
 
     const field = page.locator(".field").filter({ hasText: "Strap slots" });
@@ -53,20 +62,27 @@ test.describe("strap slots switch (issues #240, #314)", () => {
     await gotoDesign(page, encodeHashDoc({ base: "on", cap: "on" }));
     expect(decodeHashDoc(page.url()).strap).toBeUndefined();
 
+    await openCustomize(page);
     await page.getByTestId("strap-slots").check();
+    expect(decodeHashDoc(page.url()).strap).toBeUndefined();
+    await saveCustomize(page);
     await expect(async () => expect(decodeHashDoc(page.url()).strap).toBe(true)).toPass();
     await page.reload();
+    await expect(page.getByTestId("customize-open")).toBeEnabled();
+    await openCustomize(page);
     await expect(page.getByTestId("strap-slots")).toBeChecked();
 
     await page.getByTestId("strap-slots").uncheck();
+    await saveCustomize(page);
     await expect(async () => expect(decodeHashDoc(page.url()).strap).toBeUndefined()).toPass();
   });
 
   test("it sits in the same row layout as the switches around it", async ({ page }) => {
     await gotoDesign(page, SQUARE);
+    await openCustomize(page);
     const rowOf = (testId: string) => page.locator(".field-top").filter({ has: page.getByTestId(testId) });
     const strap = (await rowOf("strap-slots").boundingBox())!;
-    const cap = (await rowOf("topCap").boundingBox())!;
+    const cap = (await rowOf("label-enabled").boundingBox())!;
     expect(Math.abs(strap.x - cap.x)).toBeLessThanOrEqual(1);
     expect(Math.abs(strap.width - cap.width)).toBeLessThanOrEqual(1);
     expect(strap.y).toBeGreaterThan(cap.y);
@@ -76,12 +92,14 @@ test.describe("strap slots switch (issues #240, #314)", () => {
 test.describe("strap slots note (issue #316)", () => {
   test("a design whose base and cap both get slots shows no note", async ({ page }) => {
     await gotoDesign(page, THROUGH_HOLES);
+    await openCustomize(page);
     await expect(page.getByTestId("strap-slots")).toBeChecked();
     await expect(page.getByTestId("strap-slots-note")).toHaveCount(0);
   });
 
   test("a plate left without slots gets a note under the switch, which goes with the switch", async ({ page }) => {
     await gotoDesign(page, KEYHOLE_SMALL);
+    await openCustomize(page);
     const note = page.getByTestId("strap-slots-note");
     await expect(note).toContainText(/strap slots don't fit anywhere round the rim of the base/i);
     const field = page.locator(".field").filter({ has: page.getByTestId("strap-slots") });
