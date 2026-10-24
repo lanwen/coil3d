@@ -2,7 +2,6 @@ import Module, { type ManifoldToplevel } from "manifold-3d";
 import {
   CAP_THICKNESS,
   JOINT_TRANSITION_HEIGHT,
-  LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
   MOUNT_PLATE_PEG_HOLE_DEPTH,
   MOUNT_PLATE_THICKNESS,
@@ -18,8 +17,6 @@ import {
   INNER_CHANNEL_WALL_GUARD,
 } from "./constants";
 import type { BayonetLayout, JointGeometry, OutlineStack, RevolvedFeature, SnapLayout } from "./joints";
-import { getLabelFont, labelLoops } from "./label";
-import type { ResolvedLabel } from "./label";
 import { chamferedRim, chamferWedgeRows, rimTriangles } from "./edgeChamfer";
 import type { RimRow } from "./edgeChamfer";
 import { buildOutlineRing } from "./wall";
@@ -27,8 +24,8 @@ import { layoutInnerEnd, sweepMesh } from "./innerEnd";
 import { FACE_CUT_OVERSHOOT, FACE_DOME_SEGMENTS, FACE_REVOLVE_SEGMENTS } from "./constants";
 import { faceCutArcs } from "./faceChannel";
 import type { FaceCutArc, FaceChannelLayout, FaceEnd } from "./faceChannel";
-import type { InnerEndLayout, RimSlot, SweepSolid, XY } from "./innerEnd";
-import type { StrapSlot } from "./strapSlot";
+import type { InnerEndLayout, SweepSolid } from "./innerEnd";
+import type { FaceOp } from "./face/types";
 import { layoutKeyholeMount, throughHoleCountersink, throughHoleSinkThickness } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
@@ -73,8 +70,7 @@ export interface FlangeSpec {
   throughHoleDiameter?: number;
   skadis?: SkadisClipLayout;
   skadisTclip?: SkadisTclipLayout;
-  rimSlot?: RimSlot;
-  strapSlots?: StrapSlot[];
+  faceOps?: FaceOp[];
 }
 
 export interface CoreJointCut {
@@ -241,8 +237,34 @@ export interface MountPlateFlangeCut {
   tolerance: number;
 }
 
-function rimPrismCutter(wasm: ManifoldToplevel, track: Track, outline: XY[], zLo: number, height: number): Manifold {
-  return prismAt(wasm, track, [outline.map((p): [number, number] => [p.x, p.y])], "NonZero", height, zLo);
+export interface FaceSlab {
+  zLo: number;
+  thickness: number;
+}
+
+function faceOpCutter(wasm: ManifoldToplevel, track: Track, op: FaceOp, slab: FaceSlab): Manifold {
+  const loops = op.loops.map((loop) => loop.map((p): [number, number] => [p.x, p.y]));
+  if (op.op === "through") return prismAt(wasm, track, loops, "NonZero", slab.thickness + 2 * WELD_OVERLAP, slab.zLo - WELD_OVERLAP);
+  const depth = op.depth ?? 0;
+  return prismAt(wasm, track, loops, "NonZero", depth + CUTTER_OVERSHOOT, slab.zLo + slab.thickness - depth);
+}
+
+function applyFaceOps(wasm: ManifoldToplevel, track: Track, solid: Manifold, ops: readonly FaceOp[], slab: FaceSlab): { solid: Manifold; marked: number[] } {
+  let result = solid;
+  const marked: number[] = [];
+  for (const op of ops) {
+    let cutter = faceOpCutter(wasm, track, op, slab);
+    if (op.mark) {
+      cutter = track(cutter.asOriginal());
+      marked.push(cutter.originalID());
+    }
+    result = track(result.subtract(cutter));
+    const status = result.status();
+    if (status !== "NoError") {
+      throw new Error(`${op.title} cut is not a valid manifold: ${status}`);
+    }
+  }
+  return { solid: result, marked };
 }
 
 function sweepSolid(wasm: ManifoldToplevel, sweep: SweepSolid): Manifold {
@@ -418,21 +440,7 @@ export async function fuseFlange(
       }
     }
 
-    if (flange.rimSlot) {
-      fused = track(fused.subtract(rimPrismCutter(wasm, track, flange.rimSlot.outline, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP)));
-      status = fused.status();
-      if (status !== "NoError") {
-        throw new Error(`Rim slot cut is not a valid manifold: ${status}`);
-      }
-    }
-
-    for (const slot of flange.strapSlots ?? []) {
-      fused = track(fused.subtract(rimPrismCutter(wasm, track, slot.outline, -flange.thickness - WELD_OVERLAP, flange.thickness + 2 * WELD_OVERLAP)));
-      status = fused.status();
-      if (status !== "NoError") {
-        throw new Error(`Strap slot cut is not a valid manifold: ${status}`);
-      }
-    }
+    fused = applyFaceOps(wasm, track, fused, flange.faceOps ?? [], { zLo: -flange.thickness, thickness: flange.thickness }).solid;
 
     if (flange.skadisTclip) {
       const hullOf = (cutter: TclipCutter) => track(wasm.Manifold.hull(cutter.levels.flatMap((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z]))));
@@ -478,9 +486,7 @@ export interface TopCapSpec {
   tolerance: number;
   bayonet?: BayonetLayout;
   snap?: SnapLayout;
-  label?: ResolvedLabel;
-  rimSlot?: RimSlot;
-  strapSlots?: StrapSlot[];
+  faceOps?: FaceOp[];
   geometry: JointGeometry;
   engageDepth: number;
 }
@@ -495,7 +501,7 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { flange, joint, label, rimSlot, strapSlots, bayonet, snap, geometry, engageDepth } = spec;
+    const { flange, joint, bayonet, snap, geometry, engageDepth } = spec;
     const plate = track(rimHull(wasm, flange.outline, chamferedRim(flange.margin, 0, CAP_THICKNESS), flange.columns, flange.minCornerSegments));
     if (plate.status() !== "NoError") {
       throw new Error(`Top cap plate mesh is not a valid manifold: ${plate.status()}`);
@@ -522,17 +528,8 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
       const hole = outlinePrismSolid(wasm, track, holeOutline, CAP_THICKNESS + engageDepth + 2 * CUTTER_OVERSHOOT, -engageDepth - CUTTER_OVERSHOOT, segments, flange.minCornerSegments);
       assembled = track(assembled.subtract(hole));
     }
-    if (rimSlot) assembled = track(assembled.subtract(rimPrismCutter(wasm, track, rimSlot.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP)));
-    for (const slot of strapSlots ?? []) {
-      assembled = track(assembled.subtract(rimPrismCutter(wasm, track, slot.outline, -WELD_OVERLAP, CAP_THICKNESS + 2 * WELD_OVERLAP)));
-    }
-
-    let labelId: number | undefined;
-    if (label) {
-      const labelCutter = track((await buildLabelCutter(wasm, track, label)).asOriginal());
-      labelId = labelCutter.originalID();
-      assembled = track(assembled.subtract(labelCutter));
-    }
+    const cut = applyFaceOps(wasm, track, assembled, spec.faceOps ?? [], { zLo: 0, thickness: CAP_THICKNESS });
+    assembled = cut.solid;
 
     if (assembled.status() !== "NoError") {
       throw new Error(`Top cap mesh is not a valid manifold: ${assembled.status()}`);
@@ -543,19 +540,19 @@ export async function buildTopCap(spec: TopCapSpec): Promise<CoilMesh> {
     const welded = weldShortEdges(raw);
     const mesh: CoilMesh = improveFlatFaces(welded.mesh);
     mesh.rimTriangles = rimTriangles(mesh, flange.outline, flange.margin, [[0, CAP_THICKNESS]]);
-    if (labelId !== undefined) mesh.labelTriangles = weldedLabelTriangles(outMesh, labelId, raw.indices.length / 3, welded.origin);
+    if (cut.marked.length > 0) mesh.labelTriangles = weldedLabelTriangles(outMesh, new Set(cut.marked), raw.indices.length / 3, welded.origin);
     return mesh;
   } finally {
     for (const m of trash) m.delete();
   }
 }
 
-function weldedLabelTriangles(outMesh: ManifoldMesh, labelId: number, triangleCount: number, weldedOrigin: Uint32Array): Uint32Array {
+function weldedLabelTriangles(outMesh: ManifoldMesh, labelIds: ReadonlySet<number>, triangleCount: number, weldedOrigin: Uint32Array): Uint32Array {
   const isLabel = new Uint8Array(triangleCount);
   const runIndex = outMesh.runIndex!;
   const runOriginalID = outMesh.runOriginalID!;
   for (let r = 0; r < runOriginalID.length; r++) {
-    if (runOriginalID[r] !== labelId) continue;
+    if (!labelIds.has(runOriginalID[r])) continue;
     for (let t = runIndex[r] / 3; t < runIndex[r + 1] / 3; t++) isLabel[t] = 1;
   }
   const labelTriangles: number[] = [];
@@ -563,13 +560,6 @@ function weldedLabelTriangles(outMesh: ManifoldMesh, labelId: number, triangleCo
     if (isLabel[old]) labelTriangles.push(t);
   });
   return new Uint32Array(labelTriangles);
-}
-
-async function buildLabelCutter(wasm: ManifoldToplevel, track: Track, label: ResolvedLabel): Promise<Manifold> {
-  const font = await getLabelFont();
-  const loops = labelLoops(font, label);
-  const cutterHeight = LABEL_DEPTH + CUTTER_OVERSHOOT;
-  return prismAt(wasm, track, loops, "NonZero", cutterHeight, CAP_THICKNESS - LABEL_DEPTH);
 }
 
 function snapCollar(wasm: ManifoldToplevel, track: Track, collarOutline: ShapeOutline, snap: SnapLayout, segments: number, minCornerSegments: number): Manifold {
@@ -641,7 +631,7 @@ export interface MountPlateSpec {
   flangeThickness: number;
   columns: number;
   minCornerSegments: number;
-  strapSlots?: StrapSlot[];
+  faceOps?: FaceOp[];
 }
 
 export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
@@ -653,7 +643,7 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
   };
 
   try {
-    const { layout, tolerance, columns, minCornerSegments, flangeThickness, strapSlots } = spec;
+    const { layout, tolerance, columns, minCornerSegments, flangeThickness, faceOps } = spec;
     const plateBackZ = -flangeThickness - MOUNT_PLATE_THICKNESS;
     const plateFrontZ = -flangeThickness;
 
@@ -668,9 +658,7 @@ export async function buildMountPlate(spec: MountPlateSpec): Promise<CoilMesh> {
     for (const anchor of layout.anchors) {
       plate = track(plate.subtract(pinHoleCutter(wasm, track, anchor, tolerance, plateFrontZ, INTO_PLATE)));
     }
-    for (const slot of strapSlots ?? []) {
-      plate = track(plate.subtract(rimPrismCutter(wasm, track, slot.outline, plateBackZ - WELD_OVERLAP, MOUNT_PLATE_THICKNESS + 2 * WELD_OVERLAP)));
-    }
+    plate = applyFaceOps(wasm, track, plate, faceOps ?? [], { zLo: plateBackZ, thickness: MOUNT_PLATE_THICKNESS }).solid;
 
     if (plate.status() !== "NoError") {
       throw new Error(`Mount plate mesh is not a valid manifold: ${plate.status()}`);

@@ -125,7 +125,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
         // material) -- checking it here too would just re-run that same
         // fit; the interesting NEW claim for STEP is that its own
         // independently-built label cutter (step/build.ts's
-        // `buildLabelCutterSolid`) agrees with the mesh backend's volume
+        // `applyFaceOpsStep`) agrees with the mesh backend's volume
         // within the same tolerance every other part/joint combination here
         // is held to.
         const totalVolume = solidVolumes.reduce((sum, v) => sum + v, 0);

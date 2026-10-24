@@ -12,8 +12,6 @@ import {
   RUN_IN_TURNS,
   TAPER_TURNS,
   INNER_CHANNEL_MIN_SHELF,
-  RIM_SLOT_KEEP_OUT,
-  RIM_SLOT_LABEL_KEEP_OUT,
   STRAP_SLOT_INNER_WALL,
   MOUNT_PLATE_EDGE_MARGIN,
   OPENGRID_PLACEHOLDER_PEG_SIZE,
@@ -24,21 +22,24 @@ import {
 import { buildMountPlate, buildPeg, buildSkadisClip, buildSkadisTclip, buildTopCap, fuseFlange } from "./manifold";
 import type { CoreJointCut, InnerEndCut, MountPlateFlangeCut } from "./manifold";
 import { collarDepth, jointGeometry, resolveCapJoint, withBoreThrough } from "./joints";
-import { layoutInnerEnd, layoutRimSlot, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
-import type { RimSlot, SweepSolid, XY } from "./innerEnd";
+import { layoutInnerEnd, idealChannelDepth, resolveChannelDepth } from "./innerEnd";
+import type { SweepSolid, XY } from "./innerEnd";
 import { printBBox } from "./plate";
 import { distanceToClosedPolygon, layoutKeyholeMount, throughHoleCountersink, throughHoleSinkThickness } from "./mount";
 import { channelPadFootprints, layoutFlangePads, layoutFlangeThroughHoles } from "./flangePads";
 import type { MountLayout, ThroughMountLayout } from "./mount";
 import { mountPlateLayoutFor, pegHoleRadius } from "./mountPlate";
-import { layoutStrapSlots, plateStrapSlots, strapSlotsFitMargin } from "./strapSlot";
+import { strapSlotsFitMargin } from "./strapSlot";
+import { activeKinds } from "./face/kinds";
+import type { FaceContext } from "./face/kinds";
+import { faceOps, layoutFace, layoutPlateFace } from "./face/layout";
+import type { BlockedReason, FaceLayout, FixedKind, KeepOut } from "./face/types";
 import { clipPrintRotateZ, isHeavyCable, layoutSkadisClips, lipKeepOffset, skadisBoardSection, skadisClipFootprints } from "./skadisClips";
 import type { SkadisClipLayout } from "./skadisClips";
 import { layoutSkadisTclips, skadisTclipBoardSection, tclipCutterPolys, tclipPrintRotateZ } from "./skadisTclips";
 import type { SkadisTclipLayout } from "./skadisTclips";
 import { baseEnabled, flangeExtentOf, overallHeightOf, resolveBoreOutline, resolveFlangeSizing, stackedKeyholeThickness } from "./flange";
 import { circumscribedRadius, makeOutline, minCornerSegments, offsetOutline, outlineOffsetAt } from "./shapes";
-import { getLabelFont, labelLoops, resolveLabel } from "./label";
 import { solve } from "./solve";
 import type { ShapeOutline } from "./shapes";
 import { bendMultiplierOf, noticeCollector } from "./types";
@@ -383,64 +384,66 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   });
   for (const warning of cable.warnings) problem(warning);
 
-  const baseKeepOut: XY[][] = baseOn ? [
-    ...(innerEndLayout ? [innerEndLayout.channelRibbon] : []),
-    ...layoutFlangePads(flangeSpec, innerEndLayout, mountPlateCut?.anchors, spec.tolerance)
-      .filter((pad) => pad.shape.kind !== "collar")
-      .map((pad) => pad.footprint),
-    ...(mountLayout?.slots ?? []).map((slot) => stadiumPolygon(slot.head, slot.shankEnd, SCREW_MOUNT_HEAD_RADIUS)),
-    ...(throughLayout ? throughHoleKeepOut(throughLayout) : []),
-    ...(skadisFootprints ?? []),
-  ].filter((poly) => poly.length >= 3) : [];
-  const baseSlot = baseOn ? layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, baseKeepOut, RIM_SLOT_KEEP_OUT) : undefined;
-  if (baseOn && !baseSlot) note("The base's rim cable slot doesn't fit anywhere round the rim beside the mount, so it's left out.");
-  const { label, fit: labelFit, warning: labelWarning } = await resolveLabel(spec.label, outline, boreOutline, flangeSpec.margin, topCapEnabled);
-  if (labelWarning) problem(labelWarning);
-
-  let capSlot: RimSlot | undefined;
-  let capKeepOut: XY[][] = [];
-  if (topCapEnabled) {
-    const labelKeepOut = label ? labelLoops(await getLabelFont(), label).map((loop) => loop.map(([x, y]) => ({ x, y }))) : [];
-    capSlot = layoutRimSlot(outline, margin, wireDiameter, spec.tolerance, cable.outerEndU, labelKeepOut, RIM_SLOT_LABEL_KEEP_OUT);
-    if (!capSlot) note("The top cap's rim cable slot doesn't fit anywhere round the rim beside the label, so it's left out.");
-    capKeepOut = [...labelKeepOut, ...(capSlot ? [capSlot.outline] : [])];
-  }
-
   const plateCutsSlot = mountPlateCut !== undefined && margin - MOUNT_PLATE_EDGE_MARGIN > envelopeOffset + STRAP_SLOT_INNER_WALL;
-  const platesSlots: Design["strapSlots"] = { base: [], cap: [], mountPlate: [] };
+  const strapSlotsOn = spec.strapSlots === true;
+  const leadIns = (onPlate: (z: number) => boolean): XY[][] =>
+    strapSlotsOn ? [cable.innerEndLeadIn, cable.outerEndLeadOut].flatMap((lead) => cableEndKeepOut(lead, outline, envelopeOffset, wireDiameter / 2, onPlate)) : [];
+  const baseFixed: KeepOut[] = [
+    ...tagged("channel", innerEndLayout ? [innerEndLayout.channelRibbon] : []),
+    ...tagged(
+      "pad",
+      layoutFlangePads(flangeSpec, innerEndLayout, mountPlateCut?.anchors, spec.tolerance)
+        .filter((pad) => pad.shape.kind !== "collar")
+        .map((pad) => pad.footprint),
+    ),
+    ...tagged("keyhole", (mountLayout?.slots ?? []).map((slot) => stadiumPolygon(slot.head, slot.shankEnd, SCREW_MOUNT_HEAD_RADIUS))),
+    ...tagged("throughHole", throughLayout ? throughHoleKeepOut(throughLayout) : []),
+    ...tagged("skadisFootprint", skadisFootprints ?? []),
+    ...tagged("skadisNotch", flangeSpec.skadis?.notches ?? []),
+    ...tagged("tclip", (flangeSpec.skadisTclip?.cutters ?? []).flatMap(tclipCutterPolys)),
+    ...tagged("plateAnchor", mountPlateCut ? mountPlateCut.anchors.map((anchor) => stadiumPolygon(anchor, anchor, pegHoleRadius(spec.tolerance))) : []),
+    ...tagged("plateClip", plateCutsSlot ? (mountPlateLayout?.clips ?? []).map((clip) => stadiumPolygon(clip, clip, (OPENGRID_PLACEHOLDER_PEG_SIZE / 2) * Math.SQRT2)) : []),
+    ...tagged("leadIn", leadIns((z) => z <= wireDiameter)),
+  ];
+  const capFixed = tagged("leadIn", leadIns((z) => z >= solution.height - wireDiameter));
+  const faceContext = (face: "base" | "cap", built: boolean, fixed: KeepOut[]): FaceContext => ({
+    face,
+    built,
+    outline,
+    boreOutline,
+    margin,
+    envelopeOffset,
+    wireDiameter,
+    tolerance: spec.tolerance,
+    startU: cable.outerEndU,
+    labelText: spec.label,
+    fixed,
+  });
+  const baseFace = baseOn ? await layoutFace(faceContext("base", true, baseFixed), activeKinds(true, strapSlotsOn)) : undefined;
+  const capFace = await layoutFace(faceContext("cap", topCapEnabled, capFixed), activeKinds(topCapEnabled, strapSlotsOn));
+  const blocked = (face: { layout: FaceLayout } | undefined, kind: string): BlockedReason | undefined => {
+    const status = face?.layout.features.find((f) => f.kind === kind && f.status.by === "blocked")?.status;
+    return status?.by === "blocked" ? status.reason : undefined;
+  };
+  if (blocked(baseFace, "rimSlot")) note("The base's rim cable slot doesn't fit anywhere round the rim beside the mount, so it's left out.");
+  const labelWarning = capFace.payload.label?.warning;
+  if (labelWarning) problem(labelWarning);
+  if (blocked(capFace, "rimSlot")) note("The top cap's rim cable slot doesn't fit anywhere round the rim beside the label, so it's left out.");
+
+  const baseSlot = baseFace?.payload.rimSlot;
+  const capSlot = capFace.payload.rimSlot;
+  const labelFit = capFace.payload.label?.fit;
+  const baseStrapSlots = baseFace?.payload.strapSlots ?? [];
+  const plateFace = layoutPlateFace(baseFace?.layout, baseStrapSlots, outline, envelopeOffset, plateCutsSlot ? margin - MOUNT_PLATE_EDGE_MARGIN : undefined);
+  const platesSlots: Design["strapSlots"] = { base: baseStrapSlots, cap: capFace.payload.strapSlots ?? [], mountPlate: plateFace.slots };
+  const leftOut = [...(blocked(baseFace, "strapSlot") ? ["the base"] : []), ...(blocked(capFace, "strapSlot") ? ["the top cap"] : [])];
   let strapSlotsNote: string | undefined;
-  if (spec.strapSlots && (baseOn || topCapEnabled)) {
-    const leadKeepOut = (onPlate: (z: number) => boolean) =>
-      [cable.innerEndLeadIn, cable.outerEndLeadOut].flatMap((lead) => cableEndKeepOut(lead, outline, envelopeOffset, wireDiameter / 2, onPlate));
-    const baseStrapKeepOut: XY[][] = baseOn
-      ? [
-          ...baseKeepOut,
-          ...(baseSlot ? [baseSlot.outline] : []),
-          ...(flangeSpec.skadis?.notches ?? []),
-          ...(flangeSpec.skadisTclip?.cutters ?? []).flatMap(tclipCutterPolys),
-          ...(mountPlateCut ? mountPlateCut.anchors.map((anchor) => stadiumPolygon(anchor, anchor, pegHoleRadius(spec.tolerance))) : []),
-          ...(plateCutsSlot ? (mountPlateLayout?.clips ?? []).map((clip) => stadiumPolygon(clip, clip, (OPENGRID_PLACEHOLDER_PEG_SIZE / 2) * Math.SQRT2)) : []),
-          ...leadKeepOut((z) => z <= wireDiameter),
-        ].filter((poly) => poly.length >= 3)
-      : [];
-    const capStrapKeepOut: XY[][] = topCapEnabled ? [...capKeepOut, ...leadKeepOut((z) => z >= solution.height - wireDiameter)].filter((poly) => poly.length >= 3) : [];
-    const laidOut = (keepOut: XY[][]) => layoutStrapSlots(outline, margin, envelopeOffset, keepOut, cable.outerEndU) ?? [];
-    const baseStrapSlots = baseOn ? laidOut(baseStrapKeepOut) : [];
-    platesSlots.base = baseStrapSlots;
-    platesSlots.mountPlate = plateCutsSlot ? plateStrapSlots(outline, envelopeOffset, baseStrapSlots, margin - MOUNT_PLATE_EDGE_MARGIN) : [];
-    platesSlots.cap = topCapEnabled ? laidOut(capStrapKeepOut) : [];
-    const leftOut = [
-      ...(baseOn && platesSlots.base.length === 0 ? ["the base"] : []),
-      ...(topCapEnabled && platesSlots.cap.length === 0 ? ["the top cap"] : []),
-    ];
-    if (leftOut.length > 0) {
-      strapSlotsNote = strapSlotsFitMargin(margin, envelopeOffset)
-        ? `The strap slots don't fit anywhere round the rim of ${leftOut.join(" and ")}, so they're left out there.`
-        : "There isn't room for the strap slots between the cable and the rim, so they're left out.";
-      note(strapSlotsNote);
-    }
+  if (leftOut.length > 0) {
+    const noMargin = [baseFace, capFace].some((face) => blocked(face, "strapSlot") === "noMargin");
+    strapSlotsNote = noMargin ? "There isn't room for the strap slots between the cable and the rim, so they're left out." : `The strap slots don't fit anywhere round the rim of ${leftOut.join(" and ")}, so they're left out there.`;
+    note(strapSlotsNote);
   }
-  const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot, strapSlots: platesSlots.base };
+  const coreFlangeSpec = { ...flangeSpec, faceOps: baseFace ? faceOps(baseFace.layout) : [] };
   const designMountLayout: DesignMountLayout = {
     keyhole: mountLayout && { slots: mountLayout.slots, recessDepth: mountLayout.recessDepth, axisDeg: mountLayout.axisDeg },
     through: throughLayout && {
@@ -461,7 +464,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
 
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label, rimSlot: capSlot, strapSlots: platesSlots.cap, geometry: capGeometry!, engageDepth });
+    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, faceOps: faceOps(capFace.layout), geometry: capGeometry!, engageDepth });
     const assembled = translateMesh(capMesh, [0, 0, solution.height]);
     parts.push({
       name: "top-cap",
@@ -471,14 +474,16 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     });
   }
 
+  let mountPlateFace: FaceLayout | undefined;
   if (mountPlateLayout && mountKindForPlate && mountPlateLayout.clips.length > 0) {
+    mountPlateFace = plateFace.layout;
     const plateMesh = await buildMountPlate({
       layout: mountPlateLayout,
       tolerance: spec.tolerance,
       flangeThickness: thickness,
       columns,
       minCornerSegments: cornerSegs,
-      strapSlots: platesSlots.mountPlate,
+      faceOps: faceOps(plateFace.layout),
     });
     parts.push({ name: "mount-plate", role: "mountPlate", mesh: plateMesh, printTransform: { rotateX: Math.PI, translate: [0, 0, 0] } });
     if (mountPlateCut) {
@@ -560,7 +565,16 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     rimSlots: { base: baseSlot, cap: capSlot },
     strapSlots: platesSlots,
     strapSlotsNote,
+    faces: {
+      base: baseFace?.layout,
+      cap: topCapEnabled ? capFace.layout : undefined,
+      mountPlate: mountPlateFace,
+    },
   };
+}
+
+function tagged(kind: FixedKind, polys: XY[][]): KeepOut[] {
+  return polys.map((poly) => ({ kind, poly }));
 }
 
 function dipStartOf(dip: SweepSolid | undefined): XY | undefined {

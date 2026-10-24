@@ -6,6 +6,7 @@ import type { MountPlateLayout } from "./mountPlate";
 import type { ShapeOutline } from "./shapes";
 import type { StrapSlot } from "./strapSlot";
 import type { FaceChannelLayout } from "./faceChannel";
+import type { FaceLayout } from "./face/types";
 
 export type { ShapeKind } from "./shapes";
 
@@ -224,6 +225,7 @@ export interface Design {
   rimSlots: { base?: RimSlot; cap?: RimSlot };
   strapSlots: { base: StrapSlot[]; cap: StrapSlot[]; mountPlate: StrapSlot[] };
   strapSlotsNote?: string;
+  faces: { cap?: FaceLayout; base?: FaceLayout; mountPlate?: FaceLayout };
   faceChannels?: FaceChannelLayout & { innerDipStart?: XY; outerDipStart?: XY };
 }
 

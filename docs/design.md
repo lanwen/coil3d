@@ -1093,6 +1093,64 @@ STEP exporter fits its B-spline on the exact parametric grid of the mesh.
 `resolution` only changes the mesh's column and row density: the solved
 numbers, notices and the two specs are the same for `draft` and `final`.
 
+### Face features (#382, #383)
+
+The cap's top, the base's bottom and the mount plate's back are faces. Three
+kinds of feature sit on a face: the label, the rim cable slot and the strap
+slots. One layout per face (`FaceLayout`, `src/core/face/`) holds them, and
+`Design.faces` exposes it. A feature is plain data (`FaceFeature`): an id, a
+kind, a status (`auto`, `user` or `blocked` with a reason), its outline loops in
+mm in the face plane, and its operation. `placement` is reserved for the part
+that lets a user pin a feature; nothing fills it yet. The layout crosses the
+worker boundary, so it holds no functions or classes.
+
+**The layout pass.** `layoutFace` (`face/layout.ts`) places the kinds one by
+one, in priority order: label, rim slot, strap slots. `design()` first builds
+the face's fixed keep-outs: the channel ribbon, the pads, the keyholes and
+through holes, the SKÅDIS footprints and notches, the T-clip cutters, the mount
+plate's anchors and clips, and the cable lead-ins. Each placed feature then adds
+its own loops to the keep-outs of the kinds after it. A kind's `place` calls the
+same search it always used (`resolveLabel`, `layoutRimSlot`, `layoutStrapSlots`).
+The mount plate's face (`layoutPlateFace`) maps the base's strap slots onto the
+plate.
+
+**The kind registry.** `face/kinds.ts` has one `KindDef` per kind:
+
+- `avoids(face)` names the keep-out kinds the feature stays clear of on that
+  face, the clearance, and whether degenerate polygons (under 3 points) are
+  dropped first. It returns nothing when the kind does not go on that face.
+  The cap's rim slot avoids only the label, unfiltered; the base's rim slot
+  avoids the channel, pads, keyholes, through holes and SKÅDIS footprints; the
+  strap slots avoid everything else on their face, which is why a notch, a
+  T-clip or a lead-in blocks a strap slot but not the rim slot.
+- `cutRank` sets the order of the booleans inside a face: rim slot 10, strap
+  slots 20, label 30. Both backends use it, so a cap is cut the same way
+  everywhere. Cuts stay one subtract each and are never merged: the mesh
+  output depends on their order, and the label's triangles stay tagged only
+  because the label is its own cut.
+- `title` names the cut in an error.
+
+**Generic operations.** `faceOps(layout)` turns the placed features into a
+sorted list of `FaceOp`s. Each backend applies the list to a slab (`zLo` and
+`thickness` of the face's part, passed as the part already states them):
+`applyFaceOps` in `manifold.ts` and `applyFaceOpsStep` in `step/build.ts`. A
+`through` op cuts the whole slab, with the weld overlap on both sides. An
+`engrave` op cuts `depth` into the slab's top face. An op with `mark` has its
+triangles tagged in the mesh (`labelTriangles`). The STEP backend fuses a
+multi-loop cutter by classifying the loops into solids and holes
+(`classifyLabelLoops`), as the label always did.
+
+**Adding a kind.** Write one `KindDef` (its `avoids`, its `place`, its
+operation and `cutRank`), add its outline function, and list it in `FACE_KINDS`.
+The layout, the face operations and both backends need no other change. A kind
+that adds material (an emboss) needs a third operation first; nothing uses one
+yet. A new kind of thing to avoid goes into `FixedKind` and into the face's
+fixed keep-outs in `design()`.
+
+`Design.rimSlots`, `strapSlots`, `labelFit` and `strapSlotsNote` stay as views
+of the layouts' results for the UI and the tests; the STEP backend reads
+`Design.faces`.
+
 ### Snap joint
 
 `snapLayout` in `src/core/joints.ts` lays out both parts. The numbers below
