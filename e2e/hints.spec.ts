@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { openAdvanced } from "./advanced";
+import { openCustomize } from "./customize";
 import { hoverHint } from "./hint";
 import { encodeHashDoc } from "./hashDoc";
 
@@ -98,9 +99,15 @@ test("advanced settings and the top-cap/joint/label/mount/print-bed controls all
     await expect(field.getByTestId("hint-btn")).toBeVisible();
   }
 
-  for (const heading of ["Top cap", "Joint", "Joint tolerance", "Label", "Wall mount", "Bed X", "Bed Y", "Bed Z"]) {
+  for (const heading of ["Top cap", "Joint", "Joint tolerance", "Customize", "Wall mount", "Bed X", "Bed Y", "Bed Z"]) {
     const field = page.locator(".field").filter({ hasText: heading }).first();
     await expect(field.getByTestId("hint-btn"), `expected a hint on the "${heading}" field`).toBeVisible();
+  }
+
+  await openCustomize(page);
+  for (const heading of ["Label", "Strap slots"]) {
+    const field = page.locator(".field").filter({ hasText: heading }).first();
+    await expect(field.getByTestId("hint-btn"), `expected a hint on the "${heading}" field in the Customize panel`).toBeVisible();
   }
 });
 

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openCustomize, saveCustomize, expectCustomizeFinal } from "./customize";
 import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 import { expectSettled } from "./settled";
 
@@ -53,6 +54,7 @@ async function zoomOnCapFace(page: Page) {
 test.describe("top cap label controls (issue #12)", () => {
   test("the label switch is off by default; switching it on reveals the text field, and reloading after typing reproduces both", async ({ page }) => {
     await gotoDesign(page, ROOMY_ROUND);
+    await openCustomize(page);
     // Issue #105 AC #5: off by default, and the text field stays hidden
     // until switched on.
     await expect(page.getByTestId("label-enabled")).not.toBeChecked();
@@ -64,10 +66,15 @@ test.describe("top cap label controls (issue #12)", () => {
     const input = page.getByTestId("input-label");
     await input.fill("USB-C 2m");
     await input.blur();
+    // Issue #385: the draft stays out of the hash until Save.
+    expect(decodeHashDoc(page.url()).label).toBeUndefined();
+    await saveCustomize(page);
     await expect(async () => expect(decodeHashDoc(page.url()).label).toBe("USB-C 2m")).toPass();
 
     await page.reload();
     await expect(page.getByTestId("coil-viewer").locator("canvas")).toBeVisible();
+    await expect(page.getByTestId("customize-open")).toBeEnabled();
+    await openCustomize(page);
     // A non-empty label in the hash auto-enables the switch and reveals the field.
     await expect(page.getByTestId("label-enabled")).toBeChecked();
     await expect(page.getByTestId("input-label")).toHaveValue("USB-C 2m");
@@ -75,12 +82,15 @@ test.describe("top cap label controls (issue #12)", () => {
 
   test("switching the label off clears the text and hides the field from the hash", async ({ page }) => {
     await gotoDesign(page, withHashDoc(ROOMY_ROUND, { label: "USB-C 2m" }));
+    await openCustomize(page);
     await expect(page.getByTestId("label-enabled")).toBeChecked();
     await expect(page.getByTestId("input-label")).toHaveValue("USB-C 2m");
     expect(decodeHashDoc(page.url()).label).toBe("USB-C 2m");
 
     await page.getByTestId("label-enabled").uncheck();
     await expect(page.getByTestId("input-label")).toHaveCount(0);
+    expect(decodeHashDoc(page.url()).label).toBe("USB-C 2m");
+    await saveCustomize(page);
     await expect(async () => expect(decodeHashDoc(page.url()).label).toBeUndefined()).toPass();
   });
 
@@ -165,6 +175,7 @@ const DEFAULT_CAP_ON = encodeHashDoc({ cap: "on", base: "on" });
 test.describe("the label field stops at what the cap can hold", () => {
   async function openLabelField(page: Page, hash: string) {
     await gotoDesign(page, hash);
+    await openCustomize(page);
     await page.getByTestId("label-enabled").check();
     return page.getByTestId("input-label");
   }
@@ -175,8 +186,8 @@ test.describe("the label field stops at what the cap can hold", () => {
     await input.pressSequentially("ABCDEFGHIJKLMNOP");
     await expect(input).toHaveValue("ABCDEFGH");
     await expect(page.getByTestId("label-full-note")).toBeVisible();
-    await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
+    await expectCustomizeFinal(page);
+    await expect(page.getByTestId("customize-panel")).not.toContainText("doesn't fit");
   });
 
   test("pasting a long string is cut the same way", async ({ page }) => {
@@ -189,7 +200,7 @@ test.describe("the label field stops at what the cap can hold", () => {
   test("text that fits is kept and shows no note; deleting clears the note", async ({ page }) => {
     const input = await openLabelField(page, DEFAULT_CAP_ON);
     await input.fill("USB-C 2m");
-    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await expectCustomizeFinal(page);
     await expect(input).toHaveValue("USB-C 2m");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
 
@@ -204,22 +215,29 @@ test.describe("the label field stops at what the cap can hold", () => {
     // 50 mm core, 6 m of cable: a 5-layer cap holds 11 letters; at 30 mm it holds 9.
     const input = await openLabelField(page, encodeHashDoc({ cap: "on", size: 50, L: 6000, lock: ["outer"], base: "on" }));
     await input.fill("ABCDEFGHIJK");
-    await expect(page.getByTestId("download-stl")).toBeEnabled();
+    await expectCustomizeFinal(page);
     await expect(input).toHaveValue("ABCDEFGHIJK");
+    await expect(page.getByTestId("customize-panel")).not.toContainText("doesn't fit");
+    await saveCustomize(page);
+    await expect(page.getByTestId("download-stl")).toBeEnabled();
     await expect(page.getByTestId("warnings")).not.toContainText("doesn't fit");
 
     await page.getByTestId("input-outer").fill("30");
     await page.getByTestId("input-outer").blur();
     await expect(page.getByTestId("warnings")).toContainText("doesn't fit");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
-    await expect(input).toHaveValue("ABCDEFGHIJK");
+    await openCustomize(page);
+    await expect(page.getByTestId("input-label")).toHaveValue("ABCDEFGHIJK");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
+    await expect(page.getByTestId("problems")).toContainText("doesn't fit");
   });
 
   test("a link with an overlong label loads it unchanged and warns instead of cutting", async ({ page }) => {
     await gotoDesign(page, withHashDoc(DEFAULT_CAP_ON, { label: "ABCDEFGHIJKLMNOP" }));
-    await expect(page.getByTestId("input-label")).toHaveValue("ABCDEFGHIJKLMNOP");
     await expect(page.getByTestId("warnings")).toContainText("doesn't fit");
+    await openCustomize(page);
+    await expect(page.getByTestId("input-label")).toHaveValue("ABCDEFGHIJKLMNOP");
+    await expect(page.getByTestId("problems")).toContainText("doesn't fit");
     await expect(page.getByTestId("label-full-note")).toHaveCount(0);
     expect(decodeHashDoc(page.url()).label).toBe("ABCDEFGHIJKLMNOP");
   });

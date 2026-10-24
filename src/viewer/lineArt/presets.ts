@@ -1,9 +1,12 @@
 import * as THREE from "three";
 
-export type PresetId = "front" | "iso" | "wallRoom" | "mountSide" | "printLayout";
+export type BarPresetId = "front" | "iso" | "wallRoom" | "mountSide" | "printLayout";
+export type FaceId = "cap" | "base";
+export type FacePresetId = "capTop" | "baseBottom";
+export type PresetId = BarPresetId | FacePresetId;
 
-export interface ViewPreset {
-  id: PresetId;
+export interface ViewPreset<Id extends PresetId = PresetId> {
+  id: Id;
   label: string;
   direction: THREE.Vector3;
   upHint: THREE.Vector3;
@@ -11,7 +14,7 @@ export interface ViewPreset {
 
 const ISO_DIR = new THREE.Vector3(1, -1, 0.9).normalize();
 
-export const VIEW_PRESETS: ViewPreset[] = [
+export const VIEW_PRESETS: ViewPreset<BarPresetId>[] = [
   { id: "front", label: "Front", direction: new THREE.Vector3(0, -1, 0), upHint: new THREE.Vector3(0, 0, 1) },
   { id: "iso", label: "Iso", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
   { id: "wallRoom", label: "Wall mount", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
@@ -19,7 +22,14 @@ export const VIEW_PRESETS: ViewPreset[] = [
   { id: "printLayout", label: "Print layout", direction: ISO_DIR, upHint: new THREE.Vector3(0, 0, 1) },
 ];
 
-const byId = new Map(VIEW_PRESETS.map((p) => [p.id, p]));
+const FACE_PRESETS: ViewPreset<FacePresetId>[] = [
+  { id: "capTop", label: "Cap", direction: new THREE.Vector3(0, 0, 1), upHint: new THREE.Vector3(0, 1, 0) },
+  { id: "baseBottom", label: "Base", direction: new THREE.Vector3(0, 0, -1), upHint: new THREE.Vector3(0, 1, 0) },
+];
+
+export const FACE_PRESET_ID: Record<FaceId, FacePresetId> = { cap: "capTop", base: "baseBottom" };
+
+const byId = new Map<PresetId, ViewPreset>([...VIEW_PRESETS, ...FACE_PRESETS].map((p) => [p.id, p]));
 
 export function getPreset(id: PresetId): ViewPreset {
   const preset = byId.get(id);

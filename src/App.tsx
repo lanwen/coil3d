@@ -1,19 +1,28 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { exportDesign, parseHash, toHash } from "./core";
 import type { CoilSpec, ViewMode } from "./core";
 import { useDesignPreview } from "./geometry/useDesignPreview";
 import { ControlsForm } from "./components/ControlsForm";
+import { CustomizePanel } from "./components/CustomizePanel";
 import { ResultPanel } from "./components/ResultPanel";
 import { CoilViewer } from "./viewer/CoilViewer";
 import { ViewerBoundary, ViewerUnavailable } from "./viewer/ViewerBoundary";
 import { ProjectionToggle } from "./viewer/ViewControls";
 import type { Projection } from "./viewer/lineArt/LineArtRenderer";
+import type { FaceId } from "./viewer/lineArt/presets";
 import { EyeToggle } from "./components/fields";
 import { CoilMark } from "./components/CoilMark";
 import { HeaderActions } from "./components/HeaderActions";
 import { HINTS } from "./components/hints";
 import { Guide } from "./guide/Guide";
 import "./App.css";
+
+const FACES: FaceId[] = ["cap", "base"];
+
+interface CustomizeSession {
+  draft: CoilSpec;
+  face: FaceId;
+}
 
 function readInitialState() {
   return parseHash(window.location.hash);
@@ -57,15 +66,42 @@ export default function App() {
   const [viewResetKey, setViewResetKey] = useState(0);
   const [isPrintLayout, setIsPrintLayout] = useState(false);
   const [view, setView] = useState<ViewMode>(initialView);
+  const [customize, setCustomize] = useState<CustomizeSession | null>(null);
+  const customizing = customize !== null;
 
   useEffect(() => {
     window.history.replaceState(null, "", toHash(currentSpec, showWire, view));
   }, [currentSpec, showWire, view]);
 
-  const { result, error, finalReady } = useDesignPreview(currentSpec);
+  const { result, error, finalReady } = useDesignPreview(customize?.draft ?? currentSpec, currentSpec);
+
+  const builtFaces = result ? FACES.filter((face) => result.faces[face]) : [];
+  const startCustomize = () => {
+    if (builtFaces.length > 0) setCustomize({ draft: currentSpec, face: builtFaces[0] });
+  };
+  const cancelCustomize = () => setCustomize(null);
+  const saveCustomize = () => {
+    if (!customize) return;
+    setCurrentSpec(customize.draft);
+    setCustomize(null);
+  };
+  const setDraft = useCallback((draft: CoilSpec) => setCustomize((session) => session && { ...session, draft }), []);
+  const setFace = (face: FaceId) => setCustomize((session) => session && { ...session, face });
+
+  useEffect(() => {
+    if (!customizing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.isComposing) return;
+      if (document.querySelector('[data-testid="hint-bubble"][data-open]')) return;
+      setCustomize(null);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [customizing]);
 
   const canReset = toHash(currentSpec, showWire, view) !== toHash(parseHash("").spec, showWire, view);
   const handleReset = () => {
+    setCustomize(null);
     setCurrentSpec(parseHash("").spec);
     setNotice(undefined);
     setFormKey((key) => key + 1);
@@ -127,7 +163,11 @@ export default function App() {
     <div className="app">
       <header>
         <h1>
-          <button type="button" className="logo-btn" data-testid="reset-view" aria-label="Reset view" onClick={() => setViewResetKey((key) => key + 1)}>
+          <button type="button" className="logo-btn" data-testid="reset-view" aria-label="Reset view" onClick={() => {
+              setCustomize(null);
+              setViewResetKey((key) => key + 1);
+            }}
+          >
             <CoilMark />
             coil3d
           </button>
@@ -142,13 +182,17 @@ export default function App() {
       )}
       <div className="layout">
         <div className="sidebar">
-          <ControlsForm key={formKey} spec={currentSpec} solution={result?.solution} design={result} finalReady={finalReady} onChange={setCurrentSpec} />
+          {customize ? (
+            <CustomizePanel spec={customize.draft} design={result} finalReady={finalReady} face={customize.face} onChange={setDraft} onSave={saveCustomize} onCancel={cancelCustomize} />
+          ) : (
+            <ControlsForm key={formKey} spec={currentSpec} solution={result?.solution} canCustomize={builtFaces.length > 0} onCustomize={startCustomize} onChange={setCurrentSpec} />
+          )}
           {error && (
             <p className="error" data-testid="design-error">
               {error}
             </p>
           )}
-          {result && (
+          {result && !customizing && (
             <ResultPanel
               design={result}
               spec={currentSpec}
@@ -160,12 +204,12 @@ export default function App() {
               stepBusy={stepBusy}
             />
           )}
-          {stepError && (
+          {stepError && !customizing && (
             <p className="error" data-testid="step-error">
               {stepError}
             </p>
           )}
-          {result && (
+          {result && !customizing && (
             <button type="button" className="btn-primary guide-nav-btn" data-testid="open-guide" onClick={() => setView("guide")}>
               Assembly guide
             </button>
@@ -185,8 +229,8 @@ export default function App() {
                   outerEndReach={result.faceChannels?.outer !== undefined}
                   cablePath={result.cablePath}
                   wireDiameter={result.spec.wire.diameter}
-                  showWire={showWire}
-                  exploded={exploded}
+                  showWire={showWire && !customizing}
+                  exploded={exploded && !customizing}
                   mountAxisDeg={result.mountAxisDeg}
                   envelopeWidth={result.solution.flangeExtent?.acrossFlats ?? result.solution.flangeSize}
                   overallHeight={result.solution.overallHeight}
@@ -196,28 +240,34 @@ export default function App() {
                   onPrintLayoutActiveChange={setIsPrintLayout}
                   mountKind={result.spec.mount}
                   pegboard={result.pegboard}
-                  projection={projection}
+                  projection={customizing ? "ortho" : projection}
                   viewResetKey={viewResetKey}
+                  faceOutline={result.flangeSpec.outline}
+                  lockedFace={customize?.face}
+                  lockableFaces={builtFaces}
+                  onLockedFaceChange={setFace}
                 />
               </ViewerBoundary>
-              <div className="viewport-toggles" data-testid="viewport-toggles">
-                {!isPrintLayout && (
-                  <div className="wire-toggle">
-                    <EyeToggle testId="wire" label="Show wound cable" checked={showWire} hint={HINTS.wire} onChange={setShowWire} />
-                  </div>
-                )}
-                {!isPrintLayout && (
-                  <div className="dimensions-toggle">
-                    <EyeToggle testId="dimensions" label="Dimensions" checked={showDimensions} hint={HINTS.dimensions} onChange={setShowDimensions} />
-                  </div>
-                )}
-                {!isPrintLayout && result.parts.length > 1 && (
-                  <div className="explode-toggle">
-                    <EyeToggle testId="exploded" label="Exploded view" checked={exploded} hint={HINTS.exploded} onChange={setExploded} />
-                  </div>
-                )}
-                <ProjectionToggle projection={projection} onProjectionChange={setProjection} />
-              </div>
+              {!customizing && (
+                <div className="viewport-toggles" data-testid="viewport-toggles">
+                  {!isPrintLayout && (
+                    <div className="wire-toggle">
+                      <EyeToggle testId="wire" label="Show wound cable" checked={showWire} hint={HINTS.wire} onChange={setShowWire} />
+                    </div>
+                  )}
+                  {!isPrintLayout && (
+                    <div className="dimensions-toggle">
+                      <EyeToggle testId="dimensions" label="Dimensions" checked={showDimensions} hint={HINTS.dimensions} onChange={setShowDimensions} />
+                    </div>
+                  )}
+                  {!isPrintLayout && result.parts.length > 1 && (
+                    <div className="explode-toggle">
+                      <EyeToggle testId="exploded" label="Exploded view" checked={exploded} hint={HINTS.exploded} onChange={setExploded} />
+                    </div>
+                  )}
+                  <ProjectionToggle projection={projection} onProjectionChange={setProjection} />
+                </div>
+              )}
             </>
           )}
           <div className="credits">

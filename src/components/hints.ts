@@ -34,6 +34,8 @@ export const HINTS = {
     "This cuts two closed slots in each plate. A hook-and-loop tie through a slot and over the rim holds the cable's lead. The plate grows about 4.5 mm to fit them.",
   joint: "This is how the top cap attaches to the core: pressed on, twisted into a bayonet lock, or snapped on with printable clips. All three are meant to be permanent, once assembled.",
   tolerance: "This is the extra gap added to every joint so printed parts fit together. Raise it if your printer runs a bit oversized. Lower it for a tighter fit.",
+  customize:
+    "This turns the 3D view to face the top cap, or the base, and opens its extras: the engraved label and the strap slots. Your edits show live in the view. Save keeps them; Cancel drops them.",
   label: "This is text engraved into the top cap, for example the cable type or length. Leave it blank for no label.",
   bedX: "This is your 3D printer's build volume along the X axis, in millimetres. The design warns you when a part is too big to print in one piece.",
   bedY: "This is your 3D printer's build volume along the Y axis, in millimetres. The design warns you when a part is too big to print in one piece.",

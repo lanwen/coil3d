@@ -1,9 +1,9 @@
-import type { PresetId } from "./lineArt/presets";
+import type { BarPresetId } from "./lineArt/presets";
 
 const STROKE = { fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 const THIN = { strokeWidth: 1.3 };
 
-const ICONS: Record<PresetId, React.ReactNode> = {
+const ICONS: Record<BarPresetId, React.ReactNode> = {
   front: (
     <g {...STROKE}>
       <path d="M2.5 19.5h19V17h-19z" />
@@ -52,7 +52,7 @@ const ICONS: Record<PresetId, React.ReactNode> = {
   ),
 };
 
-export function PresetIcon({ id }: { id: PresetId }) {
+export function PresetIcon({ id }: { id: BarPresetId }) {
   return (
     <svg className={`preset-icon preset-icon-${id}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       {ICONS[id]}

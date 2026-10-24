@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { cancelCustomize, openCustomize } from "./customize";
 import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 import { expectSettled } from "./settled";
 
@@ -15,6 +16,15 @@ import { expectSettled } from "./settled";
 const TWO_LAYER_AUTO = encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on" });
 const TWO_LAYER = withHashDoc(TWO_LAYER_AUTO, { cap: "on" });
 const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40, base: "on" }); // layers=1 (default): no top cap
+
+// The label switch lives in the Customize panel's cap face; with the cap off
+// the panel opens on the base (or Customize is disabled) and has no label.
+async function labelSwitchOffered(page: Page): Promise<boolean> {
+  await openCustomize(page);
+  const offered = (await page.getByTestId("label-enabled").count()) > 0;
+  await cancelCustomize(page);
+  return offered;
+}
 
 async function gotoDesign(page: Page, hash: string) {
   await page.goto(`/${hash}`);
@@ -119,17 +129,19 @@ test.describe("cap-only controls hide when the cap is off (issue #131)", () => {
     await expect(page.getByTestId("caps")).toContainText("off");
     await expect(page.getByTestId("select-joint")).toHaveCount(0);
     await expect(page.getByTestId("input-tolerance")).toHaveCount(0);
-    await expect(page.getByTestId("label-enabled")).toHaveCount(0);
+    expect(await labelSwitchOffered(page)).toBe(false);
 
     await page.getByTestId("topCap").check(); // touch it on -> explicit "on"
+    await expect(page.getByTestId("caps")).toContainText("on");
     await expect(page.getByTestId("select-joint")).toBeVisible();
     await expect(page.getByTestId("input-tolerance")).toBeVisible();
-    await expect(page.getByTestId("label-enabled")).toBeVisible();
+    expect(await labelSwitchOffered(page)).toBe(true);
 
     await page.getByTestId("topCap-reset-auto").click(); // back to auto -> off again (layers=1)
+    await expect(page.getByTestId("caps")).toContainText("off");
     await expect(page.getByTestId("select-joint")).toHaveCount(0);
     await expect(page.getByTestId("input-tolerance")).toHaveCount(0);
-    await expect(page.getByTestId("label-enabled")).toHaveCount(0);
+    expect(await labelSwitchOffered(page)).toBe(false);
   });
 
   test("layers=2 with an explicit cap=off override: joint, tolerance and label stay hidden even though there's more than one layer", async ({ page }) => {
@@ -137,7 +149,7 @@ test.describe("cap-only controls hide when the cap is off (issue #131)", () => {
     await expect(page.getByTestId("caps")).toContainText("off");
     await expect(page.getByTestId("select-joint")).toHaveCount(0);
     await expect(page.getByTestId("input-tolerance")).toHaveCount(0);
-    await expect(page.getByTestId("label-enabled")).toHaveCount(0);
+    expect(await labelSwitchOffered(page)).toBe(false);
   });
 
   test("hiding the controls does not reset their values -- they come back exactly as left once the cap is back on", async ({ page }) => {

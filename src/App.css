@@ -1065,7 +1065,8 @@ a.build-label:focus-visible {
    centred content, rather than relying on padding/line-height/border to add
    up to the same number by coincidence. Repeated for the bigger mobile pill
    below. */
-.tag-auto {
+.tag-auto,
+.tag-custom {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1079,6 +1080,56 @@ a.build-label:focus-visible {
   border: 1.3px solid var(--ink);
   border-radius: 8px;
   flex: none;
+}
+
+.customize-btn {
+  height: 28px;
+  padding: 0 12px;
+  font-family: var(--font-display);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  cursor: pointer;
+  flex: none;
+}
+
+.customize-btn:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.customize-btn:disabled {
+  color: var(--hairline-soft);
+  border-color: var(--hairline-soft);
+  cursor: default;
+}
+
+.customize-panel:focus {
+  outline: none;
+}
+
+.customize-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.customize-actions .btn-primary {
+  flex: 1;
+}
+
+.btn-primary.btn-secondary {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.btn-primary.btn-secondary:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--paper);
 }
 
 /* Issue #131: now sits inline BEFORE the switch (in the auto tag's own
@@ -1187,6 +1238,16 @@ a.build-label:focus-visible {
 .preset-btn:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
+}
+
+.face-btn {
+  width: auto;
+  padding: 0 18px;
+  font-family: var(--font-display);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .preset-icon {
@@ -1832,7 +1893,8 @@ a.build-label:focus-visible {
 
   /* Keeps the top-cap "auto" tag matching the bigger mobile pill's own
      height (issue #131 AC), exactly like the desktop rule above. */
-  .tag-auto {
+  .tag-auto,
+  .tag-custom {
     height: 24px;
   }
 
@@ -1925,6 +1987,14 @@ a.build-label:focus-visible {
   .preset-btn {
     width: 44px;
     height: 32px;
+  }
+
+  .face-btn {
+    width: auto;
+  }
+
+  .customize-btn {
+    height: 36px;
   }
 
   /* Larger tap target for the (i) hint (issue #53 AC: "tap on mobile") and
