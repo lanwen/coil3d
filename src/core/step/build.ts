@@ -7,7 +7,6 @@ import type { WallProfile, WallSpec } from "../wall";
 import {
   CAP_THICKNESS,
   JOINT_TRANSITION_HEIGHT,
-  LABEL_DEPTH,
   MOUNT_PLATE_EMBED,
   MOUNT_PLATE_PEG_HOLE_DEPTH,
   MOUNT_PLATE_THICKNESS,
@@ -33,8 +32,10 @@ import { chamferedRim, chamferWedgeRows, SLAB_BELOW_FACE } from "../edgeChamfer"
 import type { RimRow } from "../edgeChamfer";
 import { collarDepth, jointGeometry, resolveCapJoint, withBoreThrough } from "../joints";
 import type { OutlineStack, RevolvedFeature } from "../joints";
-import { classifyLabelLoops, getLabelFont, labelLoops, resolveLabel } from "../label";
-import type { LabelLoop, ResolvedLabel } from "../label";
+import { classifyLabelLoops } from "../label";
+import type { LabelLoop } from "../label";
+import { faceOps } from "../face/layout";
+import type { FaceLayout, FaceOp } from "../face/types";
 import { layoutInnerEnd, resolveChannelDepth } from "../innerEnd";
 import { boreFilletRadius, faceCutArcs, faceDipSweep, holeOutlineOf } from "../faceChannel";
 import type { DipFit, FaceChannelLayout, FaceCutArc, FaceEnd } from "../faceChannel";
@@ -517,14 +518,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     for (const notch of flangeSpec.skadis?.notchCutters ?? []) {
       flangeSolid = checkedCut(kernel, flangeSolid, clipFramePrismStep(flangeSpec.skadis!.axisDeg, notch.profile, notch.side0, notch.width));
     }
-    if (flangeSpec.rimSlot) {
-      const loop: [number, number][] = flangeSpec.rimSlot.outline.map((p) => [p.x, p.y]);
-      flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
-    }
-    for (const slot of flangeSpec.strapSlots ?? []) {
-      const loop: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
-      flangeSolid = checkedCut(kernel, flangeSolid, loopSolid(loop, flangeSpec.thickness + 2 * WELD_OVERLAP).translate([0, 0, -flangeSpec.thickness - WELD_OVERLAP]));
-    }
+    flangeSolid = applyFaceOpsStep(kernel, flangeSolid, opsOf(design.faces.base), { zLo: -flangeSpec.thickness, thickness: flangeSpec.thickness });
     for (const { slot, recess, leadIns } of flangeSpec.skadisTclip?.cutters ?? []) {
       const loft = (cutter: TclipCutter) => ruledLoft(cutter.levels.map((l) => l.poly.map((p): [number, number, number] => [p.x, p.y, l.z])));
       const prisms = recess.pieces.map((poly) => loft({ levels: [{ z: recess.bottom, poly }, { z: recess.top, poly }] }));
@@ -822,22 +816,44 @@ function applyCoreJointCutSolid(core: R.Shape3D, cut: CoreJointCut): R.Shape3D {
   return cut.snap!.rings.reduce((solid, { lip, relief }) => solid.fuse(stackSolidStep(lip, cut.height).cut(stackSolidStep(relief, cut.height))), core);
 }
 
+function loopsCutterSolid(loops: LabelLoop[], height: number, zBase: number): R.Shape3D | undefined {
+  const { solids, holes } = classifyLabelLoops(loops);
+  if (solids.length === 0) return undefined;
+
+  let cutter = solids.map((loop) => labelLoopSolid(loop, height, zBase)).reduce((a, b) => a.fuse(b));
+  for (const hole of holes) cutter = cutter.cut(labelLoopSolid(hole, height, zBase));
+  return cutter;
+}
+
 function labelLoopSolid(loop: LabelLoop, height: number, zBase: number): R.Shape3D {
   const face = R.makePolygon(loop.map(([x, y]): [number, number, number] => [x, y, zBase]));
   const sketch = new R.Sketch(face.outerWire(), { defaultOrigin: [0, 0, zBase], defaultDirection: [0, 0, 1] });
   return sketch.extrude(height);
 }
 
-async function buildLabelCutterSolid(label: ResolvedLabel): Promise<R.Shape3D | undefined> {
-  const font = await getLabelFont();
-  const { solids, holes } = classifyLabelLoops(labelLoops(font, label));
-  if (solids.length === 0) return undefined;
+const opsOf = (layout: FaceLayout | undefined): FaceOp[] => (layout ? faceOps(layout) : []);
 
-  const cutterHeight = LABEL_DEPTH + 1;
-  const zBase = CAP_THICKNESS - LABEL_DEPTH;
-  let cutter = solids.map((loop) => labelLoopSolid(loop, cutterHeight, zBase)).reduce((a, b) => a.fuse(b));
-  for (const hole of holes) cutter = cutter.cut(labelLoopSolid(hole, cutterHeight, zBase));
-  return cutter;
+interface FaceSlab {
+  zLo: number;
+  thickness: number;
+}
+
+function applyFaceOpsStep(kernel: OpenCascadeInstance, solid: R.Shape3D, ops: readonly FaceOp[], slab: FaceSlab): R.Shape3D {
+  let result = solid;
+  for (const op of ops) {
+    const loops = op.loops.map((loop): LabelLoop => loop.map((p): [number, number] => [p.x, p.y]));
+    if (op.op === "through") {
+      const height = slab.thickness + 2 * WELD_OVERLAP;
+      const zBase = slab.zLo - WELD_OVERLAP;
+      const cutter = loops.length === 1 ? loopSolid(loops[0], height).translate([0, 0, zBase]) : loopsCutterSolid(loops, height, zBase);
+      if (cutter) result = checkedCut(kernel, result, cutter);
+    } else {
+      const depth = op.depth ?? 0;
+      const cutter = loopsCutterSolid(loops, depth + 1, slab.zLo + slab.thickness - depth);
+      if (cutter) result = result.cut(cutter);
+    }
+  }
+  return result;
 }
 
 async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
@@ -865,22 +881,7 @@ async function buildTopCapSolid(design: Design): Promise<R.Shape3D> {
   if (snap?.hole) assembled = assembled.cut(stackSolidStep(snap.hole));
   else if (holeOutline) assembled = assembled.cut(outlineSolid(holeOutline, CAP_THICKNESS + engageDepth + 2, -engageDepth - 1));
 
-  const { label } = await resolveLabel(spec.label, flangeSpec.outline, flangeSpec.boreOutline, flangeSpec.margin, solution.topCapEnabled);
-  if (label) {
-    const labelCutter = await buildLabelCutterSolid(label);
-    if (labelCutter) assembled = assembled.cut(labelCutter);
-  }
-
-  const slot = design.rimSlots.cap;
-  if (slot) {
-    const loop: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
-    assembled = checkedCut(loadedKernel(), assembled, loopSolid(loop, CAP_THICKNESS + 2 * WELD_OVERLAP).translate([0, 0, -WELD_OVERLAP]));
-  }
-
-  for (const slot of design.strapSlots.cap) {
-    const loop: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
-    assembled = checkedCut(loadedKernel(), assembled, loopSolid(loop, CAP_THICKNESS + 2 * WELD_OVERLAP).translate([0, 0, -WELD_OVERLAP]));
-  }
+  assembled = applyFaceOpsStep(loadedKernel(), assembled, opsOf(design.faces.cap), { zLo: 0, thickness: CAP_THICKNESS });
 
   return assembled.translate([0, 0, solution.height]);
 }
@@ -930,10 +931,7 @@ function buildMountPlateSolid(design: Design): R.Shape3D {
   let plate = outlineSolid(layout.outline, MOUNT_PLATE_THICKNESS, backZ);
   for (const clip of layout.clips) plate = plate.fuse(mountPlateClipSolidStep(clip, backZ));
   for (const anchor of layout.anchors) plate = plate.cut(pinHoleCutterSolid(anchor, spec.tolerance, frontZ, -1));
-  for (const slot of design.strapSlots.mountPlate) {
-    const loop: [number, number][] = slot.outline.map((p) => [p.x, p.y]);
-    plate = checkedCut(loadedKernel(), plate, loopSolid(loop, MOUNT_PLATE_THICKNESS + 2 * WELD_OVERLAP).translate([0, 0, backZ - WELD_OVERLAP]));
-  }
+  plate = applyFaceOpsStep(loadedKernel(), plate, opsOf(design.faces.mountPlate), { zLo: backZ, thickness: MOUNT_PLATE_THICKNESS });
   return plate;
 }
 

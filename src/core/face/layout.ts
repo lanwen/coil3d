@@ -1,7 +1,7 @@
 import { plateStrapSlots } from "../strapSlot";
 import type { StrapSlot } from "../strapSlot";
 import type { ShapeOutline } from "../shapes";
-import { cutRankOf, titleOf } from "./kinds";
+import { cutRankOf, FACE_KINDS, titleOf } from "./kinds";
 import type { FaceContext, FacePayload, KindDef } from "./kinds";
 import type { FaceFeature, FaceLayout, FaceOp, KeepOut } from "./types";
 
@@ -31,7 +31,7 @@ export function layoutPlateFace(base: FaceLayout | undefined, slots: StrapSlot[]
   return { layout: { face: "mountPlate", features, keepOuts: [] }, slots: plateSlots };
 }
 
-export function faceOps(layout: FaceLayout, kinds: readonly KindDef[]): FaceOp[] {
+export function faceOps(layout: FaceLayout, kinds: readonly KindDef[] = FACE_KINDS): FaceOp[] {
   return layout.features
     .filter((f) => f.status.by !== "blocked")
     .map((f, order) => ({ f, order, rank: cutRankOf(kinds, f.kind) }))

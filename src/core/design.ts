@@ -32,7 +32,7 @@ import { mountPlateLayoutFor, pegHoleRadius } from "./mountPlate";
 import { strapSlotsFitMargin } from "./strapSlot";
 import { activeKinds } from "./face/kinds";
 import type { FaceContext } from "./face/kinds";
-import { layoutFace, layoutPlateFace } from "./face/layout";
+import { faceOps, layoutFace, layoutPlateFace } from "./face/layout";
 import type { BlockedReason, FaceLayout, FixedKind, KeepOut } from "./face/types";
 import { clipPrintRotateZ, isHeavyCable, layoutSkadisClips, lipKeepOffset, skadisBoardSection, skadisClipFootprints } from "./skadisClips";
 import type { SkadisClipLayout } from "./skadisClips";
@@ -443,7 +443,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     strapSlotsNote = noMargin ? "There isn't room for the strap slots between the cable and the rim, so they're left out." : `The strap slots don't fit anywhere round the rim of ${leftOut.join(" and ")}, so they're left out there.`;
     note(strapSlotsNote);
   }
-  const coreFlangeSpec = { ...flangeSpec, rimSlot: baseSlot, strapSlots: platesSlots.base };
+  const coreFlangeSpec = { ...flangeSpec, faceOps: baseFace ? faceOps(baseFace.layout) : [] };
   const designMountLayout: DesignMountLayout = {
     keyhole: mountLayout && { slots: mountLayout.slots, recessDepth: mountLayout.recessDepth, axisDeg: mountLayout.axisDeg },
     through: throughLayout && {
@@ -464,7 +464,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   const parts: Part[] = [{ name: "core", role: "core", mesh: coreMesh, printTransform: { rotateX: 0, translate: [0, 0, 0] } }];
 
   if (topCapEnabled) {
-    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, label: capFace.payload.label?.label, rimSlot: capSlot, strapSlots: platesSlots.cap, geometry: capGeometry!, engageDepth });
+    const capMesh = await buildTopCap({ flange: coreFlangeSpec, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap, faceOps: faceOps(capFace.layout), geometry: capGeometry!, engageDepth });
     const assembled = translateMesh(capMesh, [0, 0, solution.height]);
     parts.push({
       name: "top-cap",
@@ -474,14 +474,16 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     });
   }
 
+  let mountPlateFace: FaceLayout | undefined;
   if (mountPlateLayout && mountKindForPlate && mountPlateLayout.clips.length > 0) {
+    mountPlateFace = plateFace.layout;
     const plateMesh = await buildMountPlate({
       layout: mountPlateLayout,
       tolerance: spec.tolerance,
       flangeThickness: thickness,
       columns,
       minCornerSegments: cornerSegs,
-      strapSlots: platesSlots.mountPlate,
+      faceOps: faceOps(plateFace.layout),
     });
     parts.push({ name: "mount-plate", role: "mountPlate", mesh: plateMesh, printTransform: { rotateX: Math.PI, translate: [0, 0, 0] } });
     if (mountPlateCut) {
@@ -563,6 +565,11 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     rimSlots: { base: baseSlot, cap: capSlot },
     strapSlots: platesSlots,
     strapSlotsNote,
+    faces: {
+      base: baseFace?.layout,
+      cap: topCapEnabled ? capFace.layout : undefined,
+      mountPlate: mountPlateFace,
+    },
   };
 }
 
