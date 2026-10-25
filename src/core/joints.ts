@@ -44,7 +44,7 @@ const MIN_SEAT_CLEARANCE = 1;
 const MIN_GROOVE_CLEARANCE = 1;
 const HOLE_OVERSHOOT = 1;
 
-export type JointWall = Pick<WallSpec, "boreOutline" | "height" | "outline" | "grooveDepth"> & { wallHeight?: number };
+type JointWall = Pick<WallSpec, "boreOutline" | "height" | "outline" | "grooveDepth"> & { wallHeight?: number };
 
 export function withBoreThrough(wall: JointWall, baseThickness: number): JointWall {
   return { ...wall, height: wall.height + baseThickness, wallHeight: wall.wallHeight ?? wall.height };
@@ -99,11 +99,11 @@ export interface BayonetLayout {
   cuts: RevolvedFeature[];
 }
 
-export type BayonetPlan = { layout: BayonetLayout; warning?: undefined } | { layout?: undefined; warning: string };
+type BayonetPlan = { layout: BayonetLayout; warning?: undefined } | { layout?: undefined; warning: string };
 
 const deg = (rad: number) => (rad * 180) / Math.PI;
 
-export function bayonetLayout(shape: ShapeKind, wallSpec: JointWall, tolerance: number): BayonetPlan {
+function bayonetLayout(shape: ShapeKind, wallSpec: JointWall, tolerance: number): BayonetPlan {
   if (shape !== "round") return { warning: "Twist lock needs a round core, so the top cap uses a press-fit collar." };
   const tooSmall = { warning: "This core is too small for the twist lock, so the top cap uses a press-fit collar." };
 
@@ -203,7 +203,7 @@ function inset(o: ShapeOutline, amount: number): ShapeOutline {
   return { ...o, apothem: o.apothem - amount, cornerRadius: Math.max(SHAPE_ROUNDING_EPS, o.cornerRadius - amount) };
 }
 
-export function snapLayout(wallSpec: JointWall, tolerance: number): SnapLayout | undefined {
+function snapLayout(wallSpec: JointWall, tolerance: number): SnapLayout | undefined {
   const { boreOutline, height: coreHeight } = wallSpec;
   const wallRoom = wallSpec.wallHeight ?? coreHeight;
   const { boreRadius, collarOutline, holeOutline } = jointGeometry(boreOutline, "snap", tolerance);

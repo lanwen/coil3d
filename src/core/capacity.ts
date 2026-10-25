@@ -6,7 +6,7 @@ import type { LayerResult } from "./types";
 const SQRT3 = Math.sqrt(3);
 const MAX_PHASE_SHIFT_TURNS = 0.5;
 
-export function clamp01(x: number): number {
+function clamp01(x: number): number {
   return Math.max(0, Math.min(1, x));
 }
 
@@ -21,7 +21,7 @@ export function radialPitch(d: number, quality: number): number {
   return ideal * q + worst * (1 - q);
 }
 
-export const MIN_TURNS_TO_NEST = 2;
+const MIN_TURNS_TO_NEST = 2;
 
 export function flatGap(wireDiameter: number): number {
   return wireDiameter + FLAT_GAP_CLEARANCE;
@@ -35,7 +35,7 @@ export function effectiveQuality(usableHeight: number, pitch: number, quality: n
   return Math.floor(usableHeight / pitch) < MIN_TURNS_TO_NEST ? 0 : clamp01(quality);
 }
 
-export interface GeometryInputs {
+interface GeometryInputs {
   outline: ShapeOutline;
   usableHeight: number;
   layers: number;

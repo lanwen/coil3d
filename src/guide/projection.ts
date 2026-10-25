@@ -59,11 +59,7 @@ export function projectToFigure(fit: GuideFit, point: THREE.Vector3): { x: numbe
   return { x: (flat.x / halfWidth + 1) / 2, y: (1 - flat.y / fit.halfHeight) / 2 };
 }
 
-export function projectRadius(fit: GuideFit, radius: number): number {
-  return radius / (2 * fit.halfHeight);
-}
-
-export function meshZRange(mesh: CoilMesh): { minZ: number; maxZ: number } {
+function meshZRange(mesh: CoilMesh): { minZ: number; maxZ: number } {
   let minZ = Infinity;
   let maxZ = -Infinity;
   const pos = mesh.positions;

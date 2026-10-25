@@ -69,7 +69,7 @@ function climbsOutside(start: OuterStart): boolean {
   return start.slope < 0;
 }
 
-export interface FaceChannelSpec {
+interface FaceChannelSpec {
   outline: ShapeOutline;
   boreOutline: ShapeOutline;
   height: number;
@@ -750,7 +750,7 @@ export interface DipFit {
   segments: number;
 }
 
-export const MESH_DIP_FIT: DipFit = { inset: 0, steps: FACE_DIP_STEPS, segments: FACE_DOME_SEGMENTS };
+const MESH_DIP_FIT: DipFit = { inset: 0, steps: FACE_DIP_STEPS, segments: FACE_DOME_SEGMENTS };
 
 export function faceDipSweep(end: FaceEnd, layout: FaceChannelLayout, fit: DipFit = MESH_DIP_FIT): SweepSolid | undefined {
   const plan = planDip(end, layout);

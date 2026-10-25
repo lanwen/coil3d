@@ -20,7 +20,7 @@ function rememberFinal(cache: Map<string, Design>, key: string, design: Design, 
   }
 }
 
-export interface DesignPreview {
+interface DesignPreview {
   result: Design | null;
   error: string | null;
   finalReady: boolean;

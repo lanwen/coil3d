@@ -83,7 +83,7 @@ function sideNormals(points: Vec[], anchor: number): Vec[] {
     const length = Math.hypot(t[0], t[1]);
     return [-t[1] / length, t[0] / length, 0];
   };
-  const normals: Vec[] = new Array(points.length);
+  const normals: Vec[] = Array.from({ length: points.length });
   const p = points[anchor];
   const first = horizontal(anchor);
   normals[anchor] = first[0] * -p[0] + first[1] * -p[1] >= 0 ? first : [-first[0], -first[1], 0];

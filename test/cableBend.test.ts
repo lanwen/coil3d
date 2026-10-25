@@ -92,7 +92,6 @@ function expectEveryBendWithinLimit(d: Design, mbr: number) {
  * at the outer end (cap on) through the cap's clip.
  */
 function expectFixPointsWithinBendLimit(d: Design, mbr: number, label: string) {
-  const bendRadius = mbr;
   const clip = d.innerEndClip!;
   const lead = d.innerEndLeadIn;
   // From the free end up to the clip's far end (the one nearer the groove).

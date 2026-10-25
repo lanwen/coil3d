@@ -36,7 +36,7 @@ function samplesPerTurn(helixLength: number, minPerTurn: number, maxArcLength: n
   return Math.max(minPerTurn, Math.ceil(helixLength / maxArcLength));
 }
 
-export interface LayerRun {
+interface LayerRun {
   layer: number;
   turns: number;
   offsetAt(local: number): number;
@@ -85,7 +85,7 @@ export function woundReachOffset(envelopeOffset: number, wireDiameter: number, w
   return Math.max(envelopeOffset, wireDiameter + CAP_LEAD_OUT_WALL_GAP);
 }
 
-export interface CableEnds {
+interface CableEnds {
   innerEnd?: InnerEndLayout;
   faceChannels?: FaceChannelLayout;
   topCapEnabled: boolean;
@@ -95,7 +95,7 @@ export interface CableEnds {
   bendRadius: number;
 }
 
-export interface WoundCable {
+interface WoundCable {
   wirePaths: WireLayerPath[];
   innerEndLeadIn: Float32Array;
   layerTransitions: Float32Array[];
@@ -122,7 +122,7 @@ function joinPieces(pieces: Float32Array[]): Float32Array {
   return new Float32Array(out);
 }
 
-export interface WoundLayers {
+interface WoundLayers {
   wirePaths: WireLayerPath[];
   layerTransitions: Float32Array[];
   runs: LayerRun[];

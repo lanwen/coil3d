@@ -1,6 +1,6 @@
 import type { CoilMesh } from "../../src/core";
 
-export type Vec = [number, number, number];
+type Vec = [number, number, number];
 
 /** Distances along the ray from `origin` along unit `dir` to each triangle of `mesh` it crosses, nearest first (Moller-Trumbore). */
 export function rayHits(mesh: CoilMesh, origin: Vec, dir: Vec): number[] {

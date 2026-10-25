@@ -38,7 +38,7 @@ export function resolveBoreOutline(outline: ShapeOutline, wireDiameter: number):
   return { boreOutline: { ...outline, apothem: boreApothem, cornerRadius: boreCornerRadius }, reduced };
 }
 
-export function channelOnlyThicknessOf(wireDiameter: number): number {
+function channelOnlyThicknessOf(wireDiameter: number): number {
   return Math.max(FLANGE_THICKNESS, idealChannelDepth(wireDiameter) + INNER_CHANNEL_MIN_SHELF);
 }
 
@@ -46,7 +46,7 @@ export function minBaseThickness(spec: Pick<CoilSpec, "base" | "mount" | "wire">
   return baseEnabled(spec) ? channelOnlyThicknessOf(spec.wire.diameter) : 0;
 }
 
-export interface FlangeSizing {
+interface FlangeSizing {
   margin: number;
   thickness: number;
   plateThickness: number;

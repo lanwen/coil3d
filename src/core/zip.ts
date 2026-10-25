@@ -26,7 +26,7 @@ function dosDateTime(): { date: number; time: number } {
   return { date: ((year - 1980) << 9) | (month << 5) | day, time: 0 };
 }
 
-export interface ZipEntry {
+interface ZipEntry {
   name: string;
   data: Uint8Array;
 }

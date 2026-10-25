@@ -724,7 +724,7 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
   // instead of side by side above the centre -- a level hang needs the
   // centre of mass directly BELOW the slot(s), which these geometric
   // invariants pin down precisely. Both slots' own CHANNELS point along
-  // literal WALL_UP (mount.ts's file header: checked directly, in the
+  // literal wall-up (mount.ts's file header: checked directly, in the
   // flange's own XY, not projected), while their shared ANCHOR is
   // symmetric about the shape's own best axis (mount.ts's `bestAxisDeg`:
   // literal vertical for round, a tilted one for square/triangle, chosen to
@@ -734,7 +734,7 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
     { label: "sq", shape: { kind: "sq", cornerRadius: 15 } as const },
     { label: "tri", shape: { kind: "tri", cornerRadius: 15 } as const },
   ])("keyhole slot placement hangs level ($label core)", ({ shape }) => {
-    /** Projects a point onto an axis' own "up"/"side" basis (mount.ts's `makeSlotAt`-style theta, degrees from WALL_UP). */
+    /** Projects a point onto an axis' own "up"/"side" basis (mount.ts's `makeSlotAt`-style theta, degrees from wall-up). */
     function project(p: { x: number; y: number }, axisDeg: number) {
       const a = (axisDeg * Math.PI) / 180;
       const up = { x: Math.sin(a), y: Math.cos(a) };
@@ -760,7 +760,7 @@ describe("design() screw-keyhole wall mount (issue #13)", () => {
       expect(layout.slots).toHaveLength(2); // this flange is well above SCREW_MOUNT_TWO_SLOT_FLANGE_THRESHOLD
 
       for (const slot of layout.slots) {
-        // Each channel points literally WALL_UP: same x, shankEnd higher than head (mount.ts's file header, requirement 3).
+        // Each channel points literally wall-up: same x, shankEnd higher than head (mount.ts's file header, requirement 3).
         expect(slot.shankEnd.x).toBeCloseTo(slot.head.x, 9);
         expect(slot.shankEnd.y).toBeGreaterThan(slot.head.y);
         // Above the centre of mass (the outline is centred on the origin).

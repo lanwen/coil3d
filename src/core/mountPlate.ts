@@ -48,7 +48,7 @@ const SIDE_AXIS_TURN_DEG = 0;
 const UP_AXIS_TURN_DEG = 90;
 const ANCHOR_COUNT = 2;
 
-export interface InnerEndKeepOut {
+interface InnerEndKeepOut {
   channelRibbon: Array<{ x: number; y: number }>;
 }
 const ANCHOR_KEEP_OUT = MOUNT_PLATE_PEG_RADIUS + ANCHOR_WALL;
@@ -137,7 +137,7 @@ function edgesAtUp(boundary: Array<{ up: number; side: number }>, up0: number): 
   return { pos, neg };
 }
 
-export function layoutMountPlate(
+function layoutMountPlate(
   flangeOutline: ShapeOutline,
   boreOutline: ShapeOutline,
   pitch: number,
@@ -189,7 +189,7 @@ export function layoutMountPlate(
   return { outline, clips, anchors, axisDeg };
 }
 
-export function openGridClipHalfExtents(): { halfUp: number; halfSide: number } {
+function openGridClipHalfExtents(): { halfUp: number; halfSide: number } {
   return { halfUp: OPENGRID_PLACEHOLDER_PEG_SIZE / 2, halfSide: OPENGRID_PLACEHOLDER_PEG_SIZE / 2 };
 }
 

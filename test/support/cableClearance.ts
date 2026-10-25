@@ -5,7 +5,7 @@ const SAMPLES_PER_DIAMETER = 8;
 const NEIGHBOURHOOD_DIAMETERS = 3;
 export const SELF_CLEARANCE_FRACTION = 0.98;
 
-export interface Clearance {
+interface Clearance {
   min: number;
   at: [number, number, number];
   other: [number, number, number];

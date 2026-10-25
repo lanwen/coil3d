@@ -23,7 +23,7 @@ function applyPrintTransform(mesh: CoilMesh, t: RigidTransform): CoilMesh {
   return { positions: out, indices: mesh.indices, rimTriangles: mesh.rimTriangles, fadeTriangles: mesh.fadeTriangles };
 }
 
-export interface PrintLayoutPart {
+interface PrintLayoutPart {
   part: Part;
   mesh: CoilMesh;
   box: THREE.Box3;

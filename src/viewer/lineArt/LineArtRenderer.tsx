@@ -23,7 +23,7 @@ function recordFramingTween() {
   if (typeof window !== "undefined") window.__framingTweenCount = (window.__framingTweenCount ?? 0) + 1;
 }
 
-export const DEFAULT_FILL = 0.75;
+const DEFAULT_FILL = 0.75;
 
 export const DIMENSION_LINE_LAYER = 1;
 export const DIMENSION_LABEL_LAYER = 2;
@@ -225,7 +225,7 @@ function currentOrientationOf(camera: THREE.Camera, target: THREE.Vector3): { di
   return { direction, up: camera.up.clone() };
 }
 
-export interface LineArtRendererProps {
+interface LineArtRendererProps {
   geometry: THREE.BufferGeometry;
   controlsRef: React.RefObject<OrbitControlsImpl | null>;
   projection: Projection;

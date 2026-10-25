@@ -51,7 +51,7 @@ export interface TclipCutter {
   levels: Array<{ z: number; poly: XY[] }>;
 }
 
-export interface TclipRecess {
+interface TclipRecess {
   bottom: number;
   top: number;
   pieces: XY[][];
@@ -73,7 +73,7 @@ export interface SkadisTclipLayout {
   warning?: string;
 }
 
-export interface SkadisTclipInput {
+interface SkadisTclipInput {
   boreOutline: ShapeOutline;
   capHole?: ShapeOutline;
   ring?: { holeOutline: ShapeOutline; funnelFloor: number };
@@ -101,7 +101,7 @@ const FLAT_BOTTOM_FAN_DEG = 180;
 const W = SKADIS_TCLIP_WIDTH;
 const RECESS_H = SKADIS_TCLIP_HANDLE_LENGTH / 2;
 
-export function offsetConvex(poly: Pt[], d: number): Pt[] {
+function offsetConvex(poly: Pt[], d: number): Pt[] {
   const n = poly.length;
   const lines = poly.map((p, i) => {
     const q = poly[(i + 1) % n];
@@ -165,13 +165,13 @@ function stemPlan(): Pt[] {
   return chamferCorners(corners, corners, SKADIS_TCLIP_STEM_CHAMFER);
 }
 
-export function tclipDrop(slotWidth: number, slotLength: number): number {
+function tclipDrop(slotWidth: number, slotLength: number): number {
   const r = slotWidth / 2;
   const straight = slotLength / 2 - r;
   return Math.min(...stemPlan().filter(([x]) => Math.abs(x) < r).map(([x, y]) => straight + Math.sqrt(r * r - x * x) + y));
 }
 
-export const TCLIP_DROP = tclipDrop(SKADIS_SLOT_WIDTH, SKADIS_SLOT_LENGTH);
+const TCLIP_DROP = tclipDrop(SKADIS_SLOT_WIDTH, SKADIS_SLOT_LENGTH);
 
 function recessPieces(c: number): Pt[][] {
   const h = RECESS_H + c;
@@ -187,7 +187,7 @@ function recessPieces(c: number): Pt[][] {
   return [rect(w, h), rect(h, w), sector(0), sector(Math.PI)];
 }
 
-export function tclipSweep(c: number): number {
+function tclipSweep(c: number): number {
   return Math.hypot(RECESS_H + c, W / 2 + c);
 }
 
@@ -322,7 +322,7 @@ export function layoutSkadisTclips(input: SkadisTclipInput): SkadisTclipLayout {
   };
 }
 
-export function tclipFrame(axisDeg: number, clip: Tclip) {
+function tclipFrame(axisDeg: number, clip: Tclip) {
   const { up, side } = basisFor(axisDeg);
   return {
     up,

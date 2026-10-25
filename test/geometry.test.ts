@@ -359,7 +359,6 @@ describe.each(SHAPE_CASES)("design().mesh for a $shape core (issue #6)", ({ shap
   it("sizes the envelope/flange from the true offset outline, not a bounding circle across the sharp corner", async () => {
     const d = await design(shapeSpec);
     const outerApothem = d.solution.outerSize / 2;
-    const rc = d.solution.cornerRadius;
     // The old bounding-circle estimate for a sharp (rc=0) n-gon of the same
     // apothem: across-corners radius = apothem / cos(pi/n). The TRUE
     // rounded-outline envelope must be strictly smaller than that overestimate
@@ -434,7 +433,7 @@ describe("design().mesh with the screw-keyhole wall mount (issue #13)", () => {
       const expectedVolumeWithNoPocketCut = meshVolume(none.mesh) - noneFlangeVolume + keyholeFlangeVolumeNoPocket;
 
       // Even the shank-end circle alone (the smallest single feature of the
-      // slot) is pi*2^2*3 ~= 38 mm^3 at the fixed SCREW_MOUNT_SHANK_RADIUS=2mm/
+      // slot) is pi*2^2*3 ~= 38 mm^3 at the fixed SCREW_MOUNT_SHANK_DIAMETER=4mm/
       // SCREW_MOUNT_RECESS_DEPTH=3mm constants -- 20 mm^3 is a safe, meaningful
       // lower bound on "a real pocket was actually cut", not a coincidence
       // of floating-point noise.

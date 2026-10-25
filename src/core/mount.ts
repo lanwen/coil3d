@@ -27,9 +27,7 @@ const MARGIN_BISECTION_STEPS = 50;
 const DEGENERATE_EDGE_LENGTH_SQUARED = 1e-12;
 const SLIDE_END_TOLERANCE = 1e-9;
 
-export const WALL_UP = { x: 0, y: 1 } as const;
-
-export function standardAngleRad(thetaDeg: number): number {
+function standardAngleRad(thetaDeg: number): number {
   return ((90 - thetaDeg) * Math.PI) / 180;
 }
 

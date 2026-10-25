@@ -15,7 +15,7 @@ export function ceilTenthMm(value: number): number {
   return Math.ceil(value * TENTHS_PER_MM - 1e-9) / TENTHS_PER_MM;
 }
 
-export const MM_PER_CM = 10;
+const MM_PER_CM = 10;
 export const mmToCm = (mm: number) => mm / MM_PER_CM;
 export const cmToMm = (cm: number) => cm * MM_PER_CM;
 
@@ -275,7 +275,7 @@ function LockToggle({
   );
 }
 
-export const LOCK_LIMIT_NOTE = "Two of core size, height and layers are already locked: something has to stay free to fit the cable length.";
+const LOCK_LIMIT_NOTE = "Two of core size, height and layers are already locked: something has to stay free to fit the cable length.";
 
 export function LockRangeField({
   testId,

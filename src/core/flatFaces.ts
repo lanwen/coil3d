@@ -3,7 +3,7 @@ import { NEEDLE_HEIGHT, WELD_EPSILON } from "./weld";
 
 export const FLAT_FACE_MAX_EDGE = 10;
 
-export const PLANE_TOLERANCE = 0.01;
+const PLANE_TOLERANCE = 0.01;
 
 const MIN_GAIN = 1e-9;
 

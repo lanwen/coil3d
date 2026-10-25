@@ -20,7 +20,7 @@ export type JointKind = "press" | "bayonet" | "snap";
 
 export type WireTypeId = "usb" | "flex" | "stiff" | "custom";
 
-export interface WireTypePreset {
+interface WireTypePreset {
   id: WireTypeId;
   label: string;
   bendMultiplier: number;

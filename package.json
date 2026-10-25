@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "vite --port 5182 --host 0.0.0.0",
     "build": "tsc -b && node scripts/check-no-comments.mjs && vite build",
+    "lint": "oxlint --deny-warnings src test e2e",
     "lint:comments": "node scripts/check-no-comments.mjs",
+    "lint:unused": "knip",
     "preview": "vite preview --port 5182 --host 0.0.0.0",
     "test": "vitest run",
     "e2e": "playwright test"
@@ -33,6 +35,8 @@
     "@types/react-dom": "^19.2.2",
     "@types/three": "^0.180.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "knip": "5.88.1",
+    "oxlint": "1.89.0",
     "three-stdlib": "^2.36.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.6",

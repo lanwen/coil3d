@@ -1,0 +1,9 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema-jsonc.json",
+  // Both scripts are run by hand (see their headers), so nothing imports them.
+  "entry": ["scripts/make-favicons.mjs", "src/assets/fonts/generate-base64.mjs"],
+  // src/App.css loads the font files from this package through url(), which Knip does not follow.
+  "ignoreDependencies": ["@fontsource/kanit"],
+  // Each pair is one value under two names that say what it is for (the rim slot and strap slot keep-out, the plate and flange thickness, the strap slot wall and skin).
+  "ignoreIssues": { "src/core/constants.ts": ["duplicates"] }
+}

@@ -41,7 +41,7 @@ async function getOC(): Promise<OpenCascadeInstance> {
   return ocPromise;
 }
 
-export interface ReimportResult {
+interface ReimportResult {
   /** `BRepCheck_Analyzer.IsValid()` on the re-imported shape. */
   valid: boolean;
   /** One volume per `TopAbs_SOLID` found, in `TopExp_Explorer` encounter order. */

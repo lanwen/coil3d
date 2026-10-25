@@ -2,7 +2,7 @@ import { PLATE_GAP } from "./constants";
 import { applyRigidTransform } from "./transform";
 import type { CoilMesh, Part, PrintSpec, RigidTransform } from "./types";
 
-export interface BBox {
+interface BBox {
   minX: number;
   maxX: number;
   minY: number;
@@ -11,7 +11,7 @@ export interface BBox {
   maxZ: number;
 }
 
-export function meshBBox(mesh: CoilMesh): BBox {
+function meshBBox(mesh: CoilMesh): BBox {
   const { positions } = mesh;
   let minX = Infinity;
   let maxX = -Infinity;
@@ -43,7 +43,7 @@ export function bedRestingTransform(part: Part): RigidTransform {
   return { rotateZ: part.printTransform.rotateZ, rotateX: part.printTransform.rotateX, translate: [tx, ty, tz - box.minZ] };
 }
 
-export function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, number]> {
+function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, number]> {
   const boxes = parts.map(printBBox);
   const widths = boxes.map((b) => b.maxX - b.minX);
   const totalWidth = widths.reduce((sum, w) => sum + w, 0) + PLATE_GAP * Math.max(0, parts.length - 1);
@@ -57,7 +57,7 @@ export function layoutParts(parts: Part[], bed: PrintSpec): Array<[number, numbe
   });
 }
 
-export interface PartPlacement {
+interface PartPlacement {
   part: Part;
   transform: RigidTransform;
 }

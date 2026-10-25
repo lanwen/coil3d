@@ -11,12 +11,12 @@ const MIN_ROW_MARGIN_MM = 8;
 const ROW_MARGIN_FRACTION = 0.1;
 const UNMEASURED_LABEL_WIDTH_PX = 60;
 
-export interface PrintLayoutLabelInfo {
+interface PrintLayoutLabelInfo {
   name: string;
   box: THREE.Box3;
 }
 
-export interface PrintLayoutLabelsProps {
+interface PrintLayoutLabelsProps {
   parts: PrintLayoutLabelInfo[];
   bounds: THREE.Box3;
 }

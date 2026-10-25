@@ -19,7 +19,7 @@ export async function renderAllGuideFigures(): Promise<void> {
   await Promise.race([Promise.all(all.map((f) => f.drawn)), new Promise((resolve) => window.setTimeout(resolve, RENDER_ALL_TIMEOUT_MS))]);
 }
 
-export interface GuideFigureProps {
+interface GuideFigureProps {
   parts: Part[];
   wirePaths?: WireLayerPath[];
   wireDiameter?: number;

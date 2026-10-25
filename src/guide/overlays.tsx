@@ -19,7 +19,7 @@ function toVb(p: Pt): Pt {
   return { x: p.x * VB_W, y: p.y * VB_H };
 }
 
-export function FigureOverlay({ children }: { children: React.ReactNode }) {
+function FigureOverlay({ children }: { children: React.ReactNode }) {
   return (
     <svg className="guide-overlay" viewBox={`0 0 ${VB_W} ${VB_H}`} preserveAspectRatio="xMidYMid meet" aria-hidden="true">
       <defs>
@@ -80,15 +80,9 @@ export function ClickMark({ at, r }: { at: Pt; r: number }) {
   return <>{ticks}</>;
 }
 
-export function SlashMark({ at, r }: { at: Pt; r: number }) {
-  const c = toVb(at);
-  const rr = r * VB_H;
-  return <line className="guide-overlay-mark" x1={c.x - rr} y1={c.y - rr} x2={c.x + rr} y2={c.y + rr} />;
-}
+const HOST_FIGURE_WIDTH_PX = 480;
 
-export const HOST_FIGURE_WIDTH_PX = 480;
-
-export function zoomInsetStyle(insetPx: number, zoom: number, at: Pt): { wrapStyle: React.CSSProperties; innerStyle: React.CSSProperties } {
+function zoomInsetStyle(insetPx: number, zoom: number, at: Pt): { wrapStyle: React.CSSProperties; innerStyle: React.CSSProperties } {
   const bigW = HOST_FIGURE_WIDTH_PX * zoom;
   const bigH = bigW / FIGURE_ASPECT;
   const offsetX = at.x * bigW - insetPx / 2;
@@ -148,7 +142,7 @@ export function ZoomInset({
 
 const DEFAULT_FIGURE_FILL = 0.85;
 
-export interface FigureProps {
+interface FigureProps {
   parts: Part[];
   wirePaths?: WireLayerPath[];
   wireDiameter?: number;

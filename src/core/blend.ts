@@ -6,7 +6,7 @@ import type { ShapeOutline } from "./shapes";
 const BRIDGE_TURNS_MIN = 0.1;
 const BRIDGE_TURNS_STEP = 0.05;
 
-export function hermite(s: number, v0: number, d0: number, v1: number, d1: number): number {
+function hermite(s: number, v0: number, d0: number, v1: number, d1: number): number {
   const s2 = s * s;
   const s3 = s2 * s;
   return (2 * s3 - 3 * s2 + 1) * v0 + (s3 - 2 * s2 + s) * d0 + (-2 * s3 + 3 * s2) * v1 + (s3 - s2) * d1;
