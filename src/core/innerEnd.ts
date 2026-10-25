@@ -86,19 +86,19 @@ export interface InnerEndLayout {
   leadIn: XYZ[];
 }
 
-export function clipRadius(wireDiameter: number, tolerance: number): number {
+function clipRadius(wireDiameter: number, tolerance: number): number {
   return (wireDiameter + tolerance) / 2;
 }
 
-export function clipLength(wireDiameter: number): number {
+function clipLength(wireDiameter: number): number {
   return Math.max(CABLE_CLIP_MIN_LENGTH, CABLE_CLIP_LENGTH_FACTOR * wireDiameter);
 }
 
-export function clippedTailLength(wireDiameter: number): number {
+function clippedTailLength(wireDiameter: number): number {
   return Math.max(CABLE_CLIPPED_TAIL_MIN, CABLE_CLIPPED_TAIL_FACTOR * wireDiameter);
 }
 
-export function baseClipOpeningFraction(wireDiameter: number, tolerance: number): number {
+function baseClipOpeningFraction(wireDiameter: number, tolerance: number): number {
   const opening = wireDiameter * (1 - CABLE_BASE_CLIP_INTERFERENCE);
   return Math.max(CABLE_BASE_CLIP_OPENING_MIN, opening / (wireDiameter + tolerance));
 }
@@ -505,12 +505,7 @@ function rimSlotSection(wireDiameter: number, tolerance: number) {
   return { R, neck, neckStart, neckEnd: neckStart + RIM_SLOT_NECK };
 }
 
-export function rimSlotWidths(wireDiameter: number, tolerance: number): { seat: number; neck: number } {
-  const { R, neck } = rimSlotSection(wireDiameter, tolerance);
-  return { seat: 2 * R, neck: 2 * neck };
-}
-
-export function rimSlotSeatOffset(margin: number, wireDiameter: number, tolerance: number): number {
+function rimSlotSeatOffset(margin: number, wireDiameter: number, tolerance: number): number {
   return margin - EDGE_CHAMFER - rimSlotSection(wireDiameter, tolerance).neckEnd;
 }
 
@@ -564,7 +559,7 @@ interface Box {
   maxY: number;
 }
 
-export interface KeepOutRegion {
+interface KeepOutRegion {
   poly: XY[];
   box: Box;
   plateVertices: XY[];

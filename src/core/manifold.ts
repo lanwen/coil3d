@@ -237,7 +237,7 @@ export interface MountPlateFlangeCut {
   tolerance: number;
 }
 
-export interface FaceSlab {
+interface FaceSlab {
   zLo: number;
   thickness: number;
 }
@@ -336,7 +336,7 @@ function faceArcCutter(wasm: ManifoldToplevel, track: Track, arc: FaceCutArc, en
   return track(turned.translate([arc.centre.x, arc.centre.y, 0]));
 }
 
-export interface FaceChannelCut {
+interface FaceChannelCut {
   layout: FaceChannelLayout;
   dips: SweepSolid[];
 }
@@ -480,7 +480,7 @@ export async function fuseFlange(
   }
 }
 
-export interface TopCapSpec {
+interface TopCapSpec {
   flange: FlangeSpec;
   joint: JointKind;
   tolerance: number;
@@ -625,7 +625,7 @@ function pinHoleCutter(wasm: ManifoldToplevel, track: Track, anchor: AnchorPoint
   return track(oriented.translate([0, 0, zFace]));
 }
 
-export interface MountPlateSpec {
+interface MountPlateSpec {
   layout: MountPlateLayout;
   tolerance: number;
   flangeThickness: number;

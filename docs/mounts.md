@@ -46,7 +46,7 @@ coil3d is not affiliated with IKEA. SKÅDIS is an IKEA product name.
     horizontal once hung level, with no gravity along it (cos 90 = 0), so
     nothing would stop the screw sliding. Even 60 degrees (cos = 0.5) is the
     outer limit of tilt, so 90 would just clamp to 60.
-  - "Up" is local +Y in the flange's frame (`WALL_UP`, `src/core/mount.ts`). The
+  - "Up" is local +Y in the flange's frame (`src/core/mount.ts`). The
     viewer's wall preset rotates the geometry so that same axis lands on the
     camera's up vector, so the core and the viewer agree on which way is up.
     The slots sit above the centre, with the narrow shank end higher than the

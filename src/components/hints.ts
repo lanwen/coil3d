@@ -53,5 +53,3 @@ export const HINTS = {
   flangeAcrossCorners:
     "This is the flange's real outer size measured across its corners, the wider of its two extents - the same way the cable's own outer size above is measured, so the two are directly comparable.",
 } as const;
-
-export type HintKey = keyof typeof HINTS;

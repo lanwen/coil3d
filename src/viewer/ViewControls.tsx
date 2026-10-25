@@ -4,7 +4,7 @@ import { VIEW_PRESETS, type BarPresetId, type FaceId } from "./lineArt/presets";
 import { PresetIcon } from "./presetIcons";
 import type { Projection } from "./lineArt/LineArtRenderer";
 
-export interface ViewControlsProps {
+interface ViewControlsProps {
   preset: BarPresetId;
   onPresetChange: (preset: BarPresetId) => void;
   showMountSide?: boolean;

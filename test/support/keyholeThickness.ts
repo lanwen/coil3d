@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { design } from "../../src/core";
 import type { CoilSpec } from "../../src/core";
 
-export type KeyholeSweepSpec = { label: string; shape: CoilSpec["shape"]; coreSize: number };
+type KeyholeSweepSpec = { label: string; shape: CoilSpec["shape"]; coreSize: number };
 
 // Issue #41: the screw-mount recess cut is a manifold boolean whose
 // floating-point robustness failed at scattered, seemingly arbitrary flange

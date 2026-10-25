@@ -5,7 +5,7 @@ import { SHAPES } from "../core";
 
 const FRONT_CAMERA_SIDE_ANGLE_DEG = 270;
 
-export function frontFlatRotationDeg(corners: number): number {
+function frontFlatRotationDeg(corners: number): number {
   const step = 360 / corners;
   const sideAngleBeforeRotation = FRONT_CAMERA_SIDE_ANGLE_DEG - step / 2;
   const offsetWithinStep = ((sideAngleBeforeRotation % step) + step) % step;

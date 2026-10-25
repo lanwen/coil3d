@@ -2,9 +2,9 @@
 import * as THREE from "three";
 
 export const LABEL_FONT_PX = 15;
-export const LABEL_PAD_X_PX = 5;
+const LABEL_PAD_X_PX = 5;
 export const LABEL_PAD_Y_PX = 3;
-export const LABEL_SUPERSAMPLE = 2;
+const LABEL_SUPERSAMPLE = 2;
 const DOT_SEGMENTS = 16;
 
 export function labelTexture(text: string): { texture: THREE.CanvasTexture; widthPx: number; heightPx: number } {

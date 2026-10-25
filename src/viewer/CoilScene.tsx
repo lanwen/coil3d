@@ -12,7 +12,7 @@ const CREASE_ANGLE = (30 * Math.PI) / 180;
 
 export const EXPLODE_GAP = 20;
 
-export interface CoilSceneProps {
+interface CoilSceneProps {
   parts: Part[];
   wirePaths?: WireLayerPath[];
   wireDiameter?: number;

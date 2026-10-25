@@ -31,7 +31,7 @@ const EXPLODE_SETTLE_EPS_MM = 0.01;
 const EXPLODED_FILL = 0.85;
 const FOCUS_FILL = 0.4;
 
-export interface CoilViewerProps {
+interface CoilViewerProps {
   parts: Part[];
   resolution: Resolution;
   wirePaths?: WireLayerPath[];

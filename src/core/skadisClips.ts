@@ -104,7 +104,7 @@ export interface SkadisClipLayout {
   warning?: string;
 }
 
-export interface SkadisClipInput {
+interface SkadisClipInput {
   flangeOutline: ShapeOutline;
   boreOutline: ShapeOutline;
   envelopeOutline: ShapeOutline;
@@ -124,7 +124,7 @@ export function lipKeepOffset(envelopeOffset: number, thickness: number, plateTh
   return Math.max(envelopeOffset, FLANGE_PAD_COLLAR + depth - tolerance + LIP_FLARE_CLEARANCE - SKADIS_ENVELOPE_CLEARANCE);
 }
 
-export function cableWeightKg(diameter: number, length: number): number {
+function cableWeightKg(diameter: number, length: number): number {
   return (CABLE_DENSITY_G_PER_MM3 * Math.PI * (diameter / 2) ** 2 * length) / 1000;
 }
 
@@ -144,7 +144,7 @@ export function basisFor(axisDeg: number) {
   };
 }
 
-export function rimAt(boundary: Array<{ up: number; side: number }>, s: number): { top: number; bottom: number } {
+function rimAt(boundary: Array<{ up: number; side: number }>, s: number): { top: number; bottom: number } {
   let top = -Infinity;
   let bottom = Infinity;
   for (let i = 0; i < boundary.length; i++) {
@@ -158,13 +158,13 @@ export function rimAt(boundary: Array<{ up: number; side: number }>, s: number):
   return { top, bottom };
 }
 
-export function projectOutline(o: ShapeOutline, project: (p: XY) => { up: number; side: number }, samples = PROFILE_SAMPLES) {
+function projectOutline(o: ShapeOutline, project: (p: XY) => { up: number; side: number }, samples = PROFILE_SAMPLES) {
   const pts: Array<{ up: number; side: number }> = [];
   for (let i = 0; i < samples; i++) pts.push(project(pointAt(o, i / samples, 0)));
   return pts;
 }
 
-export function stemSeat(slotWidth: number, slotLength: number): number {
+function stemSeat(slotWidth: number, slotLength: number): number {
   const r = slotWidth / 2;
   const w = SKADIS_CLIP_WIDTH / 2;
   return slotLength / 2 - (r - Math.sqrt(r * r - w * w));
@@ -175,7 +175,7 @@ function fullWidthHalf(slotWidth: number, slotLength: number): number {
 
 const SEAT = stemSeat(SKADIS_SLOT_WIDTH, SKADIS_SLOT_LENGTH) + SKADIS_CLIP_CAP_CHAMFER;
 
-export function ccwWithoutNearPoints(points: Array<[number, number]>): Array<[number, number]> {
+function ccwWithoutNearPoints(points: Array<[number, number]>): Array<[number, number]> {
   const near = (p: [number, number], q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) < WELD_EPSILON;
   const out: Array<[number, number]> = [];
   for (const p of points) {
@@ -304,7 +304,7 @@ function fitCorners(ring: Pt[], corners: Corners): CornerFit[] {
   return fits;
 }
 
-export function filletCorners(points: Pt[], corners: Corners): Pt[] {
+function filletCorners(points: Pt[], corners: Corners): Pt[] {
   const ring = points.filter((p, i) => {
     const a = points[(i + points.length - 1) % points.length];
     const b = points[(i + 1) % points.length];
@@ -425,7 +425,8 @@ function bottomStem(uB1: number, uJ: number, originSlot: number, parityOdd: bool
   let bestLen = Infinity;
   const k0 = Math.floor((uB1 - originSlot) / step) - 4;
   for (let k = k0; k <= k0 + 8; k++) {
-    if (Math.abs(k % 2) === 1 !== parityOdd) continue;
+    const kOdd = Math.abs(k % 2) === 1;
+    if (kOdd !== parityOdd) continue;
     const stemUp = originSlot + k * step - SEAT;
     const sTop = stemUp + SKADIS_STEM_HEIGHT;
     const len = stemUp >= uB1 ? Math.max(0, sTop - uJ) : uB1 - stemUp;
@@ -631,9 +632,9 @@ export function clipFrame(axisDeg: number, side: number) {
   };
 }
 
-export type Point3 = { x: number; y: number; z: number };
+type Point3 = { x: number; y: number; z: number };
 
-export function insetProfile(profile: Array<[number, number]>, depth: number): Array<[number, number]> {
+function insetProfile(profile: Array<[number, number]>, depth: number): Array<[number, number]> {
   const n = profile.length;
   const left = profile.map((p, i) => {
     const q = profile[(i + 1) % n];

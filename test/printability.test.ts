@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { design, JOINT_ENGAGE_DEPTH, TOLERANCE_MAX, TOLERANCE_MIN } from "../src/core";
+import { design, TOLERANCE_MAX, TOLERANCE_MIN } from "../src/core";
 import type { CoilSpec, Design, JointKind, MountKind, ShapeSpec } from "../src/core";
 import { unsupportedOverhangs } from "./support/overhangs";
 

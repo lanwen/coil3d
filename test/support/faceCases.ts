@@ -1,16 +1,16 @@
 import { design, parseHash } from "../../src/core";
 import type { CoilSpec, Design } from "../../src/core";
 
-export const D1_HASH = "#s=eyJ2IjoyLCJMIjoxNzIwLCJkIjozLCJzaGFwZSI6InNxIiwic2l6ZSI6NTAsImxvY2siOlsib3V0ZXIiXSwiY2FwIjoib2ZmIiwiam9pbnQiOiJzbmFwIn0";
+const D1_HASH = "#s=eyJ2IjoyLCJMIjoxNzIwLCJkIjozLCJzaGFwZSI6InNxIiwic2l6ZSI6NTAsImxvY2siOlsib3V0ZXIiXSwiY2FwIjoib2ZmIiwiam9pbnQiOiJzbmFwIn0";
 
-export const base: CoilSpec = parseHash(D1_HASH).spec;
+const base: CoilSpec = parseHash(D1_HASH).spec;
 
-export interface Case {
+interface Case {
   name: string;
   spec: CoilSpec;
 }
 
-export function variant(name: string, overrides: Partial<CoilSpec>, layers = 1): Case[] {
+function variant(name: string, overrides: Partial<CoilSpec>, layers = 1): Case[] {
   return (["off", "on"] as const).map((plates) => ({ name: `${name}, base ${plates}`, spec: { ...base, layers: { locked: true, value: layers }, ...overrides, base: plates } }));
 }
 

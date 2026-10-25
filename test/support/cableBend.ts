@@ -1,6 +1,6 @@
 import { expect } from "vitest";
 
-export type P3 = [number, number, number];
+type P3 = [number, number, number];
 
 /**
  * Discrete curvature at every interior sample: the turning angle between the

@@ -16,7 +16,7 @@ import type { ShapeOutline } from "../../src/core";
 
 /** A coarse scan of `pointAt(base, ., offset)`, reusable across many query angles for the same (shape, offset) pair. */
 export function coarseOutlineScan(base: ShapeOutline, offset: number, samples = 2000): { t: number; x: number; y: number }[] {
-  const pts: { t: number; x: number; y: number }[] = new Array(samples);
+  const pts: { t: number; x: number; y: number }[] = Array.from({ length: samples });
   for (let i = 0; i < samples; i++) {
     const t = i / samples;
     const p = pointAt(base, t, offset);

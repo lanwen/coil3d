@@ -4,7 +4,7 @@ import { arcLengthFractionAt, evalOutline, isFullCircle, isPill, offsetPerimeter
 import type { ShapeOutline } from "./shapes";
 import type { CoilMesh } from "./types";
 
-export interface GrooveShape {
+interface GrooveShape {
   depth: number;
   radius: number;
   pitch: number;
@@ -54,7 +54,7 @@ export interface FaceLeads {
   radius: number;
 }
 
-export function ringHolePoint(boreOutline: ShapeOutline, outline: ShapeOutline, t: number, width: number): { x: number; y: number } {
+function ringHolePoint(boreOutline: ShapeOutline, outline: ShapeOutline, t: number, width: number): { x: number; y: number } {
   if (isFullCircle(boreOutline)) {
     const p = pointAt(boreOutline, t, 0);
     const scale = (boreOutline.apothem - width) / boreOutline.apothem;
@@ -106,7 +106,7 @@ const FADE_SURFACE_TOLERANCE = 0.02;
 const FADE_DONE_TAPER = 1 - 1e-4;
 const FADE_BAND_SLACK = 1e-3;
 
-export const smoothstep = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
+const smoothstep = (x: number) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 
 export interface WallProfile {
   pitch: number;

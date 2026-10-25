@@ -22,7 +22,7 @@ function stadium(r: number, h: number): Array<[number, number]> {
   return pts;
 }
 
-export function pegboardSlotPositions(board: PegboardSection, face: "front" | "back"): Float32Array {
+function pegboardSlotPositions(board: PegboardSection, face: "front" | "back"): Float32Array {
   const a = (board.axisDeg * Math.PI) / 180;
   const up = { x: Math.sin(a), y: Math.cos(a) };
   const side = { x: Math.cos(a), y: -Math.sin(a) };

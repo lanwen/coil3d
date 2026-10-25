@@ -36,7 +36,7 @@ interface CanvasRect {
 
 export type DimensionLabels = Record<AxisId, string>;
 
-export interface DimensionAxesProps {
+interface DimensionAxesProps {
   axes: DimensionAxesGeometry;
   rotation: THREE.Matrix4;
   labels: DimensionLabels;
@@ -44,9 +44,9 @@ export interface DimensionAxesProps {
   occluders: THREE.Object3D[];
 }
 
-export const OCCLUSION_PROBE_TS = [0.3, 0.7] as const;
+const OCCLUSION_PROBE_TS = [0.3, 0.7] as const;
 
-export interface DimensionAxesProbe {
+interface DimensionAxesProbe {
   mvp: number[];
   canvas: { width: number; height: number };
   box: { min: number[]; max: number[] };

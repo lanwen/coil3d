@@ -44,6 +44,8 @@ head, rebased onto `origin/main` (`git merge-base --is-ancestor origin/main HEAD
 ```sh
 pnpm exec tsc -b
 pnpm lint:comments
+pnpm lint
+pnpm lint:unused
 pnpm test
 E2E_PORT=<port> pnpm exec playwright test
 ```

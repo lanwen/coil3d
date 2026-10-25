@@ -72,7 +72,7 @@ describe("design() notices (issue #192)", () => {
       expect.arrayContaining([expect.stringMatching(/tall; your printer fits 2 cm/), expect.stringMatching(/doesn't fit on the top cap/)]),
     );
     // An automatic flange adjustment is only a note.
-    expect(d.notices.some((n) => n.severity === "note" && /^Flange margin increased/.test(n.message))).toBe(true);
+    expect(d.notices.some((n) => n.severity === "note" && n.message.startsWith("Flange margin increased"))).toBe(true);
     expect(d.fitsBed).toBe(false);
   });
 

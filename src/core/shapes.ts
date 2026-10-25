@@ -102,7 +102,7 @@ export function sideLength(o: ShapeOutline): number {
   return 2 * (o.apothem - o.cornerRadius) * Math.tan(Math.PI / o.n);
 }
 
-export function straightLength(o: ShapeOutline): number {
+function straightLength(o: ShapeOutline): number {
   return o.n * sideLength(o);
 }
 
@@ -162,9 +162,7 @@ export function minCornerSegments(o: ShapeOutline, segmentsPer90Deg: number): nu
 export function outlineColumnParams(o: ShapeOutline, requestedColumns: number, minSegments: number): number[] {
   const side = sideLength(o);
   if (side <= NEGLIGIBLE_LENGTH) {
-    const ts: number[] = new Array(requestedColumns);
-    for (let i = 0; i < requestedColumns; i++) ts[i] = i / requestedColumns;
-    return ts;
+    return Array.from({ length: requestedColumns }, (_, i) => i / requestedColumns);
   }
 
   const n = o.n;
@@ -188,7 +186,7 @@ export function outlineColumnParams(o: ShapeOutline, requestedColumns: number, m
   return ts;
 }
 
-export interface OutlineParam {
+interface OutlineParam {
   seg: number;
   u: number;
 }

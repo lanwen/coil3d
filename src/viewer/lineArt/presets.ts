@@ -5,7 +5,7 @@ export type FaceId = "cap" | "base";
 export type FacePresetId = "capTop" | "baseBottom";
 export type PresetId = BarPresetId | FacePresetId;
 
-export interface ViewPreset<Id extends PresetId = PresetId> {
+interface ViewPreset<Id extends PresetId = PresetId> {
   id: Id;
   label: string;
   direction: THREE.Vector3;

@@ -154,7 +154,7 @@ async function dimensionInk(page: Page, rects: Rect[] = [], includeMask = false)
       };
       const [pa, pb] = [await decode(a), await decode(b)];
       const { width, height } = pa;
-      const mask = includeMask ? new Array<number>(width * height).fill(0) : null;
+      const mask = includeMask ? Array.from<number>({ length: width * height }).fill(0) : null;
       let count = 0;
       let inRects = 0;
       let box: { left: number; top: number; right: number; bottom: number } | null = null;

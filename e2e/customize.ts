@@ -1,7 +1,7 @@
 import { expect, type Page } from "@playwright/test";
 import { expectSettled } from "./settled";
 
-export type Face = "cap" | "base";
+type Face = "cap" | "base";
 
 // Test-only helper (issue #385): the label and strap-slot controls live in the
 // Customize panel, not the main form. Opens it, waits for the FINAL mesh of

@@ -53,7 +53,7 @@ const DEFAULT_LOCK_TOKENS = ["outer", "ly"] as const;
 const LOCK_TOKENS = ["outer", "inner", "h", "ly"] as const;
 type LockToken = (typeof LOCK_TOKENS)[number];
 
-export interface ParsedHash {
+interface ParsedHash {
   spec: CoilSpec;
   showWire: boolean;
   view: ViewMode;

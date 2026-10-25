@@ -33,7 +33,7 @@ export function getLabelFont(): Promise<opentype.Font> {
   return fontPromise;
 }
 
-export function pathToLoops(path: opentype.Path): LabelLoop[] {
+function pathToLoops(path: opentype.Path): LabelLoop[] {
   const loops: LabelLoop[] = [];
   let current: LabelLoop = [];
   let cursor: [number, number] = [0, 0];
@@ -115,17 +115,17 @@ export function classifyLabelLoops(loops: LabelLoop[]): { solids: LabelLoop[]; h
   return { solids, holes };
 }
 
-export interface LabelMetrics {
+interface LabelMetrics {
   widthPerUnit: number;
   heightPerUnit: number;
 }
 
-export function measureLabel(font: opentype.Font, text: string): LabelMetrics {
+function measureLabel(font: opentype.Font, text: string): LabelMetrics {
   const bbox = font.getPath(text, 0, 0, 1).getBoundingBox();
   return { widthPerUnit: Math.max(0, bbox.x2 - bbox.x1), heightPerUnit: Math.max(0, bbox.y2 - bbox.y1) };
 }
 
-export interface LabelFit {
+interface LabelFit {
   fontSize: number;
   width: number;
   height: number;
@@ -138,7 +138,7 @@ function sideBearingDeg(outline: ShapeOutline): number {
   return (Math.atan2(firstSide.ny, firstSide.nx) * 180) / Math.PI;
 }
 
-export function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSafe: number, halfStraight: number, minHeight: number = LABEL_MIN_HEIGHT, maxFontSize: number = LABEL_MAX_FONT_SIZE, margin: number = LABEL_MARGIN): LabelFit | undefined {
+function fitLabel(metrics: LabelMetrics, innerExclusion: number, outerSafe: number, halfStraight: number, minHeight: number = LABEL_MIN_HEIGHT, maxFontSize: number = LABEL_MAX_FONT_SIZE, margin: number = LABEL_MARGIN): LabelFit | undefined {
   if (metrics.heightPerUnit <= 0 || metrics.widthPerUnit <= 0) return undefined;
 
   const fits = (fontSize: number): boolean => {

@@ -64,7 +64,7 @@ describe("keyhole mount rotation (issue #71)", () => {
       axes[kr] = d.mountAxisDeg!;
 
       // Still hangs level regardless of rotation: each slot's own channel
-      // points literally up (mount.ts's WALL_UP convention -- see
+      // points literally up (mount.ts's wall-up convention -- see
       // design.test.ts's own "hangs level" coverage for the un-rotated case).
       for (const slot of layout.slots) {
         expect(slot.shankEnd.x).toBeCloseTo(slot.head.x, 9);

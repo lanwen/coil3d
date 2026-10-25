@@ -18,7 +18,7 @@ const FILLET_ROOT_ITERATIONS = 50;
 const FILLET_CORNER_PUSH = 1;
 const MIN_FILLET_STEPS = 4;
 
-export interface PaddedFlange {
+interface PaddedFlange {
   outline: ShapeOutline;
   boreOutline: ShapeOutline;
   margin: number;
