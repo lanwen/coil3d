@@ -70,6 +70,7 @@ test.describe("STEP export progress (issue #396)", () => {
     await openDesign(page, DESIGN);
     await stepButton(page).click();
     await expect(page.getByTestId("step-stage-wall")).toBeVisible();
+    await expect(stepButton(page)).toHaveAttribute("data-armed", "");
     await stepButton(page).click();
 
     await expect(page.getByTestId("step-stages")).toHaveCount(0);
