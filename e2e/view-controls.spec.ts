@@ -89,6 +89,32 @@ test.describe("camera view presets (issue #15/#49)", () => {
     }
   });
 
+  // Issue #370: closing the gap between near-touching lines must not fill the white between the lines of the flange
+  // seen edge-on, which at 1x is under 2 px wide. Column 450 crosses the flange away from the clip; rows 364-378 hold its
+  // stack of lines, and on a correct render several pixels of it are light.
+  test("front view: the flange seen edge-on keeps white between its lines", async ({ page }) => {
+    await gotoDesign(page, KEYHOLE);
+    await page.getByTestId("preset-front").click();
+    await expect(page.getByTestId("preset-front")).toHaveAttribute("aria-pressed", "true");
+    await expectSettled(page);
+    const png = await page.getByTestId("coil-viewer").locator("canvas").screenshot();
+    const light = await page.evaluate(async (url) => {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      const canvas = new OffscreenCanvas(image.width, image.height);
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      let count = 0;
+      for (let y = 364; y <= 378; y++) {
+        const [r, g, b] = context.getImageData(450, y, 1, 1).data;
+        if ((r + g + b) / 3 > 150) count++;
+      }
+      return count;
+    }, `data:image/png;base64,${png.toString("base64")}`);
+    expect(light, "light pixels between the flange's lines").toBeGreaterThanOrEqual(2);
+  });
+
   test("returning to iso after visiting the other presets reproduces the original render", async ({ page }) => {
     await gotoDesign(page, SQUAT);
     const canvas = page.getByTestId("coil-viewer").locator("canvas");

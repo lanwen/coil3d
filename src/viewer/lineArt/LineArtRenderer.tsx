@@ -7,7 +7,7 @@ import { FXAAShader } from "three/examples/jsm/shaders/FXAAShader.js";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CoilMesh, Resolution } from "../../core";
 import { EdgeShader } from "./edgeShader";
-import { MAX_THICKEN_RADIUS, ThickenShader } from "./thickenShader";
+import { GAP_CLOSE_PX, MAX_THICKEN_RADIUS, ThickenShader } from "./thickenShader";
 import { directionAndUpOf, getPreset, presetQuaternion, type PresetId } from "./presets";
 
 export type Projection = "ortho" | "perspective";
@@ -213,8 +213,11 @@ function applyFraming(
   const cssPerWorld = size.height / (2 * fit.halfHeight);
   const diagonalCss = Math.hypot(fit.extentX, fit.extentY) * cssPerWorld;
   const weight = THREE.MathUtils.clamp(diagonalCss * LINE_WEIGHT_PER_DIAGONAL_PX, MIN_LINE_WEIGHT, MAX_LINE_WEIGHT);
-  thickenPass.uniforms.thicknessPx.value = Math.min(weight * linePixelRatio(gl.getPixelRatio()), MAX_THICKEN_RADIUS - 0.5);
-  thickenPass.uniforms.fineThicknessPx.value = FINE_LINE_WEIGHT * linePixelRatio(gl.getPixelRatio());
+  const lineRatio = linePixelRatio(gl.getPixelRatio());
+  thickenPass.uniforms.thicknessPx.value = Math.min(weight * lineRatio, MAX_THICKEN_RADIUS - 0.5);
+  thickenPass.uniforms.fineThicknessPx.value = FINE_LINE_WEIGHT * lineRatio;
+  const sharpOnScreen = gl.getPixelRatio() >= lineRatio;
+  thickenPass.uniforms.gapClosePx.value = sharpOnScreen ? GAP_CLOSE_PX : 0;
 
   void projection;
 }

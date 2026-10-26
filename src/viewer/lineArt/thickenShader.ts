@@ -2,7 +2,7 @@ import { Vector2 } from "three";
 import { RIM_EDGE_ALPHA } from "./edgeShader";
 
 export const MAX_THICKEN_RADIUS = 4;
-const GAP_CLOSE_PX = 2.5;
+export const GAP_CLOSE_PX = 2.0;
 const GAP_CLOSE_STEPS = 10;
 
 export const ThickenShader = {
@@ -13,7 +13,7 @@ export const ThickenShader = {
     texel: { value: new Vector2(1 / 1024, 1 / 1024) },
     thicknessPx: { value: 1.0 },
     fineThicknessPx: { value: 0.5 },
-    gapClosePx: { value: GAP_CLOSE_PX },
+    gapClosePx: { value: 0.0 },
   },
 
   vertexShader: `
@@ -69,9 +69,8 @@ export const ThickenShader = {
       // are 0 there), so its texture fetch is skipped. That leaves a circle
       // of 20-40 taps instead of the 81 of the full MAX_R square.
       float reach = max(thicknessPx, fineThicknessPx) + 0.5;
-      float searchReach = reach + 0.5 * gapClosePx;
-      float reachSq = searchReach * searchReach;
-      int r = min(int(searchReach), MAX_R);
+      float reachSq = reach * reach;
+      int r = min(int(reach), MAX_R);
       for (int y = -r; y <= r; y++) {
         for (int x = -r; x <= r; x++) {
           vec2 o = vec2(float(x), float(y));
@@ -82,7 +81,7 @@ export const ThickenShader = {
         }
       }
       float mainInk = clamp(thicknessPx + 0.5 - nearest, 0.0, 1.0);
-      if (mainInk < 1.0 && nearest < searchReach && inClosableGap(vUv, 2.0 * thicknessPx + 1.0 + gapClosePx)) mainInk = 1.0;
+      if (gapClosePx > 0.0 && mainInk > 0.0 && mainInk < 1.0 && inClosableGap(vUv, 2.0 * thicknessPx + 1.0 + gapClosePx)) mainInk = 1.0;
       float ink = max(mainInk, clamp(fineThicknessPx + 0.5 - nearestFine, 0.0, 1.0));
       gl_FragColor = vec4(vec3(model * (1.0 - ink)), max(model, ink));
     }

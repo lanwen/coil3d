@@ -1492,14 +1492,19 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
 - The pen weight is the on-screen diagonal of the model divided by 500,
   clamped to 1.0 to 1.6 CSS px. The label outline pen is 0.8 px. The thicken
   pass searches at most 4 px.
-- The thicken pass closes a gap between two lines that is at most 1.5 px wide
-  (`GAP_CLOSE_PX`, in line-target pixels): when a pixel has a line pixel on each
+- The thicken pass closes a gap between two lines that is at most 2 px wide
+  (`GAP_CLOSE_PX`, in line-target pixels): a pixel that has a line pixel on each
   side along one of four axes, with their spacing at most two pens plus 1 px
-  plus that gap, it is solid. Two pens whose bands almost touch (the land
-  between a flange's two chamfers, the latch slit's lower edge) used to leave a
-  row of grey dashes, because the two one-pixel edges stair-step with different
-  phases, so the gap swings between 0 and 1 px along the line. They now draw as
-  one solid line. The label outline is not closed, so its pockets stay open.
+  plus that gap, and that would be grey, is solid. It does this only where a
+  line or the pixel is on a rim face (chamfer or land), and only when the
+  canvas pixel ratio reaches the line target's ratio (a 2x screen or denser).
+  Two pens whose bands almost touch (the land between a flange's two chamfers,
+  the latch slit's lower edge) left a row of grey dashes there, because the two
+  one-pixel edges stair-step with different phases, so the gap swings between 0
+  and 1 px along the line. They now draw as one solid line. On a 1x screen the
+  target is averaged down, the same grey reads as the white between the lines
+  of a flange seen edge-on, so nothing is closed. The label outline is not
+  closed, so its pockets stay open.
 - The edge shader gives each face kind its own alpha in the normal target:
   0.5 for label pockets, 0.9 for the rim chamfer, 0.8 for the rim land, 0.97
   for the groove fade, 1 for everything else. Where a groove fades out, its
