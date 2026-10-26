@@ -2,7 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import { expect, test, type Download, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
 
-// Issues #396, #398: the STEP build takes 15-35 s, so the button shows a
+// Issues #396, #398, #400: the STEP build takes 15-35 s, so the button shows a
 // stripe and a timer, a stage list shows how far it got, the busy button
 // cancels it, and a design change during the build restarts it so the file
 // matches the screen.
@@ -117,8 +117,9 @@ test.describe("STEP export progress (issue #396)", () => {
 test.describe("STEP progress screenshots, with a scripted build (issues #396, #398)", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((stages) => {
-      const w = window as unknown as { __stepRuns: number };
+      const w = window as unknown as { __stepRuns: number; __now: number };
       w.__stepRuns = 0;
+      w.__now = 1_700_000_000_000;
       const RealWorker = window.Worker;
       window.Worker = class extends RealWorker {
         postMessage(data: unknown, ...rest: unknown[]) {
@@ -134,7 +135,7 @@ test.describe("STEP progress screenshots, with a scripted build (issues #396, #3
           for (const id of stages) send({ kind: "stage", id });
         }
       };
-      Date.now = () => 1_700_000_000_000;
+      Date.now = () => w.__now;
     }, ["engine", "wall", "flange", "join"]);
   });
 
@@ -207,11 +208,37 @@ test.describe("STEP progress screenshots, with a scripted build (issues #396, #3
     await expect(exportSection(page)).toHaveScreenshot("step-progress-phone.png");
   });
 
+  const advanceClock = (page: Page, ms: number) =>
+    page.evaluate((delta) => ((window as unknown as { __now: number }).__now += delta), ms);
+
   test("a design change shows Design changed, restarting…", async ({ page }) => {
     await startScriptedBuild(page);
     await page.getByTestId("input-wireLength").fill("200");
     await expect(page.getByTestId("step-restarting")).toBeVisible();
     await expect(page.getByTestId("step-stage-wall")).toHaveCount(0);
     await expect(exportSection(page)).toHaveScreenshot("step-progress-restarting.png");
+  });
+
+  test("a design change resets the timer to 0 s, and it counts up again", async ({ page }) => {
+    await startScriptedBuild(page);
+    await advanceClock(page, 10_000);
+    await expect(page.getByTestId("step-timer")).toHaveText("10 s");
+
+    await page.getByTestId("input-wireLength").fill("200");
+    await expect(page.getByTestId("step-restarting")).toBeVisible();
+    await expect(page.getByTestId("step-timer")).toHaveText("0 s");
+    await advanceClock(page, 2_000);
+    await expect(page.getByTestId("step-timer")).toHaveText("2 s");
+  });
+
+  test("a design change disarms Cancel again until the arm delay has passed", async ({ page }) => {
+    await startScriptedBuild(page);
+    await expect(stepButton(page)).toHaveAttribute("data-armed", "");
+
+    await advanceClock(page, 1_000);
+    await page.getByTestId("input-wireLength").fill("200");
+    await expect(page.getByTestId("step-restarting")).toBeVisible();
+    await expect(stepButton(page)).not.toHaveAttribute("data-armed");
+    await expect(stepButton(page)).toHaveAttribute("data-armed", "");
   });
 });

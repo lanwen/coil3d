@@ -1347,8 +1347,9 @@ bar and no estimate, because the total is not known.
   and rejects with an `AbortError`. A `done` that races the abort is ignored.
   The next export starts a fresh worker.
 - A design change restarts the export for the new final design, so the file
-  that downloads is the design on screen. The elapsed timer keeps running
-  across the restart, because the user's total wait is what it measures.
+  that downloads is the design on screen. The elapsed timer restarts at 0 s
+  with the restart, in the same render that shows "Design changed,
+  restarting…", because it tells how long the build now running has taken.
 - The busy Download STEP button is the Cancel control: it turns into an
   inverted "Cancel" on hover and keyboard focus, and a click cancels. It arms
   `CANCEL_ARM_DELAY_MS` (600 ms) after the export starts, because the pointer
@@ -1356,7 +1357,7 @@ bar and no estimate, because the total is not known.
   at once, a double-click would start and cancel the export, and even a single
   click would flip the button to Cancel under the cursor as if it had
   cancelled. Until it is armed, clicks do nothing and hover and focus change
-  nothing. A restart keeps it armed.
+  nothing. A restart starts the busy state over, so the delay runs again.
 - The path without a Worker (Node and the tests) calls the same callback
   synchronously and cannot be aborted mid-build. It checks the signal before it
   starts and after it ends.

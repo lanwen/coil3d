@@ -27,14 +27,15 @@ const STAGE_MARKS = { done: "✓", current: "▸", waiting: "·" } as const;
 
 const CANCEL_ARM_DELAY_MS = 600;
 
-export function useCancelArmed(busy: boolean) {
+export function useCancelArmed(startedAt: number | null) {
   const [armed, setArmed] = useState(false);
+  const busy = startedAt !== null;
   useEffect(() => {
     setArmed(false);
     if (!busy) return;
     const timer = window.setTimeout(() => setArmed(true), CANCEL_ARM_DELAY_MS);
     return () => window.clearTimeout(timer);
-  }, [busy]);
+  }, [busy, startedAt]);
   return busy && armed;
 }
 
