@@ -405,18 +405,27 @@ export function ResultPanel({
           type="button"
           className={`btn-primary${stepExport ? " btn-busy" : ""}`}
           data-testid="download-step"
-          onClick={onDownloadStep}
-          disabled={!finalReady || stepExport !== null}
+          onClick={stepExport ? onCancelStep : onDownloadStep}
+          disabled={!stepExport && !finalReady}
+          aria-label={stepExport ? "Cancel STEP export" : undefined}
         >
           {stepExport ? (
             <>
-              Preparing STEP… <StepElapsed since={stepExport.startedAt} />
+              <span className="btn-labels">
+                <span className="btn-label-busy" data-testid="step-label-busy">
+                  Preparing STEP… <StepElapsed since={stepExport.startedAt} />
+                </span>
+                <span className="btn-label-cancel" data-testid="step-label-cancel">
+                  Cancel
+                </span>
+              </span>
+              <span className="btn-cross" aria-hidden="true" />
             </>
           ) : (
             "Download STEP"
           )}
         </button>
-        {stepExport && <StepStages state={stepExport} onCancel={onCancelStep} />}
+        {stepExport && <StepStages state={stepExport} />}
       </Section>
     </>
   );
