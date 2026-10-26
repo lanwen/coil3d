@@ -25,16 +25,41 @@ const STAGE_LABELS: Record<StepStageId, (stage: StepStage) => string> = {
 
 const STAGE_MARKS = { done: "✓", current: "▸", waiting: "·" } as const;
 
-export function StepElapsed({ since }: { since: number }) {
+const CANCEL_ARM_DELAY_MS = 600;
+
+export function useCancelArmed(busy: boolean) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    setArmed(false);
+    if (!busy) return;
+    const timer = window.setTimeout(() => setArmed(true), CANCEL_ARM_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
+  return busy && armed;
+}
+
+function useElapsedSeconds(since: number) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, []);
-  return <span data-testid="step-timer">{Math.max(0, Math.floor((now - since) / 1000))} s</span>;
+  return Math.max(0, Math.floor((now - since) / 1000));
 }
 
-export function StepStages({ state, onCancel }: { state: StepExportState; onCancel: () => void }) {
+export function StepElapsed({ since }: { since: number }) {
+  return <span data-testid="step-timer">{useElapsedSeconds(since)} s</span>;
+}
+
+function StepElapsedForReaders({ since }: { since: number }) {
+  return (
+    <p className="visually-hidden" aria-live="off" data-testid="step-elapsed-sr">
+      Elapsed {useElapsedSeconds(since)} seconds
+    </p>
+  );
+}
+
+export function StepStages({ state }: { state: StepExportState }) {
   const currentIndex = state.plan.findIndex((stage) => stage.id === state.stage);
   const showList = !state.restarting && state.stage !== null;
   return (
@@ -59,9 +84,7 @@ export function StepStages({ state, onCancel }: { state: StepExportState; onCanc
           })}
         </ol>
       )}
-      <button type="button" className="step-cancel" data-testid="step-cancel" onClick={onCancel}>
-        Cancel
-      </button>
+      <StepElapsedForReaders since={state.startedAt} />
     </div>
   );
 }

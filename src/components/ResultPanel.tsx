@@ -4,7 +4,7 @@ import type { CoilSpec, Design, MountKind, ShapeKind, Solution } from "../core";
 import { Section, mmToCm } from "./fields";
 import { Hint } from "./Hint";
 import { HINTS } from "./hints";
-import { StepElapsed, StepStages } from "./StepProgress";
+import { StepElapsed, StepStages, useCancelArmed } from "./StepProgress";
 import type { StepExportState } from "../useStepExport";
 
 const MOUNT_LABELS: Record<MountKind, string> = {
@@ -320,6 +320,7 @@ export function ResultPanel({
   stepExport: StepExportState | null;
   onCancelStep: () => void;
 }) {
+  const cancelArmed = useCancelArmed(stepExport !== null);
   const { solution, notices, parts, resolution } = design;
   const { diagnosis } = solution;
   const totalTriangles = parts.reduce((n, p) => n + p.mesh.indices.length / 3, 0);
@@ -405,18 +406,28 @@ export function ResultPanel({
           type="button"
           className={`btn-primary${stepExport ? " btn-busy" : ""}`}
           data-testid="download-step"
-          onClick={onDownloadStep}
-          disabled={!finalReady || stepExport !== null}
+          data-armed={cancelArmed ? "" : undefined}
+          onClick={stepExport ? (cancelArmed ? onCancelStep : undefined) : onDownloadStep}
+          disabled={!stepExport && !finalReady}
+          aria-label={stepExport ? "Cancel STEP export" : undefined}
         >
           {stepExport ? (
             <>
-              Preparing STEP… <StepElapsed since={stepExport.startedAt} />
+              <span className="btn-labels">
+                <span className="btn-label-busy" data-testid="step-label-busy">
+                  Preparing STEP… <StepElapsed since={stepExport.startedAt} />
+                </span>
+                <span className="btn-label-cancel" data-testid="step-label-cancel">
+                  Cancel
+                </span>
+              </span>
+              <span className="btn-cross" aria-hidden="true" />
             </>
           ) : (
             "Download STEP"
           )}
         </button>
-        {stepExport && <StepStages state={stepExport} onCancel={onCancelStep} />}
+        {stepExport && <StepStages state={stepExport} />}
       </Section>
     </>
   );

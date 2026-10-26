@@ -1791,12 +1791,56 @@ a.build-label:focus-visible {
   cursor: default;
 }
 
-.btn-primary.btn-busy:disabled {
+.btn-primary.btn-busy {
   position: relative;
   overflow: hidden;
-  padding-bottom: 6px;
+  padding: 0 40px 6px;
   color: var(--ink);
+  background: var(--paper);
   border-color: var(--ink);
+}
+
+.btn-primary.btn-busy:not([data-armed]) {
+  cursor: progress;
+}
+
+.btn-primary.btn-busy[data-armed]:hover,
+.btn-primary.btn-busy[data-armed]:focus-visible {
+  color: var(--paper);
+  background: var(--ink);
+}
+
+.btn-labels {
+  display: grid;
+  justify-items: center;
+}
+
+.btn-label-busy,
+.btn-label-cancel {
+  grid-area: 1 / 1;
+}
+
+.btn-label-cancel,
+.btn-busy[data-armed]:hover .btn-label-busy,
+.btn-busy[data-armed]:focus-visible .btn-label-busy {
+  visibility: hidden;
+}
+
+.btn-busy[data-armed]:hover .btn-label-cancel,
+.btn-busy[data-armed]:focus-visible .btn-label-cancel {
+  visibility: visible;
+}
+
+.btn-cross {
+  position: absolute;
+  top: calc(50% - 3px);
+  right: 14px;
+  width: 16px;
+  height: 16px;
+  background:
+    linear-gradient(currentColor, currentColor) center / 100% 2.5px no-repeat,
+    linear-gradient(currentColor, currentColor) center / 2.5px 100% no-repeat;
+  transform: translateY(-50%) rotate(45deg);
 }
 
 .btn-busy::after {
@@ -1863,17 +1907,6 @@ a.build-label:focus-visible {
   margin: 0 0 6px;
   color: var(--ink);
   font-weight: 700;
-}
-
-.step-cancel {
-  padding: 0;
-  font: inherit;
-  font-weight: 600;
-  color: var(--ink);
-  text-decoration: underline;
-  background: none;
-  border: 0;
-  cursor: pointer;
 }
 
 /* ---------- Mobile (~400px, issue #16 AC) ---------- */

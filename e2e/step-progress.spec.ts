@@ -2,9 +2,10 @@ import { readFileSync, statSync } from "node:fs";
 import { expect, test, type Download, type Page } from "@playwright/test";
 import { encodeHashDoc } from "./hashDoc";
 
-// Issue #396: the STEP build takes 15-35 s, so the button shows a stripe and
-// a timer, a stage list shows how far it got, Cancel stops it, and a design
-// change during the build restarts it so the file matches the screen.
+// Issues #396, #398: the STEP build takes 15-35 s, so the button shows a
+// stripe and a timer, a stage list shows how far it got, the busy button
+// cancels it, and a design change during the build restarts it so the file
+// matches the screen.
 
 // A T-clip design: it has a flange, so the join stage runs, and it takes about 10 s.
 const TCLIP = { d: 3.8, lock: ["outer", "h"], size: 40, h: 25, mount: "skadis-tclip" };
@@ -32,7 +33,8 @@ test.describe("STEP export progress (issue #396)", () => {
     const download = page.waitForEvent("download");
     await stepButton(page).click();
 
-    await expect(stepButton(page)).toBeDisabled();
+    await expect(stepButton(page)).toBeEnabled();
+    await expect(stepButton(page)).toHaveAccessibleName("Cancel STEP export");
     await expect(stepButton(page)).toContainText("Preparing STEP…");
     await expect(page.getByTestId("step-timer")).toHaveText("0 s", { timeout: 1000 });
     await expect(page.getByTestId("step-timer")).toHaveText(/^[1-9]\d* s$/);
@@ -42,7 +44,8 @@ test.describe("STEP export progress (issue #396)", () => {
     await expect(page.getByTestId("step-stage-write")).toHaveAttribute("data-state", "waiting");
     await expect(page.getByTestId("step-stage-join")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("step-stage-wall")).toHaveAttribute("data-state", "done");
-    await expect(page.getByTestId("step-cancel")).toBeVisible();
+    await expect(page.getByTestId("step-stages").getByRole("button")).toHaveCount(0);
+    await expect(page.getByTestId("step-elapsed-sr")).toContainText(/Elapsed \d+ seconds/);
 
     expect((await download).suggestedFilename()).toBe("coil.step");
     await expect(page.getByTestId("step-stages")).toHaveCount(0);
@@ -61,13 +64,13 @@ test.describe("STEP export progress (issue #396)", () => {
     await expect(stepButton(page)).toBeEnabled();
   });
 
-  test("Cancel stops the build without an error, and the next export works", async ({ page }) => {
+  test("clicking the busy button stops the build without an error, and the next export works", async ({ page }) => {
     const downloads: Download[] = [];
     page.on("download", (d) => downloads.push(d));
     await openDesign(page, DESIGN);
     await stepButton(page).click();
     await expect(page.getByTestId("step-stage-wall")).toBeVisible();
-    await page.getByTestId("step-cancel").click();
+    await stepButton(page).click();
 
     await expect(page.getByTestId("step-stages")).toHaveCount(0);
     await expect(stepButton(page)).toBeEnabled();
@@ -76,7 +79,7 @@ test.describe("STEP export progress (issue #396)", () => {
 
     const next = page.waitForEvent("download");
     await stepButton(page).click();
-    await expect(stepButton(page)).toBeDisabled();
+    await expect(stepButton(page)).toHaveAccessibleName("Cancel STEP export");
     expect((await next).suggestedFilename()).toBe("coil.step");
     await expect(stepButton(page)).toBeEnabled();
     await page.waitForTimeout(1500);
@@ -99,7 +102,7 @@ test.describe("STEP export progress (issue #396)", () => {
 
     await page.getByTestId("input-wireLength").fill("200");
     await expect(page.getByTestId("step-restarting")).toHaveText("Design changed, restarting…");
-    await expect(stepButton(page)).toBeDisabled();
+    await expect(stepButton(page)).toHaveAccessibleName("Cancel STEP export");
     await expect(page.getByTestId("step-restarting")).toHaveCount(0);
     await expect(page.getByTestId("step-stage-wall")).toBeVisible();
 
@@ -111,7 +114,7 @@ test.describe("STEP export progress (issue #396)", () => {
   });
 });
 
-test.describe("STEP progress screenshots, with a scripted build (issue #396)", () => {
+test.describe("STEP progress screenshots, with a scripted build (issues #396, #398)", () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript((stages) => {
       const w = window as unknown as { __stepRuns: number };
@@ -140,11 +143,61 @@ test.describe("STEP progress screenshots, with a scripted build (issue #396)", (
     await stepButton(page).click();
     await expect(page.getByTestId("step-stage-join")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("step-timer")).toHaveText("0 s");
+    await page.mouse.move(0, 0);
   }
 
   test("desktop: busy button and the stage list part way", async ({ page }) => {
     await startScriptedBuild(page);
     await expect(exportSection(page)).toHaveScreenshot("step-progress-desktop.png");
+  });
+
+  test("desktop: hovering the busy button inverts it and reads Cancel, and moving away restores it", async ({ page }) => {
+    await startScriptedBuild(page);
+    await expect(stepButton(page)).toHaveAttribute("data-armed", "");
+    const busyLabel = page.getByTestId("step-label-busy");
+    const cancelLabel = page.getByTestId("step-label-cancel");
+    await expect(busyLabel).toBeVisible();
+    await expect(cancelLabel).toBeHidden();
+    await expect(stepButton(page)).toHaveCSS("background-color", "rgb(255, 255, 255)");
+
+    await exportSection(page).scrollIntoViewIfNeeded();
+    await stepButton(page).hover();
+    await expect(cancelLabel).toBeVisible();
+    await expect(busyLabel).toBeHidden();
+    await expect(stepButton(page)).toHaveCSS("background-color", "rgb(0, 0, 0)");
+    await expect(stepButton(page)).toHaveCSS("color", "rgb(255, 255, 255)");
+    await expect(exportSection(page)).toHaveScreenshot("step-progress-hover.png");
+
+    await page.mouse.move(0, 0);
+    await expect(busyLabel).toBeVisible();
+    await expect(cancelLabel).toBeHidden();
+    await expect(stepButton(page)).toHaveCSS("background-color", "rgb(255, 255, 255)");
+  });
+
+  test("keyboard focus on the busy button reads Cancel, and Enter cancels", async ({ page }) => {
+    await openDesign(page, DESIGN);
+    await stepButton(page).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("step-stage-join")).toHaveAttribute("data-state", "current");
+    await expect(stepButton(page)).toHaveAttribute("data-armed", "");
+    await expect(page.getByTestId("step-label-cancel")).toBeVisible();
+    await expect(stepButton(page)).toHaveCSS("background-color", "rgb(0, 0, 0)");
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("step-stages")).toHaveCount(0);
+    await expect(stepButton(page)).toHaveText("Download STEP");
+  });
+
+  test("a double-click on Download STEP starts the export and does not cancel it", async ({ page }) => {
+    await openDesign(page, DESIGN);
+    await stepButton(page).dblclick();
+    await expect(page.getByTestId("step-stages")).toBeVisible();
+    await expect(stepButton(page)).toHaveAccessibleName("Cancel STEP export");
+    await expect(stepButton(page)).not.toHaveAttribute("data-armed");
+    await expect(page.getByTestId("step-label-cancel")).toBeHidden();
+
+    await expect(stepButton(page)).toHaveAttribute("data-armed", "");
+    await expect(page.getByTestId("step-stage-join")).toHaveAttribute("data-state", "current");
+    await expect(page.getByTestId("step-stage-wall")).toHaveAttribute("data-state", "done");
   });
 
   test("phone: busy button and the stage list part way", async ({ page }) => {
