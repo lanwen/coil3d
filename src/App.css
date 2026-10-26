@@ -1800,8 +1800,12 @@ a.build-label:focus-visible {
   border-color: var(--ink);
 }
 
-.btn-primary.btn-busy:hover,
-.btn-primary.btn-busy:focus-visible {
+.btn-primary.btn-busy:not([data-armed]) {
+  cursor: progress;
+}
+
+.btn-primary.btn-busy[data-armed]:hover,
+.btn-primary.btn-busy[data-armed]:focus-visible {
   color: var(--paper);
   background: var(--ink);
 }
@@ -1817,13 +1821,13 @@ a.build-label:focus-visible {
 }
 
 .btn-label-cancel,
-.btn-busy:hover .btn-label-busy,
-.btn-busy:focus-visible .btn-label-busy {
+.btn-busy[data-armed]:hover .btn-label-busy,
+.btn-busy[data-armed]:focus-visible .btn-label-busy {
   visibility: hidden;
 }
 
-.btn-busy:hover .btn-label-cancel,
-.btn-busy:focus-visible .btn-label-cancel {
+.btn-busy[data-armed]:hover .btn-label-cancel,
+.btn-busy[data-armed]:focus-visible .btn-label-cancel {
   visibility: visible;
 }
 

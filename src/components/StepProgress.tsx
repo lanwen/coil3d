@@ -25,6 +25,19 @@ const STAGE_LABELS: Record<StepStageId, (stage: StepStage) => string> = {
 
 const STAGE_MARKS = { done: "✓", current: "▸", waiting: "·" } as const;
 
+const CANCEL_ARM_DELAY_MS = 600;
+
+export function useCancelArmed(busy: boolean) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    setArmed(false);
+    if (!busy) return;
+    const timer = window.setTimeout(() => setArmed(true), CANCEL_ARM_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [busy]);
+  return busy && armed;
+}
+
 function useElapsedSeconds(since: number) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
