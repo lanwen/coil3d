@@ -50,10 +50,24 @@ const CORNER_RADIUS_STEP_MM = 0.5;
 const ROUND_CORNER_RADIUS_MAX_MM = 250;
 const CORE_SIZE_FLOOR_MM = 5;
 
-function describeCustomization(spec: CoilSpec): string | null {
-  const label = spec.label?.trim();
-  const parts = [label ? `Label \u201c${label}\u201d` : null, spec.strapSlots === true ? "strap slots" : null].filter((part) => part !== null);
-  return parts.length > 0 ? parts.join(" \u00b7 ") : null;
+const SUMMARY_SEPARATOR = " \u00b7 ";
+
+function CustomizeSummary({ label, strapSlots }: { label: string | undefined; strapSlots: boolean }) {
+  const strapText = strapSlots ? `${label ? SUMMARY_SEPARATOR : ""}strap slots` : null;
+  const fullText = label ? `Label \u201c${label}\u201d${strapText ?? ""}` : (strapText ?? NOTHING_ADDED);
+  return (
+    <p className="field-note customize-summary" data-testid="customize-summary" title={label || strapSlots ? fullText : undefined}>
+      {label && (
+        <span className="customize-summary-label">
+          Label {"\u201c"}
+          <span className="customize-summary-text">{label}</span>
+          {"\u201d"}
+        </span>
+      )}
+      {strapText && <span className="customize-summary-strap">{strapText}</span>}
+      {!label && !strapSlots && NOTHING_ADDED}
+    </p>
+  );
 }
 
 const ceilToStep = (mm: number) => Math.ceil(mm / CORNER_RADIUS_STEP_MM) * CORNER_RADIUS_STEP_MM;
@@ -106,7 +120,8 @@ export function ControlsForm({
   const bayonetUnavailable = spec.shape.kind !== "round";
   const jointHint = bayonetUnavailable ? `${HINTS.joint} Twist lock needs a round core.` : HINTS.joint;
 
-  const customizeSummary = describeCustomization(spec);
+  const customizeLabel = spec.label?.trim() || undefined;
+  const customizeStrapSlots = spec.strapSlots === true;
   const customizeHint = canCustomize ? HINTS.customize : `${HINTS.customize} ${CUSTOMIZE_DISABLED_NOTE}`;
 
   const setShapeKind = (kind: ShapeKind) => {
@@ -453,13 +468,11 @@ export function ControlsForm({
             <FieldTop label="Cap & base" hint={customizeHint} />
             <span className="cap-toggle-row">
               <button type="button" className="customize-btn" data-testid="customize-open" disabled={!canCustomize} onClick={onCustomize}>
-                {customizeSummary ? "Edit" : "Customize"}
+                {customizeLabel || customizeStrapSlots ? "Edit" : "Customize"}
               </button>
             </span>
           </div>
-          <p className="field-note customize-summary" data-testid="customize-summary" title={customizeSummary ?? undefined}>
-            {customizeSummary ?? NOTHING_ADDED}
-          </p>
+          <CustomizeSummary label={customizeLabel} strapSlots={customizeStrapSlots} />
         </div>
       </Section>
 

@@ -83,17 +83,26 @@ test.describe("the Cap & base row and its summary", () => {
       await gotoDesign(page, withHashDoc(CAP_AND_BASE, { label: long, strap: true }));
       const summary = summaryOf(page);
       await expect(summary).toHaveAttribute("title", `Label \u201c${long}\u201d \u00b7 strap slots`);
+      await expect(summary).toContainText("\u201d \u00b7 strap slots");
+      await expect(summary.locator(".customize-summary-strap")).toBeVisible();
       const metrics = await summary.evaluate((el) => {
-        const style = getComputedStyle(el);
-        const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.5;
+        const text = el.querySelector<HTMLElement>(".customize-summary-text")!;
+        const strap = el.querySelector<HTMLElement>(".customize-summary-strap")!;
+        const quote = el.querySelector<HTMLElement>(".customize-summary-label")!;
+        const box = el.getBoundingClientRect();
+        const strapBox = strap.getBoundingClientRect();
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.5;
         return {
-          truncated: el.scrollWidth > el.clientWidth,
-          ellipsis: style.textOverflow === "ellipsis",
-          lines: Math.round(el.getBoundingClientRect().height / lineHeight),
+          labelCut: text.scrollWidth > text.clientWidth,
+          ellipsis: getComputedStyle(text).textOverflow === "ellipsis",
+          lines: Math.round(box.height / lineHeight),
+          strapInside: strapBox.right <= box.right + 0.5 && strapBox.left >= quote.getBoundingClientRect().right - 0.5,
+          strapWhole: strap.scrollWidth <= strap.clientWidth,
+          summaryFits: el.scrollWidth <= el.clientWidth,
           rowFits: el.parentElement!.scrollWidth <= el.parentElement!.clientWidth,
         };
       });
-      expect(metrics).toEqual({ truncated: true, ellipsis: true, lines: 1, rowFits: true });
+      expect(metrics).toEqual({ labelCut: true, ellipsis: true, lines: 1, strapInside: true, strapWhole: true, summaryFits: true, rowFits: true });
     });
   }
 

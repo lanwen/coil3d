@@ -1099,9 +1099,24 @@ a.build-label:focus-visible {
 }
 
 .customize-summary {
+  display: flex;
+  min-width: 0;
+  white-space: pre;
+}
+
+.customize-summary-label {
+  display: flex;
+  min-width: 0;
+}
+
+.customize-summary-text {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.customize-summary-strap {
+  flex: none;
 }
 
 .customize-btn:hover:not(:disabled) {
