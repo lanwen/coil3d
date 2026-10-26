@@ -1791,6 +1791,91 @@ a.build-label:focus-visible {
   cursor: default;
 }
 
+.btn-primary.btn-busy:disabled {
+  position: relative;
+  overflow: hidden;
+  padding-bottom: 6px;
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.btn-busy::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 6px;
+  background: repeating-linear-gradient(-45deg, var(--ink) 0 5px, var(--paper) 5px 10px);
+  background-size: 14.14px 14.14px;
+  animation: step-stripe 0.6s linear infinite;
+}
+
+@keyframes step-stripe {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 14.14px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn-busy::after {
+    animation: none;
+  }
+}
+
+.step-stages {
+  margin-top: 10px;
+  font-size: 0.85rem;
+}
+
+.step-stage-list {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.step-stage-list li {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--muted);
+}
+
+.step-stage-list li[data-state="done"] {
+  color: var(--ink);
+}
+
+.step-stage-list li[data-state="current"] {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.step-stage-mark {
+  flex: none;
+  width: 1.1em;
+  text-align: center;
+}
+
+.step-restarting {
+  margin: 0 0 6px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.step-cancel {
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
 /* ---------- Mobile (~400px, issue #16 AC) ---------- */
 
 @media (max-width: 720px) {

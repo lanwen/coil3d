@@ -31,3 +31,4 @@ export type { ViewMode } from "./hash";
 export { design } from "./design";
 export { coreSizeForPill } from "./solve";
 export { exportDesign } from "./export";
+export type { StepProgress, StepStage, StepStageId } from "./step/progress";
