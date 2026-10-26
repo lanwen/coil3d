@@ -1,5 +1,7 @@
 import { Vector2 } from "three";
 
+export const RIM_EDGE_ALPHA = 0.5;
+
 export const EdgeShader = {
   name: "EdgeShader",
 
@@ -43,6 +45,8 @@ export const EdgeShader = {
     // On the groove's fade (alpha 0.97). A crease or depth step within it is not drawn.
     bool fadeAt(vec2 uv) { float a = texture2D(tNormal, uv).a; return a > 0.955 && a < 0.985; }
     bool quietCrease(vec2 a, vec2 b) { return fadeAt(a) && fadeAt(b); }
+
+    const float RIM_ALPHA = ${RIM_EDGE_ALPHA.toFixed(1)};
 
     void main() {
       float d0 = depthAt(vUv);
@@ -88,7 +92,7 @@ export const EdgeShader = {
         }
       }
 
-      gl_FragColor = vec4(ink, 1.0, fine, 1.0);
+      gl_FragColor = vec4(ink, 1.0, fine, rimAt(vUv) > 0.0 ? RIM_ALPHA : 1.0);
     }
   `,
 };

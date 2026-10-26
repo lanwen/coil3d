@@ -177,15 +177,70 @@ test.describe("SKÅDIS clip screenshots (issue #207)", () => {
 // Issue #361: the clips' cap edges are chamfered. With no inked line where a chamfer meets its wall, each face lost its
 // closing outline and the creases of the stem and the bight stopped in the middle of a face. These close-ups, at the
 // default iso view of the 85 mm design, exist for those dangling lines.
+//
+// Issue #370: two lines that nearly touch (the land between the flange's chamfers, the latch slit's lower edge) left a
+// row of grey dashes between two inked bands. Each box is in close-up pixels around the dashed row, short of the ends
+// of the bands, where the anti-aliasing of two joining lines is not a dash.
+const PINCH_BOXES = {
+  "top-latch": { x0: 120, y0: 140, x1: 300, y1: 245 },
+  bottom: { x0: 170, y0: 112, x1: 280, y1: 140 },
+};
+
+type Box = { x0: number; y0: number; x1: number; y1: number };
+
+async function countPinchedGrey(page: Page, png: Buffer, box: Box): Promise<number> {
+  return page.evaluate(
+    async ({ url, box }) => {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      const canvas = new OffscreenCanvas(image.width, image.height);
+      const context = canvas.getContext("2d")!;
+      context.drawImage(image, 0, 0);
+      const data = context.getImageData(0, 0, image.width, image.height).data;
+      const luma = (x: number, y: number) => {
+        const k = (y * image.width + x) * 4;
+        return (data[k] + data[k + 1] + data[k + 2]) / 3;
+      };
+      // Inked within 3 px along the direction, with no white pixel on the way: a grey row, not a white gap.
+      const inkedWithin = (x: number, y: number, dx: number, dy: number) => {
+        for (let k = 1; k <= 3; k++) {
+          const v = luma(x + k * dx, y + k * dy);
+          if (v < 50) return true;
+          if (v > 220) return false;
+        }
+        return false;
+      };
+      const DIRECTIONS = [[0, 1], [1, 0], [1, 1], [1, -1]];
+      let count = 0;
+      for (let y = box.y0; y < box.y1; y++) {
+        for (let x = box.x0; x < box.x1; x++) {
+          const v = luma(x, y);
+          if (v < 50 || v > 220) continue;
+          if (DIRECTIONS.some(([dx, dy]) => inkedWithin(x, y, dx, dy) && inkedWithin(x, y, -dx, -dy))) count++;
+        }
+      }
+      return count;
+    },
+    { url: `data:image/png;base64,${png.toString("base64")}`, box },
+  );
+}
+
 test.describe("SKÅDIS clip close-ups (issue #361)", () => {
   test.use({ deviceScaleFactor: 4 });
   for (const { label, clip } of [
-    { label: "top-latch", clip: { x: 1040, y: 262, width: 95, height: 85 } },
-    { label: "bottom", clip: { x: 795, y: 470, width: 70, height: 75 } },
+    { label: "top-latch" as const, clip: { x: 1040, y: 262, width: 95, height: 85 } },
+    { label: "bottom" as const, clip: { x: 795, y: 470, width: 70, height: 75 } },
   ]) {
     test(`${label}: every face of the clip is closed by an outline, and no line ends in mid-face`, async ({ page }) => {
       await gotoDesign(page, ROUND_85);
       await expect(page).toHaveScreenshot(`skadis-closeup-${label}.png`, { clip, scale: "device" });
+    });
+
+    test(`${label}: two lines that nearly touch draw as one solid line, with no grey row between them (issue #370)`, async ({ page }) => {
+      await gotoDesign(page, ROUND_85);
+      const png = await page.screenshot({ clip });
+      expect(await countPinchedGrey(page, png, PINCH_BOXES[label])).toBe(0);
     });
   }
 });
