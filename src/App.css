@@ -1065,8 +1065,7 @@ a.build-label:focus-visible {
    centred content, rather than relying on padding/line-height/border to add
    up to the same number by coincidence. Repeated for the bigger mobile pill
    below. */
-.tag-auto,
-.tag-custom {
+.tag-auto {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1096,6 +1095,13 @@ a.build-label:focus-visible {
   border-radius: 2px;
   cursor: pointer;
   flex: none;
+  min-width: 7rem;
+}
+
+.customize-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .customize-btn:hover:not(:disabled) {
@@ -2011,8 +2017,7 @@ a.build-label:focus-visible {
 
   /* Keeps the top-cap "auto" tag matching the bigger mobile pill's own
      height (issue #131 AC), exactly like the desktop rule above. */
-  .tag-auto,
-  .tag-custom {
+  .tag-auto {
     height: 24px;
   }
 

@@ -99,7 +99,7 @@ test("advanced settings and the top-cap/joint/label/mount/print-bed controls all
     await expect(field.getByTestId("hint-btn")).toBeVisible();
   }
 
-  for (const heading of ["Top cap", "Joint", "Joint tolerance", "Customize", "Wall mount", "Bed X", "Bed Y", "Bed Z"]) {
+  for (const heading of ["Top cap", "Joint", "Joint tolerance", "Cap & base", "Wall mount", "Bed X", "Bed Y", "Bed Z"]) {
     const field = page.locator(".field").filter({ hasText: heading }).first();
     await expect(field.getByTestId("hint-btn"), `expected a hint on the "${heading}" field`).toBeVisible();
   }
