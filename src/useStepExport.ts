@@ -86,7 +86,7 @@ export function useStepExport({
     if (!current || current.specKey === specKey) return;
     current.controller.abort();
     run.current = null;
-    setState((prev) => prev && { ...prev, plan: [], stage: null, restarting: true });
+    setState((prev) => prev && { startedAt: Date.now(), plan: [], stage: null, restarting: true });
     setRestartPending(true);
   }, [specKey]);
 

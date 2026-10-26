@@ -320,7 +320,7 @@ export function ResultPanel({
   stepExport: StepExportState | null;
   onCancelStep: () => void;
 }) {
-  const cancelArmed = useCancelArmed(stepExport !== null);
+  const cancelArmed = useCancelArmed(stepExport?.startedAt ?? null);
   const { solution, notices, parts, resolution } = design;
   const { diagnosis } = solution;
   const totalTriangles = parts.reduce((n, p) => n + p.mesh.indices.length / 3, 0);
