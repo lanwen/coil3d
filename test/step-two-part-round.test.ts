@@ -174,10 +174,13 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
       STEP_TIMEOUT_MS,
     );
 
+    // Not 60: the OCCT fuse of the wall with the flange dominates these cases and grows with the wall's turns (issue #393); the clips and their layout are the same at 30.
+    const tclipSpec: CoilSpec = { ...plateSpec, height: { locked: true, value: 30 } };
+
     it(
       "STEP export of the SKÅDIS T-clips (issues #213, #221): the core with its bore floor and every clip as its own solid, each volume matching its own mesh",
       async () => {
-        const d = await design({ ...plateSpec, mount: "skadis-tclip" });
+        const d = await design({ ...tclipSpec, mount: "skadis-tclip" });
         expect(d.parts.filter((p) => p.role === "mountClip").length).toBe(3);
         const stepBytes = await exportDesign(d, "step");
         const { valid, solidVolumes } = await reimportStep(stepBytes, "reimport-skadis-tclips");
@@ -191,7 +194,7 @@ describe.sequential("STEP/OCCT export: round two-part designs (issue #32)", () =
     it(
       "STEP export of a single SKÅDIS T-clip in a small bore under a cap (issue #221): its fin stops under the collar, each volume matching its own mesh",
       async () => {
-        const d = await design({ ...plateSpec, mount: "skadis-tclip", coreSize: { locked: true, dimension: "outer", value: 40 }, topCap: "on" });
+        const d = await design({ ...tclipSpec, mount: "skadis-tclip", coreSize: { locked: true, dimension: "outer", value: 40 }, topCap: "on" });
         expect(d.parts.filter((p) => p.role === "mountClip").length).toBe(1);
         const stepBytes = await exportDesign(d, "step");
         const { valid, solidVolumes } = await reimportStep(stepBytes, "reimport-skadis-tclip-one");
