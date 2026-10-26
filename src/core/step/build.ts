@@ -48,6 +48,8 @@ import type { KeyholeSlot, ThroughHole } from "../mount";
 import { mountPlateLayoutFor as layoutFor, pegHoleOutline, pegSweep } from "../mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "../mountPlate";
 import { clipFrame, clipRings } from "../skadisClips";
+import { planStepStages } from "./progress";
+import type { StepProgressListener, StepStageId } from "./progress";
 import type { RimClip, SkadisClipLayout } from "../skadisClips";
 import { tclipPieceLevels } from "../skadisTclips";
 import type { SkadisTclipLayout, Tclip, TclipCutter } from "../skadisTclips";
@@ -484,13 +486,17 @@ function isInside(kernel: OpenCascadeInstance, solid: R.Shape3D, point: { x: num
   }
 }
 
-export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>> {
+export async function buildStep(design: Design, onProgress?: StepProgressListener): Promise<Uint8Array<ArrayBuffer>> {
+  const stage = (id: StepStageId) => onProgress?.({ kind: "stage", id });
+  onProgress?.({ kind: "plan", stages: planStepStages(design) });
+  stage("engine");
   const kernel = await getOC();
   const { wallSpec, flangeSpec } = design;
   const profile = createWallProfile(wallSpec);
   const { height, boreOutline } = wallSpec;
   const ts = wallColumnParams(wallSpec);
 
+  stage("wall");
   const NV = Math.max(MIN_V_SAMPLES, Math.round(V_SAMPLES_PER_PITCH * wallSpec.turns) + 1);
   const tube = design.faceChannels
     ? faceChannelTube(kernel, design.faceChannels, profile, ts, wallSpec)
@@ -499,6 +505,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
   let coreSolid = tube;
   let innerEndCutter: ReturnType<typeof buildInnerEndCutterSolid> | undefined;
   if (flangeSpec.thickness > 0) {
+    stage("flange");
     const flangeOuter = rimLoftSolid(flangeSpec.outline, chamferedRim(flangeSpec.margin, -flangeSpec.thickness, 0));
     const flangeInner = outlineSolid(flangeSpec.boreOutline, flangeSpec.thickness + 2, -flangeSpec.thickness - 1);
     const flange = flangeSpec.skadisTclip ? flangeOuter : flangeOuter.cut(flangeInner);
@@ -525,9 +532,11 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
       const [first, ...rest] = [loft(slot), ...prisms, ...leadIns.map(loft)];
       flangeSolid = checkedCut(kernel, flangeSolid, rest.reduce((acc, r) => acc.fuse(r), first));
     }
+    stage("join");
     coreSolid = tube.fuse(flangeSolid);
   }
 
+  stage("joints");
   const capJoint = resolveCapJoint(design.spec, withBoreThrough(design.wallSpec, design.flangeSpec.thickness));
   if (design.solution.topCapEnabled && (capJoint.joint === "bayonet" || capJoint.joint === "snap")) {
     coreSolid = applyCoreJointCutSolid(coreSolid, {
@@ -570,6 +579,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
 
   const topCapPart = design.parts.find((p) => p.role === "topCap");
   if (topCapPart) {
+    stage("topCap");
     const capSolid = await buildTopCapSolid(design);
     validateSolid(kernel, capSolid, topCapPart.mesh, topCapPart.name);
     shapes.push({ shape: capSolid, name: topCapPart.name });
@@ -577,6 +587,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
 
   const mountPlatePart = design.parts.find((p) => p.role === "mountPlate");
   if (mountPlatePart) {
+    stage("mountPlate");
     const plateSolid = buildMountPlateSolid(design);
     validateSolid(kernel, plateSolid, mountPlatePart.mesh, mountPlatePart.name);
     shapes.push({ shape: plateSolid, name: mountPlatePart.name });
@@ -584,6 +595,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
 
   const clipParts = design.parts.filter((p) => p.role === "mountClip");
   if (clipParts.length > 0 && flangeSpec.skadis) {
+    stage("clips");
     const layout = flangeSpec.skadis;
     clipParts.forEach((part, i) => {
       const clipSolid = skadisClipSolid(layout, layout.clips[i]);
@@ -594,6 +606,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
 
   const tclipParts = design.parts.filter((p) => p.role === "mountClip");
   if (tclipParts.length > 0 && flangeSpec.skadisTclip) {
+    stage("tclips");
     const layout = flangeSpec.skadisTclip;
     tclipParts.forEach((part, i) => {
       const clipSolid = skadisTclipSolid(layout, layout.clips[i]);
@@ -604,6 +617,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
 
   const pegParts = design.parts.filter((p) => p.role === "peg");
   if (pegParts.length > 0) {
+    stage("pegs");
     const { anchors } = mountPlateLayoutFor(design);
     pegParts.forEach((part, i) => {
       const pegSolid = sweepSolidStep(pegSweep(anchors[i], -flangeSpec.thickness));
@@ -612,6 +626,7 @@ export async function buildStep(design: Design): Promise<Uint8Array<ArrayBuffer>
     });
   }
 
+  stage("write");
   const blob = R.exportSTEP(shapes);
   return new Uint8Array(await blob.arrayBuffer());
 }

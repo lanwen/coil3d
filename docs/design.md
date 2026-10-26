@@ -1329,6 +1329,30 @@ replaceable file; [occt-source.md](occt-source.md) says where its source is.
 STEP output has not been opened in FreeCAD or Fusion. It has been read back
 with OCCT only.
 
+#### Progress, Cancel and restart
+
+A STEP build of a real design takes 15-35 s, most of it in the join of the wall
+with the flange, and OCCT reports no progress from inside that join. So the UI
+shows only what is known: which stage runs, and the elapsed time. There is no
+bar and no estimate, because the total is not known.
+
+- `buildStep` posts a plan first (the stages this design will run, so a design
+  without a cap or plate has no such stage), then each stage as it starts. The
+  messages are tagged: `plan`, `stage`, `done`, `error`. Posting is free of
+  side effects on the STEP bytes.
+- Stage ids are stable and the labels live in the UI. The clip, T-clip and peg
+  stages carry a count.
+- Cancel and a design change both abort the export. Abort terminates the
+  worker, because a synchronous WASM call cannot be interrupted by a message,
+  and rejects with an `AbortError`. A `done` that races the abort is ignored.
+  The next export starts a fresh worker.
+- A design change restarts the export for the new final design, so the file
+  that downloads is the design on screen. The elapsed timer keeps running
+  across the restart, because the user's total wait is what it measures.
+- The path without a Worker (Node and the tests) calls the same callback
+  synchronously and cannot be aborted mid-build. It checks the signal before it
+  starts and after it ends.
+
 ## URL hash
 
 The hash is `#s=<base64url(JSON)>` (`src/core/hash.ts`).

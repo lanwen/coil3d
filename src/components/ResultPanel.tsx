@@ -4,6 +4,8 @@ import type { CoilSpec, Design, MountKind, ShapeKind, Solution } from "../core";
 import { Section, mmToCm } from "./fields";
 import { Hint } from "./Hint";
 import { HINTS } from "./hints";
+import { StepElapsed, StepStages } from "./StepProgress";
+import type { StepExportState } from "../useStepExport";
 
 const MOUNT_LABELS: Record<MountKind, string> = {
   none: "None",
@@ -305,7 +307,8 @@ export function ResultPanel({
   onDownloadStl,
   onDownloadThreeMf,
   onDownloadStep,
-  stepBusy,
+  stepExport,
+  onCancelStep,
 }: {
   design: Design;
   spec: CoilSpec;
@@ -314,7 +317,8 @@ export function ResultPanel({
   onDownloadStl: () => void;
   onDownloadThreeMf: () => void;
   onDownloadStep: () => void;
-  stepBusy: boolean;
+  stepExport: StepExportState | null;
+  onCancelStep: () => void;
 }) {
   const { solution, notices, parts, resolution } = design;
   const { diagnosis } = solution;
@@ -397,9 +401,22 @@ export function ResultPanel({
         <button type="button" className="btn-primary" data-testid="download-3mf" onClick={onDownloadThreeMf} disabled={!finalReady}>
           Download 3MF
         </button>
-        <button type="button" className="btn-primary" data-testid="download-step" onClick={onDownloadStep} disabled={!finalReady || stepBusy}>
-          {stepBusy ? "Preparing STEP…" : "Download STEP"}
+        <button
+          type="button"
+          className={`btn-primary${stepExport ? " btn-busy" : ""}`}
+          data-testid="download-step"
+          onClick={onDownloadStep}
+          disabled={!finalReady || stepExport !== null}
+        >
+          {stepExport ? (
+            <>
+              Preparing STEP… <StepElapsed since={stepExport.startedAt} />
+            </>
+          ) : (
+            "Download STEP"
+          )}
         </button>
+        {stepExport && <StepStages state={stepExport} onCancel={onCancelStep} />}
       </Section>
     </>
   );

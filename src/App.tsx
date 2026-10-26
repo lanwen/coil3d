@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { exportDesign, parseHash, toHash } from "./core";
+import { useStepExport } from "./useStepExport";
 import type { CoilSpec, ViewMode } from "./core";
 import { useDesignPreview } from "./geometry/useDesignPreview";
 import { ControlsForm } from "./components/ControlsForm";
@@ -22,6 +23,18 @@ const FACES: FaceId[] = ["cap", "base"];
 interface CustomizeSession {
   draft: CoilSpec;
   face: FaceId;
+}
+
+function downloadBytes(bytes: Uint8Array<ArrayBuffer>, filename: string, type: string) {
+  const blob = new Blob([bytes], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function readInitialState() {
@@ -107,20 +120,13 @@ export default function App() {
     setFormKey((key) => key + 1);
   };
 
-  const [stepError, setStepError] = useState<string | null>(null);
-  const [stepBusy, setStepBusy] = useState(false);
-
-  const downloadBytes = (bytes: Uint8Array<ArrayBuffer>, filename: string, type: string) => {
-    const blob = new Blob([bytes], { type });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
+  const onStepBytes = useCallback((bytes: Uint8Array<ArrayBuffer>) => downloadBytes(bytes, "coil.step", "model/step"), []);
+  const {
+    state: stepExport,
+    error: stepError,
+    start: handleDownloadStep,
+    cancel: handleCancelStep,
+  } = useStepExport({ design: result, finalReady, spec: currentSpec, paused: customizing, onBytes: onStepBytes });
 
   const handleDownloadStl = async () => {
     if (!result || !finalReady) return;
@@ -133,20 +139,6 @@ export default function App() {
     if (!result || !finalReady) return;
     const bytes = await exportDesign(result, "3mf");
     downloadBytes(bytes, "coil.3mf", "model/3mf");
-  };
-
-  const handleDownloadStep = async () => {
-    if (!result || !finalReady) return;
-    setStepError(null);
-    setStepBusy(true);
-    try {
-      const bytes = await exportDesign(result, "step");
-      downloadBytes(bytes, "coil.step", "model/step");
-    } catch (err) {
-      setStepError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setStepBusy(false);
-    }
   };
 
   if (view === "guide") {
@@ -201,7 +193,8 @@ export default function App() {
               onDownloadStl={handleDownloadStl}
               onDownloadThreeMf={handleDownloadThreeMf}
               onDownloadStep={handleDownloadStep}
-              stepBusy={stepBusy}
+              stepExport={stepExport}
+              onCancelStep={handleCancelStep}
             />
           )}
           {stepError && !customizing && (

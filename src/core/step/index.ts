@@ -1,21 +1,37 @@
 import type { Design } from "../types";
+import type { StepOptions, StepWorkerMessage } from "./progress";
 
-interface WorkerResult {
-  ok: boolean;
-  bytes?: Uint8Array<ArrayBuffer>;
-  error?: string;
-}
+const abortError = () => new DOMException("STEP export aborted", "AbortError");
 
-function runInWorker(design: Design): Promise<Uint8Array<ArrayBuffer>> {
+function runInWorker(design: Design, { onProgress, signal }: StepOptions): Promise<Uint8Array<ArrayBuffer>> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError());
+      return;
+    }
     const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
-    worker.onmessage = (ev: MessageEvent<WorkerResult>) => {
+    const finish = () => {
+      signal?.removeEventListener("abort", onAbort);
       worker.terminate();
-      if (ev.data.ok && ev.data.bytes) resolve(ev.data.bytes);
-      else reject(new Error(ev.data.error ?? "STEP export failed in worker"));
+    };
+    const onAbort = () => {
+      finish();
+      reject(abortError());
+    };
+    signal?.addEventListener("abort", onAbort);
+    worker.onmessage = (ev: MessageEvent<StepWorkerMessage>) => {
+      if (signal?.aborted) return;
+      const message = ev.data;
+      if (message.kind === "plan" || message.kind === "stage") {
+        onProgress?.(message);
+        return;
+      }
+      finish();
+      if (message.kind === "done") resolve(message.bytes);
+      else reject(new Error(message.message));
     };
     worker.onerror = (ev: ErrorEvent) => {
-      worker.terminate();
+      finish();
       reject(new Error(ev.message || "STEP export worker error"));
     };
     worker.postMessage(design);
@@ -24,8 +40,11 @@ function runInWorker(design: Design): Promise<Uint8Array<ArrayBuffer>> {
 
 const hasWorkerSupport = () => typeof Worker !== "undefined";
 
-export async function exportStep(design: Design): Promise<Uint8Array<ArrayBuffer>> {
-  if (hasWorkerSupport()) return runInWorker(design);
+export async function exportStep(design: Design, options: StepOptions = {}): Promise<Uint8Array<ArrayBuffer>> {
+  if (hasWorkerSupport()) return runInWorker(design, options);
+  options.signal?.throwIfAborted();
   const { buildStep } = await import("./build");
-  return buildStep(design);
+  const bytes = await buildStep(design, options.onProgress);
+  options.signal?.throwIfAborted();
+  return bytes;
 }
