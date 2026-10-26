@@ -1869,9 +1869,11 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
 - The strap slots switch and the label switch live in the Customize panel, not the
   main form (issue #385). The strap slots are off by default, are one setting for the
   cap and the base, and show a note when a plate gets no slots.
-- Customize (a row in the main form, with a "Custom" tag while a label is set or the
-  strap slots are on) turns the viewer straight down onto the cap, or straight up onto
-  the base when there is no cap, and locks it: no rotation, no pan, zoom still works.
+- Customize (the "Cap & base" row in the main form, with a muted summary under its
+  label: `Label "text"`, `strap slots`, both joined with " · ", or "Nothing added", and
+  a button that reads "Customize", or "Edit" once something is set) turns the viewer
+  straight down onto the cap, or straight up onto the base when there is no cap, and
+  locks it: no rotation, no pan, zoom still works.
   The Cap / Base toggle replaces the preset bar and offers only the built faces. The
   panel edits a draft that previews live and reaches the hash only on Save. Cancel,
   Escape and the logo drop the draft. The viewer forces an isometric projection, no

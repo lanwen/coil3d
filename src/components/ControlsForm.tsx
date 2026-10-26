@@ -43,11 +43,32 @@ const MOUNT_KIND_OPTIONS: Array<{ id: Exclude<MountKind, "none">; label: string 
   { id: "skadis-tclip", label: "IKEA SKÅDIS T-clips: twist to lock" },
 ];
 
+const NOTHING_ADDED = "Nothing added";
 const CUSTOMIZE_DISABLED_NOTE = "Turn on the top cap or the base first: there is no face to customize yet.";
 
 const CORNER_RADIUS_STEP_MM = 0.5;
 const ROUND_CORNER_RADIUS_MAX_MM = 250;
 const CORE_SIZE_FLOOR_MM = 5;
+
+const SUMMARY_SEPARATOR = " \u00b7 ";
+
+function CustomizeSummary({ label, strapSlots }: { label: string | undefined; strapSlots: boolean }) {
+  const strapText = strapSlots ? `${label ? SUMMARY_SEPARATOR : ""}strap slots` : null;
+  const fullText = label ? `Label \u201c${label}\u201d${strapText ?? ""}` : (strapText ?? NOTHING_ADDED);
+  return (
+    <p className="field-note customize-summary" data-testid="customize-summary" title={label || strapSlots ? fullText : undefined}>
+      {label && (
+        <span className="customize-summary-label">
+          Label {"\u201c"}
+          <span className="customize-summary-text">{label}</span>
+          {"\u201d"}
+        </span>
+      )}
+      {strapText && <span className="customize-summary-strap">{strapText}</span>}
+      {!label && !strapSlots && NOTHING_ADDED}
+    </p>
+  );
+}
 
 const ceilToStep = (mm: number) => Math.ceil(mm / CORNER_RADIUS_STEP_MM) * CORNER_RADIUS_STEP_MM;
 const floorToStep = (mm: number) => Math.floor(mm / CORNER_RADIUS_STEP_MM) * CORNER_RADIUS_STEP_MM;
@@ -99,7 +120,8 @@ export function ControlsForm({
   const bayonetUnavailable = spec.shape.kind !== "round";
   const jointHint = bayonetUnavailable ? `${HINTS.joint} Twist lock needs a round core.` : HINTS.joint;
 
-  const customized = !!spec.label?.trim() || spec.strapSlots === true;
+  const customizeLabel = spec.label?.trim() || undefined;
+  const customizeStrapSlots = spec.strapSlots === true;
   const customizeHint = canCustomize ? HINTS.customize : `${HINTS.customize} ${CUSTOMIZE_DISABLED_NOTE}`;
 
   const setShapeKind = (kind: ShapeKind) => {
@@ -443,18 +465,14 @@ export function ControlsForm({
         )}
         <div className="field">
           <div className="field-top">
-            <FieldTop label="Customize" hint={customizeHint} />
+            <FieldTop label="Cap & base" hint={customizeHint} />
             <span className="cap-toggle-row">
-              {customized && (
-                <span className="tag-custom" data-testid="customize-custom-tag">
-                  Custom
-                </span>
-              )}
               <button type="button" className="customize-btn" data-testid="customize-open" disabled={!canCustomize} onClick={onCustomize}>
-                Customize
+                {customizeLabel || customizeStrapSlots ? "Edit" : "Customize"}
               </button>
             </span>
           </div>
+          <CustomizeSummary label={customizeLabel} strapSlots={customizeStrapSlots} />
         </div>
       </Section>
 

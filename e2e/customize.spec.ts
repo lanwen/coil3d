@@ -5,7 +5,7 @@ import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 import { expectSettled } from "./settled";
 
 // End-to-end checks for the Customize view (issue #385, part 2 of #382): the
-// row and tag in the main form, the locked cap or base view, the draft that
+// row and summary in the main form, the locked cap or base view, the draft that
 // only reaches the hash on Save, and the way back to the previous view.
 
 // Six layers on a 30 mm core, so the cap has room for a label.
@@ -39,40 +39,138 @@ async function dragAcross(page: Page) {
   await expectSettled(page);
 }
 
-test.describe("the Customize row and its Custom tag", () => {
-  test("the tag shows exactly when a label is set or the strap slots are on", async ({ page }) => {
-    await gotoDesign(page, CAP_AND_BASE);
-    await expect(page.getByTestId("customize-open")).toBeEnabled();
-    await expect(page.getByTestId("customize-custom-tag")).toHaveCount(0);
+const NOTHING_ADDED = "Nothing added";
 
+test.describe("the Cap & base row and its summary", () => {
+  const summaryOf = (page: Page) => page.getByTestId("customize-summary");
+  const buttonOf = (page: Page) => page.getByTestId("customize-open");
+
+  test("with nothing set the summary says so and the button offers Customize", async ({ page }) => {
+    await gotoDesign(page, CAP_AND_BASE);
+    await expect(buttonOf(page)).toBeEnabled();
+    await expect(buttonOf(page)).toHaveText("Customize");
+    await expect(summaryOf(page)).toHaveText(NOTHING_ADDED);
+  });
+
+  test("a label alone is summarised, and the button reads Edit", async ({ page }) => {
+    await gotoDesign(page, withHashDoc(CAP_AND_BASE, { label: "USB-C 2m" }));
+    await expect(summaryOf(page)).toHaveText("Label \u201cUSB-C 2m\u201d");
+    await expect(buttonOf(page)).toHaveText("Edit");
+  });
+
+  test("strap slots alone are summarised, and the button reads Edit", async ({ page }) => {
+    await gotoDesign(page, withHashDoc(CAP_AND_BASE, { strap: true }));
+    await expect(summaryOf(page)).toHaveText("strap slots");
+    await expect(buttonOf(page)).toHaveText("Edit");
+  });
+
+  test("a label and strap slots are joined with a middle dot", async ({ page }) => {
+    await gotoDesign(page, withHashDoc(CAP_AND_BASE, { label: "USB-C 2m", strap: true }));
+    await expect(summaryOf(page)).toHaveText("Label \u201cUSB-C 2m\u201d \u00b7 strap slots");
+    await expect(buttonOf(page)).toHaveText("Edit");
+  });
+
+  test("a label that is only blanks counts as no label", async ({ page }) => {
+    await gotoDesign(page, withHashDoc(CAP_AND_BASE, { label: "   " }));
+    await expect(summaryOf(page)).toHaveText(NOTHING_ADDED);
+    await expect(buttonOf(page)).toHaveText("Customize");
+  });
+
+  for (const width of [1280, 390]) {
+    test(`a long label is cut with an ellipsis on one line at ${width} px, and its full text is the tooltip`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 844 });
+      const long = "MMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMM";
+      await gotoDesign(page, withHashDoc(CAP_AND_BASE, { label: long, strap: true }));
+      const summary = summaryOf(page);
+      await expect(summary).toHaveAttribute("title", `Label \u201c${long}\u201d \u00b7 strap slots`);
+      await expect(summary).toContainText("\u201d \u00b7 strap slots");
+      await expect(summary.locator(".customize-summary-strap")).toBeVisible();
+      const metrics = await summary.evaluate((el) => {
+        const text = el.querySelector<HTMLElement>(".customize-summary-text")!;
+        const strap = el.querySelector<HTMLElement>(".customize-summary-strap")!;
+        const quote = el.querySelector<HTMLElement>(".customize-summary-label")!;
+        const box = el.getBoundingClientRect();
+        const strapBox = strap.getBoundingClientRect();
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.5;
+        return {
+          labelCut: text.scrollWidth > text.clientWidth,
+          ellipsis: getComputedStyle(text).textOverflow === "ellipsis",
+          lines: Math.round(box.height / lineHeight),
+          strapInside: strapBox.right <= box.right + 0.5 && strapBox.left >= quote.getBoundingClientRect().right - 0.5,
+          strapWhole: strap.scrollWidth <= strap.clientWidth,
+          summaryFits: el.scrollWidth <= el.clientWidth,
+          rowFits: el.parentElement!.scrollWidth <= el.parentElement!.clientWidth,
+        };
+      });
+      expect(metrics).toEqual({ labelCut: true, ellipsis: true, lines: 1, strapInside: true, strapWhole: true, summaryFits: true, rowFits: true });
+    });
+  }
+
+  test("Save updates the summary and the button", async ({ page }) => {
+    await gotoDesign(page, CAP_AND_BASE);
     await openCustomize(page);
     await page.getByTestId("label-enabled").check();
-    await saveCustomize(page);
-    await expect(page.getByTestId("customize-custom-tag")).toHaveCount(0);
-
-    await openCustomize(page);
     await page.getByTestId("input-label").fill("USB-C");
+    await page.getByTestId("strap-slots").check();
     await saveCustomize(page);
-    await expect(page.getByTestId("customize-custom-tag")).toHaveText("Custom");
+    await expect(summaryOf(page)).toHaveText("Label \u201cUSB-C\u201d \u00b7 strap slots");
+    await expect(buttonOf(page)).toHaveText("Edit");
 
     await openCustomize(page);
     await page.getByTestId("label-enabled").uncheck();
+    await page.getByTestId("strap-slots").uncheck();
     await saveCustomize(page);
-    await expect(page.getByTestId("customize-custom-tag")).toHaveCount(0);
+    await expect(summaryOf(page)).toHaveText(NOTHING_ADDED);
+    await expect(buttonOf(page)).toHaveText("Customize");
+  });
 
+  test("Cancel leaves the summary and the button as they were", async ({ page }) => {
+    await gotoDesign(page, withHashDoc(CAP_AND_BASE, { label: "USB-C" }));
+    await openCustomize(page);
+    await page.getByTestId("input-label").fill("Changed");
+    await page.getByTestId("strap-slots").check();
+    await cancelCustomize(page);
+    await expect(summaryOf(page)).toHaveText("Label \u201cUSB-C\u201d");
+    await expect(buttonOf(page)).toHaveText("Edit");
+
+    await page.goto("about:blank");
+    await gotoDesign(page, CAP_AND_BASE);
     await openCustomize(page);
     await page.getByTestId("strap-slots").check();
-    await saveCustomize(page);
-    await expect(page.getByTestId("customize-custom-tag")).toBeVisible();
+    await cancelCustomize(page);
+    await expect(summaryOf(page)).toHaveText(NOTHING_ADDED);
+    await expect(buttonOf(page)).toHaveText("Customize");
   });
 
-  test("a link with a label or strap slots shows the tag on load", async ({ page }) => {
-    await gotoDesign(page, withHashDoc(CAP_AND_BASE, { label: "USB-C" }));
-    await expect(page.getByTestId("customize-custom-tag")).toBeVisible();
-    await page.goto("about:blank");
-    await gotoDesign(page, withHashDoc(CAP_AND_BASE, { strap: true }));
-    await expect(page.getByTestId("customize-custom-tag")).toBeVisible();
-  });
+  for (const [name, size] of [["desktop", { width: 1280, height: 800 }], ["phone", { width: 390, height: 844 }]] as const) {
+    test(`the button text and the summary fit their boxes with room to spare at ${name} width`, async ({ page }) => {
+      await page.setViewportSize(size);
+      const widths: number[] = [];
+      for (const doc of [CAP_AND_BASE, withHashDoc(CAP_AND_BASE, { label: "USB-C 2m", strap: true })]) {
+        await gotoDesign(page, doc);
+        const fit = await page.evaluate(() => {
+          const button = document.querySelector<HTMLElement>('[data-testid="customize-open"]')!;
+          const summary = document.querySelector<HTMLElement>('[data-testid="customize-summary"]')!;
+          const range = document.createRange();
+          range.selectNodeContents(button);
+          const style = getComputedStyle(button);
+          const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight);
+          return {
+            buttonFits: button.scrollWidth <= button.clientWidth,
+            summaryFits: summary.scrollWidth <= summary.clientWidth,
+            spare: button.clientWidth - padding - range.getBoundingClientRect().width,
+            width: button.getBoundingClientRect().width,
+          };
+        });
+        expect(fit.buttonFits).toBe(true);
+        expect(fit.summaryFits).toBe(true);
+        expect(fit.spare, "the button text keeps at least 12 px of room").toBeGreaterThanOrEqual(12);
+        widths.push(fit.width);
+        await page.goto("about:blank");
+      }
+      expect(widths[0], "the button keeps its width between Customize and Edit").toBe(widths[1]);
+    });
+  }
 
   test("with neither a cap nor a base the button is disabled and its hint says why", async ({ page }) => {
     await page.goto("/");
@@ -210,7 +308,7 @@ test.describe("the draft, Save and Cancel", () => {
       await expect(page.getByTestId("customize-panel")).toHaveCount(0);
 
       expect(new URL(page.url()).hash).toBe(hashBefore);
-      await expect(page.getByTestId("customize-custom-tag")).toHaveCount(0);
+      await expect(page.getByTestId("customize-summary")).toHaveText(NOTHING_ADDED);
       await expect(page.getByTestId("preset-front")).toHaveAttribute("aria-pressed", "true");
       await expect(page.getByTestId("toggle-exploded")).toBeChecked();
       await expect(page.getByTestId("toggle-projection")).toBeChecked();
@@ -402,9 +500,9 @@ test.describe("customize screenshots", () => {
     await expect(page).toHaveScreenshot("customize-phone.png", { fullPage: true });
   });
 
-  test("the main form with the Custom tag", async ({ page }) => {
+  test("the Cap & base row with its summary and Edit", async ({ page }) => {
     await gotoDesign(page, withHashDoc(SQUARE, { label: "USB-C 2m", strap: true }));
     const section = page.locator("section.ctl-section").filter({ has: page.getByTestId("customize-open") });
-    await expect(section).toHaveScreenshot("customize-form-custom-tag.png");
+    await expect(section).toHaveScreenshot("customize-form-summary.png");
   });
 });
