@@ -596,6 +596,24 @@ side: 18 mm to the winding surface); the 30 mm default is raised.
     because an edge refused once may be safe after its neighbours collapse. It
     reports how many it could not collapse (`stuck`: 0 on every design the
     tests sample).
+  - The core's bore rim (#381). Where a flange pad meets the bore, the booleans
+    leave the pad's face a few thousandths of a millimetre off the wall's, and
+    the rim gets a ledge of triangles 0.2 to 1 degree wide whose edges are
+    0.02 to 0.3 mm long, longer than the epsilon, so the pass above leaves
+    them. A triangle narrower than a pixel is drawn or skipped depending on
+    where the camera lands, and the line-art pass inks the pixel it covers and
+    its neighbours: a dot on the bore wall in some framings. So on the core
+    (not the cap, whose label triangles go through the origin map) the weld
+    also collapses the edges of any triangle under 2 degrees that lies within
+    1 mm of the bore and touches the top, the floor or the underside, whatever
+    their length, thinnest triangle first. The two surfaces that meet there are
+    tessellated apart by up to 0.06 mm, so a collapse must keep every vertex
+    within 0.07 mm of the triangles it leaves, change the enclosed volume by at
+    most 0.2 mm³ (a long fan down a tall wall, which would shift the wall, is
+    left alone), and leave the worst triangle around it no thinner than the
+    worst before it or than 2 degrees.
+    `test/channelMouth.test.ts` checks the result: no angle under 1 degree and
+    no edge under 0.05 mm there.
 - The label is cut as one `CrossSection` with the NonZero fill rule, which
   turns a letter's outer and inner contour ("O") into a ring without any
   separate hole bookkeeping. It is extruded from 1 mm above the cap's top

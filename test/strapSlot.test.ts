@@ -507,7 +507,8 @@ describe("strap slots when they don't apply or don't fit", () => {
 
   it("with the toggle off the design has no slots and the meshes are the ones main builds", async () => {
     // Issue #321 added the wall's 0.5 mm columns at the groove's two ends on every design: 4910, 8900 and 9254 triangles before, and the volumes moved by under 0.06 %.
-    const golden: Record<string, [number, number]> = { round: [6868, 21752.664674428674], sq: [10328, 22865.01246339057], tri: [10624, 25693.480450518793] };
+    // Issue #381 collapses the needle triangles at the bore rim: round -86 triangles and +0.30 mm^3, sq -66 and +0.08 mm^3, tri -88 and +0.06 mm^3.
+    const golden: Record<string, [number, number]> = { round: [6782, 21752.965920586124], sq: [10262, 22865.09024721125], tri: [10536, 25693.539942399853] };
     const goldenShapes: ShapeSpec[] = [{ kind: "round" }, { kind: "sq", cornerRadius: 10 }, { kind: "tri", cornerRadius: 10 }];
     for (const shape of goldenShapes) {
       const lockedSpec = baseSpec({ shape, coreSize: LOCKED_CORE, height: { locked: false }, wire: { length: 3000, diameter: 3, type: "usb" } });
