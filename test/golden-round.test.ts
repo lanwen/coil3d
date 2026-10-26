@@ -119,6 +119,8 @@ describe("round core matches main's golden numbers for a fixed hash (issue #6 re
     //
     // Issue #321 bumped it DOWN from 47662.79405807795 (by 85.89 mm^3): the top channel's lip opening and the groove's
     // lead under the channel take material out of the wall, and the channel's floor curves into the hole in a quarter round.
-    expect(meshVolume(d.mesh)).toBeCloseTo(47576.90229414384, 3);
+    //
+    // Issue #381 bumped it UP from 47576.90229414384 (by 0.147 mm^3): it collapses the needle triangles at the bore rim.
+    expect(meshVolume(d.mesh)).toBeCloseTo(47577.0496964932, 3);
   });
 });

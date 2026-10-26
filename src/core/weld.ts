@@ -11,11 +11,26 @@ const MIN_NORMAL_COS = 0.2;
 
 export const NEEDLE_HEIGHT = 1e-3;
 
+export const RIM_NEEDLE_ANGLE_DEG = 2;
+
+export const RIM_NEEDLE_DEVIATION = 0.07;
+
+export const RIM_NEEDLE_VOLUME = 0.2;
+
+export type Corner = [number, number, number];
+
+export interface NeedleRule {
+  minAngleDeg: number;
+  maxDeviation: number;
+  maxVolume: number;
+  at(a: Corner, b: Corner, c: Corner): boolean;
+}
+
 const FOLD_COS = Math.cos((8 * Math.PI) / 180);
 
 const TURN_COS = Math.cos(Math.PI / 180);
 
-export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): { mesh: CoilMesh; origin: Uint32Array; stuck: number } {
+export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON, needles?: NeedleRule): { mesh: CoilMesh; origin: Uint32Array; stuck: number } {
   let pos = mesh.positions;
   const tr = new Uint32Array(mesh.indices);
   const triCount = tr.length / 3;
@@ -35,13 +50,44 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
       }
     }
   }
-  if (queueU.length === 0) return { mesh, origin: Uint32Array.from({ length: triCount }, (_, t) => t), stuck: 0 };
+  const minAngleRad = needles ? (needles.minAngleDeg * Math.PI) / 180 : 0;
+  const cornerOf = (v: number): Corner => [pos[3 * v], pos[3 * v + 1], pos[3 * v + 2]];
+  const minAngleOf = (a: number, b: number, c: number): number => {
+    const [ux, uy, uz] = [pos[3 * b] - pos[3 * a], pos[3 * b + 1] - pos[3 * a + 1], pos[3 * b + 2] - pos[3 * a + 2]];
+    const [vx, vy, vz] = [pos[3 * c] - pos[3 * a], pos[3 * c + 1] - pos[3 * a + 1], pos[3 * c + 2] - pos[3 * a + 2]];
+    const twiceArea = Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
+    const [ab, bc, ca] = [Math.sqrt(squared(a, b)), Math.sqrt(squared(b, c)), Math.sqrt(squared(c, a))];
+    return Math.asin(Math.min(1, twiceArea / (ab * ca), twiceArea / (ab * bc), twiceArea / (bc * ca)));
+  };
+  const isRimNeedle = (a: number, b: number, c: number): boolean =>
+    needles !== undefined && !(minAngleOf(a, b, c) >= minAngleRad) && needles.at(cornerOf(a), cornerOf(b), cornerOf(c));
+  const needleEdges: Array<{ u: number; v: number; angle: number }> = [];
+  if (needles) {
+    const queued = new Set<number>(queueU.map((u, i) => u * vertexCount + queueV[i]));
+    for (let t = 0; t < triCount; t++) {
+      if (!isRimNeedle(tr[3 * t], tr[3 * t + 1], tr[3 * t + 2])) continue;
+      const angle = minAngleOf(tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]);
+      for (let e = 0; e < 3; e++) {
+        const [a, b] = [tr[3 * t + e], tr[3 * t + ((e + 1) % 3)]];
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        if (queued.has(lo * vertexCount + hi)) continue;
+        queued.add(lo * vertexCount + hi);
+        needleEdges.push({ u: lo, v: hi, angle });
+      }
+    }
+  }
+  if (queueU.length === 0 && needleEdges.length === 0) return { mesh, origin: Uint32Array.from({ length: triCount }, (_, t) => t), stuck: 0 };
   const byLength = Uint32Array.from({ length: queueU.length }, (_, i) => i).sort((i, j) => squared(queueU[i], queueV[i]) - squared(queueU[j], queueV[j]));
   const [sortedU, sortedV] = [Array.from(byLength, (i) => queueU[i]), Array.from(byLength, (i) => queueV[i])];
   queueU.length = 0;
   queueV.length = 0;
   queueU.push(...sortedU);
   queueV.push(...sortedV);
+  needleEdges.sort((x, y) => x.angle - y.angle);
+  for (const { u, v } of needleEdges) {
+    queueU.push(u);
+    queueV.push(v);
+  }
 
   const start = new Uint32Array(vertexCount + 1);
   for (let i = 0; i < tr.length; i++) start[tr[i] + 1]++;
@@ -74,7 +120,7 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
   };
 
   const gone = new Uint8Array(vertexCount);
-  const collapse = (u: number, v: number, middle = false): boolean => {
+  const collapse = (u: number, v: number, middle = false, rim = false): boolean => {
     const ofU = trianglesOf(u);
     const ofV = trianglesOf(v);
     const onEdge = ofU.filter((t) => ofV.includes(t));
@@ -141,6 +187,7 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
         }
       }
     }
+    if (rim && !rimCollapseKeepsShape(u, v, movers, onEdge)) return refuse();
     for (const t of onEdge) alive[t] = 0;
     for (const t of ofU) {
       if (!alive[t]) continue;
@@ -156,7 +203,50 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
       }
     }
     gone[u] = 1;
+    queueRimNeedlesAt(v);
     return true;
+  };
+
+  const signedVolume = (a: number, b: number, c: number): number =>
+    (pos[3 * a] * (pos[3 * b + 1] * pos[3 * c + 2] - pos[3 * b + 2] * pos[3 * c + 1]) -
+      pos[3 * a + 1] * (pos[3 * b] * pos[3 * c + 2] - pos[3 * b + 2] * pos[3 * c]) +
+      pos[3 * a + 2] * (pos[3 * b] * pos[3 * c + 1] - pos[3 * b + 1] * pos[3 * c])) /
+    6;
+
+  const rimCollapseKeepsShape = (u: number, v: number, movers: number[], onEdge: number[]): boolean => {
+    if (!needles) return false;
+    if (slideDeviation(u, v) > needles.maxDeviation || slideDeviation(v, u) > needles.maxDeviation) return false;
+    let volumeChange = 0;
+    for (const t of onEdge) volumeChange -= signedVolume(tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]);
+    for (const t of movers) {
+      const [a, b, c] = [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]];
+      volumeChange += signedVolume(a === u ? v : a, b === u ? v : b, c === u ? v : c) - signedVolume(a, b, c);
+    }
+    if (Math.abs(volumeChange) > needles.maxVolume) return false;
+    let worstBefore = minAngleRad;
+    let worstAfter = Infinity;
+    for (const t of [...onEdge, ...movers]) {
+      const [a, b, c] = [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]];
+      worstBefore = Math.min(worstBefore, minAngleOf(a, b, c));
+      if (onEdge.includes(t)) continue;
+      const [a2, b2, c2] = [a === u ? v : a, b === u ? v : b, c === u ? v : c];
+      const angleAfter = minAngleOf(a2, b2, c2);
+      worstAfter = Math.min(worstAfter, angleAfter);
+      if (angleAfter < minAngleRad || minAngleOf(a, b, c) < minAngleRad) continue;
+      const [nBefore, nAfter] = [normalOf(a, b, c), normalOf(a2, b2, c2)];
+      if (nBefore[0] * nAfter[0] + nBefore[1] * nAfter[1] + nBefore[2] * nAfter[2] < TURN_COS * Math.hypot(...nBefore) * Math.hypot(...nAfter)) return false;
+    }
+    return worstAfter >= worstBefore;
+  };
+
+  const queueRimNeedlesAt = (v: number) => {
+    if (!needles) return;
+    for (const t of trianglesOf(v)) {
+      const [a, b, c] = [tr[3 * t], tr[3 * t + 1], tr[3 * t + 2]];
+      if (!isRimNeedle(a, b, c)) continue;
+      queueU.push(a, b, c);
+      queueV.push(b, c, a);
+    }
   };
 
   const slideDeviation = (p: number, q: number): number => {
@@ -212,8 +302,14 @@ export function weldShortEdges(mesh: CoilMesh, epsilon: number = WELD_EPSILON): 
     for (let i = 0; i < queueU.length; i++) {
       const [u, v] = [queueU[i], queueV[i]];
       if (gone[u] || gone[v]) continue;
-      if (collapse(u, v) || collapse(v, u)) {
+      const rim = needles !== undefined && squared(u, v) >= limit;
+      if (collapse(u, v, false, rim) || collapse(v, u, false, rim)) {
         round++;
+        continue;
+      }
+      if (rim) {
+        leftU.push(u);
+        leftV.push(v);
         continue;
       }
       if (dropTip(u, v)) {

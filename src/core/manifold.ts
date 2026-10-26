@@ -29,7 +29,8 @@ import type { FaceOp } from "./face/types";
 import { layoutKeyholeMount, throughHoleCountersink, throughHoleSinkThickness } from "./mount";
 import { layoutFlangePads, layoutFlangeThroughHoles, plateTopZ } from "./flangePads";
 import { FLAT_FACE_MAX_EDGE, improveFlatFaces } from "./flatFaces";
-import { weldShortEdges } from "./weld";
+import { boreRimNeedles } from "./boreRim";
+import { WELD_EPSILON, weldShortEdges } from "./weld";
 import type { KeyholeSlot, ThroughHole } from "./mount";
 import { pegHoleOutline, pegSweep } from "./mountPlate";
 import type { AnchorPoint, ClipInstance, MountPlateLayout } from "./mountPlate";
@@ -467,8 +468,9 @@ export async function fuseFlange(
     }
 
     const outMesh = track(fused.refineToLength(FLAT_FACE_MAX_EDGE)).getMesh();
+    const coreTop = wall.positions.reduce((top, value, i) => (i % 3 === 2 ? Math.max(top, value) : top), -Infinity);
     const mesh = improveFlatFaces(
-      weldShortEdges(coilMeshOf(outMesh)).mesh,
+      weldShortEdges(coilMeshOf(outMesh), WELD_EPSILON, boreRimNeedles(flange.boreOutline, [0, -flange.thickness, coreTop])).mesh,
       { horizontalOnly: true },
     );
     if (bare) return mesh;
