@@ -190,6 +190,17 @@ test.describe("STEP progress screenshots, with a scripted build (issues #396, #3
   });
 
   test("a double-click on Download STEP starts the export and does not cancel it", async ({ page }) => {
+    // The 600 ms arm timer is held until released, so a slow run cannot arm Cancel before the checks.
+    await page.addInitScript(() => {
+      const held: (() => void)[] = [];
+      const realSetTimeout = window.setTimeout.bind(window);
+      window.setTimeout = ((handler: () => void, ms?: number, ...args: unknown[]) => {
+        if (ms !== 600) return realSetTimeout(handler, ms, ...args);
+        held.push(handler);
+        return 0;
+      }) as typeof window.setTimeout;
+      (window as unknown as { __releaseArmTimer: () => void }).__releaseArmTimer = () => held.splice(0).forEach((handler) => handler());
+    });
     await openDesign(page, DESIGN);
     await stepButton(page).dblclick();
     await expect(page.getByTestId("step-stages")).toBeVisible();
@@ -197,6 +208,7 @@ test.describe("STEP progress screenshots, with a scripted build (issues #396, #3
     await expect(stepButton(page)).not.toHaveAttribute("data-armed");
     await expect(page.getByTestId("step-label-cancel")).toBeHidden();
 
+    await page.evaluate(() => (window as unknown as { __releaseArmTimer: () => void }).__releaseArmTimer());
     await expect(stepButton(page)).toHaveAttribute("data-armed", "");
     await expect(page.getByTestId("step-stage-join")).toHaveAttribute("data-state", "current");
     await expect(page.getByTestId("step-stage-wall")).toHaveAttribute("data-state", "done");
