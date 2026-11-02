@@ -1,4 +1,4 @@
-import { useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, Notice, ShapeKind, Solution, WireTypeId } from "../core";
 import {
   BED_SIZE_MAX,
@@ -83,6 +83,7 @@ export function ControlsForm({
   spec,
   solution,
   notices,
+  fitsBed,
   canCustomize,
   onCustomize,
   onChange,
@@ -90,6 +91,7 @@ export function ControlsForm({
   spec: CoilSpec;
   solution?: Solution;
   notices: Notice[];
+  fitsBed?: boolean;
   canCustomize: boolean;
   onCustomize: () => void;
   onChange: (next: CoilSpec) => void;
@@ -146,6 +148,12 @@ export function ControlsForm({
   const coreSizeLockDisabled = !spec.coreSize.locked && lockedCount >= 2;
   const heightLockDisabled = !spec.height.locked && lockedCount >= 2;
   const layersLockDisabled = !spec.layers.locked && lockedCount >= 2;
+
+  const overBed = fitsBed === false;
+  const [bedOpen, setBedOpen] = useState(overBed);
+  useEffect(() => {
+    if (overBed) setBedOpen(true);
+  }, [overBed]);
 
   const topCapOn = spec.topCap === "on";
 
@@ -320,6 +328,75 @@ export function ControlsForm({
         />
       </Section>
 
+      <Section title="Cap & base">
+        <div className="field">
+          <div className="field-top">
+            <FieldTop label="Top cap" hint={HINTS.topCap} />
+            <Switch
+              testId="topCap"
+              ariaLabel="Top cap"
+              checked={topCapOn}
+              title={`${topCapOn ? "On" : "Off"} - click to change`}
+              onChange={(checked) => onChange({ ...spec, topCap: checked ? "on" : "off" })}
+            />
+          </div>
+        </div>
+        {topCapOn && (
+          <div className="field">
+            <FieldTop label="Joint" hint={HINTS.joint} htmlFor={jointId} />
+            <select
+              id={jointId}
+              className="field-select"
+              data-testid="select-joint"
+              value={spec.joint}
+              aria-describedby={jointFallbackNote ? jointNoteId : undefined}
+              onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}
+            >
+              {JOINT_OPTIONS.map((opt) => (
+                <option key={opt.id} value={opt.id} disabled={opt.id === "bayonet" && bayonetUnavailable}>
+                  {opt.id === "bayonet" && bayonetUnavailable && !(jointFallbackNote && spec.joint === opt.id) ? `${opt.label} (round core only)` : opt.label}
+                </option>
+              ))}
+            </select>
+            {jointFallbackNote && (
+              <p className="field-note" id={jointNoteId} data-testid="joint-fallback-note">
+                {jointFallbackNote}
+              </p>
+            )}
+          </div>
+        )}
+        <div className="field">
+          <div className="field-top">
+            <FieldTop label="Base" hint={HINTS.base} />
+            <Switch
+              testId="base"
+              ariaLabel="Base"
+              checked={baseOn}
+              disabled={mountOn}
+              describedBy={mountOn ? baseNoteId : undefined}
+              title={mountOn ? BASE_FORCED_NOTE : `${baseOn ? "On" : "Off"} - click to change`}
+              onChange={(checked) => onChange({ ...spec, base: checked ? "on" : "off" })}
+            />
+          </div>
+          {mountOn && (
+            <p className="field-note" id={baseNoteId} data-testid="base-forced-note">
+              {BASE_FORCED_NOTE}
+            </p>
+          )}
+        </div>
+        <div className="field">
+          <div className="field-top">
+            <FieldTop label="Cap & base" hint={HINTS.customize} />
+            <span className="cap-toggle-row">
+              <button type="button" className="customize-btn" data-testid="customize-open" disabled={!canCustomize} onClick={onCustomize}>
+                {customizeLabel || customizeStrapSlots ? "Edit" : "Customize"}
+              </button>
+            </span>
+          </div>
+          <CustomizeSummary label={customizeLabel} strapSlots={customizeStrapSlots} canCustomize={canCustomize} />
+        </div>
+      </Section>
+
       <Section title="Mount">
         <div className="field">
           <div className="field-top">
@@ -394,6 +471,20 @@ export function ControlsForm({
         )}
       </Section>
 
+      <details className="disclosure print-bed" data-testid="print-bed" open={bedOpen} onToggle={(e) => setBedOpen(e.currentTarget.open)}>
+        <summary className="advanced-summary">
+          <span>Print bed</span>
+          <span className="advanced-summary-value" data-testid="print-bed-summary">
+            {spec.print.bedX} × {spec.print.bedY} × {spec.print.bedZ} <span className="field-unit">mm</span>
+          </span>
+        </summary>
+        <div className="advanced-body">
+          <RangeField testId="bedX" label="Bed X" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedX} hint={HINTS.bedX} onChange={(v) => setPrint({ bedX: v })} />
+          <RangeField testId="bedY" label="Bed Y" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedY} hint={HINTS.bedY} onChange={(v) => setPrint({ bedY: v })} />
+          <RangeField testId="bedZ" label="Bed Z" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedZ} hint={HINTS.bedZ} onChange={(v) => setPrint({ bedZ: v })} />
+        </div>
+      </details>
+
       <details className="advanced">
         <summary className="advanced-summary">Advanced settings</summary>
         <div className="advanced-body">
@@ -408,65 +499,7 @@ export function ControlsForm({
             hint={HINTS.windingQuality}
             onChange={(v) => onChange({ ...spec, windingQuality: v })}
           />
-        </div>
-      </details>
-
-      <Section title="Base, top cap & joint">
-        <div className="field">
-          <div className="field-top">
-            <FieldTop label="Base" hint={HINTS.base} />
-            <Switch
-              testId="base"
-              ariaLabel="Base"
-              checked={baseOn}
-              disabled={mountOn}
-              describedBy={mountOn ? baseNoteId : undefined}
-              title={mountOn ? BASE_FORCED_NOTE : `${baseOn ? "On" : "Off"} - click to change`}
-              onChange={(checked) => onChange({ ...spec, base: checked ? "on" : "off" })}
-            />
-          </div>
-          {mountOn && (
-            <p className="field-note" id={baseNoteId} data-testid="base-forced-note">
-              {BASE_FORCED_NOTE}
-            </p>
-          )}
-        </div>
-        <div className="field">
-          <div className="field-top">
-            <FieldTop label="Top cap" hint={HINTS.topCap} />
-            <Switch
-              testId="topCap"
-              ariaLabel="Top cap"
-              checked={topCapOn}
-              title={`${topCapOn ? "On" : "Off"} - click to change`}
-              onChange={(checked) => onChange({ ...spec, topCap: checked ? "on" : "off" })}
-            />
-          </div>
-        </div>
-        {topCapOn && (
-          <>
-            <div className="field">
-              <FieldTop label="Joint" hint={HINTS.joint} htmlFor={jointId} />
-              <select
-                id={jointId}
-                className="field-select"
-                data-testid="select-joint"
-                value={spec.joint}
-                aria-describedby={jointFallbackNote ? jointNoteId : undefined}
-                onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}
-              >
-                {JOINT_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id} disabled={opt.id === "bayonet" && bayonetUnavailable}>
-                    {opt.id === "bayonet" && bayonetUnavailable && !(jointFallbackNote && spec.joint === opt.id) ? `${opt.label} (round core only)` : opt.label}
-                  </option>
-                ))}
-              </select>
-              {jointFallbackNote && (
-                <p className="field-note" id={jointNoteId} data-testid="joint-fallback-note">
-                  {jointFallbackNote}
-                </p>
-              )}
-            </div>
+          {topCapOn && (
             <RangeField
               testId="tolerance"
               label="Joint tolerance"
@@ -478,26 +511,9 @@ export function ControlsForm({
               hint={HINTS.tolerance}
               onChange={(v) => onChange({ ...spec, tolerance: v })}
             />
-          </>
-        )}
-        <div className="field">
-          <div className="field-top">
-            <FieldTop label="Cap & base" hint={HINTS.customize} />
-            <span className="cap-toggle-row">
-              <button type="button" className="customize-btn" data-testid="customize-open" disabled={!canCustomize} onClick={onCustomize}>
-                {customizeLabel || customizeStrapSlots ? "Edit" : "Customize"}
-              </button>
-            </span>
-          </div>
-          <CustomizeSummary label={customizeLabel} strapSlots={customizeStrapSlots} canCustomize={canCustomize} />
+          )}
         </div>
-      </Section>
-
-      <Section title="Print bed">
-        <RangeField testId="bedX" label="Bed X" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedX} hint={HINTS.bedX} onChange={(v) => setPrint({ bedX: v })} />
-        <RangeField testId="bedY" label="Bed Y" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedY} hint={HINTS.bedY} onChange={(v) => setPrint({ bedY: v })} />
-        <RangeField testId="bedZ" label="Bed Z" unit="mm" min={BED_SIZE_MIN} max={BED_SIZE_MAX} step={1} value={spec.print.bedZ} hint={HINTS.bedZ} onChange={(v) => setPrint({ bedZ: v })} />
-      </Section>
+      </details>
     </form>
   );
 }

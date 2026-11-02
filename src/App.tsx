@@ -177,7 +177,7 @@ export default function App() {
           {customize ? (
             <CustomizePanel spec={customize.draft} design={result} finalReady={finalReady} face={customize.face} onChange={setDraft} onSave={saveCustomize} onCancel={cancelCustomize} />
           ) : (
-            <ControlsForm key={formKey} spec={currentSpec} solution={result?.solution} notices={result?.notices ?? []} canCustomize={builtFaces.length > 0} onCustomize={startCustomize} onChange={setCurrentSpec} />
+            <ControlsForm key={formKey} spec={currentSpec} solution={result?.solution} fitsBed={result?.fitsBed} notices={result?.notices ?? []} canCustomize={builtFaces.length > 0} onCustomize={startCustomize} onChange={setCurrentSpec} />
           )}
           {error && (
             <p className="error" data-testid="design-error">

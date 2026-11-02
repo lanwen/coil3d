@@ -1858,7 +1858,11 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
   field shows the raised value and a note explains it.
 - Locked dimension, joint, tolerance and label controls appear only when they apply:
   the dimension picker only while the core size is locked, and the joint, tolerance
-  and label only while a top cap exists. Hiding a control never resets its value.
+  and label only while a top cap exists. Hiding a control never resets its value, and
+  neither does moving it into a collapsed disclosure.
+- The sections run Cable, Shape, Core, Cap & base (Top cap, Joint, Base, the Customize
+  row), Mount, then two collapsed disclosures: Print bed and Advanced settings. Mount
+  follows Base because a wall mount forces the base on.
 - The top cap is a plain on/off switch, off by default (`spec.topCap` is `"on"` or
   `"off"`). The link keeps `cap: "on"` only. There is no auto mode: the solver never
   turned the cap on by itself, so the tag and the reset link only added a state with
@@ -1898,7 +1902,13 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
   with the switch on stays visible. Turning it off clears the label, which the hash
   leaves out. The twist lock needs a round core: on other shapes its option is greyed,
   and a spec that already has it keeps it and gets a warning from `design()`, shown under the Joint select.
-- "Advanced settings" is always collapsed on load, and its state is not in the hash.
+- "Advanced settings" is always collapsed on load, and its state is not in the hash. It
+  holds Winding quality and, only while a top cap exists, Joint tolerance.
+- "Print bed" is a collapsed disclosure too, and its summary shows the three sizes
+  ("256 × 256 × 256 mm") so the values can be read without opening it. It opens by itself
+  when a part is over the bed, so a bed problem is never hidden; after that it follows the
+  user. The sizes are three sliders that are rarely changed, so closed it saves about 190 px
+  of sidebar. The Result's "fits your bed" chip stays as it is.
 
 ## Roadmap
 
