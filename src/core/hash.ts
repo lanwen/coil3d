@@ -32,7 +32,7 @@ export const DEFAULT_SPEC: CoilSpec = {
   layers: { locked: true, value: DEFAULT_LAYERS },
   objective: "minVolume",
   base: DEFAULT_BASE,
-  topCap: "auto",
+  topCap: "off",
   joint: "press",
   tolerance: DEFAULT_TOLERANCE,
   print: { bedX: DEFAULT_BED_SIZE, bedY: DEFAULT_BED_SIZE, bedZ: DEFAULT_BED_SIZE },
@@ -361,7 +361,7 @@ export function toHash(spec: CoilSpec, showWire: boolean = DEFAULT_SHOW_WIRE, vi
   }
   if (lockTokens.join(",") !== DEFAULT_LOCK_TOKENS.join(",")) doc.lock = lockTokens;
 
-  if (spec.topCap !== "auto") doc.cap = spec.topCap;
+  if (spec.topCap === "on") doc.cap = "on";
   if (spec.joint !== "press") doc.joint = spec.joint;
   if (spec.base !== undefined && spec.base !== DEFAULT_SPEC.base) doc.base = spec.base;
   if (spec.tolerance !== DEFAULT_SPEC.tolerance) doc.tol = spec.tolerance;

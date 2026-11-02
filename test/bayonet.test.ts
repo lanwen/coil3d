@@ -93,7 +93,7 @@ describe("bayonet on a round core (issue #167)", () => {
   it.each(ROUND_CASES)("$label: each part is one solid, and the cap twists on and locks", async ({ overrides }) => {
     const d = await design(spec(overrides));
     expect(d.parts.map((p) => p.role)).toEqual(["core", "topCap"]);
-    expect(d.warnings.join("\n")).not.toMatch(/too small for the twist lock|needs a round core/i);
+    expect(d.warnings.join("\n")).not.toMatch(/too small for the twist-lock|needs a round core/i);
     const { core, cap } = partsOf(d);
     try {
       for (const [name, m] of [["core", core], ["top-cap", cap]] as const) {
@@ -202,13 +202,15 @@ describe("bayonet falls back to the press-fit collar (issue #167)", () => {
     const [bay, press] = await Promise.all([design(spec(overrides)), design(spec({ ...overrides, joint: "press" }))]);
     expect(bay.spec.joint).toBe("bayonet");
     expect(bay.warnings.join("\n")).toMatch(warning);
-    expect(press.warnings.join("\n")).not.toMatch(/twist lock/i);
+    expect(press.warnings.join("\n")).not.toMatch(/twist.lock/i);
+    expect(bay.notices.filter((n) => n.field === "joint")).toHaveLength(1);
+    expect(press.notices.filter((n) => n.field === "joint")).toHaveLength(0);
     expect(volumes(bay)).toEqual(volumes(press));
   });
 
   it("says nothing about the twist lock when there is no top cap", async () => {
     const d = await design(spec({ shape: { kind: "sq", cornerRadius: 15 }, topCap: "off" }));
-    expect(d.warnings.join("\n")).not.toMatch(/twist lock/i);
+    expect(d.warnings.join("\n")).not.toMatch(/twist.lock/i);
   });
 });
 

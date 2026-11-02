@@ -19,7 +19,7 @@ This file records why the app works the way it does. The mount geometry is in
 | Core | A tube. It is hollow and open. The user locks either the inner diameter (bore) or the outer diameter (winding surface). A 3 mm wall links the two (thicker for a cable over 3 mm, so 1.5 mm of wall stays under the groove). |
 | Shapes | Round, rounded square, rounded triangle, pill. Round is a diameter, square is across flats, triangle is the inscribed-circle diameter, pill is the overall length. |
 | Cable | Round cross-section only. Bend limit: USB/audio 2.6x the diameter, flexible cord 2.6x, stiff or solid 6.5x, or a custom multiplier (2.6x by default). |
-| Parts | A core with the bottom flange printed as one piece. A separate top cap, on by default when there is more than one layer. Separate rim clips or T-clips for SKÅDIS (3 or 4), or a separate mount plate with two alignment pegs for the hidden openGrid placeholder. |
+| Parts | A core with the bottom flange printed as one piece. A separate top cap, off by default. Separate rim clips or T-clips for SKÅDIS (3 or 4), or a separate mount plate with two alignment pegs for the hidden openGrid placeholder. |
 | Cap joint | Press fit, bayonet or snap. All are permanent and glue-friendly. One global print tolerance scales every fit. The bayonet (three lugs in the core's bore, L-slots in the cap's collar, a 60° twist to a stop) needs a round core; elsewhere the cap gets the press-fit collar, with a warning. The snap cap has one 12 mm finger per side of the bore (slots at the corners: four on round and square cores, three on triangles), each with a barb along its whole width that clicks under a ridge ring inside the core's bore: a 30° lead-in, so it goes on with about half the pull-off force, and a 45° retaining face (the print overhang limit). Seated, the barbs sit 0.2 mm into the ridge, so the fingers stay a little bent, pull the cap onto the rim and centre it: no radial or tilt play. Under the finger tips a seat ring narrows the bore to the cap's hole, so there is no step inside the seated cap. Nothing is cut into the core's wall. A core too small for the clips gets the press-fit collar, with a warning; see [Snap joint](#snap-joint). |
 | Label | Text engraved into the top cap's room-facing face. It is hidden, with a warning, when it does not fit. |
 | Printer | A bed-size setting. It only produces warnings. The app never rearranges parts to fit. |
@@ -277,10 +277,9 @@ an option (`base`: on or off, written to the link only when on). A wall mount
 needs it, so a mount keeps the base on whatever `base` says; the spec keeps the
 user's value. With the base off the core is the only part: a grooved tube that
 stands on its own bottom face, with no flange, no inner-end channel and no base
-rim slot. The top cap stays optional, and `auto` means off, with or without a
-base, so a core has no cap until the user switches it on. An explicit cap is
-still built, sized to the wound cable. A link that sets `base` or `cap` keeps
-its choice.
+rim slot. The top cap stays optional and is off by default, with or without a
+base, so a core has no cap until the user switches it on. A cap is built sized
+to the wound cable. A link that sets `base` or `cap` keeps its choice.
 
 Both cable ends leave the winding onto an end face (`faceChannel.ts`). Layer 1
 starts on the bottom turn and climbs, so the inner end uses the bottom face. An
@@ -1369,7 +1368,7 @@ The hash is `#s=<base64url(JSON)>` (`src/core/hash.ts`).
 - The JSON document has a numeric version `v` (currently 2) and short keys for
   the spec: `L` (cable length, mm), `d` (diameter), `wt` (cable type), `mbr`
   (custom bend multiplier), `q` (winding quality), `obj`, `shape` and `rc`
-  (corner radius, or a pill's end radius; the default is 8 mm, and 20 mm for a pill), `lock` with `size`, `h` and `ly`, `cap`, `joint`, `tol`,
+  (corner radius, or a pill's end radius; the default is 8 mm, and 20 mm for a pill), `lock` with `size`, `h` and `ly`, `cap` (only written when on), `joint`, `tol`,
   `base` (the base plate, only written when on), `strap` (the strap slots, only written when on), `bx`/`by`/`bz` (bed), `label`, and the mount keys (`mount`, `pj`, `kr`,
   `thd`). View-only state is nested under `ui` (`wire`, `view`). Lengths are
   always millimetres; the centimetre display in the controls is a UI-only
@@ -1830,8 +1829,9 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
   dimension. A free dimension hides its slider, except the corner radius when there is
   no useful range, which keeps a greyed slider.
 - At most two of core size, height and layers can be locked, so the third lock is
-  disabled (never one that is already locked) and a note says why: something must
-  stay free to fit the cable length.
+  disabled (never one that is already locked) and a note under it says what to do:
+  unlock one of the other two (named in the note), because one size must stay free
+  to fit the cable length.
 - The viewport toggles sit over the canvas on desktop and in one strip under it on
   a phone. In print layout the wire and dimension toggles are hidden, because the
   view hides both anyway; their values are kept, so leaving the view restores them.
@@ -1859,10 +1859,24 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
 - Locked dimension, joint, tolerance and label controls appear only when they apply:
   the dimension picker only while the core size is locked, and the joint, tolerance
   and label only while a top cap exists. Hiding a control never resets its value.
-- The top cap switch is "auto" while `spec.topCap` is `"auto"` and then shows the
-  automatic choice (on from two layers). Touching it stores an explicit on or off; the
-  "reset" link goes back to auto. The "auto" tag sits before the switch so the row reads
-  as "mode, then state".
+- The top cap is a plain on/off switch, off by default (`spec.topCap` is `"on"` or
+  `"off"`). The link keeps `cap: "on"` only. There is no auto mode: the solver never
+  turned the cap on by itself, so the tag and the reset link only added a state with
+  no meaning. A link that still carries `cap: "off"` loads with the cap off.
+- A control the design overrides or limits says why in a muted note under its own row,
+  in visible text (a tooltip never shows on touch or keyboard focus). The switch or
+  select points at the note with `aria-describedby`. One note per row, never two:
+  the Joint select shows the cap's fallback (`joint-fallback-note`), the Base switch
+  forced on by a wall mount shows "On, because a wall mount needs a base."
+  (`base-forced-note`), the disabled Customize row replaces "Nothing added" with what
+  turns it on, and the disabled lock on core size, height or layers names the two
+  locked fields to unlock.
+- The joint fallback note is the `design()` notice tagged `field: "joint"`
+  (`Notice.field` is one of `joint`, `label`, `coreSize` or `mount`, set where the
+  notice is pushed). "All numbers" still lists every notice. Switching to a non-round
+  core keeps a chosen twist lock and shows the note, because hiding or overriding a
+  control never resets its value. The selected option drops its "(round core only)"
+  suffix while the note is shown; the disabled option keeps it.
 - The wall mount switch off is `mount: "none"`. Turning it on again restores the last
   chosen kind. openGrid is not offered in the list (and the hash rejects it), because
   its connector is a placeholder that would print a plate that does not fit.
@@ -1870,7 +1884,7 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
   main form (issue #385). The strap slots are off by default, are one setting for the
   cap and the base, and show a note when a plate gets no slots.
 - Customize (the "Cap & base" row in the main form, with a muted summary under its
-  label: `Label "text"`, `strap slots`, both joined with " · ", or "Nothing added", and
+  label: `Label "text"`, `strap slots`, both joined with " · ", or "Nothing added" (while the row is disabled, what turns it on instead), and
   a button that reads "Customize", or "Edit" once something is set) turns the viewer
   straight down onto the cap, or straight up onto the base when there is no cap, and
   locks it: no rotation, no pan, zoom still works.
@@ -1883,7 +1897,7 @@ inspired by [andymai/gridfinity-layout-tool](https://github.com/andymai/gridfini
 - The label switch means "the user turned it on", not "there is text". An empty label
   with the switch on stays visible. Turning it off clears the label, which the hash
   leaves out. The twist lock needs a round core: on other shapes its option is greyed,
-  and a spec that already has it keeps it and gets a warning from `design()`.
+  and a spec that already has it keeps it and gets a warning from `design()`, shown under the Joint select.
 - "Advanced settings" is always collapsed on load, and its state is not in the hash.
 
 ## Roadmap

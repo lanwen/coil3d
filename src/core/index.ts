@@ -7,6 +7,7 @@ export type {
   KeyholeRotation,
   Lock,
   MountKind,
+  Notice,
   Objective,
   Part,
   PartRole,

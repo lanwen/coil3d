@@ -99,13 +99,16 @@ export interface BayonetLayout {
   cuts: RevolvedFeature[];
 }
 
+const JOINT_NEEDS_ROUND_NOTE = "Twist-lock needs a round core, so this cap is press-fit. Pick Snap clips, or a round core.";
+const jointTooSmallNote = (joint: string) => `This core is too small for ${joint}, so the cap is press-fit. Make the core bigger or pick Press-fit.`;
+
 type BayonetPlan = { layout: BayonetLayout; warning?: undefined } | { layout?: undefined; warning: string };
 
 const deg = (rad: number) => (rad * 180) / Math.PI;
 
 function bayonetLayout(shape: ShapeKind, wallSpec: JointWall, tolerance: number): BayonetPlan {
-  if (shape !== "round") return { warning: "Twist lock needs a round core, so the top cap uses a press-fit collar." };
-  const tooSmall = { warning: "This core is too small for the twist lock, so the top cap uses a press-fit collar." };
+  if (shape !== "round") return { warning: JOINT_NEEDS_ROUND_NOTE };
+  const tooSmall = { warning: jointTooSmallNote("the twist-lock") };
 
   const { boreOutline, height } = wallSpec;
   const boreR = inscribedRadius(boreOutline, 0);
@@ -170,7 +173,7 @@ export function resolveCapJoint(
 ): { joint: JointKind; bayonet?: BayonetLayout; snap?: SnapLayout; warning?: string } {
   if (spec.joint === "snap") {
     const snap = snapLayout(wallSpec, spec.tolerance);
-    return snap ? { joint: "snap", snap } : { joint: "press", warning: "This core is too small for the snap clips, so the top cap uses a press-fit collar." };
+    return snap ? { joint: "snap", snap } : { joint: "press", warning: jointTooSmallNote("the snap clips") };
   }
   if (spec.joint !== "bayonet") return { joint: spec.joint };
   const plan = bayonetLayout(spec.shape.kind, wallSpec, spec.tolerance);

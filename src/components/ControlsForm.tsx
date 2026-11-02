@@ -1,5 +1,5 @@
 import { useId, useRef } from "react";
-import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, ShapeKind, Solution, WireTypeId } from "../core";
+import type { CoilSpec, CoreSizeLock, JointKind, KeyholeRotation, Lock, MountKind, Notice, ShapeKind, Solution, WireTypeId } from "../core";
 import {
   BED_SIZE_MAX,
   BED_SIZE_MIN,
@@ -44,7 +44,8 @@ const MOUNT_KIND_OPTIONS: Array<{ id: Exclude<MountKind, "none">; label: string 
 ];
 
 const NOTHING_ADDED = "Nothing added";
-const CUSTOMIZE_DISABLED_NOTE = "Turn on the top cap or the base first: there is no face to customize yet.";
+const CUSTOMIZE_DISABLED_NOTE = "Turn on the top cap or the base to add a label or strap slots.";
+const BASE_FORCED_NOTE = "On, because a wall mount needs a base.";
 
 const CORNER_RADIUS_STEP_MM = 0.5;
 const ROUND_CORNER_RADIUS_MAX_MM = 250;
@@ -52,7 +53,7 @@ const CORE_SIZE_FLOOR_MM = 5;
 
 const SUMMARY_SEPARATOR = " \u00b7 ";
 
-function CustomizeSummary({ label, strapSlots }: { label: string | undefined; strapSlots: boolean }) {
+function CustomizeSummary({ label, strapSlots, canCustomize }: { label: string | undefined; strapSlots: boolean; canCustomize: boolean }) {
   const strapText = strapSlots ? `${label ? SUMMARY_SEPARATOR : ""}strap slots` : null;
   const fullText = label ? `Label \u201c${label}\u201d${strapText ?? ""}` : (strapText ?? NOTHING_ADDED);
   return (
@@ -65,7 +66,7 @@ function CustomizeSummary({ label, strapSlots }: { label: string | undefined; st
         </span>
       )}
       {strapText && <span className="customize-summary-strap">{strapText}</span>}
-      {!label && !strapSlots && NOTHING_ADDED}
+      {!label && !strapSlots && (canCustomize ? NOTHING_ADDED : CUSTOMIZE_DISABLED_NOTE)}
     </p>
   );
 }
@@ -81,12 +82,14 @@ const KEYHOLE_ROTATION_LABELS: Record<KeyholeRotation, string> = {
 export function ControlsForm({
   spec,
   solution,
+  notices,
   canCustomize,
   onCustomize,
   onChange,
 }: {
   spec: CoilSpec;
   solution?: Solution;
+  notices: Notice[];
   canCustomize: boolean;
   onCustomize: () => void;
   onChange: (next: CoilSpec) => void;
@@ -118,11 +121,9 @@ export function ControlsForm({
   const cornerRadiusHint = cornerRadiusDisabled ? `${radiusHint} The core is too small for a larger radius; grow the core to unlock.` : radiusHint;
 
   const bayonetUnavailable = spec.shape.kind !== "round";
-  const jointHint = bayonetUnavailable ? `${HINTS.joint} Twist lock needs a round core.` : HINTS.joint;
 
   const customizeLabel = spec.label?.trim() || undefined;
   const customizeStrapSlots = spec.strapSlots === true;
-  const customizeHint = canCustomize ? HINTS.customize : `${HINTS.customize} ${CUSTOMIZE_DISABLED_NOTE}`;
 
   const setShapeKind = (kind: ShapeKind) => {
     const shape = kind === "round" ? { kind } : { kind, cornerRadius: defaultCornerRadius(kind) };
@@ -138,27 +139,37 @@ export function ControlsForm({
   const mountId = useId();
   const keyholeRotationId = useId();
   const jointId = useId();
+  const jointNoteId = useId();
+  const baseNoteId = useId();
 
   const lockedCount = [spec.coreSize.locked, spec.height.locked, spec.layers.locked].filter(Boolean).length;
   const coreSizeLockDisabled = !spec.coreSize.locked && lockedCount >= 2;
   const heightLockDisabled = !spec.height.locked && lockedCount >= 2;
   const layersLockDisabled = !spec.layers.locked && lockedCount >= 2;
 
-  const topCapAuto = spec.topCap === "auto";
   const topCapOn = spec.topCap === "on";
-  const setTopCapExplicit = (checked: boolean) => onChange({ ...spec, topCap: checked ? "on" : "off" });
-  const resetTopCapToAuto = () => onChange({ ...spec, topCap: "auto" });
 
   const lastMountKindRef = useRef<Exclude<MountKind, "none">>(spec.mount !== "none" ? spec.mount : "keyhole");
   if (spec.mount !== "none") lastMountKindRef.current = spec.mount;
   const mountOn = spec.mount !== "none";
   const baseOn = mountOn || (spec.base ?? DEFAULT_BASE) === "on";
+  const jointFallbackNote = topCapOn && spec.joint !== "press" ? notices.find((n) => n.field === "joint")?.message : undefined;
   const setMountOn = (checked: boolean) => onChange({ ...spec, mount: checked ? lastMountKindRef.current : "none" });
 
   const outerSizeMin = roundMm(Math.max(CORE_SIZE_FLOOR_MM, solution?.minOuterSizeForShape ?? CORE_SIZE_FLOOR_MM));
   const coreSizeRaised = spec.coreSize.locked && spec.coreSize.value < outerSizeMin - 0.05;
   const heightMin = ceilTenthMm(Math.max(1, solution?.minHeight ?? 1));
   const heightRaised = spec.height.locked && spec.height.value < heightMin - 0.05;
+  const lockedOthers = (own: "core size" | "height" | "layers") =>
+    (
+      [
+        ["core size", spec.coreSize.locked],
+        ["height", spec.height.locked],
+        ["layers", spec.layers.locked],
+      ] as const
+    )
+      .filter(([name, locked]) => locked && name !== own)
+      .map(([name]) => name);
 
   return (
     <form className="controls" onSubmit={(e) => e.preventDefault()}>
@@ -250,6 +261,7 @@ export function ControlsForm({
           freeValue={solution?.outerSize ?? 30}
           hint={HINTS.outer}
           lockDisabled={coreSizeLockDisabled}
+          lockedOthers={lockedOthers("core size")}
           onChange={setCoreSizeLock}
         />
         {spec.coreSize.locked && (
@@ -283,6 +295,7 @@ export function ControlsForm({
           freeValue={solution?.height ?? 40}
           hint={HINTS.height}
           lockDisabled={heightLockDisabled}
+          lockedOthers={lockedOthers("height")}
           onChange={(lock) => onChange({ ...spec, height: lock })}
         />
         {heightRaised && (
@@ -302,6 +315,7 @@ export function ControlsForm({
           freeValue={solution?.layers ?? 1}
           hint={HINTS.layers}
           lockDisabled={layersLockDisabled}
+          lockedOthers={lockedOthers("layers")}
           onChange={(lock) => onChange({ ...spec, layers: lock })}
         />
       </Section>
@@ -406,49 +420,52 @@ export function ControlsForm({
               ariaLabel="Base"
               checked={baseOn}
               disabled={mountOn}
-              title={mountOn ? "On: a wall mount needs the base" : `${baseOn ? "On" : "Off"} - click to change`}
+              describedBy={mountOn ? baseNoteId : undefined}
+              title={mountOn ? BASE_FORCED_NOTE : `${baseOn ? "On" : "Off"} - click to change`}
               onChange={(checked) => onChange({ ...spec, base: checked ? "on" : "off" })}
             />
           </div>
+          {mountOn && (
+            <p className="field-note" id={baseNoteId} data-testid="base-forced-note">
+              {BASE_FORCED_NOTE}
+            </p>
+          )}
         </div>
         <div className="field">
           <div className="field-top">
             <FieldTop label="Top cap" hint={HINTS.topCap} />
-            <span className="cap-toggle-row">
-              {topCapAuto ? (
-                <span className="tag-auto" data-testid="topCap-auto-tag">
-                  auto
-                </span>
-              ) : (
-                <button type="button" className="reset-auto-btn" data-testid="topCap-reset-auto" onClick={resetTopCapToAuto}>
-                  reset
-                </button>
-              )}
-              <Switch
-                testId="topCap"
-                ariaLabel="Top cap"
-                checked={topCapOn}
-                title={
-                  topCapAuto
-                    ? `Auto: currently ${topCapOn ? "on" : "off"}. Touch to set it explicitly.`
-                    : `${topCapOn ? "On" : "Off"} (explicit) - click to change`
-                }
-                onChange={setTopCapExplicit}
-              />
-            </span>
+            <Switch
+              testId="topCap"
+              ariaLabel="Top cap"
+              checked={topCapOn}
+              title={`${topCapOn ? "On" : "Off"} - click to change`}
+              onChange={(checked) => onChange({ ...spec, topCap: checked ? "on" : "off" })}
+            />
           </div>
         </div>
         {topCapOn && (
           <>
             <div className="field">
-              <FieldTop label="Joint" hint={jointHint} htmlFor={jointId} />
-              <select id={jointId} className="field-select" data-testid="select-joint" value={spec.joint} onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}>
+              <FieldTop label="Joint" hint={HINTS.joint} htmlFor={jointId} />
+              <select
+                id={jointId}
+                className="field-select"
+                data-testid="select-joint"
+                value={spec.joint}
+                aria-describedby={jointFallbackNote ? jointNoteId : undefined}
+                onChange={(e) => onChange({ ...spec, joint: e.target.value as JointKind })}
+              >
                 {JOINT_OPTIONS.map((opt) => (
                   <option key={opt.id} value={opt.id} disabled={opt.id === "bayonet" && bayonetUnavailable}>
-                    {opt.id === "bayonet" && bayonetUnavailable ? `${opt.label} (round core only)` : opt.label}
+                    {opt.id === "bayonet" && bayonetUnavailable && !(jointFallbackNote && spec.joint === opt.id) ? `${opt.label} (round core only)` : opt.label}
                   </option>
                 ))}
               </select>
+              {jointFallbackNote && (
+                <p className="field-note" id={jointNoteId} data-testid="joint-fallback-note">
+                  {jointFallbackNote}
+                </p>
+              )}
             </div>
             <RangeField
               testId="tolerance"
@@ -465,14 +482,14 @@ export function ControlsForm({
         )}
         <div className="field">
           <div className="field-top">
-            <FieldTop label="Cap & base" hint={customizeHint} />
+            <FieldTop label="Cap & base" hint={HINTS.customize} />
             <span className="cap-toggle-row">
               <button type="button" className="customize-btn" data-testid="customize-open" disabled={!canCustomize} onClick={onCustomize}>
                 {customizeLabel || customizeStrapSlots ? "Edit" : "Customize"}
               </button>
             </span>
           </div>
-          <CustomizeSummary label={customizeLabel} strapSlots={customizeStrapSlots} />
+          <CustomizeSummary label={customizeLabel} strapSlots={customizeStrapSlots} canCustomize={canCustomize} />
         </div>
       </Section>
 

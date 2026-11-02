@@ -198,7 +198,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
 
   const { boreOutline, reduced: boreReduced } = resolveBoreOutline(outline, spec.wire.diameter);
   if (boreReduced) {
-    note(`Core size ${solution.outerSize.toFixed(1)} mm is too small for a ${Number(wallThickness(spec.wire.diameter).toFixed(1))} mm wall; the bore has been reduced.`);
+    note(`Core size ${solution.outerSize.toFixed(1)} mm is too small for a ${Number(wallThickness(spec.wire.diameter).toFixed(1))} mm wall; the bore has been reduced.`, "coreSize");
   }
 
   const wireDiameter = spec.wire.diameter;
@@ -310,9 +310,9 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   if (marginBeforeStrap !== undefined) {
     note(`Flange margin increased to ${margin.toFixed(1)} mm so the strap slots fit between the cable and the rim.`);
   }
-  if (skadisLayout?.warning) problem(skadisLayout.warning);
-  if (tclipLayout?.warning) problem(tclipLayout.warning);
-  if (tclipLayout?.note) note(tclipLayout.note);
+  if (skadisLayout?.warning) problem(skadisLayout.warning, "mount");
+  if (tclipLayout?.warning) problem(tclipLayout.warning, "mount");
+  if (tclipLayout?.note) note(tclipLayout.note, "mount");
   if (tclipLayout && tclipLayout.clips.length > 0 && sizedThickness > channelOnlyThickness + 1e-9) {
     note(`Flange thickness increased to ${sizedThickness.toFixed(1)} mm so the bore's floor is thick enough under the T-clips' recesses.`);
   }
@@ -342,7 +342,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
     skadisTclip: tclipLayout && tclipLayout.clips.length > 0 ? tclipLayout : undefined,
   };
   const throughLayout = wantsThrough ? layoutFlangeThroughHoles(flangeSpec, innerEndLayout) : undefined;
-  if (throughLayout?.warning) problem(throughLayout.warning);
+  if (throughLayout?.warning) problem(throughLayout.warning, "mount");
   const skadisFootprints = flangeSpec.skadis ? skadisClipFootprints(flangeSpec.skadis) : undefined;
 
   let mountPlateLayout: ReturnType<typeof mountPlateLayoutFor> | undefined;
@@ -356,7 +356,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
       : undefined;
 
   const topCapEnabled = solution.topCapEnabled;
-  if (topCapEnabled && capJoint.warning) note(capJoint.warning);
+  if (topCapEnabled && capJoint.warning) note(capJoint.warning, "joint");
   const coreJoint: CoreJointCut | undefined =
     topCapEnabled && capJoint.joint !== "press"
       ? { boreOutline, height: solution.height, joint: capJoint.joint, tolerance: spec.tolerance, bayonet: capJoint.bayonet, snap: capJoint.snap }
@@ -427,7 +427,7 @@ export async function design(spec: CoilSpec, resolution: Resolution = "final"): 
   };
   if (blocked(baseFace, "rimSlot")) note("The base's rim cable slot doesn't fit anywhere round the rim beside the mount, so it's left out.");
   const labelWarning = capFace.payload.label?.warning;
-  if (labelWarning) problem(labelWarning);
+  if (labelWarning) problem(labelWarning, "label");
   if (blocked(capFace, "rimSlot")) note("The top cap's rim cable slot doesn't fit anywhere round the rim beside the label, so it's left out.");
 
   const baseSlot = baseFace?.payload.rimSlot;
