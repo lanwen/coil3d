@@ -1048,9 +1048,6 @@ a.build-label:focus-visible {
   color: var(--ink);
 }
 
-/* The Cap & base row's trailing button, laid out like `.eye-toggle-row`
-   (control and trailing content as row siblings, never nested in a switch's
-   own `<label>`). */
 .cap-toggle-row {
   display: inline-flex;
   align-items: center;
