@@ -190,6 +190,7 @@ export function Switch({
   checked,
   title,
   disabled,
+  describedBy,
   onChange,
   showState = true,
   offContent = "0",
@@ -201,6 +202,7 @@ export function Switch({
   checked: boolean;
   title?: string;
   disabled?: boolean;
+  describedBy?: string;
   onChange: (checked: boolean) => void;
   showState?: boolean;
   offContent?: ReactNode;
@@ -216,6 +218,7 @@ export function Switch({
         data-testid={testId}
         aria-label={ariaLabel}
         aria-checked={checked}
+        aria-describedby={describedBy}
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
@@ -275,7 +278,8 @@ function LockToggle({
   );
 }
 
-const LOCK_LIMIT_NOTE = "Two of core size, height and layers are already locked: something has to stay free to fit the cable length.";
+const lockLimitNote = (label: string, lockedOthers: string[]) =>
+  `Unlock ${lockedOthers.join(" or ")} to lock ${label.toLowerCase()}. One size stays free to fit the cable.`;
 
 export function LockRangeField({
   testId,
@@ -289,6 +293,7 @@ export function LockRangeField({
   hint,
   minNote,
   lockDisabled,
+  lockedOthers = [],
   normalize = roundMm,
   onChange,
 }: {
@@ -303,6 +308,7 @@ export function LockRangeField({
   hint?: string;
   minNote?: string;
   lockDisabled?: boolean;
+  lockedOthers?: string[];
   normalize?: (value: number) => number;
   onChange: (lock: Lock<number>) => void;
 }) {
@@ -332,7 +338,7 @@ export function LockRangeField({
       />
       {showLockNote && (
         <p className="field-note" data-testid={`${testId}-lock-note`}>
-          {LOCK_LIMIT_NOTE}
+          {lockLimitNote(label, lockedOthers)}
         </p>
       )}
     </>

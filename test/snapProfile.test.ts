@@ -194,6 +194,7 @@ describe("issue #186: a core too small for the snap clips", () => {
     const d = await design(
       spec({ coreSize: { locked: true, dimension: "outer", value: 10 }, height: { locked: true, value: 20 }, wire: { length: 500, diameter: 1.2, type: "usb" } }),
     );
-    expect(d.warnings).toContain("This core is too small for the snap clips, so the top cap uses a press-fit collar.");
+    expect(d.warnings).toContain("This core is too small for the snap clips, so the cap is press-fit. Make the core bigger or pick Press-fit.");
+    expect(d.notices.find((n) => n.message.includes("too small for the snap clips"))?.field).toBe("joint");
   });
 });

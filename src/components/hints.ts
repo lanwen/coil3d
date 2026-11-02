@@ -29,7 +29,7 @@ export const HINTS = {
   base:
     "This controls whether the core stands on a flat base plate. Off (the default) gives a bare core: a tube with a thin ring at each end and a hole in the middle of each ring, where the cable ends run in. It prints flat on its own bottom face. A wall mount needs the base, so choosing a mount turns it on.",
   topCap:
-    "This controls whether the coil gets a flat lid on top. Until you touch this switch it stays in auto mode (tagged \"auto\"), which leaves the cap off, with or without a base. The switch always shows the current on/off state. Touch it and it becomes an explicit override, saved in the link. Use \"Reset to auto\" to go back.",
+    "This controls whether the coil gets a flat lid on top. Off (the default) leaves the cap off, with or without a base. On builds a cap, sized to the wound cable.",
   strapSlots:
     "This cuts two closed slots in each plate. A hook-and-loop tie through a slot and over the rim holds the cable's lead. The plate grows about 4.5 mm to fit them.",
   joint: "This is how the top cap attaches to the core: pressed on, twisted into a bayonet lock, or snapped on with printable clips. All three are meant to be permanent, once assembled.",

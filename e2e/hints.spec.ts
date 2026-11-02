@@ -19,7 +19,7 @@ test("every top-level control has an (i) hint button", async ({ page }) => {
   // for every unrelated future field.
   //
   // Issue #131: joint/tolerance/label are cap-only controls, hidden on this
-  // default page (layers=1, so the auto cap starts off) -- lowered from 15
+  // default page (layers=1, the cap starts off) -- lowered from 15
   // to keep the same couple-of-hints margin over the smaller default count.
   const count = await page.getByTestId("hint-btn").count();
   expect(count).toBeGreaterThanOrEqual(12);

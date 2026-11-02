@@ -27,7 +27,7 @@ const spec: CoilSpec = {
   height: { locked: true, value: 45 },
   layers: { locked: true, value: 1 },
   objective: "minVolume",
-  topCap: "auto",
+  topCap: "off",
   joint: "press",
   tolerance: 0.2,
   print: { bedX: 256, bedY: 256, bedZ: 256 },

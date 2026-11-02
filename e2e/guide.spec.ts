@@ -12,7 +12,7 @@ import { expectSettled } from "./settled";
 
 const ONE_LAYER = encodeHashDoc({ L: 1000, d: 4, size: 40 }); // the default design: a bare core, layers=1, so no base and no top cap
 const BASED_ONE_LAYER = withHashDoc(ONE_LAYER, { base: "on" }); // with the base: the inner end clips into its rim
-const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on", cap: "on" }); // layers=2 with the base and the cap switched on (auto is off)
+const TWO_LAYER_CAP = encodeHashDoc({ L: 3800, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on", cap: "on" }); // layers=2 with the base and the cap switched on
 
 // The guide's own screenshots render several distinct WebGL figures at
 // once (one per step), so they're the heaviest screenshots in the whole

@@ -12,7 +12,7 @@ export type { ShapeKind } from "./shapes";
 
 export type ShapeSpec = { kind: "round" } | { kind: "sq"; cornerRadius: number } | { kind: "tri"; cornerRadius: number } | { kind: "pill"; cornerRadius: number };
 
-export type TopCapMode = "auto" | "on" | "off";
+export type TopCapMode = "on" | "off";
 
 export type BaseMode = "on" | "off";
 
@@ -86,17 +86,20 @@ export interface CoilSpec {
   throughHoleDiameter?: number;
 }
 
+export type NoticeField = "joint" | "label" | "coreSize" | "mount";
+
 export interface Notice {
   severity: "problem" | "note";
   message: string;
+  field?: NoticeField;
 }
 
 export function noticeCollector() {
   const notices: Notice[] = [];
   return {
     notices,
-    problem: (message: string) => void notices.push({ severity: "problem", message }),
-    note: (message: string) => void notices.push({ severity: "note", message }),
+    problem: (message: string, field?: NoticeField) => void notices.push({ severity: "problem", message, ...(field && { field }) }),
+    note: (message: string, field?: NoticeField) => void notices.push({ severity: "note", message, ...(field && { field }) }),
   };
 }
 

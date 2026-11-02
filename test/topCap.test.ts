@@ -50,18 +50,18 @@ async function assertManifold(mesh: { positions: Float32Array; indices: Uint32Ar
   }
 }
 
-describe("design().parts and the auto top-cap decision (issue #9)", () => {
-  it("has one part (core only) when layers === 1 and topCap is auto", async () => {
-    const d = await design(baseSpec({ layers: { locked: true, value: 1 }, topCap: "auto" }));
+describe("design().parts and the top-cap switch (issue #9)", () => {
+  it("has one part (core only) when layers === 1 and topCap is off", async () => {
+    const d = await design(baseSpec({ layers: { locked: true, value: 1 }, topCap: "off" }));
     expect(d.solution.topCapEnabled).toBe(false);
     expect(d.parts).toHaveLength(1);
     expect(d.parts[0]).toMatchObject({ name: "core", role: "core" });
     expect(d.mesh).toBe(d.parts[0].mesh); // the derived accessor
   });
 
-  it("has one part (core only) when layers > 1 and topCap is auto: auto is off, with the base on too", async () => {
+  it("has one part (core only) when layers > 1 and topCap is off, with the base on too", async () => {
     const d = await design(
-      baseSpec({ wire: { length: 6000, diameter: 3.8, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: 60 }, height: { locked: true, value: 60 }, layers: { locked: true, value: 2 }, topCap: "auto" }),
+      baseSpec({ wire: { length: 6000, diameter: 3.8, type: "usb" }, coreSize: { locked: true, dimension: "outer", value: 60 }, height: { locked: true, value: 60 }, layers: { locked: true, value: 2 }, topCap: "off" }),
     );
     expect(d.solution.topCapEnabled).toBe(false);
     expect(d.parts.map((p) => p.name)).toEqual(["core"]);

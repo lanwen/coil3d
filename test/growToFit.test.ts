@@ -61,9 +61,9 @@ function spec(shape: ShapeSpec, cable: Cable, index: number, mount: MountKind, j
   };
 }
 
-const SKIPPED = /through-hole\(s\) skipped|too narrow to fit|too small|too crowded|left out|press-fit collar/i;
+const SKIPPED = /through-hole\(s\) skipped|too narrow to fit|too small|too crowded|left out|this cap is press-fit/i;
 
-const NEEDS_ROUND = /Twist lock needs a round core/;
+const NEEDS_ROUND = /Twist-lock needs a round core/;
 
 function expectNothingSkipped(d: Design, label: string) {
   const bayonetOnCorner = d.spec.joint === "bayonet" && d.spec.shape.kind !== "round";
@@ -119,7 +119,7 @@ describe("a free-size design never falls back from its joint (issue #259)", () =
   it("a square or triangle core can't take the twist lock at any size, and says so", async () => {
     for (const shape of SHAPES.filter((s) => s.kind !== "round")) {
       const d = await design({ ...spec(shape, CABLES[0], 0, "none", "bayonet"), topCap: "on" });
-      expect(d.warnings.some((w) => /Twist lock needs a round core/.test(w)), shape.kind).toBe(true);
+      expect(d.warnings.some((w) => /Twist-lock needs a round core/.test(w)), shape.kind).toBe(true);
     }
   });
 });
@@ -147,7 +147,7 @@ describe("the solver says what it grew, and a locked size is left alone (issue #
   it("a locked core that is too small keeps the skip and the warning", async () => {
     const small = { locked: true as const, dimension: "outer" as const, value: 8 };
     const joint = await design({ ...spec(SHAPES[0], SHORT, 0, "none", "bayonet"), topCap: "on", coreSize: small });
-    expect(joint.warnings.some((w) => /too small for the twist lock/.test(w))).toBe(true);
+    expect(joint.warnings.some((w) => /too small for the twist-lock/.test(w))).toBe(true);
     expect(joint.solution.outerSize).toBeLessThan(25);
     const tclips = await design({ ...spec(SHAPES[0], SHORT, 0, "skadis-tclip", "press"), topCap: "on", coreSize: { ...small, value: 12 } });
     expect(tclips.parts.filter((p) => p.role === "mountClip")).toHaveLength(0);

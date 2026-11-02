@@ -118,7 +118,7 @@ describe.each(GRID)("%s core, %s, %i layers, cap %s: the top with the base on", 
 });
 
 describe("the solver with the base on (issue #292)", () => {
-  const free = (base: "on" | "off", layers: number, topCap: "on" | "off" | "auto" = "off"): CoilSpec => ({
+  const free = (base: "on" | "off", layers: number, topCap: "on" | "off" = "off"): CoilSpec => ({
     ...DEFAULT_SPEC,
     base,
     topCap,
@@ -146,9 +146,9 @@ describe("the solver with the base on (issue #292)", () => {
     expect(based.notices.find((n) => /Core size raised/.test(n.message))?.message).toMatch(/centre hole/);
   });
 
-  it.each([1, 2, 3, 4])("resolves the auto top cap the bare core's way at %i layers, whatever the base", async (layers) => {
+  it.each([1, 2, 3, 4])("leaves the top cap off, the bare core's way, at %i layers, whatever the base", async (layers) => {
     for (const base of ["on", "off"] as const) {
-      const d = await design({ ...free(base, layers, "auto"), coreSize: { locked: true, dimension: "outer", value: 50 } }, "draft");
+      const d = await design({ ...free(base, layers), coreSize: { locked: true, dimension: "outer", value: 50 } }, "draft");
       expect(d.solution.topCapEnabled, base).toBe(false);
       expect(d.parts.map((p) => p.name), base).toEqual(["core"]);
     }

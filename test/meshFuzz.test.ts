@@ -64,7 +64,7 @@ function sample(index: number, seed = SEED, pills = false): FuzzCase {
     height: r() < 0.6 ? { locked: true, value: between(15, 90) } : { locked: false },
     layers: r() < 0.6 ? { locked: true, value: 1 + Math.floor(r() * 4) } : { locked: false },
     objective: pick(["minVolume", "aspectRatio"] as const),
-    topCap: r() < 0.85 ? "on" : "auto",
+    topCap: r() < 0.85 ? "on" : "off",
     joint: pick<JointKind>(["press", "snap", "bayonet"]),
     tolerance: between(0.1, 0.4),
     print: { bedX: 256, bedY: 256, bedZ: 256 },
@@ -439,13 +439,13 @@ const REPRODUCTIONS_227: Reproduction[] = [
     // drop the one-triangle tip beside them: it stood 0.029 mm off its neighbours' plane, over the 0.02 mm it allowed.
     // The same design with the base on has the top channel too (issue #292).
     name: "a channel crossing the rim beside a rim vertex on a bare round core (fuzz case 1220, base off)",
-    spec: { wire: { length: 6547, diameter: 7.42, type: "flex" }, windingQuality: 0.51, coreSize: { locked: true, dimension: "outer", value: 51.85 }, height: { locked: false }, layers: { locked: true, value: 1 }, topCap: "auto", tolerance: 0.33, joint: "bayonet", plateJoint: "snap", base: "off" },
+    spec: { wire: { length: 6547, diameter: 7.42, type: "flex" }, windingQuality: 0.51, coreSize: { locked: true, dimension: "outer", value: 51.85 }, height: { locked: false }, layers: { locked: true, value: 1 }, topCap: "off", tolerance: 0.33, joint: "bayonet", plateJoint: "snap", base: "off" },
     resolution: "final",
     segments: { round: 96, other: 96 },
   },
   {
     name: "the same design with the base on (fuzz case 1220)",
-    spec: { wire: { length: 6547, diameter: 7.42, type: "flex" }, windingQuality: 0.51, coreSize: { locked: true, dimension: "outer", value: 51.85 }, height: { locked: false }, layers: { locked: true, value: 1 }, topCap: "auto", tolerance: 0.33, joint: "bayonet", plateJoint: "snap", base: "on" },
+    spec: { wire: { length: 6547, diameter: 7.42, type: "flex" }, windingQuality: 0.51, coreSize: { locked: true, dimension: "outer", value: 51.85 }, height: { locked: false }, layers: { locked: true, value: 1 }, topCap: "off", tolerance: 0.33, joint: "bayonet", plateJoint: "snap", base: "on" },
     resolution: "final",
     segments: { round: 96, other: 96 },
   },
@@ -550,7 +550,7 @@ const REPRODUCTIONS_303: Reproduction[] = [
     // two corner vertices (the foot's and the lip's) both lie on. Neither moves onto the other without folding the
     // slope sliver back over the bottom face, but the lip's vertex can slide along the line to the next one.
     name: "a channel lip beside a wall foot on a bare square core (fuzz case 8243)",
-    spec: { wire: { length: 4615, diameter: 4.6, type: "flex" }, shape: { kind: "sq", cornerRadius: 1.15 }, windingQuality: 0.85, coreSize: { locked: true, dimension: "outer", value: 33.94 }, height: { locked: false }, layers: { locked: true, value: 4 }, topCap: "auto", joint: "bayonet", tolerance: 0.32, base: "off" },
+    spec: { wire: { length: 4615, diameter: 4.6, type: "flex" }, shape: { kind: "sq", cornerRadius: 1.15 }, windingQuality: 0.85, coreSize: { locked: true, dimension: "outer", value: 33.94 }, height: { locked: false }, layers: { locked: true, value: 4 }, topCap: "off", joint: "bayonet", tolerance: 0.32, base: "off" },
     resolution: "draft",
     segments: { round: 120, other: 120 },
   },
@@ -617,11 +617,11 @@ describe("seeded fuzz: every part is one solid, with no short edges or folds, af
 const REPRODUCTIONS_320: Reproduction[] = [
   {
     name: "a pill's top-ring funnel at the tip of an end (pill fuzz case 34)",
-    spec: { wire: { length: 2488, diameter: 2.07, type: "usb" }, shape: { kind: "pill", cornerRadius: 28.66 }, windingQuality: 0.52, coreSize: { locked: true, dimension: "outer", value: 92.61 }, height: { locked: true, value: 57.92 }, layers: { locked: true, value: 1 }, objective: "aspectRatio", topCap: "auto", joint: "snap", tolerance: 0.26, mount: "skadis", throughHoleDiameter: 7.02, base: "on", strapSlots: false },
+    spec: { wire: { length: 2488, diameter: 2.07, type: "usb" }, shape: { kind: "pill", cornerRadius: 28.66 }, windingQuality: 0.52, coreSize: { locked: true, dimension: "outer", value: 92.61 }, height: { locked: true, value: 57.92 }, layers: { locked: true, value: 1 }, objective: "aspectRatio", topCap: "off", joint: "snap", tolerance: 0.26, mount: "skadis", throughHoleDiameter: 7.02, base: "on", strapSlots: false },
   },
   {
     name: "a pill's top-ring funnel at the tip of an end, with T-clips (pill fuzz case 139)",
-    spec: { wire: { length: 7583, diameter: 2.04, type: "usb" }, shape: { kind: "pill", cornerRadius: 33.15 }, windingQuality: 0.73, coreSize: { locked: false }, height: { locked: false }, layers: { locked: false }, objective: "aspectRatio", topCap: "auto", joint: "snap", tolerance: 0.3, mount: "skadis-tclip", plateJoint: "snap", keyholeRotation: 45, throughHoleDiameter: 4.52, base: "on", strapSlots: true },
+    spec: { wire: { length: 7583, diameter: 2.04, type: "usb" }, shape: { kind: "pill", cornerRadius: 33.15 }, windingQuality: 0.73, coreSize: { locked: false }, height: { locked: false }, layers: { locked: false }, objective: "aspectRatio", topCap: "off", joint: "snap", tolerance: 0.3, mount: "skadis-tclip", plateJoint: "snap", keyholeRotation: 45, throughHoleDiameter: 4.52, base: "on", strapSlots: true },
     segments: { round: 96, other: 48 },
   },
   {
@@ -649,7 +649,7 @@ describe("mesh clean-up reproductions (issue #320): a pill's parts are one solid
   });
 });
 
-const PILL_3540 = { wire: { length: 8736, diameter: 4.91, type: "usb" as const }, shape: { kind: "pill" as const, cornerRadius: 38.08 }, windingQuality: 0.66, coreSize: { locked: true as const, dimension: "outer" as const, value: 44.02 }, height: { locked: true as const, value: 25.21 }, layers: { locked: true as const, value: 2 }, objective: "minVolume" as const, topCap: "auto" as const, joint: "press" as const, tolerance: 0.22, mount: "opengrid" as const, plateJoint: "snap" as const, keyholeRotation: 0 as const, throughHoleDiameter: 5.01, base: "on" as const, strapSlots: true };
+const PILL_3540 = { wire: { length: 8736, diameter: 4.91, type: "usb" as const }, shape: { kind: "pill" as const, cornerRadius: 38.08 }, windingQuality: 0.66, coreSize: { locked: true as const, dimension: "outer" as const, value: 44.02 }, height: { locked: true as const, value: 25.21 }, layers: { locked: true as const, value: 2 }, objective: "minVolume" as const, topCap: "off" as const, joint: "press" as const, tolerance: 0.22, mount: "opengrid" as const, plateJoint: "snap" as const, keyholeRotation: 0 as const, throughHoleDiameter: 5.01, base: "on" as const, strapSlots: true };
 
 // Issue #325: the two pill fuzz cases still bad after #320, each pinned to the collar counts that drew it.
 const REPRODUCTIONS_325: Reproduction[] = [

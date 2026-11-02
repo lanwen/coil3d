@@ -73,7 +73,7 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
       height: { locked: true, value: 50 },
       layers: { locked: false },
       objective: "aspectRatio",
-      topCap: "auto",
+      topCap: "off",
       joint: "press",
       tolerance: 0.2,
       print: { bedX: 256, bedY: 256, bedZ: 256 },
@@ -270,7 +270,7 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
   });
 
   it("top cap/joint/tolerance (issue #9) round-trip and omit defaults", () => {
-    expect(decodeDoc(toHash({ ...DEFAULT_SPEC, topCap: "auto", joint: "press", tolerance: 0.2 }))).toEqual({ v: 2 });
+    expect(decodeDoc(toHash({ ...DEFAULT_SPEC, topCap: "off", joint: "press", tolerance: 0.2 }))).toEqual({ v: 2 });
 
     const spec: CoilSpec = { ...DEFAULT_SPEC, topCap: "on", joint: "bayonet", tolerance: 0.35 };
     const hash = toHash(spec);
@@ -281,9 +281,9 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
     expect(parseHash(toHash(off))).toEqual({ ...DESIGN, spec: off });
   });
 
-  it("the bare core (issue #254) is the default: base off and cap auto are left out, and a link that sets either keeps it", () => {
+  it("the bare core (issue #254) is the default: base off and cap off are left out, and a link that sets either keeps it", () => {
     expect(DEFAULT_SPEC.base).toBe("off");
-    expect(DEFAULT_SPEC.topCap).toBe("auto");
+    expect(DEFAULT_SPEC.topCap).toBe("off");
     expect(decodeDoc(toHash(DEFAULT_SPEC))).toEqual({ v: 2 });
     expect(parseHash("").spec.base).toBe("off");
 
@@ -300,8 +300,13 @@ describe("parseHash / toHash (issue #56: versioned base64url JSON hash)", () => 
   it("base off with a mount round-trips: the spec keeps what the user chose", () => {
     const spec: CoilSpec = { ...DEFAULT_SPEC, mount: "keyhole", topCap: "off" };
     const hash = toHash(spec);
-    expect(decodeDoc(hash)).toEqual({ v: 2, mount: "keyhole", cap: "off" });
+    expect(decodeDoc(hash)).toEqual({ v: 2, mount: "keyhole" });
     expect(parseHash(hash)).toEqual({ ...DESIGN, spec });
+  });
+
+  it("a link that still carries cap off loads with the cap off", () => {
+    const hash = `#s=${Buffer.from(JSON.stringify({ v: 2, cap: "off" })).toString("base64url")}`;
+    expect(parseHash(hash)).toEqual({ ...DESIGN, spec: { ...DEFAULT_SPEC, topCap: "off" } });
   });
 
   it("falls back to defaults with a notice on an unknown base value", () => {

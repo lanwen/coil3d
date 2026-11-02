@@ -598,7 +598,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
       : spec.shape.kind === "round" || spec.shape.kind === "pill"
         ? `this cable's ${mbr.toFixed(1)} mm bend radius needs at least that much`
         : `this cable's bend limit needs at least that much to keep the ${shapePlugin(spec.shape.kind).label.toLowerCase()} core's straight sides meaningful, or the shape would be indistinguishable from round`;
-    note(`Core size raised from ${lockedOuterSize.toFixed(1)} mm to ${minOuterSizeForShapeVal.toFixed(1)} mm: ${why}.`);
+    note(`Core size raised from ${lockedOuterSize.toFixed(1)} mm to ${minOuterSizeForShapeVal.toFixed(1)} mm: ${why}.`, "coreSize");
     lockedOuterSize = minOuterSizeForShapeVal;
   }
   let lockedHeight = spec.height.locked ? spec.height.value : undefined;
@@ -811,7 +811,7 @@ export function solve(rawSpec: CoilSpec): { solution: Solution; notices: Notice[
   }
   const sizeGrown = sizeFree && fit.sizeFor !== undefined && fit.size > minOuterSizeForShapeVal + FLOOR_CEILING_TOLERANCE && resolved.outerSize <= sizeLo + AT_FLOOR_TOLERANCE;
   if (sizeGrown && !overshoots) {
-    note(`Core size raised to ${mm(sizeLo)}: the bore needs room for ${fit.sizeFor}.`);
+    note(`Core size raised to ${mm(sizeLo)}: the bore needs room for ${fit.sizeFor}.`, "coreSize");
   }
   const heightGrown = heightFree && fit.heightFor !== undefined && heightLo > baseHeightLo + FLOOR_CEILING_TOLERANCE && resolved.height <= heightLo + AT_FLOOR_TOLERANCE;
   if (heightGrown) {

@@ -416,7 +416,7 @@ describe("strap slots in a mount plate whose edge is close outside them", () => 
     coreSize: { locked: true, dimension: "outer", value: 44.02 },
     height: { locked: true, value: 25.21 },
     layers: { locked: true, value: 2 },
-    topCap: "auto",
+    topCap: "off",
     tolerance: 0.22,
     mount: "opengrid",
     plateJoint: "snap",

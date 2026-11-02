@@ -1,6 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
 import { cancelCustomize, openCustomize, saveCustomize, switchFace } from "./customize";
-import { hoverHint } from "./hint";
 import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 import { expectSettled } from "./settled";
 
@@ -172,13 +171,11 @@ test.describe("the Cap & base row and its summary", () => {
     });
   }
 
-  test("with neither a cap nor a base the button is disabled and its hint says why", async ({ page }) => {
+  test("with neither a cap nor a base the button is disabled and the summary says why", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByTestId("download-stl")).toBeEnabled();
     await expect(page.getByTestId("customize-open")).toBeDisabled();
-    const field = page.locator(".field").filter({ has: page.getByTestId("customize-open") });
-    await hoverHint(page, field.getByTestId("hint-btn"));
-    await expect(field.getByTestId("hint-bubble")).toContainText(/turn on the top cap or the base/i);
+    await expect(page.getByTestId("customize-summary")).toHaveText("Turn on the top cap or the base to add a label or strap slots.");
   });
 
   test("the button is enabled with only a base, or only a cap", async ({ page }) => {
