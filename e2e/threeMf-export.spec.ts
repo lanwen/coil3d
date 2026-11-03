@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { openPrintBed } from "./advanced";
 import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 
 // 3MF export, plate layout and bed warnings (issue #10).
@@ -29,6 +30,7 @@ test("Download 3MF produces a real zip package and the part count is shown", asy
 
 test("the bed-size fields exist and shrinking the bed produces a fit warning", async ({ page }) => {
   await page.goto(`/${encodeHashDoc({ L: 2000, d: 3.8, size: 30 })}`);
+  await openPrintBed(page);
   await expect(page.getByTestId("input-bedX")).toBeVisible();
   await expect(page.getByTestId("input-bedY")).toBeVisible();
   await expect(page.getByTestId("input-bedZ")).toBeVisible();

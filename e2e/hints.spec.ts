@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openAdvanced } from "./advanced";
+import { openAdvanced, openPrintBed } from "./advanced";
 import { openCustomize } from "./customize";
 import { hoverHint } from "./hint";
 import { encodeHashDoc } from "./hashDoc";
@@ -94,6 +94,7 @@ test("advanced settings and the top-cap/joint/label/mount/print-bed controls all
   await page.goto(`/${encodeHashDoc({ L: 5000, d: 3.8, lock: ["outer", "h"], size: 60, h: 60, base: "on", cap: "on" })}`);
   await expect(page.getByTestId("verdict")).toBeVisible();
   await openAdvanced(page);
+  await openPrintBed(page);
   for (const heading of ["Winding quality"]) {
     const field = page.locator(".field").filter({ hasText: heading });
     await expect(field.getByTestId("hint-btn")).toBeVisible();

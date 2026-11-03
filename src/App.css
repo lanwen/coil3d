@@ -1354,6 +1354,19 @@ a.build-label:focus-visible {
   outline-offset: 2px;
 }
 
+.advanced-summary-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: auto;
+  margin-right: 14px;
+  font-size: 0.95rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
 .advanced-body {
   display: flex;
   flex-direction: column;

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openAdvanced } from "./advanced";
 import { cancelCustomize, openCustomize } from "./customize";
 import { decodeHashDoc, encodeHashDoc, withHashDoc } from "./hashDoc";
 import { expectSettled } from "./settled";
@@ -92,6 +93,7 @@ test.describe("top cap controls (issue #9)", () => {
     await page.getByTestId("select-joint").selectOption("bayonet");
     await expect(async () => expect(decodeHashDoc(page.url()).joint).toBe("bayonet")).toPass();
 
+    await openAdvanced(page);
     const tol = page.getByTestId("input-tolerance");
     await tol.fill("0.35");
     await tol.blur();
@@ -99,6 +101,7 @@ test.describe("top cap controls (issue #9)", () => {
 
     await page.reload();
     await expect(page.getByTestId("select-joint")).toHaveValue("bayonet");
+    await openAdvanced(page);
     await expect(page.getByTestId("input-tolerance")).toHaveValue("0.35");
   });
 });
@@ -118,6 +121,7 @@ test.describe("cap-only controls hide when the cap is off (issue #131)", () => {
     await page.getByTestId("topCap").check();
     await expect(page.getByTestId("caps")).toContainText("on");
     await expect(page.getByTestId("select-joint")).toBeVisible();
+    await openAdvanced(page);
     await expect(page.getByTestId("input-tolerance")).toBeVisible();
     expect(await labelSwitchOffered(page)).toBe(true);
 
@@ -139,6 +143,7 @@ test.describe("cap-only controls hide when the cap is off (issue #131)", () => {
   test("hiding the controls does not reset their values -- they come back exactly as left once the cap is back on", async ({ page }) => {
     await gotoDesign(page, TWO_LAYER);
     await page.getByTestId("select-joint").selectOption("bayonet");
+    await openAdvanced(page);
     await page.getByTestId("input-tolerance").fill("0.35");
     await page.getByTestId("input-tolerance").blur();
     await expect(async () => expect(decodeHashDoc(page.url()).tol).toBe(0.35)).toPass();

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
+import { openPrintBed } from "./advanced";
 import { decodeHashDoc, encodeHashDoc } from "./hashDoc";
 
 // Issue #249: the 3D view is the only part of the app that needs WebGL (the
@@ -25,6 +26,7 @@ test.describe("without WebGL", () => {
     await expect(page.getByTestId("viewer-unavailable")).toHaveText(NOTE);
     await expect(page.getByTestId("coil-viewer")).toHaveCount(0);
 
+    await openPrintBed(page);
     await page.getByTestId("input-bedX").fill("20");
     await page.getByTestId("input-bedX").blur();
     await expect(async () => expect(decodeHashDoc(page.url()).bx).toBe(20)).toPass();
